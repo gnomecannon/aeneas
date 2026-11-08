@@ -209,9 +209,9 @@ export function createApp(hub: Hub): App {
     const ready = fs.existsSync(path.join(installDir, "manifest.plist")) && fs.existsSync(path.join(installDir, "EverythingApp.ipa"));
     const manifest = new URL("/install/manifest.plist", new URL(c.req.url).origin.replace(/^http:/, "https:")).toString();
     const esc = (s: string) => s.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
-    return c.html(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Install EverythingApp</title>
+    return c.html(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Install Aeneas</title>
 <style>body{font:17px -apple-system,system-ui,sans-serif;margin:0;padding:24px;background:#111;color:#eee}a.b{display:block;text-align:center;background:#2f5fbf;color:#fff;padding:16px;border-radius:12px;text-decoration:none;font-weight:600;margin:24px 0}p{color:#aaa;line-height:1.4}</style></head><body>
-<h1>EverythingApp</h1>
+<h1>Aeneas</h1>
 ${ready ? `<p>Build ${esc(info.build ?? "?")}${info.built_at ? ` from ${esc(info.built_at)}` : ""}${info.commit ? ` (commit ${esc(info.commit)})` : ""}.</p>
 <a class="b" href="itms-services://?action=download-manifest&amp;url=${encodeURIComponent(manifest)}">Install on this iPhone</a>
 <p>Tap Install in the box that appears, then go to the Home Screen and wait for the icon to finish. The Watch app updates with it. Keep Tailscale on until it is done.</p>` : "<p>No build has been published yet.</p>"}
@@ -237,12 +237,12 @@ ${ready ? `<p>Build ${esc(info.build ?? "?")}${info.built_at ? ` from ${esc(info
     const p = hub.profile.get();
     const esc = (t: string) => t.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
     const owner = esc(hub.profile.named() ? p.name : "its owner");
-    return c.html(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EverythingApp privacy</title>
+    return c.html(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aeneas privacy</title>
 <style>body{font:17px -apple-system,system-ui,sans-serif;margin:0 auto;padding:24px;max-width:680px;background:#111;color:#eee;line-height:1.5}</style></head><body>
-<h1>EverythingApp privacy</h1>
-<p>This EverythingApp hub is a personal app run by ${owner} for their own accounts. It runs on their own computer, reachable only on their private network.</p>
+<h1>Aeneas privacy</h1>
+<p>This Aeneas hub is a personal app run by ${owner} for their own accounts. It runs on their own computer, reachable only on their private network.</p>
 <h2>Gmail</h2>
-<p>When a mailbox is linked, EverythingApp asks Google for read-only access (gmail.readonly). It never sends, changes, deletes or labels mail.</p>
+<p>When a mailbox is linked, Aeneas asks Google for read-only access (gmail.readonly). It never sends, changes, deletes or labels mail.</p>
 <p>It searches for receipts, renewal notices and vet mail, reads each one with a language model running on the same computer, and keeps only what it finds: a renewal date, a charge, a vet visit. The mail itself is not stored, and nothing from it is sent to any other company or service.</p>
 <p>Unlinking a mailbox in Settings, Connections revokes the access with Google and deletes the app's list of that mailbox's messages; things already filed from it (a renewal, a vet visit) stay where they were filed and can be deleted there. Access can also be removed at any time at myaccount.google.com/permissions.</p>
 ${p.contact ? `<h2>Contact</h2>\n<p>${esc(p.contact)}</p>` : ""}

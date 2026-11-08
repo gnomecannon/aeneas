@@ -271,7 +271,7 @@ pub fn run() {
             let mut tray = TrayIconBuilder::with_id("main")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .tooltip("EverythingApp")
+                .tooltip("Aeneas")
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => show_main(app),
                     "capture" => open_capture(app),
@@ -335,5 +335,5 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("error while running EverythingApp");
+        .expect("error while running Aeneas");
 }

@@ -180,7 +180,7 @@ struct CaptureControl: ControlWidget {
             }
         }
         .displayName("Capture")
-        .description("Open EverythingApp ready to capture.")
+        .description("Open Aeneas ready to capture.")
     }
 }
 

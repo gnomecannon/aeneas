@@ -1,8 +1,11 @@
-# EverythingApp
+# Aeneas
 
 A private personal system you run yourself: capture, tasks and a planner, notes with automatic links and tags,
 reminders, search, quick logs, and an assistant with a memory, on iPhone, Apple Watch, iPad, Mac, Windows and the
 web. Everything lives on one hub on a computer you own; your devices talk only to it.
+
+On the App Store it is Aeneas: Mind Workbench. Folders, services and settings keep the working name `everythingapp`,
+which existing installs depend on.
 
 ## Privacy
 
@@ -33,7 +36,7 @@ About 15 minutes in all, plus the model download (about 1.5 GB on a computer wit
    service, a local model server (Ollama), a local search server when Python is there, and HTTPS. A few minutes.
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/gnomecannon/everythingapp/main/deploy/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/gnomecannon/aeneas/main/deploy/install.sh | bash
    ```
 
 2. Open the link it prints, in a browser on that computer or on another one on the same network. The first time,
@@ -41,7 +44,7 @@ About 15 minutes in all, plus the model download (about 1.5 GB on a computer wit
    Details), then continue. The Welcome page asks your name and which modules you want, downloads the model that fits
    the machine in one click, shows the key that opens your backups (save it in your password manager), and makes a
    pairing code for your other devices. About 5 minutes plus the download.
-3. Install EverythingApp on your iPhone, iPad or Mac, or open the web app in a browser. (To look around before you
+3. Install Aeneas on your iPhone, iPad or Mac, or open the web app in a browser. (To look around before you
    have a hub, the Apple apps offer "Try it with sample data": a made-up month, kept on the device.)
 4. On the Welcome page, press Make a pairing code and scan the QR code with the phone's camera (on a Mac, open the
    link). Each device gets its own key, and scanning lets it check the hub's certificate.
@@ -84,6 +87,6 @@ the hub's own machine unless `EA_MAIN_KEY_FROM` names another caller) or a pairi
 
 ## License
 
-EverythingApp is free software under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`): see [LICENSE](LICENSE). Anyone may use, change and share it; whoever runs a changed copy as a service for other people must offer those people the changed source. Every third-party package it uses is under an open-source license that allows this (`npm run license-check`).
+Aeneas is free software under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`): see [LICENSE](LICENSE). Anyone may use, change and share it; whoever runs a changed copy as a service for other people must offer those people the changed source. Every third-party package it uses is under an open-source license that allows this (`npm run license-check`).
 
 The Apple apps are also sold on the App Store; the hub and the Windows app are free here. Contributions are welcome under the terms in [CONTRIBUTING.md](CONTRIBUTING.md), and the name and icon are covered by [TRADEMARKS.md](TRADEMARKS.md).

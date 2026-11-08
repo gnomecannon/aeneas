@@ -2,7 +2,7 @@
 name = "everythingapp"
 version = "0.1.0"
 license = "AGPL-3.0-only"
-description = "EverythingApp desktop wrapper"
+description = "Aeneas desktop wrapper"
 authors = ["gnomecannon"]
 edition = "2021"
 rust-version = "1.77"

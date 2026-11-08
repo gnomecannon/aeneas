@@ -1,6 +1,6 @@
 import Foundation
 
-/// One event made in EverythingApp as Apple Calendar holds it. Times are ISO strings rounded to the minute.
+/// One event made in Aeneas as Apple Calendar holds it. Times are ISO strings rounded to the minute.
 public struct AppleEvent: Equatable, Sendable {
     /// The calendar server's id, the same on every device.
     public var externalId: String
@@ -49,7 +49,7 @@ public struct EventMirrorPlan: Equatable, Sendable {
     public var state: [String: SyncedEvent] = [:]
 }
 
-/// Events made in EverythingApp (by hand, by the assistant, on any device) are copied into Apple Calendar, and edits
+/// Events made in Aeneas (by hand, by the assistant, on any device) are copied into Apple Calendar, and edits
 /// or deletions made there come back. Personal events go to the calendar the owner named for them, work events to the work
 /// calendar. Work events imported from Apple Calendar are not copied back. Single events made in the personal calendar
 /// come into the app the same way (`adopt`); its repeating events come in as imported occurrences.

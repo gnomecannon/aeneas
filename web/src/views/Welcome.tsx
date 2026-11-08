@@ -295,7 +295,7 @@ function PasswordStep({ n, view, onDone }: { n: number; view: SetupView | null; 
 function DevicesStep({ n }: { n: number }) {
   return (
     <Step n={n} title="Your other devices" done={false}>
-      <div className="muted small">Install EverythingApp on your iPhone, iPad or Mac, then make a code here. Scan the QR code with the iPhone or iPad camera and it connects; on a Mac, open the link; on another computer, open the web link. Each device gets its own key, and the code works once, for 10 minutes.</div>
+      <div className="muted small">Install Aeneas on your iPhone, iPad or Mac, then make a code here. Scan the QR code with the iPhone or iPad camera and it connects; on a Mac, open the link; on another computer, open the web link. Each device gets its own key, and the code works once, for 10 minutes.</div>
       <PairDevice />
     </Step>
   );

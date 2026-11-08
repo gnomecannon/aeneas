@@ -127,7 +127,7 @@ export async function googleReturn(hub: Hub, query: Record<string, string>, read
   try {
     const t = await tokenCall(hub, { grant_type: "authorization_code", client_id: app.client_id, client_secret: app.client_secret, code: query.code, redirect_uri: p.redirect });
     if (!t.scope.split(" ").includes(GMAIL_SCOPE)) return fail("Google did not grant reading mail. Sign in again and leave “View your email messages and settings” ticked.");
-    if (!t.refresh) return fail("Google sent no lasting sign-in. Remove EverythingApp at myaccount.google.com/permissions and sign in again.");
+    if (!t.refresh) return fail("Google sent no lasting sign-in. Remove Aeneas at myaccount.google.com/permissions and sign in again.");
     const r = await fetchWithTimeout(hub.fetch, `${API}/profile`, "Gmail", { headers: { authorization: `Bearer ${t.access}` } });
     const profile = (await r.json().catch(() => ({}))) as { emailAddress?: string };
     if (!r.ok || !profile.emailAddress) return fail(`Gmail did not say which mailbox this is (${r.status}).`);

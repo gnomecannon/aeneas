@@ -1,4 +1,4 @@
-# EverythingApp foundation contract
+# Aeneas foundation contract
 
 Every client and the hub implement exactly this. Change this file first, then code. Types in `src/types.ts` are the machine-readable form of this document.
 

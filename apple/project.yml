@@ -99,16 +99,16 @@ targets:
           UIApplicationSupportsMultipleScenes: true
         UIBackgroundModes: [fetch]
         NSSpeechRecognitionUsageDescription: Dictation turns your speech into text in the capture box and the assistant, only from when you tap the mic until you tap it again. This device does it itself when it can; when it cannot, Apple's speech service does, and the app tells you before the first time. Nothing reaches your hub until you tap Save or Send.
-        NSPhotoLibraryAddUsageDescription: When you turn on Save created images to Photos, images you create in EverythingApp are added to your camera roll.
+        NSPhotoLibraryAddUsageDescription: When you turn on Save created images to Photos, images you create in Aeneas are added to your camera roll.
         NSPhotoLibraryUsageDescription: When you turn on full photo library access, the Image Gallery shows your photos so you can use one as a reference for a new image. The assistant can also look at your newest photos when you ask it to. A photo leaves the phone only when you use it, add it or ask about it.
         NSLocationWhenInUseUsageDescription: With Calculators on, the bill splitter can fill in your state's meals tax. Only an approximate position is used, and it goes to your own hub and nowhere else.
         NSLocationUsageDescription: With Calculators on, the bill splitter can fill in your state's meals tax. Only an approximate position is used, and it goes to your own hub and nowhere else.
         NSContactsUsageDescription: With Sync Apple Contacts on, People and Apple Contacts are kept the same both ways, so the assistant can look people up and save details you give it, such as an address.
         NSMicrophoneUsageDescription: The microphone is used while you dictate or record a hum, from pressing the button until you stop it.
-        NSHealthShareUsageDescription: Reads weight, blood pressure, sleep, steps, workouts, caffeine and mood so they are logged in EverythingApp without typing them twice.
-        NSHealthUpdateUsageDescription: Writes what you log in EverythingApp (weight, blood pressure, caffeine, mood and timed activities) to Health, so it is in both places.
-        NSCalendarsFullAccessUsageDescription: EverythingApp reads the titles and times of the calendars you choose, so your meetings show in your plan, and writes the events and planned blocks you make in the app to your calendar.
-        NSRemindersFullAccessUsageDescription: EverythingApp keeps your tasks and Apple Reminders the same, both ways.
+        NSHealthShareUsageDescription: Reads weight, blood pressure, sleep, steps, workouts, caffeine and mood so they are logged in Aeneas without typing them twice.
+        NSHealthUpdateUsageDescription: Writes what you log in Aeneas (weight, blood pressure, caffeine, mood and timed activities) to Health, so it is in both places.
+        NSCalendarsFullAccessUsageDescription: Aeneas reads the titles and times of the calendars you choose, so your meetings show in your plan, and writes the events and planned blocks you make in the app to your calendar.
+        NSRemindersFullAccessUsageDescription: Aeneas keeps your tasks and Apple Reminders the same, both ways.
         BGTaskSchedulerPermittedIdentifiers: [$(PRODUCT_BUNDLE_IDENTIFIER).calendar]
         # No arbitrary loads. Plain http only where the hub can be: a local hub (IP addresses, unqualified names,
         # .local) and Tailscale names (ts.net), whose traffic WireGuard encrypts. A pinned hub with its own

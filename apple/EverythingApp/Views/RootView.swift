@@ -292,7 +292,7 @@ struct SplitRoot: View {
                 }
             }
             .themedScreen()
-            .navigationTitle("EverythingApp")
+            .navigationTitle("Aeneas")
             .navigationSplitViewColumnWidth(min: 200, ideal: 230)
             .onChange(of: here) { _, _ in shut = nil }
             .safeAreaInset(edge: .bottom) {

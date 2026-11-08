@@ -50,7 +50,7 @@ test("tools: the assistant creates a task, reads Today, and answers; the stream 
     assert.ok(!availableTools(t.hub.cfg).some((x) => x.name === "web_search"));
     // The clock rides on the newest user turn; the system prompt has none, so it is reused from cache turn to turn.
     const newestUser = [...b.seen[0]].reverse().find((m) => m.role === "user")!;
-    assert.match(newestUser.content, /^\[Context from EverythingApp, not typed by the owner\]\nToday is \w+day \d{4}-\d\d-\d\d\. Current local time: \d{4}-\d\d-\d\dT\d\d:\d\d[+-]\d\d:\d\d/);
+    assert.match(newestUser.content, /^\[Context from Aeneas, not typed by the owner\]\nToday is \w+day \d{4}-\d\d-\d\d\. Current local time: \d{4}-\d\d-\d\dT\d\d:\d\d[+-]\d\d:\d\d/);
     assert.ok(newestUser.content.endsWith("add a task to replace the UPS battery"));
     assert.ok(!/Current local time/.test(b.seen[0][0].content));
     // Times in results are local with an offset, never UTC "Z", and Today carries its weekday.

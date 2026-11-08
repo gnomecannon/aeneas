@@ -7,7 +7,7 @@ import EACore
 
 struct CaptureIntent: AppIntent {
     static let title: LocalizedStringResource = "Capture"
-    static let description = IntentDescription("Capture text into EverythingApp")
+    static let description = IntentDescription("Capture text into Aeneas")
     static let openAppWhenRun = false
 
     @Parameter(title: "Text", requestValueDialog: "What do you want to capture?")
@@ -27,7 +27,7 @@ struct CaptureIntent: AppIntent {
     }
 }
 
-/// "Ask EverythingApp": Siri takes the question by voice and speaks the answer. On the Watch it joins the day's
+/// "Ask Aeneas": Siri takes the question by voice and speaks the answer. On the Watch it joins the day's
 /// conversation on the voice page. An answer slower than Siri waits for comes as a notification instead.
 struct AskIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask"
@@ -84,7 +84,7 @@ enum SiriAsk {
     static let wait: TimeInterval = 10
 
     static func answer(_ question: String, engine: SyncEngine) async -> String {
-        guard let c = engine.readyClient() else { return "EverythingApp is not connected to the hub." }
+        guard let c = engine.readyClient() else { return "Aeneas is not connected to the hub." }
         let d = UserDefaults.standard
         let today = ISO.localDay()
         if d.string(forKey: "siri.askDay") != today || (d.string(forKey: "siri.askSession") ?? "").isEmpty {
@@ -441,7 +441,7 @@ enum ScreenOption: String, AppEnum {
 
 struct OpenScreenIntent: AppIntent {
     static let title: LocalizedStringResource = "Open Screen"
-    static let description = IntentDescription("Open EverythingApp on a screen")
+    static let description = IntentDescription("Open Aeneas on a screen")
     static let openAppWhenRun = true
 
     @Parameter(title: "Screen")

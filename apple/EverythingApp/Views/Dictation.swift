@@ -40,8 +40,8 @@ final class DictationController: ObservableObject {
         let micOK = mic == .authorized, micRefused = mic == .denied || mic == .restricted
         #endif
         authorized = speech == .authorized && micOK
-        if speech == .denied || speech == .restricted { error = "Speech recognition is off for EverythingApp. Turn it on in the system's Privacy settings." }
-        else if micRefused { error = "The microphone is off for EverythingApp. Turn it on in the system's Privacy settings." }
+        if speech == .denied || speech == .restricted { error = "Speech recognition is off for Aeneas. Turn it on in the system's Privacy settings." }
+        else if micRefused { error = "The microphone is off for Aeneas. Turn it on in the system's Privacy settings." }
         else if authorized, error != nil, !listening { error = nil }
     }
 

@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import EACore
 
-/// The share sheet entry: text, a link or an image from any app goes to EverythingApp's Capture, which files it as a
+/// The share sheet entry: text, a link or an image from any app goes to Aeneas's Capture, which files it as a
 /// task, note, reminder or log by itself. Without a connection it waits in the app group and the app sends it later.
 final class ShareViewController: UIViewController {
     override func viewDidLoad() {
@@ -94,7 +94,7 @@ struct ShareView: View {
                 }
                 if let s = model.status { Text(s).foregroundStyle(.secondary) }
             }
-            .navigationTitle("EverythingApp")
+            .navigationTitle("Aeneas")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: done) }

@@ -47,7 +47,7 @@ export function loadMemory(store: Store, opts: MemoryOpts, sessionId?: string, m
  */
 export function buildSystemPrompt(mem: Memory, taskType: string): string {
   const parts: string[] = [];
-  parts.push("You are the assistant inside EverythingApp, a single-user personal system. Answer directly, concretely and briefly. Stop when the answer is done: no vague closing offers (\"Say the word if...\", \"If you'd like, I can...\", \"Tell me if you meant...\"). At most one closing question, and only for a concrete next step you would take (\"Log Allegra too?\"); never ask for details you do not need (\"Got the brand too?\") or whether to change what you just gave. Do not remark on the hour or tell {{owner}} to sleep or rest unless they ask.");
+  parts.push("You are the assistant inside Aeneas, a single-user personal system. Answer directly, concretely and briefly. Stop when the answer is done: no vague closing offers (\"Say the word if...\", \"If you'd like, I can...\", \"Tell me if you meant...\"). At most one closing question, and only for a concrete next step you would take (\"Log Allegra too?\"); never ask for details you do not need (\"Got the brand too?\") or whether to change what you just gave. Do not remark on the hour or tell {{owner}} to sleep or rest unless they ask.");
   const promptRules = mem.rules.filter((r) => r.fields.enforce === "prompt" || r.fields.enforce === "both");
   if (promptRules.length) {
     parts.push("Standing rules (always follow):\n" + promptRules.map((r) => `- ${r.fields.text}`).join("\n"));
@@ -157,7 +157,7 @@ export function turnContext(mem: Memory, taskType: string, now: Date, items: Tou
     parts.push("Troubleshooting ledger for this session:\n" + lines.join("\n"));
   }
   if (taskType === "troubleshoot" && mem.hosts.length) parts.push("Memory for the hosts named in this conversation (runbook head and recent changes):\n\n" + renderHostMemory(mem.hosts));
-  return `[Context from EverythingApp, not typed by {{owner}}]\n${parts.join("\n\n")}\n[End of context]`;
+  return `[Context from Aeneas, not typed by {{owner}}]\n${parts.join("\n\n")}\n[End of context]`;
 }
 
 export const CLASSIFY_SYSTEM = [

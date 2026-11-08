@@ -273,7 +273,7 @@ enum Dictation {
             }
             let no = WKAlertAction(title: "Not now", style: .cancel) { cont.resume(returning: false) }
             c.presentAlert(withTitle: "Before you talk",
-                           message: "Talking on the Watch uses Apple's dictation, and Apple may turn your voice into text on its servers. EverythingApp keeps only the text.",
+                           message: "Talking on the Watch uses Apple's dictation, and Apple may turn your voice into text on its servers. Aeneas keeps only the text.",
                            preferredStyle: .alert, actions: [ok, no])
         }
     }
@@ -354,7 +354,7 @@ final class WatchAskModel: ObservableObject {
         return t
     }
 
-    /// For "Ask EverythingApp" from Siri on the wrist: the answer to speak, or, when it takes longer than Siri waits,
+    /// For "Ask Aeneas" from Siri on the wrist: the answer to speak, or, when it takes longer than Siri waits,
     /// a promise of a notification that then carries it.
     func answerForSiri(_ question: String, engine: SyncEngine) async -> String {
         if asking != nil { return "I'm still answering your last question. It's on the Watch's Ask page." }

@@ -37,7 +37,7 @@ struct MenuBarView: View {
             .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
             Divider()
             HStack {
-                Button("Open EverythingApp") { NSApp.activate(ignoringOtherApps: true); NSApp.windows.first { $0.canBecomeMain }?.makeKeyAndOrderFront(nil) }
+                Button("Open Aeneas") { NSApp.activate(ignoringOtherApps: true); NSApp.windows.first { $0.canBecomeMain }?.makeKeyAndOrderFront(nil) }
                 Spacer()
                 if let s = UserDefaults.standard.string(forKey: HotKey.settingKey), s != "off" {
                     Text("\(HotKey.label(s)) to capture").font(.caption2).foregroundStyle(.secondary)

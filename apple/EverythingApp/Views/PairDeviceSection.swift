@@ -52,7 +52,7 @@ struct PairDeviceSection: View {
         } header: {
             Text("Pair another device")
         } footer: {
-            Text("On the new device, scan the QR code with the Camera, or open EverythingApp and type the code with this hub's address. The code works once, for 10 minutes.")
+            Text("On the new device, scan the QR code with the Camera, or open Aeneas and type the code with this hub's address. The code works once, for 10 minutes.")
         }
         .themedRow()
     }

@@ -14,7 +14,7 @@ enum DebugHooks {
         let d = UserDefaults.standard
         if d.bool(forKey: "EASeedWorkCalendar") { await seedWorkCalendar() }
         if let s = d.string(forKey: "EASection"), let section = Section(rawValue: s) { model.section = section }
-        // The link a QR scan or the camera opens, without the system's "Open in EverythingApp?" tap (automated tests).
+        // The link a QR scan or the camera opens, without the system's "Open in Aeneas?" tap (automated tests).
         if let s = d.string(forKey: "EASetupURL"), let url = URL(string: s) { model.handle(url: url) }
     }
 

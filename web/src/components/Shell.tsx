@@ -98,7 +98,7 @@ function Gear({ active }: { active: boolean }) {
 function PopOut({ route }: { route: Route }) {
   const p = route.path;
   if (p.startsWith("/settings") || p === "/library" || p === "/more") return null;
-  const label = NAV.filter((n) => p === n.path || p.startsWith(n.path + "/")).sort((a, b) => b.path.length - a.path.length)[0]?.label ?? "EverythingApp";
+  const label = NAV.filter((n) => p === n.path || p.startsWith(n.path + "/")).sort((a, b) => b.path.length - a.path.length)[0]?.label ?? "Aeneas";
   const q = route.params.toString();
   return (
     <button type="button" className="popout-btn" title={`Open ${label} in its own window`} aria-label={`Open ${label} in its own window`} onClick={() => void openWindow(q ? `${p}?${q}` : p, label)}>
@@ -184,7 +184,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   return (
     <div className="shell">
       <aside className="rail">
-        <div className="brand">EverythingApp</div>
+        <div className="brand">Aeneas</div>
         <form
           className="search"
           role="search"

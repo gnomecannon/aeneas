@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Take EverythingApp off this machine: the services the installer made (hub, Ollama, search, Tor), their programs,
+# Take Aeneas off this machine: the services the installer made (hub, Ollama, search, Tor), their programs,
 # and the app folder. Your data and keys are NOT deleted: the script ends by naming the two folders that hold them,
 # so you can copy them somewhere first and delete them yourself once you are sure.
 #
@@ -17,7 +17,7 @@ get_env() { [ -r "$ENV_FILE" ] && grep -E "^$1=" "$ENV_FILE" | tail -1 | cut -d=
 DATA_DIR="$(get_env EA_DATA_DIR)"; DATA_DIR="${DATA_DIR:-$HOME/.local/share/everythingapp}"
 PORT="$(get_env EA_PORT)"; PORT="${PORT:-8787}"
 
-echo "This stops and removes the EverythingApp hub and the services the installer set up with it, and deletes:"
+echo "This stops and removes the Aeneas hub and the services the installer set up with it, and deletes:"
 echo "  $APP_DIR (the app)"
 for d in "$HOME/.local/ollama" "$HOME/.local/searxng" "$HOME/.local/tor" "$HOME/.local/everythingapp-python"; do [ ! -f "$d/.everythingapp" ] || echo "  $d"; done
 echo "  $HOME/.cache/everythingapp"

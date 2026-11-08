@@ -1,6 +1,6 @@
 # Privacy policy
 
-EverythingApp (the iPhone, iPad, Apple Watch, Mac, Windows and web apps, and the hub) is made by gnomecannon. This
+Aeneas (the iPhone, iPad, Apple Watch, Mac, Windows and web apps, and the hub) is made by gnomecannon. This
 policy covers all of them. Last changed 2026-11-06.
 
 ## The short version
@@ -45,4 +45,4 @@ The apps are not directed at children and collect nothing from anyone.
 ## Changes and contact
 
 Changes to this policy are made in the public source code, where every change is dated. Questions: open an issue at
-https://github.com/gnomecannon/everythingapp/issues.
+https://github.com/gnomecannon/aeneas/issues.

@@ -156,7 +156,7 @@ private struct AdminSplitCalc: View {
         let place = ApproximateLocation.shared
         if place.undecided, ask { _ = await place.requestPermission() }
         guard place.allowed else {
-            if ask { taxNote = "Location is off for EverythingApp. Type the rate instead, and it is kept on this device." }
+            if ask { taxNote = "Location is off for Aeneas. Type the rate instead, and it is kept on this device." }
             return
         }
         guard let here = await place.current() else {

@@ -1,4 +1,6 @@
-# EverythingApp for iPhone, iPad, Mac and Apple Watch
+# Aeneas for iPhone, iPad, Mac and Apple Watch
+
+The app is called Aeneas (on the App Store: Aeneas: Mind Workbench). The project, targets, schemes and folders keep the working name EverythingApp, which existing installs and settings depend on.
 
 One SwiftUI codebase. The contract in `packages/shared/CONTRACT.md` is the source of truth; this client implements it as written.
 
@@ -86,7 +88,7 @@ Archive the `EverythingApp` scheme (Product, Archive) with the Distribution cert
     xcodebuild -project EverythingApp.xcodeproj -scheme EverythingAppWidgets -destination 'platform=iOS Simulator,name=iPhone 17 Pro' CODE_SIGNING_ALLOWED=NO build
     xcodebuild -project EverythingApp.xcodeproj -scheme EverythingAppWatchWidgets -destination 'platform=watchOS Simulator,name=Apple Watch Series 11 (46mm)' CODE_SIGNING_ALLOWED=NO build
 
-The setup URL has a UI test that also answers the "Open in EverythingApp?" prompt iOS shows for scheme URLs opened from outside the app (which is why a bare `xcrun simctl openurl` stops at that prompt):
+The setup URL has a UI test that also answers the "Open in Aeneas?" prompt iOS shows for scheme URLs opened from outside the app (which is why a bare `xcrun simctl openurl` stops at that prompt):
 
     xcodebuild -project EverythingApp.xcodeproj -scheme EverythingApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath ~/Library/Caches/everythingapp-dd-test CODE_SIGNING_ALLOWED=NO -only-testing:EverythingAppUITests test
 

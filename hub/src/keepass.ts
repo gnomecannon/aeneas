@@ -96,7 +96,7 @@ export class KeePassVault {
   }
 
   /** A new, empty vault. Refuses to replace a file that is there. */
-  async create(name = "EverythingApp"): Promise<void> {
+  async create(name = "Aeneas"): Promise<void> {
     if (this.exists()) throw new Error("a vault file is already there");
     const db = kdbxweb.Kdbx.create(creds(this.master()), name);
     db.setKdf(kdbxweb.Consts.KdfId.Argon2id);

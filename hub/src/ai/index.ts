@@ -202,7 +202,7 @@ export class Gateway {
         // ("Logged. Soldering marked as ended." with no call, so the activity never ended.)
         if (!checked && CLAIMS_CHANGE.test(r.text) && !actions.some((a) => a.ok && a.writes)) {
           checked = true;
-          messages.push({ role: "assistant", content: r.text }, { role: "user", content: "[Check from EverythingApp, not typed by {{owner}}] Your reply says something was saved or changed, but no tool call in this reply did it. If {{owner}} asked for a change, make the tool call now; otherwise answer again without saying anything changed." });
+          messages.push({ role: "assistant", content: r.text }, { role: "user", content: "[Check from Aeneas, not typed by {{owner}}] Your reply says something was saved or changed, but no tool call in this reply did it. If {{owner}} asked for a change, make the tool call now; otherwise answer again without saying anything changed." });
           continue;
         }
         if (r.text.trim() || !actions.length) return { text: r.text, usage };

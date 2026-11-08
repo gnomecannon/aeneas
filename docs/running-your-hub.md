@@ -26,7 +26,7 @@ Logs hold no personal text and no keys.
 Run the install command again, from your home folder:
 
 ```bash
-cd ~ && curl -fsSL https://raw.githubusercontent.com/gnomecannon/everythingapp/main/deploy/install.sh | bash
+cd ~ && curl -fsSL https://raw.githubusercontent.com/gnomecannon/aeneas/main/deploy/install.sh | bash
 ```
 
 It downloads the newest app, keeps `hub.env` and all your data, updates Ollama, the search server and Tor when the

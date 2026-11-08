@@ -45,7 +45,7 @@ struct PrivacySettingsView: View {
                         }
                     }
             } footer: {
-                Text("On: system search finds the titles of your notes, tasks, projects, lists and other items (never a note's text, never work items). Off removes everything EverythingApp put there.")
+                Text("On: system search finds the titles of your notes, tasks, projects, lists and other items (never a note's text, never work items). Off removes everything Aeneas put there.")
             }
             #if os(iOS)
             SwiftUI.Section {

@@ -143,7 +143,7 @@ export function filmsFromRss(xml: string): FilmInput[] {
 }
 
 async function fetchRss(hub: Hub, username: string): Promise<string> {
-  const r = await fetchWithTimeout(hub.fetch, `https://letterboxd.com/${encodeURIComponent(username)}/rss/`, "Letterboxd", { headers: { "user-agent": "EverythingApp/0.1 (personal diary sync)", accept: "application/rss+xml, application/xml" } });
+  const r = await fetchWithTimeout(hub.fetch, `https://letterboxd.com/${encodeURIComponent(username)}/rss/`, "Letterboxd", { headers: { "user-agent": "Aeneas/0.1 (personal diary sync)", accept: "application/rss+xml, application/xml" } });
   if (r.status === 404) throw new StoreError(422, `Letterboxd has no member called "${username}"`);
   if (!r.ok) throw new StoreError(502, `Letterboxd answered ${r.status}`);
   return r.text();

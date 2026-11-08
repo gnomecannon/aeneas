@@ -188,7 +188,7 @@ struct ImageSettingsView: View {
                                 // Only images made from now on; the gallery keeps the rest.
                                 UserDefaults.standard.set(ISO.now(), forKey: PhotosOptions.saveSinceKey)
                                 note = nil
-                            } else { saveToPhotos = false; note = "Photos access was not allowed. Turn it on in the iPhone's Settings, EverythingApp, Photos." }
+                            } else { saveToPhotos = false; note = "Photos access was not allowed. Turn it on in the iPhone's Settings, Aeneas, Photos." }
                         }
                     }
             } footer: { Text("Images you create also go to the camera roll, from now on. They always stay in the Image Gallery.") }
@@ -197,7 +197,7 @@ struct ImageSettingsView: View {
                     .onChange(of: fullAccess) { _, on in
                         guard on else { return }
                         Task {
-                            if await PhotosOptions.requestFull() { note = nil } else { fullAccess = false; note = "Photo library access was not allowed. Turn it on in the iPhone's Settings, EverythingApp, Photos." }
+                            if await PhotosOptions.requestFull() { note = nil } else { fullAccess = false; note = "Photo library access was not allowed. Turn it on in the iPhone's Settings, Aeneas, Photos." }
                         }
                     }
             } footer: { Text("Shows your photo library in the Image Gallery, so any photo can be a reference for a new image. It also lets the assistant look at your newest photos when you ask about them. A photo leaves the phone only when you use or add it, or ask the assistant about it.") }

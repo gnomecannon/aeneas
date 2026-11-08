@@ -582,7 +582,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "app_status", writes: false,
-    description: "EverythingApp itself: each of {{owner}}'s devices and when it last synced, the Steam, Letterboxd, Confluence and Apple Health connections (last sync, errors, counts), the hub's own nightly backup, and how many captures wait in Unsorted Info. Use for questions like is my phone syncing, when did Steam last update, or is the app healthy. A device syncs whenever the app is open on it, and last_synced is the last time it reached the hub: hours or days ago usually means the app has not been opened there since, not a fault. Letterboxd and Confluence sync by themselves every hour, Steam every 6 hours.",
+    description: "Aeneas itself: each of {{owner}}'s devices and when it last synced, the Steam, Letterboxd, Confluence and Apple Health connections (last sync, errors, counts), the hub's own nightly backup, and how many captures wait in Unsorted Info. Use for questions like is my phone syncing, when did Steam last update, or is the app healthy. A device syncs whenever the app is open on it, and last_synced is the last time it reached the hub: hours or days ago usually means the app has not been opened there since, not a fault. Letterboxd and Confluence sync by themselves every hour, Steam every 6 hours.",
     parameters: { type: "object", properties: {} },
     run: async (api) => {
       const [st, conn, caps] = await Promise.all([call(api, "GET", "/status"), call(api, "GET", "/connections"), call(api, "GET", "/entities?kind=capture&limit=1000")]);
@@ -701,7 +701,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "capture", writes: true,
-    description: "Drop a quick line into EverythingApp and let the hub sort it (what it cannot sort waits in Unsorted Info) (task, reminder, log, note). Start with 'work:' for a work task.",
+    description: "Drop a quick line into Aeneas and let the hub sort it (what it cannot sort waits in Unsorted Info) (task, reminder, log, note). Start with 'work:' for a work task.",
     parameters: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
     run: (api, a) => call(api, "POST", "/capture", { text: str(a.text), source: "api", auto: true }),
   },

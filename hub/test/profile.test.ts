@@ -19,12 +19,12 @@ test("profile: the owner's name goes into system messages and tool descriptions,
       { role: "system", content: "You help {{owner}}. {{owner}}'s dog {{pet}}." },
       { role: "user", content: "my friend Jordan called about Pepper" },
       { role: "tool", content: "{\"error\":\"ask {{owner}} for the amount\"}" },
-      { role: "user", content: "[Context from EverythingApp, not typed by {{owner}}]" },
+      { role: "user", content: "[Context from Aeneas, not typed by {{owner}}]" },
     ], [{ function: { description: "Save a fact about {{owner}}" } }], () => {});
     assert.equal(sent!.messages[0].content, "You help Alex. Alex's dog Biscuit.");
     assert.equal(sent!.messages[1].content, "my friend Jordan called about Pepper", "the owner's own words stay as typed");
     assert.equal(sent!.messages[2].content, "{\"error\":\"ask Alex for the amount\"}", "the hub's words in a tool result name the owner");
-    assert.equal(sent!.messages[3].content, "[Context from EverythingApp, not typed by Alex]");
+    assert.equal(sent!.messages[3].content, "[Context from Aeneas, not typed by Alex]");
     assert.match(JSON.stringify(sent!.tools), /about Alex/);
     assert.equal(personalize("{{owner}} wrote", "Robin"), "Robin wrote");
     assert.equal(personalize("Jordan wrote", "Alex"), "Jordan wrote", "a name in text is not where the owner's name goes");

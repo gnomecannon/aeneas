@@ -3,7 +3,7 @@ import Foundation
 import EventKit
 import os
 
-/// Copies events made in EverythingApp into Apple Calendar and brings back edits and deletions made there. Personal
+/// Copies events made in Aeneas into Apple Calendar and brings back edits and deletions made there. Personal
 /// events go to the calendar memory names under `calendar:personal` (else the default calendar), work events to the one
 /// under `calendar:work` (else they are not copied). The Mac adds new events at once (it runs all day); the iPhone adds an event only
 /// after two minutes untouched, so the Mac's copy, if there is one, is found instead of making a second.

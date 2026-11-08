@@ -301,7 +301,7 @@ function Notifications() {
             )}
             <button
               onClick={() => {
-                void notify("EverythingApp", "Notifications work.", "/settings/notifications").then(() => setMsg("Sent."));
+                void notify("Aeneas", "Notifications work.", "/settings/notifications").then(() => setMsg("Sent."));
               }}
             >
               Send a test

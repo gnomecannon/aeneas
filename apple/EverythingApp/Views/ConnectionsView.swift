@@ -479,7 +479,7 @@ struct AppleRemindersSection: View {
                 case .notDetermined:
                     Button("Allow access to Reminders") { Task { await sync.requestAccess() } }
                 case .denied, .restricted, .writeOnly:
-                    Text("Reminders access is off. Turn on Full Access for EverythingApp in \(systemSettingsName.replacingOccurrences(of: "Open ", with: "")).")
+                    Text("Reminders access is off. Turn on Full Access for Aeneas in \(systemSettingsName.replacingOccurrences(of: "Open ", with: "")).")
                         .font(.caption).foregroundStyle(.secondary)
                     Button(systemSettingsName) { openPrivacySettings("Privacy_Reminders") }
                 case .full:

@@ -24,7 +24,7 @@ export function dictationCompany(ua: string, inWindowsApp = false): string | nul
 /** The one-time notice before the first dictation in this browser, naming who hears the audio. */
 export function dictationNotice(company: string | null): string {
   const who = company ? `${company}'s speech service` : "the speech service your browser uses";
-  return `Talk uses your browser's speech recognition: while the mic is on, what you say goes to ${who} to be turned into text. EverythingApp keeps only the text you send. Use it?`;
+  return `Talk uses your browser's speech recognition: while the mic is on, what you say goes to ${who} to be turned into text. Aeneas keeps only the text you send. Use it?`;
 }
 
 const NOTICE_KEY = "ea.dictation.noticeAccepted";

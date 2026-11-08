@@ -257,7 +257,7 @@ struct PhotosLibraryGrid: View {
         Group {
             if status != .authorized && status != .limited {
                 VStack(spacing: 12) {
-                    Text("EverythingApp does not have access to your photo library.").foregroundStyle(.secondary)
+                    Text("Aeneas does not have access to your photo library.").foregroundStyle(.secondary)
                     Button("Allow access") { Task { _ = await PhotosOptions.requestFull(); status = PHPhotoLibrary.authorizationStatus(for: .readWrite); load() } }
                 }
                 .frame(maxHeight: .infinity)

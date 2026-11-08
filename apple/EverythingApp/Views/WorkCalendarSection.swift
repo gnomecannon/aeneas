@@ -99,7 +99,7 @@ struct AppEventsCalendarSection: View {
         } header: {
             Text("Where app events go")
         } footer: {
-            Text("Events you or the assistant add in EverythingApp are copied into these calendars, and changes made in Apple Calendar come back. Events already in the wrong calendar move.")
+            Text("Events you or the assistant add in Aeneas are copied into these calendars, and changes made in Apple Calendar come back. Events already in the wrong calendar move.")
         }
     }
 
@@ -154,9 +154,9 @@ struct WorkCalendarBanner: View {
                     banner("Work meetings are not syncing", "No calendar is marked as work. Pick it in Settings, under Calendar and work.", button: nil)
                 }
             case .notDetermined:
-                banner("Work meetings are not syncing", "EverythingApp needs to read your calendar titles and times.", button: ("Allow calendar access", { Task { await importer.requestAccess(facts: engine.facts) } }))
+                banner("Work meetings are not syncing", "Aeneas needs to read your calendar titles and times.", button: ("Allow calendar access", { Task { await importer.requestAccess(facts: engine.facts) } }))
             default:
-                banner("Work meetings are not syncing", "Calendar access is off. Turn on Full Access for EverythingApp in \(systemSettingsName.replacingOccurrences(of: "Open ", with: "")).", button: (systemSettingsName, {
+                banner("Work meetings are not syncing", "Calendar access is off. Turn on Full Access for Aeneas in \(systemSettingsName.replacingOccurrences(of: "Open ", with: "")).", button: (systemSettingsName, {
                     openPrivacySettings()
                 }))
             } }

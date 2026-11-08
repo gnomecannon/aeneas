@@ -81,7 +81,7 @@ export function calendarFeed(hub: Hub, now: Date = new Date()): string {
     items.push({ uid: w.id, title: `Renewal due: ${String(w.fields.title)}`, start: String(w.fields.due), allDay: true, note: w.fields.notes as string | undefined, updated: w.updated_at });
   }
 
-  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//EverythingApp//Plan//EN", "CALSCALE:GREGORIAN", "X-WR-CALNAME:EverythingApp", "REFRESH-INTERVAL;VALUE=DURATION:PT15M", "X-PUBLISHED-TTL:PT15M"];
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//EverythingApp//Plan//EN", "CALSCALE:GREGORIAN", "X-WR-CALNAME:Aeneas", "REFRESH-INTERVAL;VALUE=DURATION:PT15M", "X-PUBLISHED-TTL:PT15M"];
   for (const i of items) {
     // An item whose time cannot be read ("2026-11-08 evening") is left out; it made the whole feed answer 500.
     if (Number.isNaN(Date.parse(i.start)) && !MIDNIGHT.test(i.start)) continue;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# EverythingApp hub, one command, no root:
+# Aeneas hub, one command, no root:
 #
-#   curl -fsSL https://raw.githubusercontent.com/gnomecannon/everythingapp/main/deploy/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/gnomecannon/aeneas/main/deploy/install.sh | bash
 #
 # Linux (systemd user service) or macOS (launchd agent). Run it again to update. What it does:
 #   1. Node 20 in ~/.local/node, unless a Node 20 or newer is already on PATH;
@@ -35,7 +35,7 @@
 set -euo pipefail
 
 NODE_VERSION="${NODE_VERSION:-20.20.2}"
-REPO_URL="${EA_REPO_URL:-https://github.com/gnomecannon/everythingapp.git}"
+REPO_URL="${EA_REPO_URL:-https://github.com/gnomecannon/aeneas.git}"
 REF="${EA_REF:-main}"
 PORT="${EA_PORT:-8787}"
 # npm's "a new version of npm is available" notice is not something to act on here; it only makes the output noisy.
@@ -414,7 +414,7 @@ if [ ! -f "$ENV_FILE" ]; then
   fi
   umask 077
   cat > "$ENV_FILE" <<EOF
-# EverythingApp hub settings. The model, owner name and connections are set in the app (Welcome, Settings).
+# Aeneas hub settings. The model, owner name and connections are set in the app (Welcome, Settings).
 EA_PORT=$PORT
 EA_BIND_HOST=$bind
 EA_PUBLIC_URL=$public
@@ -477,7 +477,7 @@ make_tls() {
     [ -z "$lhost" ] || san="$san,DNS:$lhost.local"
     mkdir -p "$TLS_DIR"; chmod 700 "$TLS_DIR"
     cnf="$WORK/tls.cnf"
-    printf '[req]\ndistinguished_name = dn\nprompt = no\n[dn]\nCN = EverythingApp hub%s\n[v3]\nbasicConstraints = critical, CA:FALSE\nkeyUsage = critical, digitalSignature\nextendedKeyUsage = serverAuth\nsubjectAltName = %s\n' "${host:+ $host}" "$san" > "$cnf"
+    printf '[req]\ndistinguished_name = dn\nprompt = no\n[dn]\nCN = Aeneas hub%s\n[v3]\nbasicConstraints = critical, CA:FALSE\nkeyUsage = critical, digitalSignature\nextendedKeyUsage = serverAuth\nsubjectAltName = %s\n' "${host:+ $host}" "$san" > "$cnf"
     if ! (umask 077 && openssl ecparam -name prime256v1 -genkey -noout -out "$key.new" 2>/dev/null) ||
        ! openssl req -new -x509 -sha256 -days 3650 -key "$key.new" -config "$cnf" -extensions v3 -out "$crt.new" 2>/dev/null; then
       rm -f "$key.new" "$crt.new"
@@ -513,7 +513,7 @@ if [ "$OS" = Linux ]; then
   unit_dir="$HOME/.config/systemd/user"; mkdir -p "$unit_dir"
   cat > "$unit_dir/everythingapp-hub.service" <<EOF
 [Unit]
-Description=EverythingApp hub
+Description=Aeneas hub
 After=network-online.target
 
 [Service]
@@ -728,7 +728,7 @@ ollama_step() {
   if [ "$OS" = Darwin ] || { [ -z "$TEST" ] && [ ! -x "$obin" ]; }; then obin="$OLLAMA_DIR/ollama"; fi
   if [ -z "$TEST" ] && [ ! -x "$obin" ]; then say "The Ollama download has no ollama program where expected, so it is not started"; return 0; fi
   # OLLAMA_NO_CLOUD: Ollama's own switch for its cloud features (models run on ollama.com, its web search), off here.
-  svc_write ollama "Ollama for EverythingApp (local models)" "$OLLAMA_DIR" OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 -- "$obin" serve
+  svc_write ollama "Ollama for Aeneas (local models)" "$OLLAMA_DIR" OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 -- "$obin" serve
   [ "$changed" != 1 ] || svc_changed=1
   svc_apply ollama "$svc_changed" || return 0
   if [ -z "$TEST" ] && ! wait_for 30 "$OLLAMA_HERE/api/tags"; then say "Ollama does not answer yet; see: $(svc_logs ollama)"; fi
@@ -757,7 +757,7 @@ tor_signed() { # SUMS SIG: the sums file carries a good signature by the Tor Bro
 tor_torrc() {
   local pt="$TOR_DIR/tor/pluggable_transports"
   {
-    echo "# Tor for EverythingApp. Written by the installer, and written again on each run: changes here are replaced."
+    echo "# Tor for Aeneas. Written by the installer, and written again on each run: changes here are replaced."
     echo "SocksPort 127.0.0.1:$TOR_PORT"
     echo "SocksPolicy accept 127.0.0.1"
     echo "SocksPolicy reject *"
@@ -877,7 +877,7 @@ tor_step() {
   tor_torrc
   if [ ! -f "$torrc" ] || ! cmp -s "$WORK/torrc" "$torrc"; then cat "$WORK/torrc" > "$torrc"; changed=1; fi
   if [ "$OS" = Linux ]; then
-    svc_write tor "Tor for EverythingApp (searches and page reads)" "$TOR_DIR" "LD_LIBRARY_PATH=$TOR_DIR/tor" -- "$tbin" -f "$torrc"
+    svc_write tor "Tor for Aeneas (searches and page reads)" "$TOR_DIR" "LD_LIBRARY_PATH=$TOR_DIR/tor" -- "$tbin" -f "$torrc"
   else
     # The Expert Bundle's macOS tor carries an ad-hoc signature that no longer matches it (tested 16.0: "invalid
     # signature"), and Apple Silicon kills such a program at once (OS_REASON_CODESIGNING), so Tor never ran on a Mac.
@@ -886,7 +886,7 @@ tor_step() {
       if codesign --force --sign - "$tbin" >/dev/null 2>&1; then say "Signed Tor for this Mac (its download's signature did not match it; the download itself matched its checksum)"; changed=1
       else say "macOS will not run Tor as downloaded, and it could not be signed here; web lookups stay off"; fi
     fi
-    svc_write tor "Tor for EverythingApp (searches and page reads)" "$TOR_DIR" -- "$tbin" -f "$torrc"
+    svc_write tor "Tor for Aeneas (searches and page reads)" "$TOR_DIR" -- "$tbin" -f "$torrc"
   fi
   [ "$changed" != 1 ] || svc_changed=1
   svc_apply tor "$svc_changed" || return 0
@@ -922,7 +922,7 @@ searxng_settings() { # writes settings.yml (a new secret the first time); 0 when
   if [ ! -s "$conf/secret_key" ]; then (umask 077 && head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48 > "$conf/secret_key"); fi
   secret="$(cat "$conf/secret_key")"
   {
-    echo "# SearXNG for EverythingApp. Written by the installer, and written again on each run: changes here are replaced."
+    echo "# SearXNG for Aeneas. Written by the installer, and written again on each run: changes here are replaced."
     echo "# Only these engines are asked (the Web lookups module names them): each sees the words searched and the address"
     echo "# the search leaves from (Tor's, when it is set up). SearXNG's own default list asks many more, Google and Bing among them."
     echo "use_default_settings:"
@@ -941,7 +941,7 @@ searxng_settings() { # writes settings.yml (a new secret the first time); 0 when
     echo "    display_type: [\"infobox\", \"list\"]"
     echo "general:"
     echo "  debug: false"
-    echo "  instance_name: \"EverythingApp search\""
+    echo "  instance_name: \"Aeneas search\""
     echo "  enable_metrics: false"
     echo "search:"
     echo "  safe_search: 0"
@@ -1043,9 +1043,9 @@ searxng_step() {
   mkdir -p "$cache"; chmod 700 "$cache"
   # Its cache stays in the owner's own folder, not the shared temporary one.
   if [ -n "$TOR_SOCKS" ] && [ "$TOR_SOCKS" = "127.0.0.1:$TOR_PORT" ]; then
-    SVC_AFTER=everythingapp-tor.service svc_write searxng "SearXNG for EverythingApp (private web search)" "$src" "SEARXNG_SETTINGS_PATH=$CONF_DIR/searxng/settings.yml" "PYTHONPATH=$src" "TMPDIR=$cache" -- "$venv/bin/python" -m granian --interface wsgi --host 127.0.0.1 --port 8888 searx.webapp:app
+    SVC_AFTER=everythingapp-tor.service svc_write searxng "SearXNG for Aeneas (private web search)" "$src" "SEARXNG_SETTINGS_PATH=$CONF_DIR/searxng/settings.yml" "PYTHONPATH=$src" "TMPDIR=$cache" -- "$venv/bin/python" -m granian --interface wsgi --host 127.0.0.1 --port 8888 searx.webapp:app
   else
-    svc_write searxng "SearXNG for EverythingApp (private web search)" "$src" "SEARXNG_SETTINGS_PATH=$CONF_DIR/searxng/settings.yml" "PYTHONPATH=$src" "TMPDIR=$cache" -- "$venv/bin/python" -m granian --interface wsgi --host 127.0.0.1 --port 8888 searx.webapp:app
+    svc_write searxng "SearXNG for Aeneas (private web search)" "$src" "SEARXNG_SETTINGS_PATH=$CONF_DIR/searxng/settings.yml" "PYTHONPATH=$src" "TMPDIR=$cache" -- "$venv/bin/python" -m granian --interface wsgi --host 127.0.0.1 --port 8888 searx.webapp:app
   fi
   [ "$changed" != 1 ] || svc_changed=1
   svc_apply searxng "$svc_changed" || return 0

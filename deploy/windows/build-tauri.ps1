@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-  Build the EverythingApp Windows app (Tauri) on a Windows PC.
+  Build the Aeneas Windows app (Tauri) on a Windows PC.
 .DESCRIPTION
   Run in an elevated PowerShell (Run as administrator) on that PC as your normal Windows user:
     Set-ExecutionPolicy -Scope Process Bypass -Force
     A:\repos\everythingapp\deploy\windows\build-tauri.ps1
   Or before the first clone, from wherever you downloaded this file:
-    .\build-tauri.ps1 -RepoUrl https://github.com/gnomecannon/everythingapp.git
+    .\build-tauri.ps1 -RepoUrl https://github.com/gnomecannon/aeneas.git
   Checks and installs with winget when missing: Rust (Rustlang.Rustup), Node 20 or newer (OpenJS.NodeJS.LTS),
   Visual Studio Build Tools with the C++ workload, WebView2 runtime. Then clones or pulls the repo,
   runs npm ci and npm --workspace web run tauri build, and prints the installer path.
@@ -22,7 +22,7 @@
 [CmdletBinding()]
 param(
   [string]$RepoDir = 'A:\repos\everythingapp',
-  [string]$RepoUrl = 'https://github.com/gnomecannon/everythingapp.git',
+  [string]$RepoUrl = 'https://github.com/gnomecannon/aeneas.git',
   [string]$Branch = 'main',
   [switch]$SkipPull
 )
