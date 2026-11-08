@@ -22,6 +22,8 @@ public final class SyncEngine: ObservableObject {
     @Published public private(set) var rejectedEdits: [RejectedEdit] = SyncEngine.loadRejected()
     /// The hub said this device's key was removed. Its key is gone; it shows a plain screen until paired again.
     @Published public private(set) var deviceRemoved = false
+    /// Whose hub this device is paired with (name and color), kept from the last time the hub said.
+    @Published public private(set) var hubIdentity: HubIdentity? = SyncEngine.loadHubIdentity()
     /// Called once when the hub says this device was removed.
     public var onDeviceRemoved: (() -> Void)?
     private var retryTask: Task<Void, Never>?
@@ -101,6 +103,7 @@ public final class SyncEngine: ObservableObject {
         if client != nil {
             startLive()
             await sync()
+            Task { await self.refreshHubIdentity() }
         }
         // An install paired before devices had keys trades the shared key for its own, without holding up the start.
         Task { await self.exchangeLegacyTokenIfNeeded() }
@@ -114,6 +117,24 @@ public final class SyncEngine: ObservableObject {
                 if self.outboxCount > 0 && self.client != nil { await self.sync() }
             }
         }
+    }
+
+    private static let hubIdentityKey = "ea.hubIdentity"
+    private static func loadHubIdentity() -> HubIdentity? {
+        guard let d = UserDefaults.standard.data(forKey: hubIdentityKey) else { return nil }
+        return try? JSONDecoder().decode(HubIdentity.self, from: d)
+    }
+
+    /// Ask the hub its name and color (several people's hubs can share one machine). Kept as it was when it cannot be reached.
+    public func refreshHubIdentity() async {
+        // The Watch relays through the iPhone, which shows it; nothing to show on the wrist.
+        guard makeClient == nil, let c = client else { return }
+        guard let h = try? await withDeadline(15, { try await c.health() }), h.version != nil else { return }
+        let next = h.hub.flatMap { ($0.name ?? "").isEmpty && ($0.color ?? "").isEmpty ? nil : $0 }
+        guard next != hubIdentity else { return }
+        hubIdentity = next
+        if let next, let d = try? JSONEncoder().encode(next) { UserDefaults.standard.set(d, forKey: Self.hubIdentityKey) }
+        else { UserDefaults.standard.removeObject(forKey: Self.hubIdentityKey) }
     }
 
     /// A client at once, before `start()` has finished its first sync: Siri's question cannot wait for a cold start.

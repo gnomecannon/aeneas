@@ -90,6 +90,12 @@ export interface Config {
    */
   /** The owner's name until the setup page sets it (EA_OWNER_NAME; default "the owner"). */
   ownerName: string;
+  /**
+   * How devices name and color this hub, so several people's hubs on one machine are told apart (EA_HUB_NAME, e.g.
+   * "Jamie"; empty: the owner's name from the profile) and EA_HUB_COLOR (`#rrggbb`; empty: none).
+   */
+  hubName: string;
+  hubColor: string;
   /** The address devices use to reach the hub, for pairing links (else the address a request came in on). */
   publicUrl: string;
   openaiUrl: string;
@@ -258,6 +264,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     adapterUrl: (env.EA_ADAPTER_URL || "").replace(/\/+$/, ""),
     adapterModel: env.EA_ADAPTER_MODEL || "",
     ownerName: (env.EA_OWNER_NAME || "").trim() || "the owner",
+    hubName: (env.EA_HUB_NAME || "").trim().slice(0, 40),
+    hubColor: /^#[0-9a-fA-F]{6}$/.test((env.EA_HUB_COLOR || "").trim()) ? (env.EA_HUB_COLOR || "").trim().toLowerCase() : "",
     publicUrl: (env.EA_PUBLIC_URL || "").trim().replace(/\/+$/, ""),
     openaiUrl: (env.EA_OPENAI_URL || "").replace(/\/+$/, ""),
     openaiModel: env.EA_OPENAI_MODEL || "",

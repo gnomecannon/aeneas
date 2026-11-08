@@ -118,6 +118,8 @@ test("fallback: when the main model server is down, the second one answers withi
     seen.push(`${req.method} ${req.url}`);
     if (req.url === "/api/version") { res.end(JSON.stringify({ version: "test" })); return; }
     if (req.url === "/api/ps") { res.end(JSON.stringify({ models: [] })); return; }
+    // Like Ollama: any other GET (the hub asking whether this is a shared model gate) is not found.
+    if (req.method === "GET") { res.statusCode = 404; res.end("404 page not found"); return; }
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {

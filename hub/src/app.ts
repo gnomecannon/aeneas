@@ -77,6 +77,15 @@ export function mainKeyAllowed(c: { env: unknown; req: { header(name: string): s
 }
 
 /** A device's own key that still belongs to a paired device. */
+/**
+ * How devices name and color this hub (several people's hubs can share one machine): EA_HUB_NAME, else the owner's
+ * name from the profile; EA_HUB_COLOR or null. Only for callers with a key (/health with one).
+ */
+export function hubIdentity(hub: Hub): { name: string | null; color: string | null } {
+  const name = hub.cfg.hubName || (hub.profile.get().name ?? "").trim();
+  return { name: name || null, color: hub.cfg.hubColor || null };
+}
+
 function liveDeviceKey(hub: Hub, given: string): boolean {
   const found = hub.deviceKeys.lookup(given);
   const device = found && "device" in found ? found.device : null;
@@ -195,7 +204,7 @@ export function createApp(hub: Hub): App {
     const m = /^Bearer\s+(.+)$/i.exec(c.req.header("authorization") ?? "");
     const given = m?.[1]?.trim();
     const known = !!given && ((tokenMatches(hub.cfg.token, given) && mainKeyAllowed(c, hub.cfg.mainKeyFrom)) || liveDeviceKey(hub, given));
-    return known ? c.json({ ok: true, version: VERSION, time: nowIso(), db_seq: hub.store.seq(), ai: hub.ai.capabilities() }) : c.json({ ok: true });
+    return known ? c.json({ ok: true, version: VERSION, time: nowIso(), db_seq: hub.store.seq(), ai: hub.ai.capabilities(), hub: hubIdentity(hub) }) : c.json({ ok: true });
   });
 
   // Over-the-air iPhone install (no token: Safari cannot send one, and iOS fetches the manifest itself).

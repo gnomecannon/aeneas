@@ -1,4 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { HubChip } from "./HubChip";
+import { refreshHubIdentity, useHubTitle } from "../lib/hubIdentity";
 import { useLiveQuery } from "dexie-react-hooks";
 import { taskAlertAt } from "@everythingapp/shared";
 import { go, type Route } from "../lib/router";
@@ -161,6 +163,13 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const areas = useAreas();
   const { on } = useModules();
   useKeyboardOpen();
+  useHubTitle();
+  useEffect(() => {
+    void refreshHubIdentity();
+    const again = () => { if (document.visibilityState === "visible") void refreshHubIdentity(); };
+    document.addEventListener("visibilitychange", again);
+    return () => document.removeEventListener("visibilitychange", again);
+  }, []);
   const active = (p: string) => route.path === p || route.path.startsWith(p + "/");
   // A closed area opens for as long as it holds the screen you are on (reached by search or a shortcut, say),
   // without being remembered as open; closing it then keeps it closed until you move to another area.
@@ -185,6 +194,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
     <div className="shell">
       <aside className="rail">
         <div className="brand">Aeneas</div>
+        <HubChip />
         <form
           className="search"
           role="search"
@@ -242,6 +252,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
             <span />
           )}
           <span className="topbar-right">
+            <HubChip compact />
             <StatusDot compact />
             {!inSettings && <Gear active={false} />}
           </span>

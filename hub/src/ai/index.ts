@@ -4,7 +4,7 @@ import type { Entity } from "@everythingapp/shared";
 import type { Config } from "../config.js";
 import type { DB } from "../db.js";
 import { Store, StoreError } from "../store.js";
-import { buildBackends, cloudScrubber, fastestFirst, getBackendOverride, type AiMessage, type Backend, type BackendSet, type Usage } from "./backends.js";
+import { buildBackends, cloudScrubber, fastestFirst, getBackendOverride, GaveWayError, withPriority, type AiMessage, type Backend, type BackendSet, type Usage } from "./backends.js";
 import { buildSystemPrompt, CLASSIFY_SYSTEM, loadMemory, turnContext, type Memory } from "./prompt.js";
 import { appendPending, openLedger, recordFailure } from "./ledger.js";
 import { insertPreflight, recordPlanned } from "../preflight.js";
@@ -473,9 +473,12 @@ export class Gateway {
     // email or a note as written, so it goes as it is: a name in it is that person or pet.
     const ctl = new AbortController();
     this.background.add(ctl);
+    // Another person's chat on a shared model gate stops it the same way one of the owner's own chats does.
+    let gaveWay = false;
     try {
-      const text = await this.completeJson(sessionId, system, user, { allow_cloud: false, signal: ctl.signal });
-      return { text: ctl.signal.aborted ? null : text, stopped: ctl.signal.aborted };
+      const text = await withPriority("background", () => this.completeJson(sessionId, system, user, { allow_cloud: false, signal: ctl.signal, onGaveWay: () => { gaveWay = true; } }));
+      const stopped = ctl.signal.aborted || gaveWay;
+      return { text: stopped ? null : text, stopped };
     } finally {
       this.background.delete(ctl);
     }
@@ -499,9 +502,11 @@ export class Gateway {
     const memory = loadMemory(this.store, { cloud: false, allowWork: false });
     const t0 = Date.now();
     try {
-      const read = await backend.warm!([{ role: "system", content: this.sharedSystem(memory, "general", true) }, { role: "user", content: "." }], toolSpecs(availableTools(this.cfg, undefined, this.moduleOn)));
+      const read = await withPriority("warm", () => backend.warm!([{ role: "system", content: this.sharedSystem(memory, "general", true) }, { role: "user", content: "." }], toolSpecs(availableTools(this.cfg, undefined, this.moduleOn))));
       return { warmed: true, host: backend.host, read, ms: Date.now() - t0 };
     } catch (e) {
+      // The shared model gate turns a warm-up away while someone else is using the model: not a failure.
+      if (/shared model|used the shared model/.test((e as Error).message)) return { warmed: false, reason: (e as Error).message.replace(/^\w+: /, "") };
       console.error(`[ai] warm-up on ${backend.host ? logHost(backend.host) : backend.name} failed: ${errCode(e)}`);
       return { warmed: false, reason: (e as Error).message.slice(0, 200) };
     } finally { this.lastModelUse = Date.now(); }
@@ -593,6 +598,10 @@ export class Gateway {
     const modelImages: { note: string; images: string[] }[] = [];
     let lastErr: Error | null = null;
     const turnOn: ModuleCheck = req.no_web ? (id) => id !== "web" && this.moduleOn(id) : this.moduleOn;
+    // A model shared with other people's hubs (the model gate) may be answering someone else right now: say so, so a
+    // slower start is explained. Who it is stays private.
+    const first = chain.find((b) => b.waiting);
+    if (first && onEvent && mode !== "classify" && (await first.waiting!()) > 0) onEvent({ type: "status", text: "Waiting for the shared model" });
     for (const backend of chain) {
       if (backend.probe && !(await backend.probe())) { lastErr = new Error(`${backend.host ?? backend.name} is not answering`); console.error(`[ai] skipped ${backend.host ? logHost(backend.host) : backend.name}: not answering`); continue; }
       const cloud = !!backend.cloud;
@@ -749,7 +758,7 @@ export class Gateway {
    * One model call with a strict JSON instruction and no session side effects (used by the session close).
    * Returns the raw text, or null when no backend answered.
    */
-  async completeJson(sessionId: string, system: string, user: string, opts: { allow_cloud?: boolean; signal?: AbortSignal; json?: boolean } = {}): Promise<string | null> {
+  async completeJson(sessionId: string, system: string, user: string, opts: { allow_cloud?: boolean; signal?: AbortSignal; json?: boolean; onGaveWay?: () => void } = {}): Promise<string | null> {
     const chain = this.route("general", this.cloudAllowed(opts));
     const literals = this.privateLiterals();
     for (const backend of chain) {
@@ -764,6 +773,7 @@ export class Gateway {
       } catch (e) {
         // Background work stopped for a chat: a pause, not a failure, so neither the log nor the call stats count it.
         if (opts.signal?.aborted) return null;
+        if (e instanceof GaveWayError) { opts.onGaveWay?.(); return null; }
         this.record({ session_id: sessionId, task_type: "general", backend: backend.name, model: backend.model, redactions: 0, ms: Date.now() - t0, ok: false, error: (e as Error).message.slice(0, 500) });
         console.error(`[ai] ${backend.name} failed: ${errCode(e)}`);
       }

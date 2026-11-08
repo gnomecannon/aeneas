@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { hubLabel, useHubIdentity } from "../lib/hubIdentity";
 import { HubClient, normalizeHubUrl } from "../sync/api";
 import { db, META, setMeta, type RejectedEdit } from "../sync/db";
 import { engine } from "../sync/engine";
@@ -519,6 +520,7 @@ function About() {
   const [shell, setShell] = useState<{ version: string; precache: number } | null>(null);
   const [manifest, setManifest] = useState<{ ok: boolean; detail: string } | null>(null);
   const [hubVersion, setHubVersion] = useState("");
+  const hubName = hubLabel(useHubIdentity());
   const [appMsg, setAppMsg] = useState("");
 
   useEffect(() => subscribePwa(setPwa), []);
@@ -556,7 +558,7 @@ function About() {
             <dt>installable</dt>
             <dd>{pwa?.standalone ? "already installed" : pwa?.canInstall ? "yes" : "no prompt yet (use the browser menu, or Share then Add to Home Screen on iOS)"}</dd>
             <dt>hub</dt>
-            <dd>{engine.client ? hubVersion || "checking" : "not configured"}</dd>
+            <dd>{engine.client ? `${hubName ? `${hubName}, ` : ""}${hubVersion || "checking"}` : "not configured"}</dd>
           </dl>
           <div className="row">
             {pwa?.canInstall && (
@@ -580,7 +582,7 @@ function About() {
           <h2>Versions</h2>
           <dl className="facts">
             <dt>hub</dt>
-            <dd>{engine.client ? hubVersion || "checking" : "not configured"}</dd>
+            <dd>{engine.client ? `${hubName ? `${hubName}, ` : ""}${hubVersion || "checking"}` : "not configured"}</dd>
           </dl>
         </div>
       )}

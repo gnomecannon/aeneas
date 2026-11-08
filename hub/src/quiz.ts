@@ -1,4 +1,5 @@
 import { nowIso } from "@everythingapp/shared";
+import { withPriority } from "./ai/backends.js";
 import type { Entity } from "@everythingapp/shared";
 import type { Hub } from "./hub.js";
 import { Store, StoreError } from "./store.js";
@@ -100,7 +101,7 @@ async function makeQuiz(hub: Hub, date: string, now: Date): Promise<Entity | nul
     .slice(-16000);
   // The transcripts are whole chats, work chats too: a local model only, like every other background job. The
   // default routing used to send them to a cloud model when one was set up and allowed by default, or the only one.
-  const raw = await hub.ai.completeJson(`quiz:${date}`, QUIZ_SYSTEM, `Date: ${date}\n\n${transcript}`, { allow_cloud: false });
+  const raw = await withPriority("filing", () => hub.ai.completeJson(`quiz:${date}`, QUIZ_SYSTEM, `Date: ${date}\n\n${transcript}`, { allow_cloud: false }));
   const items = raw === null ? null : parseModelQuiz(raw);
   if (!items) return null;
   const again = quizFor(hub.store, date);

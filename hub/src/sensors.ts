@@ -1,4 +1,5 @@
 import type { Entity } from "@everythingapp/shared";
+import { withPriority } from "./ai/backends.js";
 import type { Hub } from "./hub.js";
 import { StoreError } from "./store.js";
 import { scheduleDaily } from "./schedule.js";
@@ -197,7 +198,7 @@ export function proposeSensorFix(hub: Hub, name: string, now: Date = new Date())
   ].join(" ");
   hub.ai.sessions.save(sid, "troubleshoot", []);
   hub.ai.sessions.rename(sid, `Alert: ${name} ${state}`);
-  void hub.ai.chat({ session_id: sid, task_type: "troubleshoot", messages: [{ role: "user", content: personalize(prompt, hub.profile.get().name, hub.profile.get().pet) }], store_as: `${name}${host ? ` on ${host}` : ""} ${what}. Find the cause and propose a fix for me to approve.` })
+  void withPriority("filing", () => hub.ai.chat({ session_id: sid, task_type: "troubleshoot", messages: [{ role: "user", content: personalize(prompt, hub.profile.get().name, hub.profile.get().pet) }], store_as: `${name}${host ? ` on ${host}` : ""} ${what}. Find the cause and propose a fix for me to approve.` }))
     .catch((e) => console.error(`[sensors] fix for ${s.id}: ${errCode(e)}`));
   return { session_id: sid, started: true };
 }

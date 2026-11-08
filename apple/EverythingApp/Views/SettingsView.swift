@@ -87,6 +87,8 @@ struct SettingsView: View {
     private var connectionSummary: String {
         let n = engine.rejectedEdits.count
         if n > 0 { return "The hub refused \(n == 1 ? "1 edit" : "\(n) edits")" }
+        // Several people's hubs on one machine: say whose this is.
+        if let label = engine.hubIdentity?.label { return "\(label), \(engine.statusLabel.lowercased())" }
         return engine.statusLabel
     }
 
@@ -197,6 +199,9 @@ struct ConnectionSettingsView: View {
     private var connectionForm: some View {
         Form {
             SwiftUI.Section {
+                if let id = engine.hubIdentity, let label = id.label {
+                    LabeledContent("Paired with") { HubBadge(identity: id, label: label) }
+                }
                 LabeledContent("Hub", value: model.config.hubURL)
                 LabeledContent("Signed in with", value: model.config.hasDeviceKey ? "This device's own key" : "The hub's shared key")
                 if model.config.hubPin != nil { LabeledContent("Certificate", value: "Pinned") }
@@ -293,6 +298,7 @@ struct ConnectionSettingsView: View {
             guard let c = engine.client else { testResult = "Not connected"; return }
             do {
                 let h = try await withDeadline(15) { try await c.health() }
+                await engine.refreshHubIdentity()
                 _ = try await withDeadline(15) { try await c.modules() }
                 testResult = "OK, version \(h.version ?? "?")"
             } catch { testResult = (error as? HubError)?.errorDescription ?? error.localizedDescription }
@@ -424,5 +430,20 @@ struct WorkSpaceSection: View {
             } catch { message = (error as? HubError)?.errorDescription ?? error.localizedDescription }
             busy = false
         }
+    }
+}
+
+/// Whose hub this device is paired with: a dot in the hub's color and its name ("Jamie’s hub").
+struct HubBadge: View {
+    let identity: HubIdentity
+    let label: String
+    var body: some View {
+        HStack(spacing: 6) {
+            if let (r, g, b) = identity.rgb {
+                Circle().fill(Color(red: r, green: g, blue: b)).frame(width: 10, height: 10).accessibilityHidden(true)
+            }
+            Text(label)
+        }
+        .accessibilityElement(children: .combine)
     }
 }

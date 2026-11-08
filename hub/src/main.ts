@@ -53,6 +53,13 @@ function learnOwnTailnet(): void {
 
 async function main(): Promise<void> {
   const cmd = process.argv[2] ?? "serve";
+  // The model gate in front of the machine's model server, shared by every person's hub on it (hub/src/gate.ts).
+  // It reads only its own EA_GATE_* settings, not a hub's.
+  if (cmd === "gate") {
+    const { runGate } = await import("./gate.js");
+    runGate();
+    return;
+  }
   // Hosts without MagicDNS cannot resolve *.ts.net; retry those lookups via the Tailscale resolver.
   installTailscaleLookup();
   const cfg = loadConfig();

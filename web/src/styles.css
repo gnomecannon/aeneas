@@ -138,6 +138,10 @@ label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px
 .gear:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 .gear.active { color: var(--accent); background: var(--surface-2); }
 .topbar-right { display: inline-flex; align-items: center; gap: 4px; }
+/* Whose hub this is, when several people's hubs share a machine (lib/hubIdentity.ts). */
+.hub-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85em; color: var(--muted); padding: 0 8px 8px; }
+.hub-chip.compact { padding: 0 4px; }
+.hub-chip-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15); }
 button.back.link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; }
 .rail .search { margin: 6px 0 8px; }
 .badge {

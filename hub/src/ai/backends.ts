@@ -1,5 +1,31 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Config } from "../config.js";
 import { logHost } from "../logsafe.js";
+
+/**
+ * What a model call is for, sent to the model server as `x-aeneas-priority`. Plain Ollama ignores it; the model gate
+ * (gate.ts), shared by every person's hub on one machine, orders its queue by it. Calls made outside `withPriority`
+ * are someone waiting on a reply (`chat`).
+ */
+export type ModelPriority = "chat" | "filing" | "background" | "warm";
+const priorityContext = new AsyncLocalStorage<ModelPriority>();
+export function withPriority<T>(priority: ModelPriority, fn: () => Promise<T>): Promise<T> { return priorityContext.run(priority, fn); }
+export function currentPriority(): ModelPriority { return priorityContext.getStore() ?? "chat"; }
+
+/** The model gate stopped a background call so someone's chat could run: a pause, tried again later. */
+export class GaveWayError extends Error {
+  constructor() { super("the shared model stopped this for someone's chat"); this.name = "GaveWayError"; }
+}
+
+/** A gate answer that is not a model failure: gave way to a chat (background) or busy (a warm-up never waits). */
+async function gateRefusal(name: string, res: Response): Promise<Error | null> {
+  const gate = res.headers.get("x-aeneas-gate");
+  if (res.status !== 503 || !gate) return null;
+  if (gate === "gave-way") return new GaveWayError();
+  let msg = "the shared model is busy";
+  try { msg = String(((await res.json()) as { error?: unknown }).error ?? msg); } catch { /* keep the default */ }
+  return new Error(`${name}: ${msg}`);
+}
 
 export interface AiToolCall { function: { name: string; arguments: Record<string, unknown> } }
 /** `images` are base64 (no data: prefix); Ollama passes them to vision models. */
@@ -29,6 +55,11 @@ export interface Backend {
    * example while a game holds the GPU), not loaded, or unreachable. Ollama backends only.
    */
   residency?(): Promise<Residency>;
+  /**
+   * Behind a model gate shared with other people's hubs: how many of their calls hold the model or wait ahead of a chat
+   * now (0 when it is free, or the server is not a gate). Clients show "waiting for the shared model".
+   */
+  waiting?(): Promise<number>;
   /** Where it runs, for logs and /status. */
   host?: string;
   /**
@@ -105,8 +136,23 @@ function ollamaLike(name: BackendName, baseUrl: string, model: string, timeoutMs
   let probedOk = true;
   let placedAt = 0;
   let placed: Residency = "cold";
+  const headers = () => ({ "content-type": "application/json", "x-aeneas-priority": currentPriority() });
+  /** Whether the base URL is a model gate (learned from /gate/status; plain Ollama answers 404). */
+  let gateKnown: boolean | null = null;
   return {
     name, model, host: baseUrl,
+    async waiting() {
+      if (gateKnown === false) return 0;
+      const { signal, done } = withTimeout(1500);
+      try {
+        const r = await fetch(`${baseUrl}/gate/status`, { signal });
+        if (!r.ok) { gateKnown = false; return 0; }
+        gateKnown = true;
+        const s = (await r.json()) as { slots?: number; running?: { mine?: boolean }[]; waiting?: { mine?: boolean; priority?: string }[] };
+        const others = (s.running ?? []).filter((x) => x.mine === false).length + (s.waiting ?? []).filter((x) => x.mine === false && x.priority === "chat").length;
+        return (s.running ?? []).length >= (s.slots ?? 1) ? others : 0;
+      } catch { return 0; } finally { done(); }
+    },
     async residency() {
       // Cached for 15 s, like the probe: it is asked once per turn.
       if (Date.now() - placedAt < 15_000) return placed;
@@ -137,10 +183,10 @@ function ollamaLike(name: BackendName, baseUrl: string, model: string, timeoutMs
       const { signal, done } = withTimeout(timeoutMs, opts.signal);
       try {
         const res = await fetch(url, {
-          method: "POST", signal, headers: { "content-type": "application/json" },
+          method: "POST", signal, headers: headers(),
           body: JSON.stringify({ model, messages, stream: false, ...options, ...(opts.json ? { format: "json" } : {}) }),
         });
-        if (!res.ok) throw new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        if (!res.ok) throw (await gateRefusal(name, res)) ?? new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
         const data = (await res.json()) as { message?: { content?: string }; prompt_eval_count?: number; eval_count?: number };
         return { text: data.message?.content ?? "", usage: { prompt_tokens: data.prompt_eval_count, completion_tokens: data.eval_count } };
       } finally { done(); }
@@ -149,10 +195,10 @@ function ollamaLike(name: BackendName, baseUrl: string, model: string, timeoutMs
       const { signal, done } = withTimeout(timeoutMs, opts.signal);
       try {
         const res = await fetch(url, {
-          method: "POST", signal, headers: { "content-type": "application/json" },
+          method: "POST", signal, headers: headers(),
           body: JSON.stringify({ model, messages, stream: true, ...options }),
         });
-        if (!res.ok || !res.body) throw new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        if (!res.ok || !res.body) throw (await gateRefusal(name, res)) ?? new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
         let text = "";
         const usage: Usage = {};
         for await (const line of ndjson(res.body)) {
@@ -173,10 +219,10 @@ function ollamaLike(name: BackendName, baseUrl: string, model: string, timeoutMs
       try {
         // Exactly what streamTools sends but one token long: the same options keep the model loaded as it is.
         const res = await fetch(url, {
-          method: "POST", signal, headers: { "content-type": "application/json" },
+          method: "POST", signal, headers: headers(),
           body: JSON.stringify({ model, messages, tools, stream: false, ...options, options: { ...runOptions, num_predict: 1 } }),
         });
-        if (!res.ok) throw new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        if (!res.ok) throw (await gateRefusal(name, res)) ?? new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
         return ((await res.json()) as { prompt_eval_count?: number }).prompt_eval_count ?? 0;
       } finally { done(); }
     },
@@ -184,10 +230,10 @@ function ollamaLike(name: BackendName, baseUrl: string, model: string, timeoutMs
       const { signal, done } = withTimeout(timeoutMs, opts.signal);
       try {
         const res = await fetch(url, {
-          method: "POST", signal, headers: { "content-type": "application/json" },
+          method: "POST", signal, headers: headers(),
           body: JSON.stringify({ model, messages, tools, stream: true, ...options }),
         });
-        if (!res.ok || !res.body) throw new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        if (!res.ok || !res.body) throw (await gateRefusal(name, res)) ?? new Error(`${name} ${res.status}: ${(await res.text()).slice(0, 200)}`);
         let text = "";
         const usage: Usage = { prompt_tokens: 0, completion_tokens: 0 };
         const tool_calls: AiToolCall[] = [];

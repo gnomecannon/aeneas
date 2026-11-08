@@ -8,6 +8,27 @@ public struct HealthResponse: Codable, Sendable {
     public var time: String?
     public var db_seq: Int?
     public var ai: AICapabilities?
+    /// Whose hub this is, when several people's hubs share one machine (EA_HUB_NAME, EA_HUB_COLOR); only with a key.
+    public var hub: HubIdentity?
+}
+
+/// The name and color a hub gives itself, so a device shows whose hub it is paired with.
+public struct HubIdentity: Codable, Sendable, Equatable {
+    public var name: String?
+    /// `#rrggbb`; set on hubs that share a machine with other people's (deploy/people.sh).
+    public var color: String?
+    public init(name: String?, color: String?) { self.name = name; self.color = color }
+    /// "Jamie’s hub", or nil on a single person's hub (no color), where it would only repeat the obvious.
+    public var label: String? {
+        guard let c = color, !c.isEmpty else { return nil }
+        if let n = name, !n.isEmpty { return "\(n)\u{2019}s hub" }
+        return "This hub"
+    }
+    /// The color as red, green and blue from 0 to 1.
+    public var rgb: (Double, Double, Double)? {
+        guard let c = color, c.count == 7, c.hasPrefix("#"), let v = UInt32(c.dropFirst(), radix: 16) else { return nil }
+        return (Double((v >> 16) & 0xff) / 255, Double((v >> 8) & 0xff) / 255, Double(v & 0xff) / 255)
+    }
 }
 
 public struct AICapabilities: Codable, Sendable, Equatable {

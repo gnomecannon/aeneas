@@ -229,7 +229,7 @@ export class HubClient {
     const headers = this.cfg.token ? this.headers() : undefined;
     return this.fetchImpl(this.url("/health"), { signal, headers }).then(async (r) => {
       if (!r.ok) throw new HubError(r.status, `health ${r.status}`);
-      return (await r.json()) as { ok: boolean; version?: string; time?: string; db_seq?: number; ai?: AiCapabilities };
+      return (await r.json()) as { ok: boolean; version?: string; time?: string; db_seq?: number; ai?: AiCapabilities; hub?: { name: string | null; color: string | null } };
     });
   }
 

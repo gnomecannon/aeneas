@@ -1,4 +1,5 @@
 import { wordsOf } from "./ai/lists.js";
+import { withPriority } from "./ai/backends.js";
 import { recordImage } from "./gallery.js";
 import type { Entity } from "@everythingapp/shared";
 import { classifyCapture } from "@everythingapp/shared";
@@ -177,7 +178,7 @@ export async function fileCapture(hub: Hub, captureId: string): Promise<Entity |
       try { recordImage(hub, hub.ai.images.save(ph.bytes_b64!), "attached", { session_id: thread, title: captureTitle(text) || ph.name || "Photo from a capture" }); seen.push(ph.bytes_b64!); }
       catch (e) { console.error(`[filer] photo of ${captureId} not kept: ${errCode(e)}`); }
     }
-    const out = await hub.ai.chat({ session_id: thread, messages: [{ role: "user", content: filingPrompt(text, new Date(cap.created_at), hint, nearbyEvents(hub.store, new Date(cap.created_at)), similarTasks(hub.store, text), noteFolders(hub.store), { owner: hub.profile.get().name, pet: hub.profile.get().pet }, hub.modules.check) }], ...(seen.length ? { images: seen } : {}), store_as: text.trim(), task_type: "general", no_web: true });
+    const out = await withPriority("filing", () => hub.ai.chat({ session_id: thread, messages: [{ role: "user", content: filingPrompt(text, new Date(cap.created_at), hint, nearbyEvents(hub.store, new Date(cap.created_at)), similarTasks(hub.store, text), noteFolders(hub.store), { owner: hub.profile.get().name, pet: hub.profile.get().pet }, hub.modules.check) }], ...(seen.length ? { images: seen } : {}), store_as: text.trim(), task_type: "general", no_web: true }));
     hub.ai.sessions.rename(thread, captureTitle(text));
     const wrote = (out.actions ?? []).filter((a) => a.ok && a.writes);
     // The store has each item's true kind (a tool result may carry an item's own "kind" field, e.g. a restaurant).
