@@ -23,7 +23,9 @@ setting() { # NAME: from Signing.local.xcconfig when it sets it, else Signing.xc
 TEAM="$(setting EA_TEAM_ID)"
 [ -n "$TEAM" ] || die "no EA_TEAM_ID in apple/Signing.xcconfig"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ea-mac-release.XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
+# Kept when notarization outlasts the wait, so the export can be finished later without sending it again.
+KEEP=0
+trap '[ "$KEEP" = 1 ] || rm -rf "$WORK"' EXIT
 cd "$REPO/apple"
 xattr -cr . 2>/dev/null || true
 say "archiving"
@@ -45,14 +47,19 @@ say "signing with Developer ID and sending it to Apple to notarize"
 xcodebuild -exportArchive -archivePath "$WORK/ea.xcarchive" -exportPath "$WORK/export" -exportOptionsPlist "$WORK/ExportOptions.plist" \
   -allowProvisioningUpdates > "$WORK/export.log" 2>&1 || { grep -iE "error" "$WORK/export.log" | head -20; die "the export failed"; }
 
-say "waiting for Apple's notarization (usually a few minutes)"
+say "waiting for Apple's notarization (minutes, sometimes over an hour)"
 ok=0
-for _ in $(seq 1 60); do
+for _ in $(seq 1 180); do
   if xcodebuild -exportNotarizedApp -archivePath "$WORK/ea.xcarchive" -exportPath "$WORK/final" > "$WORK/notarized.log" 2>&1; then ok=1; break; fi
   grep -qiE "invalid|rejected" "$WORK/notarized.log" && { tail -5 "$WORK/notarized.log"; die "Apple did not accept it"; }
   sleep 30
 done
-[ "$ok" = 1 ] || die "notarization did not finish within 30 minutes; run again later"
+if [ "$ok" != 1 ]; then
+  KEEP=1
+  die "Apple has not finished notarizing after 90 minutes. Once it has, finish with:
+  xcodebuild -exportNotarizedApp -archivePath \"$WORK/ea.xcarchive\" -exportPath \"$WORK/final\"
+(then rename EverythingApp.app to Aeneas.app and zip it as this script does)"
+fi
 SRC="$WORK/final/EverythingApp.app"
 [ -d "$SRC" ] || die "the notarized export has no EverythingApp.app"
 # The bundle keeps its working name inside (executable, identifiers); the folder people see is Aeneas.app. A bundle's
