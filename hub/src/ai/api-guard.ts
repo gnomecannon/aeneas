@@ -12,10 +12,12 @@ const NO_READ = [
   "/setup/backup/reveal",
   "/vault/export",
   "/feeds",
+  // Another person's hub: its pairing codes and who is on this machine.
+  "/hubs",
 ];
 
 /** Paths a tool may change: syncing a linked account now. Every other write under these prefixes is the owner's. */
-const OWNER_WRITES = ["/connections", "/space", "/modules", "/setup", "/profile", "/imports", "/devices", "/prefs/feel", "/sync"];
+const OWNER_WRITES = ["/connections", "/space", "/modules", "/setup", "/profile", "/imports", "/devices", "/prefs/feel", "/sync", "/hubs"];
 const TOOL_WRITES = /^\/connections\/(steam|letterboxd|atlassian|google)\/sync$/;
 
 /**

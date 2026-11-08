@@ -28,6 +28,15 @@ export const isDeviceKey = (k: string | undefined | null): boolean => !!k && k.s
 
 /** POST /devices/pairing: a one-time code (10 minutes) and the links that carry it. */
 export interface PairingLinks { hub: string; code: string; expires_at: string; app: string; web: string }
+/** GET /hubs: other people's hubs on this machine (deploy/people.sh), as the owner's hub sees them. */
+export interface PersonHub { name: string; account: string; port: number; color: string; owner: boolean; address: string | null; up: boolean }
+export interface HubsList { available: boolean; reason?: "linux_only" | "not_set_up" | "not_owner"; setup_command: string; admin_note: string; hubs: PersonHub[] }
+/** GET /hubs/requests/:id: adding a person (or a new code, or stopping a hub) as it goes. */
+export interface HubRequest {
+  state: "queued" | "working" | "done" | "failed";
+  step?: string; error?: string; name?: string; color?: string; address?: string; account?: string; note?: string;
+  pairing?: Partial<PairingLinks>;
+}
 /** GET /devices. */
 export interface DeviceRow { id: string; name: string; platform: string; last_seen: string | null; paired_at: string | null; own_key: boolean; current: boolean }
 /** GET /connections/guides/:service: making the person's own key or app, step by step, filled in for this hub. */
@@ -633,6 +642,12 @@ export class HubClient {
     return this.req<{ pull: PullState | null }>("GET", "/setup/ollama/pull");
   }
   /** A one-time code and the links that set up another device in one step (and the address it reaches the hub at). */
+  hubs() { return this.req<HubsList>("GET", "/hubs"); }
+  addHub(name: string, color?: string) { return this.req<{ request_id: string }>("POST", "/hubs", { name, ...(color ? { color } : {}) }); }
+  hubRequest(id: string) { return this.req<HubRequest>("GET", `/hubs/requests/${encodeURIComponent(id)}`); }
+  pairHub(account: string) { return this.req<{ request_id: string }>("POST", `/hubs/${encodeURIComponent(account)}/pair`); }
+  stopHub(account: string) { return this.req<{ request_id: string }>("POST", `/hubs/${encodeURIComponent(account)}/stop`); }
+
   pairing(name: string) {
     return this.req<PairingLinks>("POST", "/devices/pairing", { name });
   }

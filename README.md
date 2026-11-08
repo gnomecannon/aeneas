@@ -21,6 +21,9 @@ which existing installs depend on.
   `docs/privacy-network.md`.
 - Every module is something you switch on; each says what it reads, and your devices ask only for the permissions of
   the modules you chose.
+- Several people can share one hub machine, each with a hub of their own, kept apart from the others'. Anyone with
+  admin (root or sudo) rights on that machine can still read every hub's files, so share a machine only with people
+  who trust its admin (see Someone else in the house, below).
 
 The privacy policy for the apps: [PRIVACY.md](PRIVACY.md). The details: `docs/06-threat-model.md` (what protects what, and the known gaps) and `docs/privacy-network.md`
 (every outside address the hub and apps can contact, and what turns each on).
@@ -55,6 +58,24 @@ About 15 minutes in all, plus the model download (about 1.5 GB on a computer wit
 personal use, tailscale.com) on the hub and your devices, then run the install command again: the hub gets an
 https address on your private Tailscale network. Gmail and Confluence need that address, because Google and
 Atlassian send you back only to an https name.
+
+**Someone else in the house.** On a Linux hub with Tailscale, each person can have a hub of their own on the same
+machine: their own notes, chats, settings and devices, apart from yours, sharing the machine's model fairly (a reply
+goes before background work, and two people asking at once take turns).
+
+1. Once, on the hub's machine, in a terminal (it asks for your password):
+
+   ```bash
+   sudo bash ~/everythingapp/deploy/people.sh setup --name "Your name"
+   ```
+
+2. In the app: Settings, People on this machine, type their name, Add. In a minute or two it shows their hub's address
+   and a QR code.
+3. Share the hub's machine with them in the Tailscale admin console (Machines, the machine, Share), and they scan
+   the QR code with their phone after installing Aeneas and Tailscale.
+
+Their data lives in their own account on the machine, which the other hubs cannot open. Anyone with admin (root or
+sudo) rights on the machine, you included, can open it: tell them before they start. Details: `docs/multi-person.md`.
 
 **After setup.** Updating, backups and a second copy off the hub's disk, restoring, moving to a new machine,
 removing a device, uninstalling and fixing problems: `docs/running-your-hub.md`.

@@ -9,6 +9,8 @@ struct SettingsView: View {
     @ObservedObject private var importer = CalendarImporter.shared
     @State private var notifStatus = "Checking"
     @State private var debugPage: SettingsPage?
+    /// "People on this machine": its summary on the machine owner's hub, nil elsewhere (the row stays out).
+    @State private var machinePeople: String?
 
     var body: some View {
         List {
@@ -28,6 +30,11 @@ struct SettingsView: View {
                 }
                 NavigationLink { ModulesSettingsView() } label: {
                     SettingsRow(title: "Modules", symbol: "square.grid.3x3.square", summary: modulesSummary)
+                }
+                if let machinePeople {
+                    NavigationLink { MachinePeopleView() } label: {
+                        SettingsRow(title: "People on this machine", symbol: "person.2.badge.plus", summary: machinePeople)
+                    }
                 }
                 NavigationLink { PrivacySettingsView() } label: {
                     SettingsRow(title: "Privacy on this device", symbol: "hand.raised", summary: PrivacySettingsView.summary)
@@ -68,6 +75,11 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .navigationDestination(item: $debugPage) { $0.view }
         .task { notifStatus = await NotificationSettingsView.statusLabel() }
+        .task {
+            guard let c = engine.client, let l = try? await withDeadline(15, { try await c.hubs() }), l.offered else { return }
+            let others = l.hubs.filter { !$0.owner }.count
+            machinePeople = !l.available ? "Give someone their own hub here" : others == 0 ? "Only you so far" : "\(others) more besides you"
+        }
         .onAppear {
             #if DEBUG
             if let p = SettingsPage.launchArgument("EASettingsPage") {

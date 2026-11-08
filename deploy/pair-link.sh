@@ -22,6 +22,8 @@ answer="$(curl -fsS --max-time 10 -X POST -H @- -H 'content-type: application/js
   echo "error: the hub on this machine did not answer on port $PORT. Is it running? Logs: journalctl --user -u everythingapp-hub (Linux) or ~/.local/share/everythingapp/logs/hub.log (Mac)" >&2
   exit 1
 }
+# For deploy/people.sh: the hub's answer as it is (one-time code included), for the app that asked to add a person.
+if [ "${EA_PAIR_JSON:-}" = 1 ]; then printf '%s\n' "$answer"; exit 0; fi
 # The installer puts Node in ~/.local/node, which a new terminal does not have on its PATH; python3 also reads JSON.
 NODE="$(command -v node 2>/dev/null || true)"
 [ -n "$NODE" ] || { [ -x "$HOME/.local/node/bin/node" ] && NODE="$HOME/.local/node/bin/node"; }

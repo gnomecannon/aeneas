@@ -17,6 +17,7 @@ export const SETTINGS_TITLES: Record<string, string> = {
   "/settings/modules": "Modules",
   "/settings/windows": "Windows app",
   "/settings/about": "About",
+  "/settings/people": "People on this machine",
 };
 
 /** The page one level up from a Settings sub-page, or null outside them. */

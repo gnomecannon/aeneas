@@ -21,4 +21,15 @@ final class HubIdentityTests: XCTestCase {
         XCTAssertNil(h.hub)
         XCTAssertNil(HubIdentity(name: "X", color: "blue").rgb)
     }
+
+    func testPeopleOnThisMachine() throws {
+        let list = try JSONDecoder().decode(HubsList.self, from: Data(##"{"available":false,"reason":"not_set_up","setup_command":"sudo bash x","admin_note":"admins can read","hubs":[]}"##.utf8))
+        XCTAssertTrue(list.offered)
+        let other = try JSONDecoder().decode(HubsList.self, from: Data(##"{"available":false,"reason":"not_owner","setup_command":"","admin_note":"","hubs":[]}"##.utf8))
+        XCTAssertFalse(other.offered)
+        let r = try JSONDecoder().decode(HubRequest.self, from: Data(##"{"state":"done","name":"Jamie","color":"#c27c2c","address":"https://h:8788","pairing":{"code":"ABCD-EFGH","app":"everythingapp://setup?code=x"}}"##.utf8))
+        XCTAssertTrue(r.finished)
+        XCTAssertEqual(r.pairing?.code, "ABCD-EFGH")
+        XCTAssertFalse(try JSONDecoder().decode(HubRequest.self, from: Data(#"{"state":"working","step":"Installing"}"#.utf8)).finished)
+    }
 }

@@ -109,3 +109,4 @@ A mail, a web page, a wiki page or a shared article written to steer the model.
 6. The Apple apps load Steam pictures and outside wiki pictures from other sites, and dictation can use Apple's servers (`docs/privacy-network.md`).
 7. The web app has no Content-Security-Policy.
 8. The user service runs without the system unit's sandbox.
+9. Several people on one machine (`docs/multi-person.md`): each hub's files are readable only by its own account, but anyone with admin (root or sudo) rights on the machine can read every hub's database, notes, chats and keys, and the machine owner usually has those rights. The app says so before someone is added and after; only encryption with a key that never reaches the machine would close this.

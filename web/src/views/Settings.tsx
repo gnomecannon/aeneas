@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PeoplePage, usePeopleSummary } from "./settings/People";
 import { hubLabel, useHubIdentity } from "../lib/hubIdentity";
 import { HubClient, normalizeHubUrl } from "../sync/api";
 import { db, META, setMeta, type RejectedEdit } from "../sync/db";
@@ -56,6 +57,7 @@ export function Settings({ parts, params }: { parts: string[]; params: URLSearch
   if (a === "modules") return <ModulesPage />;
   if (a === "windows" && isWindowsApp) return <WindowsApp />;
   if (a === "about") return <About />;
+  if (a === "people") return <PeoplePage />;
   return <SettingsHome />;
 }
 
@@ -78,6 +80,7 @@ function SettingsHome() {
   const t = themeSummaries(f);
   const [links] = useConnections();
   const { list: modules } = useModules();
+  const people = usePeopleSummary();
 
   useEffect(() => {
     engine.client?.workSpace().then(
@@ -105,6 +108,7 @@ function SettingsHome() {
         />
         <NavRow href="/welcome" title="Set up" summary="Your name, the model, what to use, passwords, pairing another device" />
         <NavRow href="/settings/modules" title="Modules" summary={modulesSummary(modules)} />
+        {people && <NavRow href="/settings/people" title="People on this machine" summary={people} />}
         <NavRow href="/settings/import" title="Bring your data in" summary="ChatGPT, Google Takeout, Obsidian and other notes, text" />
         <NavRow href="/settings/connections" title="Connections" summary={connectionsSummary(links)} />
         <NavRow href="/settings/notifications" title="Notifications" summary={isWindowsApp ? "Windows notifications and banners" : "Banners while the app is open"} />

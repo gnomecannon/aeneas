@@ -118,6 +118,15 @@ With a different user name on the new machine, edit the paths in `hub.env` after
 - **A lost phone:** remove it as above from any other device. Its local copy stays on the phone until it next
   connects, so also use Find My to erase it.
 
+## Other people on this machine
+
+On a Linux hub with Tailscale, someone else can have a hub of their own here: Settings, People on this machine, Add.
+The first time, that page shows a command to run once in a terminal on this machine (`sudo bash
+~/everythingapp/deploy/people.sh setup --name "Your name"`). Each person's data is in their own account, apart from
+yours, but anyone with admin rights on this machine, you included, can open it: tell them. After updating your own
+hub, `sudo bash ~/everythingapp/deploy/people.sh update` brings everyone else's to the same version. Everything else,
+including stopping a hub and deleting someone's data: `docs/multi-person.md`.
+
 ## Keys
 
 - **The hub's main key** (`EA_TOKEN` in `hub.env`) only works on the hub's own machine; devices use keys of their

@@ -1114,6 +1114,7 @@ echo
 case "$address" in http://1*|http://192*) echo "    Your network sees the hub without encryption. Tailscale (tailscale.com) gives it HTTPS: install it, then run this again." ;; esac
 echo "    Logs: $logs"
 echo "    Update later: run the same command again."
+case "$address" in https://*.ts.net*) [ "$OS" = Linux ] && echo "    Someone else in the house can have a hub of their own here, kept apart from yours: see docs/multi-person.md. (Whoever has admin rights on this machine can read every hub's files.)" ;; esac
 if [ -z "${SSH_CONNECTION:-}" ] && [ -n "$link" ]; then
   if [ "$OS" = Darwin ] || { [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null; }; then
     echo "    Opening the link in your browser now."
