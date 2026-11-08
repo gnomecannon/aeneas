@@ -17,7 +17,8 @@ The recipe follows the other Tauri apps in fdroiddata (rustup, nodejs and npm fr
 `tauri android build`). Its build steps were run from a clean clone of the public tag on 2026-11-08 and gave a 10 MB
 unsigned APK (arm64 and armv7) at the `output` path. It passes `fdroid lint` and `fdroid rewritemeta`.
 
-Submitted from https://gitlab.com/gnomecannon/fdroiddata, branch `com.gnomecannon.everythingapp`. The fork's own
+Submitted 2026-11-08 as https://gitlab.com/fdroid/fdroiddata/-/merge_requests/56391 from https://gitlab.com/gnomecannon/fdroiddata,
+branch `com.gnomecannon.everythingapp`. The fork's own
 pipeline does not run until GitLab verifies the account (phone or card); F-Droid's template says not to verify and to
 ask their team to run the CI instead, which costs nothing.
 
