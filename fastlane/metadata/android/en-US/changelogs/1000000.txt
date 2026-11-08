@@ -1,0 +1,1 @@
+First Android release: the full app on a hub you run yourself, with notifications for reminders.

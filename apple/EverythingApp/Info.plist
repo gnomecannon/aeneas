@@ -34,7 +34,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>202611072328</string>
+	<string>202611080034</string>
 	<key>EAAppGroup</key>
 	<string>group.$(EA_BUNDLE_PREFIX).everythingapp</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -57,13 +57,13 @@
 		</dict>
 	</dict>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>EverythingApp reads the titles and times of the calendars you choose, so your meetings show in your plan, and writes the events and planned blocks you make in the app to your calendar.</string>
+	<string>Aeneas reads the titles and times of the calendars you choose, so your meetings show in your plan, and writes the events and planned blocks you make in the app to your calendar.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>With Sync Apple Contacts on, People and Apple Contacts are kept the same both ways, so the assistant can look people up and save details you give it, such as an address.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Reads weight, blood pressure, sleep, steps, workouts, caffeine and mood so they are logged in EverythingApp without typing them twice.</string>
+	<string>Reads weight, blood pressure, sleep, steps, workouts, caffeine and mood so they are logged in Aeneas without typing them twice.</string>
 	<key>NSHealthUpdateUsageDescription</key>
-	<string>Writes what you log in EverythingApp (weight, blood pressure, caffeine, mood and timed activities) to Health, so it is in both places.</string>
+	<string>Writes what you log in Aeneas (weight, blood pressure, caffeine, mood and timed activities) to Health, so it is in both places.</string>
 	<key>NSLocationUsageDescription</key>
 	<string>With Calculators on, the bill splitter can fill in your state's meals tax. Only an approximate position is used, and it goes to your own hub and nowhere else.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -71,11 +71,11 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>The microphone is used while you dictate or record a hum, from pressing the button until you stop it.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>When you turn on Save created images to Photos, images you create in EverythingApp are added to your camera roll.</string>
+	<string>When you turn on Save created images to Photos, images you create in Aeneas are added to your camera roll.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>When you turn on full photo library access, the Image Gallery shows your photos so you can use one as a reference for a new image. The assistant can also look at your newest photos when you ask it to. A photo leaves the phone only when you use it, add it or ask about it.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>EverythingApp keeps your tasks and Apple Reminders the same, both ways.</string>
+	<string>Aeneas keeps your tasks and Apple Reminders the same, both ways.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Dictation turns your speech into text in the capture box and the assistant, only from when you tap the mic until you tap it again. This device does it itself when it can; when it cannot, Apple's speech service does, and the app tells you before the first time. Nothing reaches your hub until you tap Save or Send.</string>
 	<key>NSSupportsLiveActivities</key>

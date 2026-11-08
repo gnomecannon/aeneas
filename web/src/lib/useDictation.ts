@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { isAndroid } from "../tauri/bridge";
 
 type SpeechRec = { continuous: boolean; interimResults: boolean; lang: string; start(): void; stop(): void; onresult: ((e: any) => void) | null; onend: (() => void) | null; onerror: ((e: any) => void) | null };
 
@@ -33,7 +34,9 @@ const noticeAccepted = () => { try { return localStorage.getItem(NOTICE_KEY) ===
 /** Tap to start, tap to stop. Never sends by itself and never stops because you paused. Before the first use in a
  * browser it asks once (`notice`), naming the company whose service hears the audio. */
 export function useDictation(onFinal: (text: string) => void, inWindowsApp = false) {
-  const Ctor = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+  // Android's web view has the name but no speech service behind it: Talk stays hidden there (the keyboard's own
+  // microphone key still types by voice).
+  const Ctor = isAndroid ? undefined : (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
   const rec = useRef<SpeechRec | null>(null);
   const wanted = useRef(false);
   const final = useRef(onFinal);

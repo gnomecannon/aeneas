@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { engine } from "../sync/engine";
 import { MEALS_STATES, locationNotice, stateNote } from "../lib/mealsTax";
-import { isTauri } from "../tauri/bridge";
+import { isWindowsApp } from "../tauri/bridge";
 import { HubError } from "../sync/api";
 import { useEntities } from "../sync/hooks";
 import { viaHub } from "../sync/admin";
@@ -175,7 +175,7 @@ function Split() {
       <input placeholder="Uneven shares, like 30, 20, 10" value={shares} onChange={(e) => setShares(e.target.value)} aria-label="Uneven shares, comma separated" />
       {locAsk && (
         <div className="card col small" role="alertdialog" aria-label="Before using your location">
-          <span>{locationNotice(isTauri, navigator.userAgent)}</span>
+          <span>{locationNotice(isWindowsApp, navigator.userAgent)}</span>
           <div className="row">
             <button type="button" className="small primary" onClick={locationOk}>Use my location</button>
             <button type="button" className="small ghost" onClick={() => setLocAsk(false)}>Not now</button>

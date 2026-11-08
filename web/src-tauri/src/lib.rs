@@ -1,10 +1,12 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+#[cfg(desktop)]
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Listener, Manager, Runtime, WebviewUrl, WebviewWindowBuilder,
+    Listener, WebviewUrl, WebviewWindowBuilder,
 };
 
 const MAIN: &str = "main";
@@ -32,13 +34,18 @@ struct NotifyTarget {
 const NOTIFY_TARGET_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
 fn show_main<R: Runtime>(app: &AppHandle<R>) {
+    #[cfg(desktop)]
     if let Some(w) = app.get_webview_window(MAIN) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+    // Android has one window, already in front when this runs.
+    #[cfg(mobile)]
+    let _ = app;
 }
 
+#[cfg(desktop)]
 fn open_capture<R: Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window(CAPTURE) {
         let _ = w.show();
@@ -80,6 +87,7 @@ fn widget_remembered<R: Runtime>(app: &AppHandle<R>) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(desktop)]
 /// The Now widget: a small window that stays on top with the Now task, a running activity and Capture.
 /// It opens where it was last left (the window-state plugin restores every window it has seen).
 fn open_widget<R: Runtime>(app: &AppHandle<R>) {
@@ -99,6 +107,7 @@ fn open_widget<R: Runtime>(app: &AppHandle<R>) {
     let _ = app.emit("widget-changed", true);
 }
 
+#[cfg(desktop)]
 fn close_widget<R: Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window(WIDGET) {
         let _ = w.close();
@@ -109,11 +118,15 @@ fn close_widget<R: Runtime>(app: &AppHandle<R>) {
 
 #[tauri::command]
 fn set_widget(app: AppHandle, open: bool) {
+    #[cfg(desktop)]
     if open {
         open_widget(&app);
     } else {
         close_widget(&app);
     }
+    // No floating widget on Android (the web app hides the switch there).
+    #[cfg(mobile)]
+    let _ = (app, open);
 }
 
 fn shortcut_file<R: Runtime>(app: &AppHandle<R>) -> Option<std::path::PathBuf> {
@@ -179,7 +192,10 @@ fn show_main_window(app: AppHandle, path: Option<String>) {
 
 #[tauri::command]
 fn open_capture_window(app: AppHandle) {
+    #[cfg(desktop)]
     open_capture(&app);
+    #[cfg(mobile)]
+    let _ = app.emit_to(MAIN, "navigate", "/capture");
 }
 
 /// A screen in a window of its own, for a second monitor: `path` is the app route, shown without the sidebar.
@@ -188,16 +204,25 @@ fn open_window(app: AppHandle, path: String, title: String) -> Result<(), String
     if !path.starts_with('/') {
         return Err("path must start with /".into());
     }
-    let n = POP_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-    let sep = if path.contains('?') { '&' } else { '?' };
-    let url = format!("index.html#{}{}pop=1", path, sep);
-    WebviewWindowBuilder::new(&app, format!("pop-{}", n), WebviewUrl::App(url.into()))
-        .title(title)
-        .inner_size(560.0, 720.0)
-        .min_inner_size(320.0, 240.0)
-        .build()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    #[cfg(desktop)]
+    {
+        let n = POP_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+        let sep = if path.contains('?') { '&' } else { '?' };
+        let url = format!("index.html#{}{}pop=1", path, sep);
+        WebviewWindowBuilder::new(&app, format!("pop-{}", n), WebviewUrl::App(url.into()))
+            .title(title)
+            .inner_size(560.0, 720.0)
+            .min_inner_size(320.0, 240.0)
+            .build()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    // One window on Android: the screen opens in it.
+    #[cfg(mobile)]
+    {
+        let _ = title;
+        app.emit_to(MAIN, "navigate", path).map_err(|e| e.to_string())
+    }
 }
 
 #[tauri::command]
@@ -207,6 +232,7 @@ fn set_notify_target(state: tauri::State<'_, Mutex<NotifyTarget>>, path: String)
     }
 }
 
+#[cfg(desktop)]
 /// A second start of the app (a toast click, or the user opening it again): bring the window forward and, when a
 /// notification was sent recently, open what it was about.
 fn on_second_start<R: Runtime>(app: &AppHandle<R>, args: Vec<String>) {
@@ -236,17 +262,18 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec!["--minimized"]),
-        ))
         .manage(Mutex::new(NotifyTarget::default()))
         .invoke_handler(tauri::generate_handler![set_widget, get_widget, show_main_window, open_capture_window, open_window, set_notify_target, set_capture_shortcut, get_capture_shortcut]);
 
     #[cfg(desktop)]
     {
         use tauri_plugin_global_shortcut::ShortcutState;
+        builder = builder
+            .plugin(tauri_plugin_window_state::Builder::default().build())
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                Some(vec!["--minimized"]),
+            ));
         builder = builder.plugin(
             // The shortcut itself is registered in setup, from Settings (or the default).
             tauri_plugin_global_shortcut::Builder::new()
@@ -261,6 +288,25 @@ pub fn run() {
 
     builder
         .setup(|app| {
+            #[cfg(desktop)]
+            desktop_setup(app)?;
+            #[cfg(mobile)]
+            let _ = app;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            #[cfg(desktop)]
+            desktop_window_event(window, event);
+            #[cfg(mobile)]
+            let _ = (window, event);
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running Aeneas");
+}
+
+/// The tray menu, the Now widget brought back after a restart, the Capture shortcut, and starting hidden at login.
+#[cfg(desktop)]
+fn desktop_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let capture = MenuItem::with_id(app, "capture", "Capture", true, None::<&str>)?;
             let widget = CheckMenuItem::with_id(app, "widget", "Now widget", true, widget_remembered(app.handle()), None::<&str>)?;
@@ -317,8 +363,10 @@ pub fn run() {
                 }
             }
             Ok(())
-        })
-        .on_window_event(|window, event| {
+}
+
+#[cfg(desktop)]
+fn desktop_window_event<R: Runtime>(window: &tauri::Window<R>, event: &tauri::WindowEvent) {
             // Closing the main window hides it to the tray; Quit in the tray menu exits.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == MAIN {
@@ -333,7 +381,4 @@ pub fn run() {
                     let _ = window.app_handle().emit("widget-changed", false);
                 }
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running Aeneas");
 }

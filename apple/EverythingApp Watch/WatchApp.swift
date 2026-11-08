@@ -102,6 +102,8 @@ final class AppModel: ObservableObject {
         // `-listen ask|capture` does what the complications do (the Watch simulator cannot open links).
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-listen"), i + 1 < args.count { listen = args[i + 1] == "ask" ? .ask : .capture }
+        // `-page now|today|log|activity|weight`: open on that page (App Store screenshots without swiping).
+        if let i = args.firstIndex(of: "-page"), i + 1 < args.count, let u = URL(string: "everythingapp://" + args[i + 1]) { handle(url: u) }
         // `-ask "question"`: what the Ask tile sends once dictation ends (the simulator has no dictation).
         if let i = args.firstIndex(of: "-ask"), i + 1 < args.count {
             let q = args[i + 1]

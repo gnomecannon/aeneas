@@ -3,7 +3,7 @@ import { HubClient, HubError, isDeviceKey, normalizeHubUrl } from "../sync/api";
 import { META, db, getMeta, setMeta } from "../sync/db";
 import { engine } from "../sync/engine";
 import { useMeta } from "../sync/hooks";
-import { isTauri } from "../tauri/bridge";
+import { isAndroid, isTauri, isWindowsApp } from "../tauri/bridge";
 
 function defaultHub(): string {
   if (isTauri) return "";
@@ -21,7 +21,7 @@ function linkParams(): URLSearchParams {
   return h.startsWith("#/setup?") ? new URLSearchParams(h.slice("#/setup?".length)) : new URLSearchParams();
 }
 
-const platform = () => (isTauri ? "windows" : "web");
+const platform = () => (isWindowsApp ? "windows" : "web");
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function Setup() {
@@ -33,7 +33,7 @@ export function Setup() {
   useEffect(() => { if (!link.get("hub") && storedHub) setHub(storedHub); }, [storedHub]); // eslint-disable-line react-hooks/exhaustive-deps
   const [code, setCode] = useState(link.get("code") ?? "");
   const [mainKey, setMainKey] = useState(link.get("token") ?? "");
-  const [name, setName] = useState(link.get("name") ?? (isTauri ? "Windows" : "Browser"));
+  const [name, setName] = useState(link.get("name") ?? (isAndroid ? "Android" : isWindowsApp ? "Windows" : "Browser"));
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   // A link to another hub than the one this device uses waits for a yes: a link in a note, a page or an email

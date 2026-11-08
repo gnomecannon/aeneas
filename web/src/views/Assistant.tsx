@@ -12,7 +12,7 @@ import { fmtDateTime } from "../lib/time";
 import { useDictation } from "../lib/useDictation";
 import { DictationNotice } from "../components/DictationNotice";
 import { useModules } from "../lib/modules";
-import { isTauri } from "../tauri/bridge";
+import { isWindowsApp } from "../tauri/bridge";
 import { NO_LOCAL_VOICE, localVoiceAvailable, setSpeakVoiceReplies, speak, speakVoiceReplies, speechSupported, stopSpeaking, useSpeaking } from "../lib/speech";
 import { deriveHosts, detectHost, splitPreflight, type LedgerF, type SessionClose } from "../lib/memory";
 import type { Entity } from "@everythingapp/shared";
@@ -362,7 +362,7 @@ export function Assistant({ id }: { id?: string }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   /** Set when dictation put words in the box, so the reply to that message is read aloud. */
   const voiceTurn = useRef(false);
-  const dictation = useDictation((t) => { voiceTurn.current = true; setInput((cur) => (cur.trim() ? `${cur.trimEnd()} ${t}` : t)); }, isTauri);
+  const dictation = useDictation((t) => { voiceTurn.current = true; setInput((cur) => (cur.trim() ? `${cur.trimEnd()} ${t}` : t)); }, isWindowsApp);
   const { on } = useModules();
   const talkOk = dictation.supported && on("voice");
   // Answers are read only with a voice that runs on this device; online voices would send the text away.

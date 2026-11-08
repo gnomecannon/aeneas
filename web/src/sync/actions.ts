@@ -4,10 +4,10 @@ import { engine } from "./engine";
 import { createEntity, updateEntity, now, uuid } from "./edits";
 import { HubError } from "./api";
 import { completeTaskPatch } from "@everythingapp/shared";
-import { isTauri } from "../tauri/bridge";
+import { isWindowsApp } from "../tauri/bridge";
 import { celebrate } from "../feel/events";
 
-export const SOURCE: Source = isTauri ? "windows" : "web";
+export const SOURCE: Source = isWindowsApp ? "windows" : "web";
 
 function isNetworkError(e: unknown): boolean {
   return !(e instanceof HubError);

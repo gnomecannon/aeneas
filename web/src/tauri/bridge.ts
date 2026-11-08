@@ -1,5 +1,9 @@
 /** Thin wrapper around Tauri APIs. Every call is a no-op in a plain browser. */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+/** The Android app (Tauri on Android): one window, no tray, widget or global shortcut. */
+export const isAndroid = isTauri && typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+/** The Windows app (Tauri on a desktop): tray, Now widget, global Capture shortcut, start at login. */
+export const isWindowsApp = isTauri && !isAndroid;
 
 export async function windowLabel(): Promise<string> {
   if (!isTauri) return "main";

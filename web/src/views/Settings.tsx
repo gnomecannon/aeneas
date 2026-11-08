@@ -3,7 +3,7 @@ import { HubClient, normalizeHubUrl } from "../sync/api";
 import { db, META, setMeta, type RejectedEdit } from "../sync/db";
 import { engine } from "../sync/engine";
 import { useMeta, useSyncState } from "../sync/hooks";
-import { CAPTURE_SHORTCUTS, autostartEnabled, getCaptureShortcut, getWidget, isTauri, notificationsAllowed, notify, onWidgetChanged, setAutostart, setCaptureShortcut, setWidget, setupFilePath } from "../tauri/bridge";
+import { CAPTURE_SHORTCUTS, autostartEnabled, getCaptureShortcut, getWidget, isAndroid, isTauri, isWindowsApp, notificationsAllowed, notify, onWidgetChanged, setAutostart, setCaptureShortcut, setWidget, setupFilePath } from "../tauri/bridge";
 import { applySetupFile, type SetupFileResult } from "../tauri/setupFile";
 import { checkForUpdate, manifestCheck, promptInstall, shellVersion, subscribePwa, type PwaState } from "../pwa";
 import { fmtDateTime } from "../lib/time";
@@ -53,7 +53,7 @@ export function Settings({ parts, params }: { parts: string[]; params: URLSearch
   if (a === "data") return <Data />;
   if (a === "import") return <ImportPage />;
   if (a === "modules") return <ModulesPage />;
-  if (a === "windows" && isTauri) return <WindowsApp />;
+  if (a === "windows" && isWindowsApp) return <WindowsApp />;
   if (a === "about") return <About />;
   return <SettingsHome />;
 }
@@ -83,7 +83,7 @@ function SettingsHome() {
       (w) => setWork(w.enabled ? `On, ${w.events} events and ${w.tasks} tasks` : "Off"),
       () => setWork(""),
     );
-    if (!isTauri) return;
+    if (!isWindowsApp) return;
     void getWidget().then(setWidgetState);
     void autostartEnabled().then(setAuto);
   }, []);
@@ -106,12 +106,12 @@ function SettingsHome() {
         <NavRow href="/settings/modules" title="Modules" summary={modulesSummary(modules)} />
         <NavRow href="/settings/import" title="Bring your data in" summary="ChatGPT, Google Takeout, Obsidian and other notes, text" />
         <NavRow href="/settings/connections" title="Connections" summary={connectionsSummary(links)} />
-        <NavRow href="/settings/notifications" title="Notifications" summary={isTauri ? "Windows notifications and banners" : "Banners while the app is open"} />
+        <NavRow href="/settings/notifications" title="Notifications" summary={isWindowsApp ? "Windows notifications and banners" : "Banners while the app is open"} />
         <NavRow href="/settings/work" title="Work space" summary={work || (engine.client ? "Work calendar and tasks" : "Hub not configured")} />
         <NavRow href="/settings/planner" title="Planner" summary="Plan rules, week and renewals" />
         <NavRow href="/settings/data" title="Data" summary="Export notes, clear this device" />
-        {isTauri && <NavRow href="/settings/windows" title="Windows app" summary={windows} />}
-        <NavRow href="/settings/about" title="About" summary={isTauri ? "Versions and keyboard shortcuts" : "Install, updates and keyboard shortcuts"} />
+        {isWindowsApp && <NavRow href="/settings/windows" title="Windows app" summary={windows} />}
+        <NavRow href="/settings/about" title="About" summary={isWindowsApp ? "Versions and keyboard shortcuts" : "Install, updates and keyboard shortcuts"} />
       </nav>
     </div>
   );
@@ -288,12 +288,12 @@ function Notifications() {
           <li>The morning digest and the evening recall quiz</li>
         </ul>
         <div className="muted small">
-          {isTauri ? "They show as banners in the app and as Windows notifications." : "In a browser they show as banners at the top of the app while it is open."} When each reminder fires and how hard it is to snooze are set on the reminder itself.
+          {isWindowsApp ? "They show as banners in the app and as Windows notifications." : "In a browser they show as banners at the top of the app while it is open."} When each reminder fires and how hard it is to snooze are set on the reminder itself.
         </div>
       </div>
       {isTauri && (
         <div className="card col">
-          <h2>Windows notifications</h2>
+          <h2>{isAndroid ? "Android notifications" : "Windows notifications"}</h2>
           <div className="small">{allowed === null ? "Checking" : allowed ? "Allowed." : "Not allowed yet."}</div>
           <div className="row">
             {allowed === false && (

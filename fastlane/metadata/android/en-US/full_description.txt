@@ -1,0 +1,25 @@
+Aeneas is a private personal system: capture, tasks and a planner, notes that link and tag themselves, reminders, quick logs, search, and an assistant with a memory.
+
+Everything lives on a hub you run on your own computer (a Mac or a Linux machine). Your phone talks only to it. There is no account with us, no server of ours, no analytics and no tracking. The app needs your own hub; the setup guide is at https://github.com/gnomecannon/aeneas
+
+<b>Capture anything</b>
+Type into the inbox from the app. The assistant files each capture where it belongs and keeps a dated diary, so nothing needs sorting by hand.
+
+<b>Plan and remember</b>
+Tasks, a day planner, reminders with notifications, renewals and subscriptions, and quick logs for anything you track.
+
+<b>Notes that organize themselves</b>
+Markdown notes with tags and links to related notes added for you, kept as plain files on your hub.
+
+<b>An assistant that stays home</b>
+The assistant runs on a model on your own computer and remembers what you tell it. A cloud model is something you can choose, never the default. Web lookups are off until you turn them on, and then go only through Tor.
+
+<b>Modules you choose</b>
+Turn on only what you use: homelab monitoring, projects, music sketches, wiki, health, pets, food, games and films, and more.
+
+<b>Private by design</b>
+- One key per device; remove a lost phone from any other device.
+- Encrypted backups with a key only you hold.
+- Free and open source (AGPL-3.0), so anyone can check what it does.
+
+The hub must be reachable over HTTPS (for example with Tailscale, which the installer sets up). The Android app does not have the iPhone app's widgets, share sheet or watch app yet.

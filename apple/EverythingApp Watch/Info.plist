@@ -30,7 +30,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>202611072328</string>
+	<string>202611080034</string>
 	<key>EAAppGroup</key>
 	<string>group.$(EA_BUNDLE_PREFIX).everythingapp</string>
 	<key>NSMicrophoneUsageDescription</key>

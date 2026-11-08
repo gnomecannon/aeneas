@@ -301,6 +301,8 @@ final class AppModel: ObservableObject {
         if isConfigured { Task { await refreshProfile(); await refreshModules() } }
         #if os(iOS) && DEBUG
         await DebugHooks.applyLaunchArguments(self)
+        #elseif os(macOS) && DEBUG
+        await DebugHooksMac.applyLaunchArguments(self)
         #endif
         // Nothing here asks for a permission (release rule 2): each runs only with access already given and its
         // module on. Asking happens on the permission screen after pairing or a module switched on, or on the

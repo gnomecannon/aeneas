@@ -1,0 +1,8 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- The app's own background (the bg color in web/src/styles.css) behind the status and navigation bars. -->
+    <style name="Theme.everythingapp" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowBackground">#17181b</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

@@ -514,6 +514,6 @@ export class SyncEngine {
 }
 
 export const engine = new SyncEngine({
-  platform: () => (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? "windows" : "web"),
-  deviceName: () => (typeof navigator !== "undefined" && "__TAURI_INTERNALS__" in window ? "Windows" : "Browser"),
+  platform: () => (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && !/Android/i.test(navigator.userAgent) ? "windows" : "web"),
+  deviceName: () => (typeof navigator !== "undefined" && "__TAURI_INTERNALS__" in window ? (/Android/i.test(navigator.userAgent) ? "Android" : "Windows") : "Browser"),
 });

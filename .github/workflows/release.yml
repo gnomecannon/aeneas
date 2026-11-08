@@ -41,5 +41,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* --title "EverythingApp ${GITHUB_REF_NAME#v}" \
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Aeneas ${GITHUB_REF_NAME#v}" \
             --notes "Checksums in SHA256SUMS. Check with sha256sum -c SHA256SUMS, and gh attestation verify <file> --repo ${{ github.repository }}."

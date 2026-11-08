@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main, capture, Now widget and pop-out windows",
+  "description": "Every platform: the app's windows, notifications, links and its setup file",
   "windows": [
     "main",
     "capture",
@@ -10,24 +10,9 @@
   ],
   "permissions": [
     "core:default",
-    "core:window:allow-hide",
-    "core:window:allow-show",
-    "core:window:allow-set-focus",
-    "core:window:allow-set-always-on-top",
-    "core:window:allow-set-decorations",
-    "core:window:allow-set-size",
-    "core:window:allow-close",
-    "core:window:allow-start-dragging",
     "core:event:default",
     "notification:default",
     "opener:allow-open-url",
-    "autostart:allow-enable",
-    "autostart:allow-disable",
-    "autostart:allow-is-enabled",
-    "global-shortcut:allow-is-registered",
-    "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister",
-    "window-state:default",
     {
       "identifier": "fs:allow-exists",
       "allow": [

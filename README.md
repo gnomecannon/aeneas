@@ -45,7 +45,9 @@ About 15 minutes in all, plus the model download (about 1.5 GB on a computer wit
    the machine in one click, shows the key that opens your backups (save it in your password manager), and makes a
    pairing code for your other devices. About 5 minutes plus the download.
 3. Install Aeneas on your iPhone, iPad or Mac, or open the web app in a browser. (To look around before you
-   have a hub, the Apple apps offer "Try it with sample data": a made-up month, kept on the device.)
+   have a hub, the Apple apps offer "Try it with sample data": a made-up month, kept on the device.) On Android,
+   install the APK from the Releases page (or from F-Droid once it is listed). Android accepts only a hub with a real
+   certificate, so it needs the hub's Tailscale address (see Away from home below).
 4. On the Welcome page, press Make a pairing code and scan the QR code with the phone's camera (on a Mac, open the
    link). Each device gets its own key, and scanning lets it check the hub's certificate.
 

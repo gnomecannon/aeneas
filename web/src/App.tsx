@@ -15,7 +15,7 @@ import { Week } from "./views/Week";
 import { Renewals } from "./views/Renewals";
 import { PlanRules } from "./views/PlanRules";
 import { Dashboard } from "./views/Dashboard";
-import { isTauri, onNavigate, windowLabel } from "./tauri/bridge";
+import { isWindowsApp, onNavigate, windowLabel } from "./tauri/bridge";
 import { applySetupFile } from "./tauri/setupFile";
 import { Now } from "./views/Now";
 import { Capture } from "./views/Capture";
@@ -77,7 +77,7 @@ function useTheme() {
 
 async function boot(): Promise<void> {
   await engine.start();
-  if (!isTauri) return;
+  if (!isWindowsApp) return;
   const hubUrl = await getMeta<string>(META.hubUrl);
   const token = await getMeta<string>(META.token);
   if (hubUrl && token) return;

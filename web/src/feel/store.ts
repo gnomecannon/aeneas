@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { engine } from "../sync/engine";
 import { HubError } from "../sync/api";
-import { isTauri } from "../tauri/bridge";
+import { isWindowsApp } from "../tauri/bridge";
 import { DEFAULT_FEEL, mergeFeel, viewFrom, type Feel, type FeelView } from "./prefs";
 
 /**
@@ -49,7 +49,7 @@ function savePending() {
 /** A computer (the Windows app, or a browser with a mouse) plays notes only once its own switch is on. */
 const SOUND_HERE = "ea.feel.soundHere";
 export const onComputer =
-  isTauri || (typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
+  isWindowsApp || (typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover) and (pointer: fine)").matches);
 let soundOnComputer = read(SOUND_HERE) === true;
 
 export function soundOnThisComputer(): boolean {
