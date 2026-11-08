@@ -34,7 +34,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>202611080034</string>
+	<string>202611081718</string>
 	<key>EAAppGroup</key>
 	<string>group.$(EA_BUNDLE_PREFIX).everythingapp</string>
 	<key>ITSAppUsesNonExemptEncryption</key>

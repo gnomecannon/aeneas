@@ -13,6 +13,7 @@ import { useDictation } from "../lib/useDictation";
 import { DictationNotice } from "../components/DictationNotice";
 import { useModules } from "../lib/modules";
 import { isWindowsApp } from "../tauri/bridge";
+import { showKeyboardHints } from "../lib/keyboardHints";
 import { NO_LOCAL_VOICE, localVoiceAvailable, setSpeakVoiceReplies, speak, speakVoiceReplies, speechSupported, stopSpeaking, useSpeaking } from "../lib/speech";
 import { deriveHosts, detectHost, splitPreflight, type LedgerF, type SessionClose } from "../lib/memory";
 import type { Entity } from "@everythingapp/shared";
@@ -723,7 +724,7 @@ export function Assistant({ id }: { id?: string }) {
                     void send();
                   }
                 }}
-                placeholder={dictation.listening ? "Listening. Tap Stop when you are done." : "Message. Ctrl+Enter sends. Paste or drop a screenshot to attach it."}
+                placeholder={dictation.listening ? "Listening. Tap Stop when you are done." : showKeyboardHints() ? "Message. Ctrl+Enter sends. Paste or drop a screenshot to attach it." : "Message"}
                 aria-label="Message"
               />
               <div className="col">

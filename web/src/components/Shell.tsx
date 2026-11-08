@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { HubChip } from "./HubChip";
+import { showKeyboardHints } from "../lib/keyboardHints";
 import { refreshHubIdentity, useHubTitle } from "../lib/hubIdentity";
 import { useLiveQuery } from "dexie-react-hooks";
 import { taskAlertAt } from "@everythingapp/shared";
@@ -233,9 +234,11 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           <PopOut route={route} />
           <Gear active={inSettings} />
         </div>
-        <div className="muted small keys-hint" aria-hidden="true">
-          {keysHint(on)}
-        </div>
+        {showKeyboardHints() && (
+          <div className="muted small keys-hint" aria-hidden="true">
+            {keysHint(on)}
+          </div>
+        )}
       </aside>
       <main className="main" id="main">
         <div className="topbar">

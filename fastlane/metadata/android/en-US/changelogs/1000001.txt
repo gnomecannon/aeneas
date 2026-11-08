@@ -1,0 +1,3 @@
+- Shows whose hub you are paired with, when several people's hubs share one machine.
+- No keyboard shortcut hints on a phone.
+- A pairing link is used once.

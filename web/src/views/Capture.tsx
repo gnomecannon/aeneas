@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { Entity } from "@everythingapp/shared";
 import { capture, type CaptureResult } from "../sync/actions";
 import { hideCurrentWindow, isTauri } from "../tauri/bridge";
+import { showKeyboardHints } from "../lib/keyboardHints";
 import { fmtDateTime } from "../lib/time";
 import { useDictation } from "../lib/useDictation";
 import { useEntity } from "../sync/hooks";
@@ -111,7 +112,7 @@ export function Capture({ mini = false }: { mini?: boolean }) {
             Close
           </button>
         )}
-        <span className="muted small">Save writes it in today's diary and the assistant files it: calendar, tasks and reminders, people, memory, logs, notes and ideas. Ctrl+Enter saves.</span>
+        <span className="muted small">Save writes it in today's diary and the assistant files it: calendar, tasks and reminders, people, memory, logs, notes and ideas.{showKeyboardHints() ? " Ctrl+Enter saves." : ""}</span>
       </div>
       {humming && (
         <div className="card" style={{ marginTop: 12 }}>

@@ -24,6 +24,9 @@ function linkParams(): URLSearchParams {
 const platform = () => (isWindowsApp ? "windows" : "web");
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Pairing links already acted on in this page load. */
+const linksUsed = new Set<string>();
+
 export function Setup() {
   const link = linkParams();
   const unpaired = useMeta<string>(META.unpaired);
@@ -108,6 +111,11 @@ export function Setup() {
   // Opened from a pairing link: connect at once, asking first only when it would leave another hub.
   useEffect(() => {
     if (!link.get("hub") || !(link.get("code") || link.get("token"))) return;
+    // A code works once: a second run of this (React runs effects twice in development, or the screen mounts
+    // again) would trade it or the main key a second time and the first device's key would be dropped.
+    const once = `${link.get("hub")}|${link.get("code") ?? link.get("token")}`;
+    if (linksUsed.has(once)) return;
+    linksUsed.add(once);
     void (async () => {
       const current = await getMeta<string>(META.hubUrl);
       const key = await getMeta<string>(META.token);
