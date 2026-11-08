@@ -1,0 +1,91 @@
+[
+  {
+    "name": "Sushi delivery",
+    "kind": "delivery",
+    "items": ["salmon and tuna nigiri", "cucumber roll", "edamame"],
+    "tags": ["protein", "sushi"],
+    "rating": 5,
+    "cost": 32
+  },
+  {
+    "name": "Thai larb and papaya salad",
+    "kind": "delivery",
+    "items": ["chicken larb", "green papaya salad", "jasmine rice"],
+    "tags": ["protein", "plant", "spicy"],
+    "rating": 4,
+    "cost": 24
+  },
+  {
+    "name": "Grilled chicken bowl",
+    "kind": "grab",
+    "items": ["grilled chicken", "brown rice", "greens", "avocado"],
+    "tags": ["protein", "plant", "cheap"],
+    "rating": 4,
+    "cost": 14
+  },
+  {
+    "name": "Steak house",
+    "kind": "restaurant",
+    "items": ["sirloin", "broccoli", "side salad"],
+    "tags": ["protein"],
+    "rating": 4,
+    "cost": 45
+  },
+  {
+    "name": "Eggs and greens",
+    "kind": "grab",
+    "items": ["three egg omelet", "spinach", "whole grain toast"],
+    "tags": ["protein", "cheap"],
+    "rating": 3,
+    "cost": 12
+  },
+  {
+    "name": "Mediterranean plate",
+    "kind": "delivery",
+    "items": ["chicken shawarma", "hummus", "grilled vegetables", "pita"],
+    "tags": ["protein", "plant"],
+    "rating": 4,
+    "cost": 22
+  },
+  {
+    "name": "Poke bowl",
+    "kind": "grab",
+    "items": ["ahi poke", "rice", "seaweed salad", "edamame"],
+    "tags": ["protein", "sushi", "plant"],
+    "rating": 4,
+    "cost": 18
+  },
+  {
+    "name": "Burrito bowl",
+    "kind": "grab",
+    "items": ["chicken", "black beans", "rice", "lettuce", "no salsa"],
+    "tags": ["protein", "plant", "cheap"],
+    "rating": 3,
+    "cost": 13
+  },
+  {
+    "name": "General Tso's chicken",
+    "kind": "delivery",
+    "items": ["General Tso's chicken", "white rice"],
+    "tags": ["protein", "sweet-sauce", "fried"],
+    "rating": 4,
+    "cost": 19
+  },
+  {
+    "name": "Chicken tikka masala",
+    "kind": "delivery",
+    "items": ["chicken tikka masala", "naan"],
+    "tags": ["protein", "tomato"],
+    "avoid": true,
+    "rating": 2,
+    "cost": 21
+  },
+  {
+    "name": "Lentil soup and salad",
+    "kind": "delivery",
+    "items": ["lentil soup", "garden salad", "bread"],
+    "tags": ["plant", "cheap"],
+    "rating": 3,
+    "cost": 15
+  }
+]

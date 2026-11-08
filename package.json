@@ -1,0 +1,25 @@
+{
+  "name": "everythingapp",
+  "private": true,
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "workspaces": [
+    "packages/*",
+    "hub",
+    "web",
+    "tools/*"
+  ],
+  "scripts": {
+    "hub": "npm --workspace hub run dev",
+    "web": "npm --workspace web run dev",
+    "test": "npm --workspaces --if-present run test",
+    "typecheck": "npm --workspaces --if-present run typecheck",
+    "license-check": "node tools/license-check/check.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "^0.9.12"
+  }
+}

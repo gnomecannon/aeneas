@@ -1,0 +1,188 @@
+[
+  {
+    "name": "nas01 ping (LAN)",
+    "host": "nas01",
+    "type": "ping",
+    "target": "192.168.50.16",
+    "interval_s": 120
+  },
+  {
+    "name": "desk-pc ping (LAN)",
+    "host": "desk-pc",
+    "type": "ping",
+    "target": "192.168.50.5",
+    "interval_s": 120
+  },
+  {
+    "name": "mini-pc ping (LAN)",
+    "host": "mini-pc",
+    "type": "ping",
+    "target": "192.168.50.2",
+    "interval_s": 120
+  },
+  {
+    "name": "nas01 ping (Tailscale)",
+    "host": "nas01",
+    "type": "ping",
+    "target": "100.90.0.16",
+    "interval_s": 120
+  },
+  {
+    "name": "desk-pc ping (Tailscale)",
+    "host": "desk-pc",
+    "type": "ping",
+    "target": "100.90.0.5",
+    "interval_s": 120
+  },
+  {
+    "name": "mini-pc ping (Tailscale)",
+    "host": "mini-pc",
+    "type": "ping",
+    "target": "100.90.0.2",
+    "interval_s": 120
+  },
+  {
+    "name": "hub health",
+    "host": "server",
+    "type": "http",
+    "target": "http://127.0.0.1:8787/health",
+    "expect": "ok",
+    "interval_s": 60
+  },
+  {
+    "name": "Ollama",
+    "host": "desk-pc",
+    "type": "http",
+    "target": "http://100.90.0.5:11434/api/tags",
+    "interval_s": 60
+  },
+  {
+    "name": "Ollama (hub GPU)",
+    "host": "server",
+    "type": "http",
+    "target": "http://127.0.0.1:11434/api/version",
+    "interval_s": 60
+  },
+  {
+    "name": "UniFi gateway (home-gw)",
+    "host": "home-gw",
+    "type": "tcp",
+    "target": "192.168.50.1:443",
+    "interval_s": 120
+  },
+  {
+    "name": "Laptop backup",
+    "host": "laptop",
+    "target": "mac:laptop",
+    "expect": "28",
+    "type": "backup",
+    "interval_s": 900,
+    "timeout_s": 90,
+    "fails_before_down": 1
+  },
+  {
+    "name": "Laptop backup verification",
+    "host": "laptop",
+    "target": "mac:laptop#verify",
+    "expect": "200",
+    "type": "backup",
+    "interval_s": 900,
+    "timeout_s": 90,
+    "fails_before_down": 1
+  },
+  {
+    "name": "Desk-PC backup",
+    "host": "desk-pc",
+    "target": "windows:desk-pc",
+    "expect": "28",
+    "type": "backup",
+    "interval_s": 900,
+    "timeout_s": 90,
+    "fails_before_down": 1
+  },
+  {
+    "name": "Desk-PC backup verification",
+    "host": "desk-pc",
+    "target": "windows:desk-pc#verify",
+    "expect": "200",
+    "type": "backup",
+    "interval_s": 900,
+    "timeout_s": 90,
+    "fails_before_down": 1
+  },
+  {
+    "name": "NAS backup",
+    "host": "nas01",
+    "target": "linux:jamie@192.168.50.16",
+    "expect": "28",
+    "type": "backup",
+    "interval_s": 900,
+    "timeout_s": 90,
+    "fails_before_down": 1
+  },
+  {
+    "name": "NAS backup verification",
+    "host": "nas01",
+    "target": "linux:jamie@192.168.50.16#verify",
+    "expect": "200",
+    "type": "backup",
+    "interval_s": 900,
+    "timeout_s": 90,
+    "fails_before_down": 1
+  },
+  {
+    "name": "NAS restore test",
+    "host": "nas01",
+    "target": "linux:jamie@192.168.50.16#restore",
+    "expect": "900",
+    "type": "backup",
+    "interval_s": 900,
+    "timeout_s": 90,
+    "fails_before_down": 1
+  },
+  {
+    "name": "Offsite NAS storage ready",
+    "host": "offsite",
+    "type": "http",
+    "target": "http://192.168.50.6:8080/cgi-bin/authLogin.cgi",
+    "expect": "<mediaReady><![CDATA[1]]></mediaReady>",
+    "interval_s": 300,
+    "timeout_s": 10,
+    "fails_before_down": 2
+  },
+  {
+    "name": "UniFi gateway (site-gw, other site)",
+    "host": "site-gw",
+    "type": "tcp",
+    "target": "10.20.0.1:443",
+    "interval_s": 120
+  },
+  {
+    "name": "pve1 Proxmox",
+    "host": "pve1",
+    "type": "tcp",
+    "target": "10.20.0.9:8006",
+    "interval_s": 120
+  },
+  {
+    "name": "pve2 Proxmox",
+    "host": "pve2",
+    "type": "tcp",
+    "target": "10.20.0.8:8006",
+    "interval_s": 120
+  },
+  {
+    "name": "AD domain controller (LDAP)",
+    "host": "AD",
+    "type": "tcp",
+    "target": "10.20.0.10:389",
+    "interval_s": 120
+  },
+  {
+    "name": "AD2 domain controller (LDAP)",
+    "host": "AD2",
+    "type": "tcp",
+    "target": "10.20.0.12:389",
+    "interval_s": 120
+  }
+]

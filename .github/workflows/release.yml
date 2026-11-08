@@ -1,0 +1,45 @@
+# A release, made when a version tag (v1.2.3) is pushed (Phase 4 of docs/05-public-release.md): the source as a
+# tarball and the built web app, with SHA-256 checksums and a signed build attestation, so anyone can check that
+# what they install is what this repository built:
+#   sha256sum -c SHA256SUMS
+#   gh attestation verify everythingapp-<version>-source.tar.gz --repo <owner>/<repo>
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm --workspace hub test
+      - run: npm --workspace web test
+      - run: node --test tools/license-check/check.test.mjs
+      - run: npm run license-check
+      - run: npm --workspace web run build
+      - name: Package
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          mkdir dist
+          git archive --format=tar.gz --prefix="everythingapp-$v/" -o "dist/everythingapp-$v-source.tar.gz" "$GITHUB_REF_NAME"
+          tar -czf "dist/everythingapp-$v-web.tar.gz" -C web dist
+          cp deploy/install.sh dist/install.sh
+          (cd dist && sha256sum * > SHA256SUMS)
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --title "EverythingApp ${GITHUB_REF_NAME#v}" \
+            --notes "Checksums in SHA256SUMS. Check with sha256sum -c SHA256SUMS, and gh attestation verify <file> --repo ${{ github.repository }}."

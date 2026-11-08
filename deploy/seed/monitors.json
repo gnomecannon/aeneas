@@ -1,0 +1,10 @@
+[
+  {
+    "name": "hub health",
+    "host": "hub",
+    "type": "http",
+    "target": "http://127.0.0.1:{{port}}/health",
+    "expect": "ok",
+    "interval_s": 60
+  }
+]

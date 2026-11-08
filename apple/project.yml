@@ -1,0 +1,360 @@
+name: EverythingApp
+options:
+  bundleIdPrefix: $(EA_BUNDLE_PREFIX)
+  xcodeVersion: "26.6"
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "15.0"
+    watchOS: "11.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  defaultConfig: Debug
+configFiles:
+  Debug: Signing.xcconfig
+  Release: Signing.xcconfig
+# Build settings are spelled out in full so the project does not depend on the
+# xcodegen preset bundle being installed next to the binary.
+settings:
+  base:
+    DEVELOPMENT_TEAM: $(EA_TEAM_ID)
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "Apple Development"
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    VERSIONING_SYSTEM: apple-generic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # Required for notarization (Developer ID downloads); the Mac entitlements already cover microphone, calendars,
+    # contacts and location, which the hardened runtime checks. iOS and watchOS ignore it.
+    ENABLE_HARDENED_RUNTIME: YES
+    ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    GENERATE_INFOPLIST_FILE: NO
+    PRODUCT_NAME: "$(TARGET_NAME)"
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_ENABLE_MODULES: YES
+    CLANG_ENABLE_OBJC_ARC: YES
+    CLANG_ANALYZER_NONNULL: YES
+    ENABLE_STRICT_OBJC_MSGSEND: YES
+    GCC_NO_COMMON_BLOCKS: YES
+    GCC_C_LANGUAGE_STANDARD: gnu17
+    CLANG_CXX_LANGUAGE_STANDARD: "gnu++20"
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    DEAD_CODE_STRIPPING: YES
+    COPY_PHASE_STRIP: NO
+  configs:
+    Debug:
+      ONLY_ACTIVE_ARCH: YES
+      SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG $(inherited)"
+      GCC_OPTIMIZATION_LEVEL: "0"
+      GCC_PREPROCESSOR_DEFINITIONS: "DEBUG=1 $(inherited)"
+      DEBUG_INFORMATION_FORMAT: dwarf
+      ENABLE_TESTABILITY: YES
+      MTL_ENABLE_DEBUG_INFO: INCLUDE_SOURCE
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: "-O"
+      SWIFT_COMPILATION_MODE: wholemodule
+      DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+      ENABLE_NS_ASSERTIONS: NO
+      VALIDATE_PRODUCT: YES
+packages:
+  EACore:
+    path: Packages/EACore
+targets:
+  EverythingApp:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: EverythingApp
+        excludes: ["*.entitlements", "Info.plist"]
+      - path: Shared
+    dependencies:
+      - package: EACore
+      - target: EverythingAppWidgets
+      - target: EverythingAppShare
+        platformFilter: iOS
+      - target: EverythingApp Watch
+        platformFilter: iOS
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: Watch
+    info:
+      path: EverythingApp/Info.plist
+      properties:
+        CFBundleDisplayName: Aeneas
+        CFBundleName: Aeneas
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EAAppGroup: group.$(EA_BUNDLE_PREFIX).everythingapp
+        ITSAppUsesNonExemptEncryption: false
+        LSApplicationCategoryType: public.app-category.productivity
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        UIBackgroundModes: [fetch]
+        NSSpeechRecognitionUsageDescription: Dictation turns your speech into text in the capture box and the assistant, only from when you tap the mic until you tap it again. This device does it itself when it can; when it cannot, Apple's speech service does, and the app tells you before the first time. Nothing reaches your hub until you tap Save or Send.
+        NSPhotoLibraryAddUsageDescription: When you turn on Save created images to Photos, images you create in EverythingApp are added to your camera roll.
+        NSPhotoLibraryUsageDescription: When you turn on full photo library access, the Image Gallery shows your photos so you can use one as a reference for a new image. The assistant can also look at your newest photos when you ask it to. A photo leaves the phone only when you use it, add it or ask about it.
+        NSLocationWhenInUseUsageDescription: With Calculators on, the bill splitter can fill in your state's meals tax. Only an approximate position is used, and it goes to your own hub and nowhere else.
+        NSLocationUsageDescription: With Calculators on, the bill splitter can fill in your state's meals tax. Only an approximate position is used, and it goes to your own hub and nowhere else.
+        NSContactsUsageDescription: With Sync Apple Contacts on, People and Apple Contacts are kept the same both ways, so the assistant can look people up and save details you give it, such as an address.
+        NSMicrophoneUsageDescription: The microphone is used while you dictate or record a hum, from pressing the button until you stop it.
+        NSHealthShareUsageDescription: Reads weight, blood pressure, sleep, steps, workouts, caffeine and mood so they are logged in EverythingApp without typing them twice.
+        NSHealthUpdateUsageDescription: Writes what you log in EverythingApp (weight, blood pressure, caffeine, mood and timed activities) to Health, so it is in both places.
+        NSCalendarsFullAccessUsageDescription: EverythingApp reads the titles and times of the calendars you choose, so your meetings show in your plan, and writes the events and planned blocks you make in the app to your calendar.
+        NSRemindersFullAccessUsageDescription: EverythingApp keeps your tasks and Apple Reminders the same, both ways.
+        BGTaskSchedulerPermittedIdentifiers: [$(PRODUCT_BUNDLE_IDENTIFIER).calendar]
+        # No arbitrary loads. Plain http only where the hub can be: a local hub (IP addresses, unqualified names,
+        # .local) and Tailscale names (ts.net), whose traffic WireGuard encrypts. A pinned hub with its own
+        # certificate is accepted by the pinning delegate, not by this list.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
+        CFBundleURLTypes:
+          - CFBundleURLName: $(EA_BUNDLE_PREFIX).everythingapp
+            CFBundleURLSchemes: [everythingapp]
+        NSUserActivityTypes: [AskIntent, CaptureIntent, LogWeightIntent, MarkNowDoneIntent, StartActivityIntent]
+        NSSupportsLiveActivities: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EA_BUNDLE_PREFIX).everythingapp
+        PRODUCT_NAME: EverythingApp
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        "LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]": "$(inherited) @executable_path/Frameworks"
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks"
+        COMBINE_HIDPI_IMAGES: YES
+        SDKROOT: auto
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator macosx"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": EverythingApp/EverythingApp-iOS.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": EverythingApp/EverythingApp-iOS.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": EverythingApp/EverythingApp-macOS.entitlements
+        ENABLE_PREVIEWS: YES
+        SUPPORTS_MACCATALYST: NO
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+  EverythingAppWidgets:
+    type: app-extension
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: EverythingAppWidgets
+        excludes: ["*.entitlements", "Info.plist"]
+      - path: Shared/EAActivity.swift
+    dependencies:
+      - package: EACore
+    info:
+      path: EverythingAppWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Aeneas Widgets
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EAAppGroup: group.$(EA_BUNDLE_PREFIX).everythingapp
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        # The Done button marks the Now task done on the hub: the same hub addresses as the app.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
+    entitlements:
+      path: EverythingAppWidgets/EverythingAppWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(EA_BUNDLE_PREFIX).everythingapp]
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EA_BUNDLE_PREFIX).everythingapp.widgets
+        APPLICATION_EXTENSION_API_ONLY: YES
+        "LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]": "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
+        SDKROOT: auto
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator macosx"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+  EverythingAppShare:
+    # The share sheet entry: text, links and images from any app go to Capture. iPhone and iPad only.
+    type: app-extension
+    supportedDestinations: [iOS]
+    sources:
+      - path: EverythingAppShare
+        excludes: ["*.entitlements", "Info.plist"]
+      - path: EverythingApp/Views/ImageShrinker.swift
+    dependencies:
+      - package: EACore
+    info:
+      path: EverythingAppShare/Info.plist
+      properties:
+        CFBundleDisplayName: Aeneas
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EAAppGroup: group.$(EA_BUNDLE_PREFIX).everythingapp
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsWebPageWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 1
+        # Shared items go straight to the hub: the same hub addresses as the app.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            ts.net:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
+    entitlements:
+      path: EverythingAppShare/EverythingAppShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(EA_BUNDLE_PREFIX).everythingapp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EA_BUNDLE_PREFIX).everythingapp.share
+        APPLICATION_EXTENSION_API_ONLY: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        SDKROOT: iphoneos
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+        SUPPORTS_MACCATALYST: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+  EverythingApp Watch:
+    # Single-target SwiftUI watch app (no WatchKit extension): plain application on watchOS.
+    type: application
+    platform: watchOS
+    sources:
+      - path: EverythingApp Watch
+        excludes: ["*.entitlements", "Info.plist"]
+      - path: Shared
+      # Hum on the wrist records the same WAV as the iPhone.
+      - path: EverythingApp/Views/Making/HumRecorder.swift
+    dependencies:
+      - package: EACore
+      - target: EverythingAppWatchWidgets
+    info:
+      path: EverythingApp Watch/Info.plist
+      properties:
+        CFBundleDisplayName: Aeneas
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EAAppGroup: group.$(EA_BUNDLE_PREFIX).everythingapp
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: $(EA_BUNDLE_PREFIX).everythingapp
+        WKRunsIndependentlyOfCompanionApp: true
+        NSMicrophoneUsageDescription: The microphone is used while you record a hum, from pressing Record until you stop it.
+        # A hum keeps recording when the wrist drops.
+        UIBackgroundModes: [audio]
+        # No transport exceptions: the Watch never reaches the hub itself (every call goes through the iPhone).
+        CFBundleURLTypes:
+          - CFBundleURLName: $(EA_BUNDLE_PREFIX).everythingapp.watchkitapp
+            CFBundleURLSchemes: [everythingapp]
+        NSUserActivityTypes: [AskIntent, CaptureIntent, LogWeightIntent, MarkNowDoneIntent, StartActivityIntent]
+    entitlements:
+      path: EverythingApp Watch/EverythingApp Watch.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(EA_BUNDLE_PREFIX).everythingapp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EA_BUNDLE_PREFIX).everythingapp.watchkitapp
+        PRODUCT_NAME: EverythingApp Watch
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks"
+        SDKROOT: watchos
+        SUPPORTED_PLATFORMS: "watchos watchsimulator"
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: YES
+        ENABLE_PREVIEWS: YES
+  EverythingAppWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: EverythingAppWatchWidgets
+        excludes: ["*.entitlements", "Info.plist"]
+    dependencies:
+      - package: EACore
+    info:
+      path: EverythingAppWatchWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Aeneas Complications
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EAAppGroup: group.$(EA_BUNDLE_PREFIX).everythingapp
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: EverythingAppWatchWidgets/EverythingAppWatchWidgets.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(EA_BUNDLE_PREFIX).everythingapp]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EA_BUNDLE_PREFIX).everythingapp.watchkitapp.watchwidgets
+        APPLICATION_EXTENSION_API_ONLY: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
+        SDKROOT: watchos
+        SUPPORTED_PLATFORMS: "watchos watchsimulator"
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: YES
+  EverythingAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: EverythingAppUITests
+    dependencies:
+      - target: EverythingApp
+    info:
+      path: EverythingAppUITests/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        EAAppGroup: group.$(EA_BUNDLE_PREFIX).everythingapp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(EA_BUNDLE_PREFIX).everythingapp.uitests
+        SDKROOT: iphoneos
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        TEST_TARGET_NAME: EverythingApp
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @loader_path/Frameworks"
+schemes:
+  EverythingApp:
+    build:
+      targets:
+        EverythingApp: all
+        EverythingAppUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - EverythingAppUITests
+    archive:
+      config: Release
+  EverythingApp Watch:
+    build:
+      targets:
+        EverythingApp Watch: all
+    run:
+      config: Debug
+  EverythingAppWidgets:
+    build:
+      targets:
+        EverythingAppWidgets: all
+    run:
+      config: Debug
+  EverythingAppWatchWidgets:
+    build:
+      targets:
+        EverythingAppWatchWidgets: all
+    run:
+      config: Debug

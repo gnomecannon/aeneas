@@ -1,0 +1,324 @@
+[
+  {
+    "category": "identity",
+    "key": "name",
+    "value": "Jamie",
+    "confidence": 1
+  },
+  {
+    "category": "identity",
+    "key": "age",
+    "value": "30",
+    "confidence": 1
+  },
+  {
+    "category": "identity",
+    "key": "location",
+    "value": "Springfield, USA. Timezone America/New_York.",
+    "confidence": 0.9
+  },
+  {
+    "category": "identity",
+    "key": "job",
+    "value": "Bookkeeper at a small firm, weekday office hours.",
+    "confidence": 0.95
+  },
+  {
+    "category": "identity",
+    "key": "background",
+    "value": "Grew up tinkering with computers; likes building things.",
+    "confidence": 0.95
+  },
+  {
+    "category": "relationship",
+    "key": "partner",
+    "value": "Partner: Alex.",
+    "confidence": 0.9
+  },
+  {
+    "category": "relationship",
+    "key": "dog:name",
+    "value": "Dog: Biscuit, a beagle.",
+    "confidence": 1,
+    "source": "seed"
+  },
+  {
+    "category": "relationship",
+    "key": "cat",
+    "value": "Cat: Pepper.",
+    "confidence": 0.9,
+    "source": "seed"
+  },
+  {
+    "category": "relationship",
+    "key": "friends",
+    "value": "Friends: Jo and Chris, game nights.",
+    "confidence": 0.9
+  },
+  {
+    "category": "relationship",
+    "key": "family",
+    "value": "Parents live two hours away.",
+    "confidence": 0.9,
+    "private": true
+  },
+  {
+    "category": "health",
+    "key": "diagnoses",
+    "value": "None recorded.",
+    "confidence": 1,
+    "private": true
+  },
+  {
+    "category": "health",
+    "key": "medications",
+    "value": "Vitamin D daily.",
+    "confidence": 0.95,
+    "private": true
+  },
+  {
+    "category": "health",
+    "key": "metrics",
+    "value": "Steps tracked by the watch.",
+    "confidence": 0.95,
+    "private": true,
+    "source": "seed"
+  },
+  {
+    "category": "health",
+    "key": "doctor_rules",
+    "value": "Doctor's rules: walk daily, more vegetables, less salt.",
+    "confidence": 0.95,
+    "private": true
+  },
+  {
+    "category": "constraint",
+    "key": "diet:no_cook",
+    "value": "Prefers food that needs no cooking on weeknights.",
+    "confidence": 1
+  },
+  {
+    "category": "constraint",
+    "key": "diet:textures",
+    "value": "No mushroom or olive textures.",
+    "confidence": 1
+  },
+  {
+    "category": "constraint",
+    "key": "diet:caffeine",
+    "value": "No caffeine after 2 PM.",
+    "confidence": 0.9,
+    "source": "seed"
+  },
+  {
+    "category": "constraint",
+    "key": "time:blocks",
+    "value": "Focus blocks of 45 minutes.",
+    "confidence": 1
+  },
+  {
+    "category": "constraint",
+    "key": "reminders",
+    "value": "One reminder per task.",
+    "confidence": 0.9
+  },
+  {
+    "category": "constraint",
+    "key": "upkeep",
+    "value": "Chores on Sunday.",
+    "confidence": 1
+  },
+  {
+    "category": "constraint",
+    "key": "budget",
+    "value": "Monthly budget for hobbies.",
+    "confidence": 0.9
+  },
+  {
+    "category": "constraint",
+    "key": "time:evenings",
+    "value": "Tuesday evenings busy with a class.",
+    "confidence": 0.9
+  },
+  {
+    "category": "constraint",
+    "key": "planning",
+    "value": "Plans the week on Sunday.",
+    "confidence": 0.9
+  },
+  {
+    "category": "constraint",
+    "key": "lists",
+    "value": "Keeps lists; reminders help.",
+    "confidence": 0.9
+  },
+  {
+    "category": "preference",
+    "key": "learning",
+    "value": "Learns by doing.",
+    "confidence": 1
+  },
+  {
+    "category": "preference",
+    "key": "tone",
+    "value": "Plain and direct.",
+    "confidence": 1
+  },
+  {
+    "category": "preference",
+    "key": "voice",
+    "value": "Short sentences.",
+    "confidence": 1
+  },
+  {
+    "category": "preference",
+    "key": "humor",
+    "value": "Dry humor.",
+    "confidence": 0.9
+  },
+  {
+    "category": "preference",
+    "key": "music_taste",
+    "value": "Synthwave and jazz.",
+    "confidence": 0.9
+  },
+  {
+    "category": "preference",
+    "key": "games",
+    "value": "Strategy and co-op games.",
+    "confidence": 0.9
+  },
+  {
+    "category": "host",
+    "key": "host:laptop",
+    "value": "laptop: a Mac for photos and writing.",
+    "confidence": 1
+  },
+  {
+    "category": "host",
+    "key": "host:desk-pc",
+    "value": "desk-pc: a Windows desktop with a graphics card that runs Ollama.",
+    "confidence": 1
+  },
+  {
+    "category": "host",
+    "key": "host:server",
+    "value": "server: the Linux box that runs the hub.",
+    "confidence": 0.9
+  },
+  {
+    "category": "host",
+    "key": "host:nas01",
+    "value": "nas01: a file server with the backups.",
+    "confidence": 0.95
+  },
+  {
+    "category": "host",
+    "key": "host:pve1",
+    "value": "pve1: a Proxmox host at another site.",
+    "confidence": 0.9
+  },
+  {
+    "category": "host",
+    "key": "network",
+    "value": "Home network 192.168.50.0/24, gateway 192.168.50.1.",
+    "confidence": 0.9
+  },
+  {
+    "category": "host",
+    "key": "host:mini-pc",
+    "value": "mini-pc: a small Linux box.",
+    "confidence": 0.7
+  },
+  {
+    "category": "gear",
+    "key": "music_rig",
+    "value": "A MIDI keyboard and an audio interface.",
+    "confidence": 0.95
+  },
+  {
+    "category": "gear",
+    "key": "electronics",
+    "value": "A soldering station and a few microcontrollers.",
+    "confidence": 0.9,
+    "source": "seed"
+  },
+  {
+    "category": "gear",
+    "key": "apple",
+    "value": "An iPhone and a MacBook.",
+    "confidence": 0.9
+  },
+  {
+    "category": "gear",
+    "key": "3d",
+    "value": "A 3D printer.",
+    "confidence": 0.9
+  },
+  {
+    "category": "project",
+    "key": "project:starfall",
+    "value": "Starfall: a game prototype.",
+    "confidence": 0.95
+  },
+  {
+    "category": "project",
+    "key": "project:weather_station",
+    "value": "A backyard weather station.",
+    "confidence": 0.9
+  },
+  {
+    "category": "project",
+    "key": "project:recipe_app",
+    "value": "A recipe app.",
+    "confidence": 0.9
+  },
+  {
+    "category": "project",
+    "key": "project:photo_book",
+    "value": "A family photo book, paused.",
+    "confidence": 0.95
+  },
+  {
+    "category": "project",
+    "key": "project:bird_cam",
+    "value": "A bird feeder camera.",
+    "confidence": 0.9
+  },
+  {
+    "category": "project",
+    "key": "project:songs",
+    "value": "Writing songs.",
+    "confidence": 0.9
+  },
+  {
+    "category": "history",
+    "key": "attempts:planner",
+    "value": "Tried several planners; none stuck.",
+    "confidence": 1
+  },
+  {
+    "category": "history",
+    "key": "obsidian",
+    "value": "Notes live in an Obsidian vault.",
+    "confidence": 1
+  },
+  {
+    "category": "history",
+    "key": "moves",
+    "value": "Moved to a new apartment last spring.",
+    "confidence": 0.9
+  },
+  {
+    "category": "gear",
+    "key": "cars",
+    "value": "A small hatchback.",
+    "confidence": 0.8
+  },
+  {
+    "category": "project",
+    "key": "focus:2026-10",
+    "value": "Focus this month: the hub.",
+    "confidence": 0.9
+  }
+]

@@ -1,0 +1,32 @@
+[
+  {
+    "title": "Work",
+    "type": "blackout",
+    "days": [
+      "mon",
+      "tue",
+      "wed",
+      "thu",
+      "fri"
+    ],
+    "start": "09:00",
+    "end": "17:00",
+    "note": "Office hours. Edit or deactivate on days off.",
+    "active": true
+  },
+  {
+    "title": "Evening block",
+    "type": "preference",
+    "days": [
+      "mon",
+      "tue",
+      "wed",
+      "thu",
+      "fri"
+    ],
+    "start": "18:00",
+    "end": "22:00",
+    "note": "The default place for a longer block on a work day.",
+    "active": true
+  }
+]

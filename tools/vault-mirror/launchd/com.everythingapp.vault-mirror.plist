@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.everythingapp.vault-mirror</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO_DIR__/tools/vault-mirror/launchd/run-mirror.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>EA_REPO_DIR</key>
+    <string>__REPO_DIR__</string>
+    <key>EA_NODE_BIN_DIR</key>
+    <string>__NODE_BIN_DIR__</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/everythingapp/vault-mirror.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/everythingapp/vault-mirror.err.log</string>
+</dict>
+</plist>

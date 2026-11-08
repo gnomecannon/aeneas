@@ -1,0 +1,26 @@
+# Personal data derived from exports. Never commit.
+analysis/
+
+# dependencies and build output
+node_modules/
+dist/
+build/
+.build/
+target/
+DerivedData/
+*.xcodeproj/
+
+# runtime data and secrets
+.env
+hub/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.DS_Store
+.claude/worktrees/
+
+# iCloud conflict copies
+* [2-9].*
+
+# Your own team and name for building the Apple apps (apple/README.md, Build it yourself)
+apple/Signing.local.xcconfig

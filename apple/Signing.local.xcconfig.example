@@ -1,0 +1,5 @@
+// Copy to Signing.local.xcconfig (git ignores it) and fill in your own values.
+// EA_TEAM_ID: Xcode, Settings, Accounts, your team, the 10-character Team ID (a free Apple account has one too).
+// EA_BUNDLE_PREFIX: a reverse-domain name that is yours, like io.github.yourname. Ids must be unique across Apple.
+EA_TEAM_ID = ABCDE12345
+EA_BUNDLE_PREFIX = io.github.yourname

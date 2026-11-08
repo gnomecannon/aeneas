@@ -1,0 +1,89 @@
+[
+  {
+    "title": "Disks fuller than a threshold",
+    "os": "linux",
+    "language": "bash",
+    "body": "df -h --output=target,pcent,size,used | awk 'NR==1 || $2+0 >= {{min_pct}}'",
+    "params": [
+      {
+        "name": "min_pct",
+        "default": "80",
+        "description": "Show disks at least this full, in percent"
+      }
+    ],
+    "tags": [
+      "example",
+      "disk"
+    ],
+    "host": "server"
+  },
+  {
+    "title": "Biggest folders under a path",
+    "os": "linux",
+    "language": "bash",
+    "body": "du -xh --max-depth=1 {{path}} 2>/dev/null | sort -h | tail -n {{count}}",
+    "params": [
+      {
+        "name": "path",
+        "default": "/var/log",
+        "description": "The folder to look in"
+      },
+      {
+        "name": "count",
+        "default": "10",
+        "description": "How many to show"
+      }
+    ],
+    "tags": [
+      "example",
+      "disk"
+    ],
+    "host": "server"
+  },
+  {
+    "title": "Last lines of a service log",
+    "os": "linux",
+    "language": "bash",
+    "body": "journalctl --user -u {{unit}} -n {{lines}} --no-pager",
+    "params": [
+      {
+        "name": "unit",
+        "default": "everythingapp-hub",
+        "description": "The systemd user service"
+      },
+      {
+        "name": "lines",
+        "default": "40",
+        "description": "How many lines"
+      }
+    ],
+    "tags": [
+      "example",
+      "logs"
+    ],
+    "host": "server"
+  },
+  {
+    "title": "Is a port open",
+    "os": "windows",
+    "language": "powershell",
+    "body": "Test-NetConnection {{target}} -Port {{port}} | Select-Object ComputerName,RemotePort,TcpTestSucceeded",
+    "params": [
+      {
+        "name": "target",
+        "default": "server",
+        "description": "Host name or address"
+      },
+      {
+        "name": "port",
+        "default": "8787",
+        "description": "TCP port"
+      }
+    ],
+    "tags": [
+      "example",
+      "network"
+    ],
+    "host": "desk-pc"
+  }
+]

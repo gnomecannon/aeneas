@@ -1,0 +1,26 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm --workspace packages/shared test
+      - run: npm --workspace hub test
+      - run: npm --workspace hub run typecheck
+      - run: npm --workspace tools/vault-mirror test
+      - run: npm --workspace web test
+      - run: npm --workspace web run typecheck
+      - run: npm --workspace web run build
+      # Release rule 5: every npm package and Rust crate under an allowed open-source license (cargo is on the runner).
+      - run: node --test tools/license-check/check.test.mjs
+      - run: npm run license-check
+      - run: node --test tools/public-release/scan.test.mjs

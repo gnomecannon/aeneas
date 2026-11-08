@@ -1,0 +1,22 @@
+[
+  {
+    "type": "reference",
+    "status": "done",
+    "tags": [
+      "mixing",
+      "reference"
+    ],
+    "title": "Mix checklist",
+    "body": "# Mix checklist\n\n- Peaks around -18 dBFS on every track.\n- Master: -1 dBTP ceiling, about -14 LUFS for streaming.\n\n## Mix bus order\n\n1. EQ\n2. Compressor\n3. Limiter\n"
+  },
+  {
+    "type": "reference",
+    "status": "done",
+    "title": "Session checklist",
+    "tags": [
+      "daw",
+      "reference"
+    ],
+    "body": "# Session checklist\n\n- Set the sample rate to match the interface.\n- Buffer size low while recording, high while mixing.\n- Start from your template.\n- Name every track before the first take.\n- Export the mixdown at the end.\n"
+  }
+]

@@ -1,0 +1,407 @@
+[
+  {
+    "title": "Camping weekend",
+    "kind": "packing",
+    "template": true,
+    "tags": [
+      "packing",
+      "camping",
+      "mountains"
+    ],
+    "items": [
+      {
+        "text": "Medications for every day away plus one spare day"
+      },
+      {
+        "text": "Base layer top and bottom, synthetic or wool, no cotton"
+      },
+      {
+        "text": "Insulating mid layer (fleece or puffy)",
+        "note": "Mountain nights can drop near freezing even in summer"
+      },
+      {
+        "text": "Rain shell jacket and rain pants"
+      },
+      {
+        "text": "Warm hat and light gloves"
+      },
+      {
+        "text": "Two pairs of wool hiking socks plus one dry pair for sleeping"
+      },
+      {
+        "text": "Broken-in hiking boots and camp shoes"
+      },
+      {
+        "text": "Headlamp with fresh batteries plus spare batteries"
+      },
+      {
+        "text": "Ferro rod and a lighter as backup"
+      },
+      {
+        "text": "Fixed or folding knife within the legal blade length",
+        "note": "Check the state and campground rules before the trip"
+      },
+      {
+        "text": "Picaridin insect repellent",
+        "note": "Ticks and mosquitoes in the warm months"
+      },
+      {
+        "text": "Water filter and two 1 liter bottles"
+      },
+      {
+        "text": "Tent, footprint, stakes and guylines",
+        "note": "Confirm who is bringing the group tent"
+      },
+      {
+        "text": "Sleeping bag rated to 30 F or lower and sleeping pad"
+      },
+      {
+        "text": "Camp stove, fuel canister and pot"
+      },
+      {
+        "text": "Food for each meal plus trail snacks",
+        "note": "Agree on a shared meal plan with the group"
+      },
+      {
+        "text": "Bear canister or hang bag with 50 ft of cord"
+      },
+      {
+        "text": "Map of the area and the trailhead parking pass"
+      },
+      {
+        "text": "First aid kit with blister care"
+      },
+      {
+        "text": "Sunscreen and sunglasses"
+      },
+      {
+        "text": "Phone, charging cable and battery bank"
+      },
+      {
+        "text": "Trash bags, pack out everything"
+      },
+      {
+        "text": "Toilet paper, trowel and hand sanitizer"
+      },
+      {
+        "text": "Car keys stored in a known pocket"
+      }
+    ]
+  },
+  {
+    "title": "Overnight bag",
+    "kind": "packing",
+    "template": true,
+    "tags": [
+      "packing",
+      "overnight"
+    ],
+    "items": [
+      {
+        "text": "Medications for tonight and tomorrow morning"
+      },
+      {
+        "text": "Phone charger and cable"
+      },
+      {
+        "text": "Watch charger"
+      },
+      {
+        "text": "Toothbrush and toothpaste"
+      },
+      {
+        "text": "Deodorant"
+      },
+      {
+        "text": "Glasses or contacts and case"
+      },
+      {
+        "text": "Change of clothes for tomorrow"
+      },
+      {
+        "text": "Sleep clothes"
+      },
+      {
+        "text": "Work laptop and its charger",
+        "note": "Only on a work day"
+      },
+      {
+        "text": "Work badge",
+        "note": "Only on a work day"
+      },
+      {
+        "text": "Wallet and keys"
+      }
+    ]
+  },
+  {
+    "title": "Work trip",
+    "kind": "packing",
+    "template": true,
+    "tags": [
+      "packing",
+      "work",
+      "travel"
+    ],
+    "items": [
+      {
+        "text": "Work laptop"
+      },
+      {
+        "text": "Laptop charger"
+      },
+      {
+        "text": "Phone charger, watch charger and battery bank",
+        "note": "Battery bank goes in the carry-on, never checked"
+      },
+      {
+        "text": "USB-C to HDMI adapter and a short Ethernet cable"
+      },
+      {
+        "text": "Work badge"
+      },
+      {
+        "text": "Government ID (REAL ID or passport)"
+      },
+      {
+        "text": "Medications for every day away plus two spare days, in the carry-on"
+      },
+      {
+        "text": "Liquids in 3.4 oz (100 ml) bottles in one quart bag",
+        "note": "TSA 3-1-1 rule"
+      },
+      {
+        "text": "Knife and multitool left at home",
+        "note": "No blades in the carry-on"
+      },
+      {
+        "text": "Clothes for each day plus one spare set"
+      },
+      {
+        "text": "Toiletries"
+      },
+      {
+        "text": "Headphones"
+      },
+      {
+        "text": "Travel itinerary and hotel confirmation saved offline"
+      },
+      {
+        "text": "Expense receipts pouch"
+      }
+    ]
+  },
+  {
+    "title": "Day hike",
+    "kind": "packing",
+    "template": true,
+    "tags": [
+      "packing",
+      "hiking"
+    ],
+    "items": [
+      {
+        "text": "Medications for the day"
+      },
+      {
+        "text": "Two liters of water and the water filter"
+      },
+      {
+        "text": "Lunch and trail snacks"
+      },
+      {
+        "text": "Rain shell"
+      },
+      {
+        "text": "Insulating layer",
+        "note": "Summits are colder and windier than the trailhead"
+      },
+      {
+        "text": "Headlamp",
+        "note": "In case the hike runs past sunset"
+      },
+      {
+        "text": "Map, and the trail downloaded offline on the phone"
+      },
+      {
+        "text": "Phone and battery bank"
+      },
+      {
+        "text": "Picaridin insect repellent"
+      },
+      {
+        "text": "Sunscreen, sunglasses and hat"
+      },
+      {
+        "text": "Small first aid kit with blister care"
+      },
+      {
+        "text": "Knife within the legal blade length"
+      },
+      {
+        "text": "Tell someone the route and the expected return time"
+      }
+    ]
+  },
+  {
+    "title": "US states visited",
+    "kind": "states",
+    "template": false,
+    "tags": [
+      "travel",
+      "states"
+    ],
+    "items": [
+      {
+        "text": "Alabama"
+      },
+      {
+        "text": "Alaska"
+      },
+      {
+        "text": "Arizona"
+      },
+      {
+        "text": "Arkansas"
+      },
+      {
+        "text": "California"
+      },
+      {
+        "text": "Colorado"
+      },
+      {
+        "text": "Connecticut"
+      },
+      {
+        "text": "Delaware"
+      },
+      {
+        "text": "Florida"
+      },
+      {
+        "text": "Georgia"
+      },
+      {
+        "text": "Hawaii"
+      },
+      {
+        "text": "Idaho"
+      },
+      {
+        "text": "Illinois"
+      },
+      {
+        "text": "Indiana"
+      },
+      {
+        "text": "Iowa"
+      },
+      {
+        "text": "Kansas"
+      },
+      {
+        "text": "Kentucky"
+      },
+      {
+        "text": "Louisiana"
+      },
+      {
+        "text": "Maine"
+      },
+      {
+        "text": "Maryland"
+      },
+      {
+        "text": "Massachusetts"
+      },
+      {
+        "text": "Michigan"
+      },
+      {
+        "text": "Minnesota"
+      },
+      {
+        "text": "Mississippi"
+      },
+      {
+        "text": "Missouri"
+      },
+      {
+        "text": "Montana"
+      },
+      {
+        "text": "Nebraska"
+      },
+      {
+        "text": "Nevada"
+      },
+      {
+        "text": "New Hampshire"
+      },
+      {
+        "text": "New Jersey"
+      },
+      {
+        "text": "New Mexico"
+      },
+      {
+        "text": "New York"
+      },
+      {
+        "text": "North Carolina"
+      },
+      {
+        "text": "North Dakota"
+      },
+      {
+        "text": "Ohio"
+      },
+      {
+        "text": "Oklahoma"
+      },
+      {
+        "text": "Oregon"
+      },
+      {
+        "text": "Pennsylvania"
+      },
+      {
+        "text": "Rhode Island"
+      },
+      {
+        "text": "South Carolina"
+      },
+      {
+        "text": "South Dakota"
+      },
+      {
+        "text": "Tennessee"
+      },
+      {
+        "text": "Texas"
+      },
+      {
+        "text": "Utah"
+      },
+      {
+        "text": "Vermont"
+      },
+      {
+        "text": "Virginia"
+      },
+      {
+        "text": "Washington"
+      },
+      {
+        "text": "West Virginia"
+      },
+      {
+        "text": "Wisconsin"
+      },
+      {
+        "text": "Wyoming"
+      }
+    ]
+  }
+]
