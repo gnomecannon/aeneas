@@ -13,8 +13,15 @@ The store text, icon and screenshots F-Droid shows come from `fastlane/metadata/
 3. Later versions: push a `vX.Y.Z` tag on the public repository with the version in `web/src-tauri/tauri.conf.json`.
    F-Droid finds new tags on its own (`UpdateCheckMode: Tags`).
 
-The recipe has not been run on F-Droid's build server yet. The parts most likely to need changes there are the Node
-install line and the NDK version.
+The recipe follows the other Tauri apps in fdroiddata (rustup, nodejs and npm from Debian trixie, then `npm ci` and
+`tauri android build`). Its build steps were run from a clean clone of the public tag on 2026-11-08 and gave a 10 MB
+unsigned APK (arm64 and armv7) at the `output` path. It passes `fdroid lint` and `fdroid rewritemeta`.
+
+Submitted from https://gitlab.com/gnomecannon/fdroiddata, branch `com.gnomecannon.everythingapp`. The fork's own
+pipeline does not run until GitLab verifies the account (phone or card); F-Droid's template says not to verify and to
+ask their team to run the CI instead, which costs nothing.
+
+Valid categories are listed in fdroiddata's `config/categories.yml`.
 
 ## Checks F-Droid makes
 

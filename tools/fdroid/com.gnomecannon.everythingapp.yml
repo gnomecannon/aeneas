@@ -1,6 +1,8 @@
 Categories:
-  - Productivity
-  - Time
+  - AI Chat
+  - Calendar & Agenda
+  - Note
+  - Task
 License: AGPL-3.0-only
 AuthorName: gnomecannon
 WebSite: https://github.com/gnomecannon/aeneas
@@ -16,26 +18,20 @@ Repo: https://github.com/gnomecannon/aeneas.git
 Builds:
   - versionName: 1.0.0
     versionCode: 1000000
-    commit: v1.0.0
-    subdir: web/src-tauri/gen/android/app
+    commit: 6d44a6e534cbefde38d6d18c1bae00e8929971cc
     sudo:
       - apt-get update
-      - apt-get install -y -t bookworm-backports nodejs npm || apt-get install -y nodejs npm
-    output: build/outputs/apk/universal/release/app-universal-release-unsigned.apk
-    srclibs:
-      - rustup@1.28.2
-    prebuild:
-      - $$rustup$$/rustup-init.sh -y --profile minimal --default-toolchain stable
-      - source $HOME/.cargo/env
-      - rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-      - cd ../../../../..
-      - npm ci --workspace web --include-workspace-root
+      - apt-get install -y nodejs npm rustup
+    output: web/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
     build:
-      - source $HOME/.cargo/env
+      - rustup default 1.99.1
+      - export PATH="$HOME/.cargo/bin:$PATH"
+      - rustup target add aarch64-linux-android armv7-linux-androideabi
       - export NDK_HOME=$$NDK$$ ANDROID_HOME=$$SDK$$
-      - cd ../../../..
-      - npx tauri android build --apk
-    ndk: r28c
+      - npm ci --workspace web --include-workspace-root
+      - cd web
+      - npm run tauri -- android build --apk --target aarch64 --target armv7
+    ndk: 28.2.13676358
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
