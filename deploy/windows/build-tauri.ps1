@@ -65,8 +65,10 @@ Write-Host (& rustc --version)
 Step "Node $NodeMajorRequired or newer"
 $nodeOk = $false
 if (Get-Command node -ErrorAction SilentlyContinue) {
-  $v = (& node -p 'process.versions.node.split(".")[0]')
-  if ([int]$v -ge $NodeMajorRequired) { $nodeOk = $true }
+  # Read the major version from "v20.19.0". (node -p with quotes inside breaks in Windows PowerShell 5.1, which
+  # drops the inner double quotes when it passes arguments to a program.)
+  $v = ((& node --version) -replace '^v(\d+).*$', '$1')
+  if ($v -match '^\d+$' -and [int]$v -ge $NodeMajorRequired) { $nodeOk = $true }
 }
 if (-not $nodeOk) {
   Winget-Install 'OpenJS.NodeJS.LTS'
@@ -125,6 +127,10 @@ if (Test-Path (Join-Path $RepoDir '.git')) {
 # ---- build ----
 Step 'npm ci (the web app only)'
 Push-Location $RepoDir
+# npm and the Tauri CLI print progress on stderr. When the output is redirected (a log file, an SSH session),
+# Windows PowerShell 5.1 turns those lines into errors, and 'Stop' would end the build on the first one.
+# The exit codes are checked below instead.
+$ErrorActionPreference = 'Continue'
 try {
   # Only the web workspace: the Windows app is the web app in a window, and the hub's packages include a native
   # SQLite module that has to be compiled for this machine's Node (it failed on Node 26 on 2026-11-05).
@@ -137,6 +143,7 @@ try {
 } finally {
   Pop-Location
 }
+$ErrorActionPreference = 'Stop'
 
 # ---- result ----
 Step 'installer'
