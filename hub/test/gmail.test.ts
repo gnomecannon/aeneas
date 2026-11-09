@@ -5,7 +5,7 @@ import { scripted } from "./ai-helpers.js";
 import { setBackendOverride, type AiMessage, type Backend } from "../src/ai/backends.js";
 import { listMail, MAIL_QUERY } from "../src/imports/gmail.js";
 import { fileMessage, htmlToText, looksLikeOffer, MAIL_SYSTEM, mailText, nextDue, serviceKey, type MailRead } from "../src/mail-filer.js";
-import { autopayDue, syncWatchReminder } from "../src/watches.js";
+import { autopayDue, syncWatchReminder, watchDaily } from "../src/watches.js";
 import { named } from "../src/profile.js";
 
 const APP = { client_id: "1234567890-abcdefghij.apps.googleusercontent.com", client_secret: "GOCSPX-test-secret-0123456789ab" };
@@ -142,11 +142,12 @@ test("gmail: mail files itself into renewals and the pet, newest mail first and 
     assert.equal(domain.fields.due, ahead(25));
     assert.equal(domain.fields.category, "domain");
     assert.equal(domain.fields.lead_days, 30);
-    // A receipt means it pays itself: no reminder in the owner's Reminders. A notice that does not say keeps its reminder.
+    // A receipt means it pays itself: no reminder in the owner's Reminders. A notice that does not say is taken as
+    // renewing by itself too: only a mail that says the owner must act makes a reminder.
     assert.equal(netflix.fields.autopay, true);
     assert.equal(t.hub.store.list({ kind: "task" }).some((x) => x.fields.title === "Renew: Netflix"), false);
-    assert.equal(domain.fields.autopay, undefined);
-    assert.ok(t.hub.store.list({ kind: "task" }).some((x) => x.fields.title === "Renew: Domain example.org"));
+    assert.equal(domain.fields.autopay, true);
+    assert.equal(t.hub.store.list({ kind: "task" }).some((x) => x.fields.title === "Renew: Domain example.org"), false);
 
     assert.equal(t.hub.store.list({ kind: "inventory" }).length, 0, "inventory is not built from mail");
 
@@ -378,5 +379,36 @@ test("gmail: a new search drops the mail queued under the old one and lists agai
     const again = await listMail(t.hub, "robin@example.com", now);
     assert.equal(again.queued, 1, "a2 queued again under the new search; a1 was read and stays read");
     assert.equal(t.hub.connections.get().google![0].query !== "old search", true);
+  } finally { setBackendOverride(null); t.cleanup(); }
+});
+
+test("gmail: a notice that does not say stays out of Reminders, never undoes a \"renew now\", and older ones are fixed", async () => {
+  const t = makeHub();
+  const now = new Date();
+  const at = (d: number) => new Date(now.getTime() - d * 86400_000);
+  const soon = ymdOf(new Date(now.getTime() + 8 * 86400_000));
+  const mail = new Map<string, Mail>();
+  mail.set("g1", { id: "g1", at: at(2), from: "GameHost <billing@gamehost.example>", subject: "Gamecloud rental renewal", html: "<p>Your server rental is due for renewal on the date below.</p>", read: { type: "renewal_notice", vendor: "GameHost", service: "Gamecloud Example (US East)", category: "other", due: soon } });
+  mail.set("k1", { id: "k1", at: at(3), from: "Registrar <r@reg.example>", subject: "Your domain expires soon", html: "<p>Renew now or example.net expires.</p>", read: { type: "renewal_notice", vendor: "Registrar", service: "Domain example.net", category: "domain", due: soon, auto_renews: false } });
+  mail.set("k2", { id: "k2", at: at(1), from: "Registrar <r@reg.example>", subject: "Domain renewal reminder", html: "<p>example.net renewal is due on the date below.</p>", read: { type: "renewal_notice", vendor: "Registrar", service: "Domain example.net", category: "domain", due: soon } });
+  try {
+    fakeGoogle(t, mail);
+    setBackendOverride(mailModel(mail));
+    await link(t);
+    await listMail(t.hub, "robin@example.com", now);
+    for (const id of ["g1", "k1", "k2"]) await fileMessage(t.hub, "robin@example.com", id, now);
+    const watches = t.hub.store.list({ kind: "watch" });
+    assert.equal(watches.find((w) => String(w.fields.title).startsWith("Gamecloud"))!.fields.autopay, true);
+    assert.equal(watches.find((w) => w.fields.title === "Domain example.net")!.fields.autopay, false, "a later notice that does not say leaves \"renew now\" as it was");
+    assert.deepEqual(t.hub.store.list({ kind: "task" }).map((x) => String(x.fields.title)), ["Renew: Domain example.net"]);
+
+    // A watch filed from mail before this, with autopay unset and its reminder made: the daily job sets autopay and the reminder goes.
+    const old = t.hub.store.create("watch", { title: "Old Rental", category: "other", due: soon, lead_days: 7, url: "https://mail.google.com/mail/?authuser=robin%40example.com#all/x1" });
+    const byHand = t.hub.store.create("watch", { title: "Passport", category: "other", due: soon, lead_days: 7 });
+    assert.ok(t.hub.store.list({ kind: "task" }).some((x) => x.fields.title === "Renew: Old Rental"));
+    await watchDaily(t.hub);
+    assert.equal(t.hub.store.get(old.id)!.fields.autopay, true);
+    assert.equal(t.hub.store.get(byHand.id)!.fields.autopay, undefined, "a renewal the owner made is theirs to set");
+    assert.deepEqual(t.hub.store.list({ kind: "task" }).map((x) => String(x.fields.title)).sort(), ["Renew: Domain example.net", "Renew: Passport"]);
   } finally { setBackendOverride(null); t.cleanup(); }
 });

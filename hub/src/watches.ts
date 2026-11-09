@@ -170,11 +170,16 @@ export async function probeWatch(hub: Hub, watch: Entity): Promise<boolean> {
 /** The daily job: every active watch gets its reminder checked and, with a `probe_url`, its certificate read. */
 export async function watchDaily(hub: Hub): Promise<WatchDailyResult> {
   const out: WatchDailyResult = { watches: 0, reminders_synced: 0, probed: 0, probe_errors: 0 };
-  for (const w of hub.store.list({ kind: "watch", limit: 100000 })) {
+  for (let w of hub.store.list({ kind: "watch", limit: 100000 })) {
     out.watches++;
     if (typeof w.fields.probe_url === "string" && w.fields.probe_url) {
       out.probed++;
       if (!(await probeWatch(hub, w))) out.probe_errors++;
+    }
+    // A renewal mail made before 2026-11-09 from a notice that did not say whether it renews by itself got a reminder;
+    // such notices now count as autopay (mail-filer.ts), and older ones follow here.
+    if (w.fields.autopay === undefined && String(w.fields.url ?? "").startsWith("https://mail.google.com/")) {
+      try { hub.store.patch(w.id, { autopay: true }); w = hub.store.get(w.id) ?? w; } catch (e) { console.error(`[watches] ${w.id}: ${errCode(e)}`); }
     }
     // Autopay renewed it: the next charge is one period on.
     if (w.fields.autopay === true && typeof w.fields.repeat === "string" && typeof w.fields.due === "string") {

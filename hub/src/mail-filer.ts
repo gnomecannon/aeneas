@@ -203,8 +203,12 @@ function fileRenewal(hub: Hub, r: MailRead, m: MailMeta, now: Date): Filed[] {
   const byHand = same.find((w) => !madeByMail(w));
   const twin = same.find(madeByMail);
   const existing = byHand ?? (mine && !mine.deleted_at ? mine : twin ?? null);
-  // A receipt for a renewing charge means it pays itself; a notice says so or not.
-  const autopay = r.type === "charge" ? true : typeof r.auto_renews === "boolean" ? r.auto_renews : undefined;
+  // A receipt for a renewing charge means it pays itself; a notice says so or not. Reminders hold only what the owner
+  // has to do, so a renewal from mail reaches them only when the mail says the owner must act ("renew now", "will
+  // expire unless"). One that is silent on it, like a game server rental's "your server runs until", is taken as
+  // renewing by itself: it stays in Renewals with its date, and the owner can switch autopay off there.
+  const said = r.type === "charge" ? true : typeof r.auto_renews === "boolean" ? r.auto_renews : undefined;
+  const autopay = said ?? true;
   if (r.type === "cancelled") {
     remember(hub, key, m.at, null);
     // Only a renewal the mail made is taken back; one the owner made stays for them to decide.
@@ -234,8 +238,9 @@ function fileRenewal(hub: Hub, r: MailRead, m: MailMeta, now: Date): Filed[] {
     if (f.due !== next.due) patch.due = next.due;
     if (next.repeat && f.repeat !== next.repeat) patch.repeat = next.repeat;
     if (cost !== undefined && f.cost !== cost) patch.cost = cost;
-    // The owner's own setting wins on a watch they made.
-    if (autopay !== undefined && f.autopay !== autopay && (madeByMail(existing) || f.autopay === undefined)) patch.autopay = autopay;
+    // The owner's own setting wins on a watch they made. A mail that does not say changes only an unset one made by mail,
+    // so a later vague notice never turns an earlier "renew now" into autopay.
+    if (said !== undefined ? f.autopay !== said && (madeByMail(existing) || f.autopay === undefined) : madeByMail(existing) && f.autopay === undefined) patch.autopay = autopay;
     if (madeByMail(existing) && f.url !== gmailLink(m)) patch.url = gmailLink(m);
     // The shorter name of the same renewal reads better ("Notely", not "Notely - Notes & Lists"); a name the owner
     // gave it ("Netflix (shared with Jamie)") stays: only a title the mail wrote is changed.
@@ -247,7 +252,7 @@ function fileRenewal(hub: Hub, r: MailRead, m: MailMeta, now: Date): Filed[] {
   }
   hub.store.create("watch", {
     title, category, due: next.due, lead_days: LEAD[category] ?? 7, ...(next.repeat ? { repeat: next.repeat } : {}), ...(cost !== undefined ? { cost } : {}),
-    ...(autopay !== undefined ? { autopay } : {}),
+    autopay,
     url: gmailLink(m), notes: `From ${text(r.vendor) || m.from} mail to ${m.account}, ${diaryDay(m.at)}.`, mail_title: title,
   }, "personal", id);
   return [{ kind: "watch", id, title, action: "created" }];
