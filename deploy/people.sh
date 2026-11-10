@@ -400,8 +400,9 @@ list)
 
 update)
   [ -f "$REGISTRY" ] || die "no people yet"
-  # The root copy follows your current code (you ran this with sudo, so you chose to).
-  [ -f "$ROOT_COPY" ] && install -m 755 -o root -g root "$OWNER_REPO/deploy/people.sh" "$ROOT_COPY"
+  # The root copy follows your current code when you run this with sudo (so you chose to). A request from your hub
+  # (its own update finished) does not: code your account can change never becomes the script root runs.
+  [ -z "$RESULT" ] && [ -f "$ROOT_COPY" ] && install -m 755 -o root -g root "$OWNER_REPO/deploy/people.sh" "$ROOT_COPY"
   for ACCT in $(registry users); do
     NAME="$(registry get user "$ACCT" name)"; PORT="$(registry get user "$ACCT" port)"
     log "$NAME ($ACCT, port $PORT)"
@@ -415,6 +416,7 @@ update)
   sudo -u "$OWNER" sed -i "s|^Environment=EA_GATE_MODELS=.*|Environment=EA_GATE_MODELS=$(owner_env EA_OLLAMA_MODEL)|" "$OWNER_HOME/.config/systemd/user/aeneas-gate.service"
   as_user "$OWNER" systemctl --user daemon-reload
   as_user "$OWNER" systemctl --user restart aeneas-gate.service
+  result done
   ;;
 
 remove|stop)
@@ -452,8 +454,9 @@ remove-account)
   ;;
 
 serve-requests)
-  # Run by aeneas-people.service (root) when the owner's hub drops a request. Only add, pair and stop are taken; a
-  # request names a person, never a path or a command, and every field is checked here before anything runs.
+  # Run by aeneas-people.service (root) when the owner's hub drops a request. Only add, pair, stop and update are
+  # taken; a request names a person (update names nobody), never a path or a command, and every field is checked here
+  # before anything runs.
   find "$RESULTS" -maxdepth 1 -type f -mtime +1 -delete 2>/dev/null || true
   for f in "$REQUESTS"/*.json; do
     [ -e "$f" ] || continue
@@ -463,8 +466,10 @@ try:
     fd = os.open(sys.argv[1], os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(fd) as fh: r = json.loads(fh.read(4096))
     rid, op, name, color = str(r.get("id", "")), str(r.get("op", "")), str(r.get("name", "")), str(r.get("color", ""))
-    ok = re.fullmatch(r"[a-z0-9-]{8,40}", rid) and op in ("add", "pair", "stop") \
-        and re.fullmatch(r"[A-Za-z][A-Za-z '.-]{0,29}", name) and (color == "" or re.fullmatch(r"#[0-9a-fA-F]{6}", color))
+    ok = re.fullmatch(r"[a-z0-9-]{8,40}", rid) and (
+        (op in ("add", "pair", "stop") and re.fullmatch(r"[A-Za-z][A-Za-z '.-]{0,29}", name)
+         and (color == "" or re.fullmatch(r"#[0-9a-fA-F]{6}", color)))
+        or (op == "update" and name == "" and color == ""))
     print("\t".join([rid, op, name, color]) if ok else "")
 except Exception:
     print("")
@@ -476,7 +481,7 @@ EOF
     # The result exists before the request goes, so the hub never sees neither.
     result working op "$OP" name "$PNAME"
     rm -f "$f"
-    args=("$OP" "$PNAME"); [ "$OP" = add ] && [ -n "$PCOLOR" ] && args+=(--color "$PCOLOR")
+    args=("$OP"); [ "$OP" = update ] || args+=("$PNAME"); [ "$OP" = add ] && [ -n "$PCOLOR" ] && args+=(--color "$PCOLOR")
     # Each request in its own process, so one that fails does not stop the others.
     ( env -u SUDO_USER EA_PEOPLE_RESULT="$RESULT" "$ROOT_COPY" "${args[@]}" ) >/dev/null 2>&1 || true
   done

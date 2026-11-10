@@ -20,6 +20,7 @@ import { useModules } from "../lib/modules";
 import { ConnectionsPage, connectionsSummary, useConnections } from "./settings/Connections";
 import { DevicesList, PairDevice } from "./settings/Devices";
 import { MachinesSettings, RetentionSettings } from "./settings/HubPrivacy";
+import { HubUpdateCard } from "./settings/HubUpdate";
 import { keyKind } from "./Setup";
 import { saveBlob } from "../lib/download";
 import { localDate } from "../lib/planner";
@@ -116,7 +117,7 @@ function SettingsHome() {
         <NavRow href="/settings/planner" title="Planner" summary="Plan rules, week and renewals" />
         <NavRow href="/settings/data" title="Data" summary="Export notes, clear this device" />
         {isWindowsApp && <NavRow href="/settings/windows" title="Windows app" summary={windows} />}
-        <NavRow href="/settings/about" title="About" summary={isWindowsApp ? "Versions and keyboard shortcuts" : "Install, updates and keyboard shortcuts"} />
+        <NavRow href="/settings/about" title="About" summary={isWindowsApp ? "Hub updates, versions and keyboard shortcuts" : "Hub updates, install and keyboard shortcuts"} />
       </nav>
     </div>
   );
@@ -547,6 +548,7 @@ function About() {
 
   return (
     <SubPage path="/settings/about">
+      <HubUpdateCard />
       {!isTauri && (
         <div className="card col">
           <h2>App</h2>

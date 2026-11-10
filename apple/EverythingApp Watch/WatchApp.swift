@@ -102,6 +102,12 @@ final class AppModel: ObservableObject {
         // `-listen ask|capture` does what the complications do (the Watch simulator cannot open links).
         let args = ProcessInfo.processInfo.arguments
         if let i = args.firstIndex(of: "-listen"), i + 1 < args.count { listen = args[i + 1] == "ask" ? .ask : .capture }
+        // `-speak "text"`: read it aloud on the conversation page (the louder speaker and the crown volume control).
+        if let i = args.firstIndex(of: "-speak"), i + 1 < args.count {
+            let text = args[i + 1]
+            conversationOpen = true
+            Task { try? await Task.sleep(nanoseconds: 1_000_000_000); ask.speaker.speak(text, id: "debug") }
+        }
         // `-page now|today|log|activity|weight`: open on that page (App Store screenshots without swiping).
         if let i = args.firstIndex(of: "-page"), i + 1 < args.count, let u = URL(string: "everythingapp://" + args[i + 1]) { handle(url: u) }
         // `-ask "question"`: what the Ask tile sends once dictation ends (the simulator has no dictation).
@@ -178,6 +184,7 @@ final class AppModel: ObservableObject {
         switch (url.host ?? "").lowercased() {
         case "capture": page = .voice; conversationOpen = false; listen = .capture
         case "ask": page = .voice; conversationOpen = false; listen = .ask
+        case "hum": page = .voice; conversationOpen = false; listen = .hum
         case "now": page = .now
         case "activity": page = .activity
         case "today": page = .today

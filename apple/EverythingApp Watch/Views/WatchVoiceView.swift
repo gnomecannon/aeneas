@@ -5,7 +5,7 @@ import UserNotifications
 import EACore
 
 /// What a tap (or a complication) starts on the voice page.
-enum VoiceAction: Equatable { case ask, capture }
+enum VoiceAction: Equatable { case ask, capture, hum }
 
 /// The Watch's first page: Ask, Capture and Hum, all by voice. Ask and Capture go straight to dictation, with no
 /// keyboard or scribble; Hum records with the microphone. Reminders and the rest are on the pages below and in
@@ -82,7 +82,7 @@ struct WatchVoiceView: View {
         // Each step of a hum on its way, from "Sent to your iPhone" to the idea's title.
         .onChange(of: hum.recent.first) { _, s in if let s { show(StyleGuard.dashes(s.line)) } }
         .navigationDestination(isPresented: $model.conversationOpen) { WatchConversationView(ask: ask) }
-        // Ask and Capture complications land here and start listening at once.
+        // Ask, Capture and Hum complications land here and start at once.
         .task(id: model.listen) {
             guard let a = model.listen else { return }
             // Lets the app finish coming forward before the dictation screen goes up. Clearing `listen` changes this
@@ -138,6 +138,11 @@ struct WatchVoiceView: View {
                 guard let text = await Dictation.listen() else { return }
                 await capture(text)
             }
+        case .hum:
+            // The Hum complication: a melody, straight away. Hum is part of Music.
+            guard model.isOn(.music) else { show("Hum is part of Music, which is off. Turn it on in Settings, Modules."); WKHaptic.failure(); return }
+            guard !hum.recorder.recording else { return }
+            record(.melody)
         }
     }
 
@@ -200,6 +205,14 @@ struct WatchConversationView: View {
                 .tint(.blue)
                 .disabled(ask.asking != nil)
                 .handGestureShortcut(.primaryAction)
+                // While an answer is read: the Digital Crown sets the speaker's volume, up to the Watch's maximum.
+                if speaker.speakingId != nil {
+                    HStack(spacing: 6) {
+                        SpeakerVolume().frame(width: 40, height: 40)
+                        Text("Turn the crown for volume").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if let q = ask.asking {
                     Text(q).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
                     HStack(spacing: 6) { ProgressView().frame(width: 16, height: 16); Text("Thinking").font(.caption2).foregroundStyle(.secondary) }
@@ -395,47 +408,5 @@ final class WatchAskModel: ObservableObject {
     private func save() {
         if turns.count > Self.keep { turns.removeFirst(turns.count - Self.keep) }
         defaults.set(try? JSONEncoder().encode(turns), forKey: Self.turnsKey)
-    }
-}
-
-/// Reads answers through the Watch speaker (or connected headphones), one at a time.
-@MainActor
-final class WatchSpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
-    @Published private(set) var speakingId: String?
-    private let synth = AVSpeechSynthesizer()
-
-    override init() {
-        super.init()
-        synth.delegate = self
-    }
-
-    func toggle(_ text: String, id: String) { speakingId == id ? stop() : speak(text, id: id) }
-
-    func speak(_ text: String, id: String) {
-        stop()
-        let said = Speakable.text(text)
-        // A hum being recorded keeps the microphone's audio session: speaking would switch it and cut the take.
-        guard !said.isEmpty, !AudioFocus.recording else { return }
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
-        try? AVAudioSession.sharedInstance().setActive(true)
-        let u = AVSpeechUtterance(string: said)
-        u.voice = AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
-        speakingId = id
-        synth.speak(u)
-    }
-
-    func stop() {
-        if synth.isSpeaking { synth.stopSpeaking(at: .immediate) }
-        speakingId = nil
-    }
-
-    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { Task { @MainActor in self.ended() } }
-    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) { Task { @MainActor in self.ended() } }
-
-    private func ended() {
-        guard !synth.isSpeaking else { return }
-        speakingId = nil
-        guard !AudioFocus.recording else { return }
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

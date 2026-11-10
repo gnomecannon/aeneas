@@ -11,6 +11,7 @@ import { calcTakeHome } from "../takehome.js";
 import { mealsTax } from "../mealstax.js";
 import { readRetention, setRetention, RETENTION_CHOICES } from "../retention.js";
 import { steamArt } from "../imports/steam.js";
+import { startUpdate, updateInfo } from "../update.js";
 
 /** Optional JSON body: empty is `{}`, anything else must be an object. */
 async function optionalBody(c: Parameters<typeof readJsonObject>[0]): Promise<Record<string, unknown>> {
@@ -35,6 +36,10 @@ export function adminRoutes() {
   // The single confirmation: find this machine's Ollama, use it with the model, and start the download if needed.
   r.post("/setup/model/auto", async (c) => c.json(await autoModel(c.get("hub"), await optionalBody(c))));
   r.get("/setup/ollama/pull", (c) => c.json({ pull: pullState() }));
+  // Updating the hub itself (update.ts): what it runs, what is newer (check fetches), and starting the update.
+  r.get("/hub-update", async (c) => c.json(await updateInfo(c.get("hub"))));
+  r.post("/hub-update/check", async (c) => c.json(await updateInfo(c.get("hub"), true)));
+  r.post("/hub-update", async (c) => c.json(await startUpdate(c.get("hub")), 202));
   r.get("/setup/pair", (c) => {
     const hub = c.get("hub");
     const address = hubAddress(hub, c.req.url, c.req.header("x-forwarded-host"), c.req.header("x-forwarded-proto"));

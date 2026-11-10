@@ -113,6 +113,8 @@ struct AssistantView: View {
     /// Set when dictation put words in the box, so the reply to that message is read aloud.
     @State private var voiceTurn = false
     @AppStorage("speakVoiceReplies") private var speakVoiceReplies = true
+    /// Talking ends by itself: a pause after you speak sends the message, with no second tap.
+    @AppStorage("sendOnPause") private var sendOnPause = true
     @ObservedObject private var speaker = ReplySpeaker.shared
 
     private var sessionId: String? { store.current?.session_id }
@@ -158,6 +160,7 @@ struct AssistantView: View {
         // Tapping the title opens this chat's own menu; erasing every chat is only in the chat list, two menus deep.
         .toolbarTitleMenu {
             Toggle(isOn: $speakVoiceReplies) { Label("Speak answers to voice messages", systemImage: "speaker.wave.2") }
+            Toggle(isOn: $sendOnPause) { Label("Send when I stop talking", systemImage: "waveform.badge.checkmark") }
             Button(role: .destructive) { confirmDelete = true } label: { Label("Erase this chat", systemImage: "trash") }
                 .disabled(store.current?.messages.isEmpty ?? true || busy)
         }
@@ -309,7 +312,7 @@ struct AssistantView: View {
                 }
             }
             if dictation.listening {
-                Label(dictation.transcript.isEmpty ? "Listening. Tap the mic again when you are done." : dictation.transcript, systemImage: "waveform")
+                Label(dictation.transcript.isEmpty ? (sendOnPause ? "Listening. It sends when you stop talking." : "Listening. Tap the mic again when you are done.") : dictation.transcript, systemImage: "waveform")
                     .font(.callout).foregroundStyle(.secondary).lineLimit(4)
             } else if let e = dictation.error {
                 Text(e).font(.caption).foregroundStyle(.orange)
@@ -338,7 +341,11 @@ struct AssistantView: View {
                 if model.isOn(.voice) {
                     Button {
                         // The microphone would hear the reply being read.
-                        if dictation.listening { dictation.stop() } else { speaker.stop(); Task { await dictation.startAsking() } }
+                        if dictation.listening { dictation.stop() } else {
+                            speaker.stop()
+                            dictation.pauseToStop = sendOnPause ? Self.pauseToSend : nil
+                            Task { await dictation.startAsking() }
+                        }
                     } label: {
                         Image(systemName: dictation.listening ? "stop.circle.fill" : "mic.circle").font(.system(size: 30))
                             .foregroundStyle(dictation.listening ? Color.red : Color.accentColor)
@@ -397,8 +404,13 @@ struct AssistantView: View {
             input = input.isEmpty ? t : input + (input.hasSuffix(" ") ? "" : " ") + t
             dictation.transcript = ""
             voiceTurn = true
+            // Stopped by a pause (not a tap): sent as it is, the same as tapping send.
+            if dictation.stoppedOnPause, sendOnPause, !busy, store.current?.working == nil, engine.client != nil { send() }
         }
     }
+
+    /// How long a pause after speaking ends it. Long enough for a breath in the middle of a sentence.
+    static let pauseToSend: TimeInterval = 1.6
 
     private func loadPhotos(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }

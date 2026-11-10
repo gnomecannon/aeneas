@@ -26,8 +26,8 @@ final class ReplySpeaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegat
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: .duckOthers)
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
-        let u = AVSpeechUtterance(string: said)
-        u.voice = AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
+        // The best voice installed (Enhanced or Premium when the owner added one), not the basic default.
+        let u = SpeechVoice.utterance(said)
         speakingId = id
         synth.speak(u)
     }

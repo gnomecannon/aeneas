@@ -382,6 +382,7 @@ struct AboutSettingsView: View {
 
     var body: some View {
         Form {
+            HubUpdateSection().themedRow()
             SwiftUI.Section {
                 LabeledContent("Version", value: "\(SettingsView.version) (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"))")
                 LabeledContent("Platform", value: model.platform.rawValue)

@@ -3,7 +3,8 @@ import Speech
 import AVFoundation
 import EACore
 
-/// Dictation that waits for you: transcribes only between `start()` and `stop()` and never submits.
+/// Dictation that transcribes between `start()` and `stop()`, and with `pauseToStop` also stops by itself when the
+/// speaker pauses (the assistant then sends it). It never submits by itself.
 /// On-device recognition is used when the device supports it, which has no one-minute limit; if the
 /// recognizer ends on its own (a pause, a server limit), it restarts and keeps what was already said.
 /// On `stop()` the final transcript is handed back for review.
@@ -26,6 +27,16 @@ final class DictationController: ObservableObject {
     private var joiner = TranscriptJoiner()
     private var lastRestart = Date.distantPast
     private let holder = RequestHolder()
+    /// Stop by itself once something was said and then nothing new for this long (Send when I stop talking); nil
+    /// waits for the tap.
+    var pauseToStop: TimeInterval?
+    /// Listening ended on a pause, not a tap: the caller sends what was said.
+    @Published private(set) var stoppedOnPause = false
+    /// Nothing said this long after starting: listening stops, so a forgotten mic does not stay on.
+    static let quietLimit: TimeInterval = 12
+    private var lastHeard = Date()
+    private var started = Date()
+    private var pauseWatch: Task<Void, Never>?
 
     func toggle() { listening ? stop() : start() }
 
@@ -74,6 +85,7 @@ final class DictationController: ObservableObject {
         transcript = ""
         joiner = TranscriptJoiner()
         lastRestart = .distantPast
+        stoppedOnPause = false
         guard let recognizer = recognizer, recognizer.isAvailable else { error = "Speech recognizer unavailable"; return }
         let engine = AVAudioEngine()
         let request = makeRequest(recognizer)
@@ -99,7 +111,25 @@ final class DictationController: ObservableObject {
         self.request = request
         listening = true
         AudioFocus.recording = true
+        started = Date()
+        lastHeard = Date()
         begin(recognizer, request)
+        if pauseToStop != nil { pauseWatch = Task { [weak self] in await self?.watchForPause() } }
+    }
+
+    /// Four times a second while listening: a pause after words ends it (and says so), as does long silence.
+    private func watchForPause() async {
+        while listening, !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard listening, let pause = pauseToStop else { return }
+            let said = !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if said, Date().timeIntervalSince(lastHeard) >= pause {
+                stoppedOnPause = true
+                stop()
+            } else if !said, Date().timeIntervalSince(started) >= Self.quietLimit {
+                stop()
+            }
+        }
     }
 
     private func makeRequest(_ recognizer: SFSpeechRecognizer) -> SFSpeechAudioBufferRecognitionRequest {
@@ -116,7 +146,9 @@ final class DictationController: ObservableObject {
             Task { @MainActor in
                 guard let self = self else { return }
                 if let r = result {
-                    self.transcript = self.joiner.update(r.bestTranscription.formattedString)
+                    let next = self.joiner.update(r.bestTranscription.formattedString)
+                    if next != self.transcript { self.lastHeard = Date() }
+                    self.transcript = next
                     if r.isFinal { self.restartIfListening(recognizer) }
                 } else if err != nil {
                     self.restartIfListening(recognizer)
@@ -145,6 +177,8 @@ final class DictationController: ObservableObject {
         guard listening else { return }
         listening = false
         AudioFocus.recording = false
+        pauseWatch?.cancel()
+        pauseWatch = nil
         engine?.inputNode.removeTap(onBus: 0)
         engine?.stop()
         request?.endAudio()

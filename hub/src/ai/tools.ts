@@ -293,6 +293,9 @@ function normalize(value: unknown, table: Record<string, string[]>): string | un
 const PET_TYPES = { med: ["meds", "medication", "medicine", "pill", "dose", "heartworm", "flea", "tick", "dewormer"], vet: ["vet visit", "checkup", "appointment", "vaccine", "vaccination"], incident: ["injury", "sick", "accident", "vomit", "vomiting"], weight: ["weigh-in", "weighed"], food: ["fed", "feeding", "meal", "ate", "dinner", "breakfast"], note: ["walk", "walked", "other", "general"] };
 const LOG_TYPES = { weight: ["weigh", "weighed", "body weight"], bp: ["blood pressure", "blood_pressure", "pressure"], caffeine: ["coffee", "energy drink"], med: ["meds", "medication", "medicine", "pill"], sleep: ["slept"], mood: ["feeling"], activity: ["exercise", "workout"] };
 
+/** The owner asks to update the hub itself ("update the hub", "install the update", "upgrade yourself"); a question does not count. */
+const UPDATE_ASK = /\b(update|upgrade)\b[^.?!]{0,40}\b(hub|yourself|server|aeneas|software|version)\b|\b(hub|yourself|server|aeneas)\b[^.?!]{0,40}\b(update|upgrade)\b|\binstall (it|the update|that|the new version)\b|^\s*(update|upgrade)( (it|now))?[\s.!]*$/i;
+
 /** The owner's message says something worked or how a host is set up: the cue that a fix note is due. */
 /** Settled: a statement (not a question) with a cue, and no "still not working" or "hasn't worked". */
 const settled = (msg: string) => SETTLED.test(msg) && !/\?\s*$/.test(msg.trim()) && !/(\bnot|n't|\bnever|\bstill)[^.!?]{0,20}\bwork/i.test(msg);
@@ -409,6 +412,26 @@ export const TOOLS: ToolDef[] = [
     description: "Tasks whose reminder is due or overdue within the next N minutes (default 24 hours). Reminders are tasks with a reminder time.",
     parameters: { type: "object", properties: { within_minutes: { type: "number" } } },
     run: (api, a) => call(api, "GET", `/reminders/due${q({ within: Math.min(num(a.within_minutes) ?? 1440, 10080) })}`),
+  },
+  {
+    name: "update_hub", writes: true,
+    description: "The hub's own software: action=check says which version it runs, what is newer and how the last update went; action=install updates it to the newest version (it restarts in a minute or two and goes back by itself if the new version does not start). Install only when {{owner}}'s latest message asks to update the hub or says yes to updating it; otherwise check, say what is new, and ask.",
+    parameters: { type: "object", properties: { action: { type: "string", enum: ["check", "install"] } }, required: ["action"] },
+    run: async (api, a, ctx) => {
+      const info = await call(api, "POST", "/hub-update/check") as Record<string, unknown> & { changes?: { title: string }[]; can_update?: boolean; reason?: string; behind?: number; last_run?: unknown; commit?: string | null; committed_at?: string | null };
+      if (!info || "error" in info) return info;
+      const view = {
+        running: info.commit ? String(info.commit).slice(0, 7) : null, released: info.committed_at ?? null,
+        newer_versions: info.behind ?? 0, whats_new: (info.changes ?? []).map((c) => c.title), can_update: !!info.can_update,
+        ...(info.reason ? { why_not: info.reason } : {}), last_update: info.last_run ?? null,
+      };
+      if (normalize(a.action, { install: ["update", "upgrade", "apply", "start"] }) !== "install") return view;
+      if (!info.can_update) return { ...view, error: info.reason ?? "already the newest version: nothing to install" };
+      if (!(UPDATE_ASK.test(ctx.lastUser) && !/\?\s*$/.test(ctx.lastUser)) && !AFFIRMATION.test(ctx.lastUser)) return { ...view, error: "{{owner}}'s latest message does not ask to update; tell them what is new and ask" };
+      const r = await call(api, "POST", "/hub-update");
+      if (r && typeof r === "object" && "error" in r) return { ...view, ...(r as object) };
+      return { ...view, status: "started", instruction: "Say the update has started, what is new in a few words, and that the hub restarts in a minute or two (the app reconnects by itself). Ask about it again later to see how it went." };
+    },
   },
   {
     name: "ops_status", writes: false,
@@ -1348,6 +1371,7 @@ export function toolGuide(on: ModuleCheck = () => true): string {
     "Memory: when {{owner}} tells you something lasting about themself, their gear, their hosts or their preferences, save it with remember without being asked, then confirm in a few words what you saved; do not start a conversation about it. In troubleshooting, record each result with ledger_update and never suggest anything listed as ruled out." + (on("homelab") ? " When a troubleshooting fix works, or {{owner}} tells you how a host is set up, write it with runbook_note; never for something you only looked up to answer a question. {{owner}} calls these fix notes (the Machines screen), so say fix notes, not runbook." : ""),
     on("web") && "Facts you do not know: search the web (web_search, then read_web_page on the best result) instead of answering from memory when it is about versions, releases, docs, prices, news, or anything you are unsure of. Name the source. If you still do not know, say so.",
     on("homelab") && "Machines: you can run commands on {{owner}}'s hosts with run_command (list_hosts names them). Check before advising: look at status, logs and config yourself rather than asking them to paste it. Read-only commands run at once. A change waits for their approval: show the exact command and why, then stop. When their next message says yes, call approve_command. Changes are journaled automatically.",
+    "The hub's own software: when {{owner}} asks about updates or to update the hub (you, the app's server), use update_hub.",
     "Images {{owner}} sends are attached to their message; read them directly (screenshots, error dialogs, photos of hardware or wiring).",
     on("wiki") && "Project wiki (the repository docs and Confluence spaces {{owner}} mirrored to the hub): for anything about those projects, wiki_search with one to three key words, then wiki_page on the best hits. Answer from the pages and name them.",
     "Writing as {{owner}} (messages, emails, reviews, posts): use draft_in_my_voice and give the draft alone, with no offer to tweak it.",

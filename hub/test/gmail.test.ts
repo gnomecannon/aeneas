@@ -136,7 +136,10 @@ test("gmail: mail files itself into renewals and the pet, newest mail first and 
     const netflix = watches.find((w) => w.fields.title === "Netflix")!;
     assert.equal(netflix.fields.cost, 15.49, "the newest receipt's price, not the older one's");
     assert.equal(netflix.fields.repeat, "every 1 months");
-    assert.equal(netflix.fields.due, ymd(new Date(ago(10).getFullYear(), ago(10).getMonth() + 1, ago(10).getDate())));
+    // A month on, kept in that month: ten days before 2026-11-10 is Oct 31, and its next charge is Nov 30, not Dec 1.
+    const paid = ago(10);
+    const lastDay = new Date(paid.getFullYear(), paid.getMonth() + 2, 0).getDate();
+    assert.equal(netflix.fields.due, ymd(new Date(paid.getFullYear(), paid.getMonth() + 1, Math.min(paid.getDate(), lastDay))));
     assert.match(String(netflix.fields.url), /^https:\/\/mail\.google\.com\/mail\/\?authuser=robin%40example\.com#all\/n1$/);
     const domain = watches.find((w) => w.fields.title === "Domain example.org")!;
     assert.equal(domain.fields.due, ahead(25));

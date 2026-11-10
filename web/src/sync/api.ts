@@ -28,6 +28,13 @@ export const isDeviceKey = (k: string | undefined | null): boolean => !!k && k.s
 
 /** POST /devices/pairing: a one-time code (10 minutes) and the links that carry it. */
 export interface PairingLinks { hub: string; code: string; expires_at: string; app: string; web: string }
+/** GET /hub-update: what the hub runs, what is newer (after a check) and how the last update went (hub/src/update.ts). */
+export interface HubUpdateRun { state: "starting" | "checking" | "installing" | "restarting" | "rolling_back" | "done" | "up_to_date" | "rolled_back" | "failed"; message: string; from: string | null; to: string | null; at: string }
+export interface HubUpdateInfo {
+  installed_with_git: boolean; commit: string | null; committed_at: string | null; branch: string; checked_at: string | null; latest: string | null;
+  behind: number; changes: { commit: string; title: string; at: string }[]; local_changes: boolean; can_update: boolean; reason?: string;
+  last_run: HubUpdateRun | null; running: boolean;
+}
 /** GET /hubs: other people's hubs on this machine (deploy/people.sh), as the owner's hub sees them. */
 export interface PersonHub { name: string; account: string; port: number; color: string; owner: boolean; address: string | null; up: boolean }
 export interface HubsList { available: boolean; reason?: "linux_only" | "not_set_up" | "not_owner"; setup_command: string; admin_note: string; hubs: PersonHub[] }
@@ -642,6 +649,9 @@ export class HubClient {
     return this.req<{ pull: PullState | null }>("GET", "/setup/ollama/pull");
   }
   /** A one-time code and the links that set up another device in one step (and the address it reaches the hub at). */
+  hubUpdate() { return this.req<HubUpdateInfo>("GET", "/hub-update"); }
+  checkHubUpdate() { return this.req<HubUpdateInfo>("POST", "/hub-update/check"); }
+  startHubUpdate() { return this.req<{ started: true; run: HubUpdateRun }>("POST", "/hub-update"); }
   hubs() { return this.req<HubsList>("GET", "/hubs"); }
   addHub(name: string, color?: string) { return this.req<{ request_id: string }>("POST", "/hubs", { name, ...(color ? { color } : {}) }); }
   hubRequest(id: string) { return this.req<HubRequest>("GET", `/hubs/requests/${encodeURIComponent(id)}`); }
