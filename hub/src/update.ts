@@ -5,6 +5,7 @@ import type { Hub } from "./hub.js";
 import { REPO_DIR } from "./config.js";
 import { StoreError } from "./store.js";
 import { errCode } from "./logsafe.js";
+import { updatedWithOwner } from "./hubs.js";
 
 /**
  * Updating the hub from the app (Settings, About) or the assistant (update_hub). A hub installed by
@@ -18,6 +19,8 @@ export type UpdateState = "starting" | "checking" | "installing" | "restarting" 
 export interface UpdateRun { state: UpdateState; message: string; from: string | null; to: string | null; at: string }
 export interface UpdateCheck {
   installed_with_git: boolean;
+  /** Another person's hub on a shared machine: it follows the owner's updates and has no update of its own. */
+  follows_owner?: string;
   commit: string | null;
   committed_at: string | null;
   branch: string;
@@ -38,6 +41,7 @@ const RUNNING: UpdateState[] = ["starting", "checking", "installing", "restartin
 /** A run that has said nothing for this long was killed (a reboot): no longer counted as running. */
 const STALE_MS = 30 * 60_000;
 const COPY_REASON = "This hub was copied onto its machine, not installed with git, so it cannot update itself. Update it the way it was installed.";
+const followsReason = (owner: string) => `This hub shares its machine with ${owner}'s and runs the same version: when ${owner} updates theirs, this one follows.`;
 
 /** The checkout (EA_UPDATE_APP_DIR in tests). */
 export function appDir(): string { return process.env.EA_UPDATE_APP_DIR || REPO_DIR; }
@@ -85,6 +89,8 @@ export async function updateInfo(hub: Hub, fetch = false): Promise<UpdateCheck> 
     installed_with_git: false, commit: null, committed_at: null, branch, checked_at: null, latest: null, behind: 0, changes: [],
     local_changes: false, can_update: false, last_run: run, running,
   };
+  const owner = updatedWithOwner();
+  if (owner) return { ...base, follows_owner: owner, reason: followsReason(owner) };
   if (!(await isClone())) return { ...base, reason: COPY_REASON };
   const [head, at, dirty] = await Promise.all([
     git(["rev-parse", "HEAD"]).catch(() => ""),
@@ -148,6 +154,8 @@ export const launchUpdate: { run: Launcher } = {
 
 /** Start deploy/update.sh. The caller learns how it went from `updateInfo` (last_run). */
 export async function startUpdate(hub: Hub): Promise<{ started: true; run: UpdateRun }> {
+  const owner = updatedWithOwner();
+  if (owner) throw new StoreError(409, followsReason(owner), { reason: "follows_owner" });
   if (!(await isClone())) throw new StoreError(409, COPY_REASON, { reason: "not_git" });
   if (isRunning(lastRun(hub))) throw new StoreError(409, "An update is already running.", { reason: "running" });
   const script = path.join(appDir(), "deploy", "update.sh");

@@ -31,7 +31,7 @@ export interface PairingLinks { hub: string; code: string; expires_at: string; a
 /** GET /hub-update: what the hub runs, what is newer (after a check) and how the last update went (hub/src/update.ts). */
 export interface HubUpdateRun { state: "starting" | "checking" | "installing" | "restarting" | "rolling_back" | "done" | "up_to_date" | "rolled_back" | "failed"; message: string; from: string | null; to: string | null; at: string }
 export interface HubUpdateInfo {
-  installed_with_git: boolean; commit: string | null; committed_at: string | null; branch: string; checked_at: string | null; latest: string | null;
+  installed_with_git: boolean; follows_owner?: string; commit: string | null; committed_at: string | null; branch: string; checked_at: string | null; latest: string | null;
   behind: number; changes: { commit: string; title: string; at: string }[]; local_changes: boolean; can_update: boolean; reason?: string;
   last_run: HubUpdateRun | null; running: boolean;
 }

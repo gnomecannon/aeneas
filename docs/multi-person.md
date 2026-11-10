@@ -78,7 +78,8 @@ All of these run on the hub's machine, with sudo, from the owner's account:
 # everyone's hubs, addresses, colors, and whether each is up
 sudo bash ~/everythingapp/deploy/people.sh list
 
-# after updating your own hub: everyone else's to the same code and model settings
+# after updating your own hub with the install command: everyone else's to the same code and model settings
+# (an update from the app, Settings, About, Update hub, does this by itself)
 sudo bash ~/everythingapp/deploy/people.sh update
 
 # stop a hub and turn off its address (also in the app, the Stop button beside their name); their data stays

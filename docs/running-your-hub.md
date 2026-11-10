@@ -23,7 +23,16 @@ Logs hold no personal text and no keys.
 
 ## Update
 
-Run the install command again, from your home folder:
+From any of your devices: Settings, About, Hub software, Check for updates, then Update hub. Or ask the assistant to
+update the hub. It shows what is new, installs it, restarts the hub (a minute or two; your devices reconnect by
+themselves), and goes back to the version you had if the new one does not start. It changes nothing you edited in
+`~/everythingapp` yourself: it says so and stops instead. Nothing is checked unless you ask: the hub never looks for
+updates on its own.
+
+Hubs installed before this was added (November 2026) get it with one more run of the install command below. The
+install command also stays the way to update Ollama, the search server and Tor, which Update hub leaves as they are.
+
+The install command, run again from your home folder:
 
 ```bash
 cd ~ && curl -fsSL https://raw.githubusercontent.com/gnomecannon/aeneas/main/deploy/install.sh | bash
@@ -124,7 +133,8 @@ On a Linux hub with Tailscale, someone else can have a hub of their own here: Se
 The first time, that page shows a command to run once in a terminal on this machine (`sudo bash
 ~/everythingapp/deploy/people.sh setup --name "Your name"`). Each person's data is in their own account, apart from
 yours, but anyone with admin rights on this machine, you included, can open it: tell them. After updating your own
-hub, `sudo bash ~/everythingapp/deploy/people.sh update` brings everyone else's to the same version. Everything else,
+hub from the app, everyone else's follows by itself; after updating it with the install command,
+`sudo bash ~/everythingapp/deploy/people.sh update` brings everyone else's to the same version. Everything else,
 including stopping a hub and deleting someone's data: `docs/multi-person.md`.
 
 ## Keys

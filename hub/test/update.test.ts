@@ -15,7 +15,7 @@ const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..
 const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.org", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.org" } }).trim();
 
 /** An "origin" with one commit and a clone of it as the installed app (with deploy/update.sh in it). */
-function installed() {
+function installed(shallow = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ea-update-"));
   const origin = path.join(root, "origin");
   fs.mkdirSync(path.join(origin, "deploy"), { recursive: true });
@@ -24,7 +24,9 @@ function installed() {
   fs.writeFileSync(path.join(origin, "a.txt"), "one\n");
   git(origin, "add", "-A"); git(origin, "commit", "-q", "-m", "First version");
   const app = path.join(root, "app");
-  git(root, "clone", "-q", origin, app);
+  // deploy/install.sh clones with --depth 1: only the newest commit, no history.
+  if (shallow) git(root, "clone", "-q", "--depth", "1", `file://${origin}`, app);
+  else git(root, "clone", "-q", origin, app);
   const commit = (msg: string, file = "a.txt", text = `${msg}\n`) => { fs.writeFileSync(path.join(origin, file), text); git(origin, "add", "-A"); git(origin, "commit", "-q", "-m", msg); return git(origin, "rev-parse", "HEAD"); };
   return { root, origin, app, commit };
 }
@@ -177,4 +179,42 @@ test("update.sh: goes back to the old version when the new one does not install 
     assert.match(r.status.message, /changed by hand/);
     assert.equal(fs.readFileSync(path.join(g.app, "a.txt"), "utf8"), "changed by hand\n");
   } finally { fs.rmSync(g.root, { recursive: true, force: true }); }
+});
+
+test("update.sh and the check work on a shallow clone, as the installer makes", async () => {
+  const g = installed(true);
+  const t = makeHub();
+  process.env.EA_UPDATE_APP_DIR = g.app;
+  try {
+    assert.equal(git(g.app, "rev-parse", "--is-shallow-repository"), "true");
+    g.commit("Second version");
+    g.commit("Third version", "c.txt");
+    const info = await (await t.api("/hub-update/check", { method: "POST" })).json() as any;
+    assert.equal(info.behind, 2, JSON.stringify(info));
+    assert.deepEqual(info.changes.map((c: any) => c.title), ["Third version", "Second version"]);
+    assert.equal(info.can_update, true);
+    const r = await runScript(g);
+    assert.equal(r.status.state, "done", r.log);
+    assert.equal(git(g.app, "rev-parse", "HEAD"), git(g.origin, "rev-parse", "HEAD"));
+  } finally { delete process.env.EA_UPDATE_APP_DIR; t.cleanup(); fs.rmSync(g.root, { recursive: true, force: true }); }
+});
+
+test("another person's hub on a shared machine follows the owner's updates and offers none of its own", async () => {
+  const t = makeHub();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ea-update-people-"));
+  fs.mkdirSync(path.join(root, "etc/aeneas"), { recursive: true });
+  fs.writeFileSync(path.join(root, "etc/aeneas/owner"), "someone-else\n");
+  fs.writeFileSync(path.join(root, "etc/aeneas/people.json"), JSON.stringify([
+    { name: "Sam", user: "someone-else", port: 1, owner: true },
+    { name: "Jamie", user: os.userInfo().username, port: 2, owner: false },
+  ]));
+  process.env.EA_PEOPLE_ROOT = root;
+  try {
+    const info = await (await t.api("/hub-update/check", { method: "POST" })).json() as any;
+    assert.equal(info.follows_owner, "Sam");
+    assert.equal(info.can_update, false);
+    assert.match(info.reason, /when Sam updates theirs, this one follows/);
+    const r = await t.api("/hub-update", { method: "POST" });
+    assert.equal(r.status, 409);
+  } finally { delete process.env.EA_PEOPLE_ROOT; t.cleanup(); fs.rmSync(root, { recursive: true, force: true }); }
 });

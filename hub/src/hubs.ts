@@ -70,6 +70,21 @@ async function up(port: number): Promise<boolean> {
   try { return (await fetch(`http://127.0.0.1:${port}/health`, { signal: ctl.signal })).ok; } catch { return false; } finally { clearTimeout(t); }
 }
 
+/**
+ * On a machine with several people, a hub that is not the owner's runs a copy of the owner's code (people.sh update):
+ * it is updated with theirs. The owner's name then, else null (the owner's own hub, or a machine with one hub).
+ */
+export function updatedWithOwner(): string | null {
+  if (process.platform !== "linux" && !process.env.EA_PEOPLE_ROOT) return null;
+  let owner = "";
+  try { owner = fs.readFileSync(OWNER_FILE(), "utf8").trim(); } catch { return null; }
+  const account = me();
+  if (!owner || owner === account) return null;
+  const list = registry();
+  if (!list.some((p) => p.user === account)) return null;
+  return String(list.find((p) => p.owner)?.name ?? "the machine owner");
+}
+
 export async function listHubs(): Promise<PersonHub[]> {
   const list = registry();
   return Promise.all(list.map(async (p) => ({
