@@ -53,6 +53,9 @@ function learnOwnTailnet(): void {
 
 async function main(): Promise<void> {
   const cmd = process.argv[2] ?? "serve";
+  // A name of its own in ps, top and system monitors, instead of "node" (Linux keeps 15 characters of it).
+  const title = ({ serve: "aeneas-hub", gate: "aeneas-gate" } as Record<string, string>)[cmd];
+  if (title) process.title = title;
   // The model gate in front of the machine's model server, shared by every person's hub on it (hub/src/gate.ts).
   // It reads only its own EA_GATE_* settings, not a hub's.
   if (cmd === "gate") {

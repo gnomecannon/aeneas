@@ -501,11 +501,13 @@ make_tls() {
 case "$(get_env EA_BIND_HOST)" in ""|127.*|localhost|::1) ;; *) make_tls ;; esac
 
 # ---- 5. the service ----
-start_cmd="$NODE_BIN $APP_DIR/node_modules/.bin/tsx src/main.ts serve"
+# Node with tsx loaded inside it (found from the hub folder), so the hub is one process, named aeneas-hub, and not a
+# tsx wrapper around a second node.
+start_cmd="$NODE_BIN --import tsx src/main.ts serve"
 hub_test_start() {
   mkdir -p "$DATA_DIR/logs"
   # Only on 127.0.0.1 while testing, whatever hub.env says.
-  (cd "$APP_DIR/hub" && set -a && . "$ENV_FILE" && set +a && export EA_BIND_HOST=127.0.0.1 && exec "$NODE_BIN" "$APP_DIR/node_modules/.bin/tsx" src/main.ts serve) >>"$DATA_DIR/logs/hub.log" 2>&1 &
+  (cd "$APP_DIR/hub" && set -a && . "$ENV_FILE" && set +a && export EA_BIND_HOST=127.0.0.1 && exec "$NODE_BIN" --import tsx src/main.ts serve) >>"$DATA_DIR/logs/hub.log" 2>&1 &
   HUB_TEST_PID=$!
 }
 if [ "$OS" = Linux ]; then

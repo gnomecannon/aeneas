@@ -231,7 +231,7 @@ Environment=EA_GATE_UPSTREAM=$UPSTREAM
 Environment=EA_GATE_SLOTS=${EA_GATE_SLOTS:-1}
 Environment=EA_GATE_MODELS=$MODEL
 Environment=PATH=$(dirname "$NODE"):/usr/local/bin:/usr/bin:/bin
-ExecStart=$NODE $OWNER_REPO/node_modules/.bin/tsx src/main.ts gate
+ExecStart=$NODE --import tsx src/main.ts gate
 Restart=always
 RestartSec=2
 NoNewPrivileges=true
