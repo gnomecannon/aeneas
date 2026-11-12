@@ -15,7 +15,7 @@ import { Week } from "./views/Week";
 import { Renewals } from "./views/Renewals";
 import { PlanRules } from "./views/PlanRules";
 import { Dashboard } from "./views/Dashboard";
-import { isWindowsApp, onNavigate, windowLabel } from "./tauri/bridge";
+import { isWindowsApp, onNavigate, onSetupLink, windowLabel } from "./tauri/bridge";
 import { applySetupFile } from "./tauri/setupFile";
 import { Now } from "./views/Now";
 import { Capture } from "./views/Capture";
@@ -54,6 +54,7 @@ import { Status } from "./views/Status";
 import { Settings } from "./views/Settings";
 import { Setup } from "./views/Setup";
 import { Welcome } from "./views/Welcome";
+import HelpConnections from "./views/HelpConnections";
 import { Widget } from "./views/Widget";
 import { IfModule, ModuleGate } from "./components/ModuleGate";
 
@@ -96,7 +97,7 @@ function useFirstRun(configured: boolean) {
     const c = engine.client;
     if (!c) return;
     void c.setup().then((v) => {
-      if (!v.named && !window.location.hash.startsWith("#/welcome")) {
+      if (!v.named && !window.location.hash.startsWith("#/welcome") && !window.location.hash.startsWith("#/help")) {
         try { sessionStorage.setItem("ea-welcome-skip", "1"); } catch { /* private window */ }
         window.location.hash = "/welcome";
       }
@@ -121,8 +122,11 @@ export function App() {
     void onNavigate((p) => {
       window.location.hash = p;
     }).then((u) => (un = u));
+    let unLink: (() => void) | undefined;
+    void onSetupLink((p) => { window.location.hash = p; }).then((u) => (unLink = u));
     return () => {
       un?.();
+      unLink?.();
       engine.stop();
     };
   }, []);
@@ -143,7 +147,8 @@ export function App() {
   const configured = !!hubUrl && !!token;
   // A pairing link (#/setup?hub=&code=, or an older one with token=) connects this device, even one connected to a hub before.
   if (booted && ((!configured && !route.path.startsWith("/settings")) || (route.path === "/setup" && (route.params.get("code") || route.params.get("token"))))) {
-    return <Setup />;
+    // A new pairing link while Setup shows starts it afresh, so it reads that link.
+    return <Setup key={route.path === "/setup" ? window.location.hash : "setup"} />;
   }
 
   let view: JSX.Element;
@@ -189,6 +194,7 @@ export function App() {
   else if (p.startsWith("/search")) view = <Search q={route.params.get("q") ?? ""} />;
   else if (p.startsWith("/status")) view = <Status />;
   else if (p.startsWith("/welcome")) view = <Welcome />;
+  else if (p.startsWith("/help/connections")) view = <HelpConnections />;
   else if (p.startsWith("/settings")) view = <Settings parts={route.parts.slice(1)} params={route.params} />;
   else if (p === "/library" || p === "/more") view = <Library />;
   else view = <Now />;

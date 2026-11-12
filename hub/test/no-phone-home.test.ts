@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeHub } from "./helpers.js";
+import { makeHub, fileMode } from "./helpers.js";
 
 /*
  * Nothing phones home (docs/05-public-release.md, rule 6; docs/privacy-network.md). Every outside address in the code
@@ -90,6 +90,6 @@ test("no phone home: a Steam game's picture comes from the hub, fetched from Ste
     assert.equal((await t.api("/games/art/999")).status, 404);
     assert.equal((await t.api("/games/art/999")).status, 404);
     assert.equal(calls.filter((u) => u.includes("/999/")).length, 1);
-    assert.equal(fs.statSync(path.join(t.dir, "game-art", "440.jpg")).mode & 0o077, 0, "the hub's copy is private to its user");
+    assert.equal(fileMode(path.join(t.dir, "game-art", "440.jpg")) & 0o077, 0, "the hub's copy is private to its user");
   } finally { t.cleanup(); }
 });

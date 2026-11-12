@@ -1,5 +1,6 @@
 import SwiftUI
 import EACore
+import EALink
 
 /// Settings: a short list of areas, each with a one-line summary, each opening its own screen.
 struct SettingsView: View {
@@ -198,6 +199,20 @@ struct ConnectionSettingsView: View {
     @State private var testResult: String?
     @State private var saved = false
     @State private var confirmReset = false
+    @State private var linkNow = "Checking"
+
+    /// Who runs a Direct link relay, said plainly (the same words as the hub's Settings).
+    static func relayOwner(_ url: String) -> String {
+        let host = URL(string: url)?.host ?? url
+        return host.hasSuffix(".iroh.link") || host.hasSuffix(".iroh.link.") ? "n0, the makers of iroh (free public relay)" : host
+    }
+
+    private func refreshLinkNow() async {
+        guard let st = await EALink.state(hubAddress: model.config.hubURL) else { linkNow = "Not a Direct link hub"; return }
+        if !st.connected { linkNow = "Not connected (it connects when the app next talks to the hub)"; return }
+        let ms = st.rttMs.map { $0 == 0 ? ", under 1 ms" : ", \($0) ms" } ?? ""
+        linkNow = st.direct ? "Connected directly\(ms)" : "Connected through the relay\(ms)"
+    }
 
     var body: some View {
         if model.config.sampleMode {
@@ -214,7 +229,15 @@ struct ConnectionSettingsView: View {
                 if let id = engine.hubIdentity, let label = id.label {
                     LabeledContent("Paired with") { HubBadge(identity: id, label: label) }
                 }
-                LabeledContent("Hub", value: model.config.hubURL)
+                if let d = DirectHub.parse(model.config.hubURL) {
+                    LabeledContent("Reached by", value: "Direct link (iroh)")
+                    LabeledContent("Hub key", value: String(d.node.prefix(10)))
+                    LabeledContent("Relay", value: Self.relayOwner(d.relay))
+                    LabeledContent("Right now", value: linkNow)
+                        .task { await refreshLinkNow() }
+                } else {
+                    LabeledContent("Hub", value: model.config.hubURL)
+                }
                 LabeledContent("Signed in with", value: model.config.hasDeviceKey ? "This device's own key" : "The hub's shared key")
                 if model.config.hubPin != nil { LabeledContent("Certificate", value: "Pinned") }
                 LabeledContent("Device name") {
@@ -241,6 +264,9 @@ struct ConnectionSettingsView: View {
                      : "This device still uses the key every device shared. It moves to a key of its own once the hub is updated.")
             }
             .themedRow()
+            if Tailnet.isTailnetHub(model.config.hubURL) {
+                SwiftUI.Section { TailscaleHereView() }.themedRow()
+            }
             PairDeviceSection()
             DevicesSection()
             SwiftUI.Section("Sync") {

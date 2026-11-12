@@ -34,7 +34,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>202611081718</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>EAAppGroup</key>
 	<string>group.$(EA_BUNDLE_PREFIX).everythingapp</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -56,6 +56,10 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_aeneas._tcp</string>
+	</array>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Aeneas reads the titles and times of the calendars you choose, so your meetings show in your plan, and writes the events and planned blocks you make in the app to your calendar.</string>
 	<key>NSContactsUsageDescription</key>
@@ -64,6 +68,8 @@
 	<string>Reads weight, blood pressure, sleep, steps, workouts, caffeine and mood so they are logged in Aeneas without typing them twice.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Writes what you log in Aeneas (weight, blood pressure, caffeine, mood and timed activities) to Health, so it is in both places.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Aeneas looks for your hub on the network you are on. With Direct link, the two then talk directly and your data stays on your own network when they share one. With Home Wi-Fi only, this is how Aeneas finds your hub again when your router gives it a new address.</string>
 	<key>NSLocationUsageDescription</key>
 	<string>With Calculators on, the bill splitter can fill in your state's meals tax. Only an approximate position is used, and it goes to your own hub and nowhere else.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

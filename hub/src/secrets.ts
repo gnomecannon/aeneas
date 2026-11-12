@@ -109,16 +109,18 @@ async function bwStatus(host: Host, c: PasswordManagerConn | null): Promise<{ st
   try { return JSON.parse(r.out.slice(r.out.indexOf("{"))) as { status: string; userEmail?: string; serverUrl?: string | null }; } catch { return null; }
 }
 
-function hostFor(hub: Hub, name: string): Host {
+/** A host for a password manager. The CLIs (LastPass, 1Password, Bitwarden) run in a Linux or macOS shell; the
+ * built-in vault is a file the hub reads itself, so `anyOs` lets it use a Windows hub's own machine too. */
+function hostFor(hub: Hub, name: string, anyOs = false): Host {
   const h = hub.ai.hosts.host(name);
   if (!h) throw new StoreError(404, `no host named ${name}`);
-  if (h.os === "windows") throw new StoreError(422, "the password manager CLI runs on a Linux or macOS host");
+  if (h.os === "windows" && !anyOs) throw new StoreError(422, "the password manager CLI runs on a Linux or macOS host");
   return h;
 }
 
-/** The hub's own machine: the host that runs locally, else the first one. */
-export function hubHost(hub: Hub): string {
-  const hosts = hub.ai.hosts.hosts().filter((h) => h.os !== "windows");
+/** The hub's own machine: the host that runs locally, else the first one (Linux or macOS ones only, for the CLIs). */
+export function hubHost(hub: Hub, anyOs = false): string {
+  const hosts = hub.ai.hosts.hosts().filter((h) => anyOs || h.os !== "windows");
   return (hosts.find((h) => h.local) ?? hosts[0])?.name ?? "";
 }
 
@@ -133,8 +135,10 @@ export function passwordManagerView(hub: Hub) {
 /** Which CLIs the host has, and whether the chosen one is signed in. */
 export async function passwordManagerStatus(hub: Hub, provider?: Provider, hostName?: string) {
   const c = conn(hub);
-  const host = hostFor(hub, hostName ?? c?.host ?? hubHost(hub));
-  const has = async (bin: string) => (await cli.run(host, `${PATHS} command -v ${bin}`, null, {}, 10)).code === 0;
+  // A Windows hub has no Linux or macOS machine of its own: only the built-in vault, and no CLI is looked for there.
+  const host = hostFor(hub, hostName ?? c?.host ?? (hubHost(hub) || hubHost(hub, true)), true);
+  const shell = host.os !== "windows";
+  const has = async (bin: string) => shell && (await cli.run(host, `${PATHS} command -v ${bin}`, null, {}, 10)).code === 0;
   const installed: Record<Provider, boolean> = { lastpass: await has("lpass"), "1password": await has("op"), bitwarden: await has("bw"), keepass: true };
   const p = provider ?? c?.provider ?? null;
   let signedIn = false;
@@ -157,13 +161,16 @@ export async function passwordManagerStatus(hub: Hub, provider?: Provider, hostN
     account = v.exists() ? v.file : null;
   }
   const os = host.os === "macos" ? "macos" : "linux";
-  return { host: host.name, provider: p, installed, signed_in: signedIn, account, install_hint: p && !installed[p] ? INSTALL_HINT[p][os] : null };
+  const hint = p && !installed[p] ? (shell ? INSTALL_HINT[p][os] : `${NAMES[p]} works on a Linux or macOS hub; a Windows hub has the built-in vault`) : null;
+  return { host: host.name, provider: p, installed, signed_in: signedIn, account, install_hint: hint };
 }
 
 /** Choose the password manager and where its CLI runs. Allowed items stay when only the host changes. */
 export async function linkPasswordManager(hub: Hub, provider: Provider, hostName: string) {
   if (!PROVIDERS.includes(provider)) throw new StoreError(422, `provider must be one of ${PROVIDERS.join(", ")}`);
-  const host = hostFor(hub, LOCAL_ONLY.has(provider) ? hubHost(hub) : hostName || hubHost(hub));
+  // The built-in vault lives on the hub's own machine, whatever its system (a Windows hub included).
+  const vault = provider === "keepass";
+  const host = vault ? hostFor(hub, hubHost(hub, true), true) : hostFor(hub, LOCAL_ONLY.has(provider) ? hubHost(hub) : hostName || hubHost(hub));
   if (LOCAL_ONLY.has(provider) && hostName && hostName !== host.name) throw new StoreError(422, `${NAMES[provider]} runs on the hub's own machine`);
   // The built-in vault is made the first time it is chosen, with a long random master password the hub keeps.
   if (provider === "keepass" && !keepass(hub).exists()) {
@@ -187,7 +194,8 @@ export async function linkPasswordManager(hub: Hub, provider: Provider, hostName
 export async function signInPasswordManager(hub: Hub, body: { email?: string; password?: string; code?: string; token?: string; server?: string }) {
   const c = conn(hub);
   if (!c) throw new StoreError(409, "choose a password manager first");
-  const host = hostFor(hub, c.host);
+  // The built-in vault needs no shell, so a Windows hub's own machine serves it.
+  const host = hostFor(hub, c.host, c.provider === "keepass");
   if (c.provider === "bitwarden") await bitwardenSignIn(hub, c, host, body);
   else if (c.provider === "keepass") {
     if (!body.password) throw new StoreError(422, "the master password is needed");

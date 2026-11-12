@@ -81,6 +81,7 @@ public struct HTTPTransport: HubTransport {
     public static func hubURL(_ urlString: String) -> URL? {
         var s = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.isEmpty { return nil }
+        if let d = DirectHub.parse(s) { return DirectHub.baseURL(node: d.node) }
         if !s.contains("://") {
             let host = s.split(separator: "/").first.map(String.init) ?? s
             let loopback = host.hasPrefix("localhost") || host.hasPrefix("127.") || host.hasPrefix("[::1]")
@@ -93,7 +94,16 @@ public struct HTTPTransport: HubTransport {
 
     /// Build a transport from a user typed URL string. Returns nil when it is not a URL.
     public static func make(urlString: String, token: String, pin: String? = nil) -> HTTPTransport? {
-        hubURL(urlString).map { HTTPTransport(baseURL: $0, token: token, pin: pin) }
+        // A Direct link hub: requests go over iroh, through the session the app installed (none: no transport here).
+        if let d = DirectHub.parse(urlString) {
+            guard let base = DirectHub.baseURL(node: d.node), let session = DirectLinkBridge.session?(d.node, d.relay) else { return nil }
+            return HTTPTransport(baseURL: base, token: token, session: session)
+        }
+        // A Tailscale hub, with Tailscale signed in inside Aeneas: through that connection.
+        if Tailnet.isTailnetHub(urlString), let base = hubURL(urlString), let session = TailnetBridge.session?() {
+            return HTTPTransport(baseURL: base, token: token, session: session)
+        }
+        return hubURL(urlString).map { HTTPTransport(baseURL: $0, token: token, pin: pin) }
     }
 
     /// This device's hub, key and pin.

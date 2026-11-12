@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { SecretBox } from "../src/secretbox.js";
 import { ConnectionStore } from "../src/imports/connections.js";
 import { readAiSettings, sealAiSettings } from "../src/setup.js";
-import { makeHub } from "./helpers.js";
+import { makeHub, fileMode } from "./helpers.js";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ea-secretbox-"));
 
@@ -22,7 +22,7 @@ test("sign-ins are sealed on disk, open again, and are bound to their file name"
   assert.ok(raw.startsWith("sb1:"));
   assert.ok(!raw.includes("STEAMKEY") && !raw.includes("GOOGLESECRET"));
   assert.ok(!fs.readFileSync(`${file}.bak`, "utf8").includes("STEAMKEY"), "the kept copy is sealed too");
-  assert.equal((fs.statSync(path.join(dir, "keys", "secrets.key")).mode & 0o777), 0o600);
+  assert.equal(fileMode(path.join(dir, "keys", "secrets.key")), 0o600);
   assert.equal(new ConnectionStore(file, new SecretBox(path.join(dir, "keys", "secrets.key"))).get().steam_key, "STEAMKEY-1234567890");
   assert.throws(() => box.open("ai.json", raw), /does not open/, "a sealed file renamed to another does not open");
 });

@@ -64,13 +64,16 @@ export function NavRow({ href, title, summary, extra }: { href: string; title: s
 }
 
 /** A labelled on/off switch, with an optional line under it. */
-export function Toggle({ checked, onChange, label, note, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; note?: ReactNode; disabled?: boolean }) {
+export function Toggle({ checked, onChange, label, note, disabled, aside }: { checked: boolean; onChange: (v: boolean) => void; label: string; note?: ReactNode; disabled?: boolean; aside?: ReactNode }) {
   return (
     <div className="toggle">
-      <label className="toggle-row">
-        <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
-        <span>{label}</span>
-      </label>
+      <div className="row" style={{ flexWrap: "nowrap", justifyContent: "space-between" }}>
+        <label className="toggle-row">
+          <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+          <span>{label}</span>
+        </label>
+        {aside}
+      </div>
       {note && <div className="muted small toggle-note">{note}</div>}
     </div>
   );

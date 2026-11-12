@@ -33,18 +33,28 @@ function ModuleDetails({ m }: { m: ModuleInfo }) {
  * before that behind "What it reads", so the list stays short but nothing is hidden when it matters (release rule 2).
  * A module that needs the person's own key says so up front.
  */
-export function ModuleNote({ m }: { m: ModuleInfo }) {
+export function ModuleNote({ m, open }: { m: ModuleInfo; open?: boolean }) {
   const more = !!(m.reads || m.permissions?.length || m.setup);
   return (
     <>
       <div>{m.summary}{m.setup && !m.on ? <span className="muted"> Advanced setup for part of it, about {m.setup.minutes} minutes.</span> : null}</div>
-      {m.on ? <ModuleDetails m={m} /> : more && (
-        <details className="module-more">
-          <summary>What it reads</summary>
-          <ModuleDetails m={m} />
-        </details>
+      {open && (
+        <div id={`module-${m.id}-info`} className="link-info module-info">
+          {m.example && <div><strong>For example:</strong> {m.example}</div>}
+          {more && <ModuleDetails m={m} />}
+        </div>
       )}
+      {!open && m.on && <ModuleDetails m={m} />}
     </>
+  );
+}
+
+/** One module's switch, with an ⓘ that opens what it is for, an example of it in use, and what it reads. */
+function ModuleToggle({ m, busy, onFlip }: { m: ModuleInfo; busy: boolean; onFlip: (on: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Toggle checked={m.on} disabled={busy} onChange={onFlip} label={m.title} note={<ModuleNote m={m} open={open} />}
+      aside={<button type="button" className="info-btn" aria-expanded={open} aria-controls={`module-${m.id}-info`} aria-label={`About ${m.title}`} onClick={() => setOpen(!open)}>ⓘ</button>} />
   );
 }
 
@@ -82,7 +92,7 @@ export function ModulePicker() {
               <div className="muted small">{mods.map((m) => m.title).join(", ")}</div>
             </summary>
             {mods.map((m) => (
-              <Toggle key={m.id} checked={m.on} disabled={busy === m.id} onChange={(v) => void flip(m.id, v)} label={m.title} note={<ModuleNote m={m} />} />
+              <ModuleToggle key={m.id} m={m} busy={busy === m.id} onFlip={(v) => void flip(m.id, v)} />
             ))}
           </details>
         );

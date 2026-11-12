@@ -22,6 +22,7 @@ import type { ModuleCheck } from "../modules.js";
 import { estimateTokens, fallbackSummary, fitToolResults, planWindow, SUMMARY_SYSTEM, summaryPrompt } from "./history.js";
 import { errCode, logHost } from "../logsafe.js";
 import { webPrivate } from "./web.js";
+import { gpuBusyNow, onThisMachine } from "../gpu.js";
 
 export interface ChatInput {
   session_id: string;
@@ -469,6 +470,9 @@ export class Gateway {
    * starts stops it, and the answer is then `{ stopped: true }` so the caller tries again later without counting a failure.
    */
   async backgroundJson(sessionId: string, system: string, user: string): Promise<{ text: string | null; stopped: boolean }> {
+    // A game on the card the model would load into: background work waits (answered as stopped, so it is tried again
+    // later without counting a failure), so a game never stutters for a note's links or a mail's filing.
+    if (await this.gameRunning()) return { text: null, stopped: true };
     // The system prompt is the hub's own and is sent about the owner (personalBackend). The user prompt carries an
     // email or a note as written, so it goes as it is: a name in it is that person or pet.
     const ctl = new AbortController();
@@ -482,6 +486,21 @@ export class Gateway {
     } finally {
       this.background.delete(ctl);
     }
+  }
+
+  private gameCheck: { at: number; busy: string | null } | null = null;
+  /**
+   * A game (or another 3D program) on this machine's graphics card, asked at most every 30 seconds (on Windows the
+   * question takes about 2.5 s), and only when the model server in use is on this machine: a model server on another
+   * computer has its own card. Null when the card is free for background work.
+   */
+  async gameRunning(now = Date.now()): Promise<string | null> {
+    if (!this.cfg.ollamaUrl || !onThisMachine(this.cfg.ollamaUrl)) return null;
+    if (this.gameCheck && now - this.gameCheck.at < 30_000) return this.gameCheck.busy;
+    const busy = await gpuBusyNow(this.working.size > 0);
+    if (busy !== (this.gameCheck?.busy ?? null)) console.log(busy ? `[ai] background model work waits: ${busy}` : "[ai] the graphics card is free again for background model work");
+    this.gameCheck = { at: now, busy };
+    return busy;
   }
 
   /** No chat is running and none ran for `ms`: background model work (mail, notes) waits for this, so it never slows a reply. */

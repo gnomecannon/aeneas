@@ -137,10 +137,11 @@ export function sealWorkInBackups(backupDir: string, key: WorkKey): string[] {
   for (const name of names) {
     const file = path.join(backupDir, name);
     const st = fs.statSync(file);
-    let db: InstanceType<typeof Database>;
+    let db: InstanceType<typeof Database> | null = null;
     // One damaged copy (cut off before this fix) is skipped, not the end of the run: later copies are still sealed.
+    // It is closed first: on Windows a file left open cannot be encrypted and removed afterwards.
     try { db = new Database(file); db.prepare("SELECT 1 FROM entities LIMIT 1").get(); }
-    catch (e) { console.error(`[backup] ${name} cannot be read, left as it is: ${errCode(e)}`); continue; }
+    catch (e) { db?.close(); console.error(`[backup] ${name} cannot be read, left as it is: ${errCode(e)}`); continue; }
     try {
       const plain = db.prepare("SELECT rowid, id, fields FROM entities WHERE space = 'work' AND fields NOT LIKE 'enc1:%'").all() as { rowid: number; id: string; fields: string }[];
       if (!plain.length) continue;

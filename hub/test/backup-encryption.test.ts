@@ -7,7 +7,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { unzipSync } from "fflate";
 import { identityToRecipient } from "age-encryption";
-import { makeHub, plainBackup, TOKEN } from "./helpers.js";
+import { makeHub, plainBackup, TOKEN, fileMode } from "./helpers.js";
 import { HUB_DIR, loadConfig } from "../src/config.js";
 import { createHub } from "../src/hub.js";
 import { encryptPlainBackups, listBackups, restoreBackup, runBackup } from "../src/backup.js";
@@ -38,7 +38,7 @@ test("backup key: made once on first start in age-keygen's format, owner-only, a
   try {
     const file = t.hub.cfg.backupKeyFile;
     assert.equal(file, path.join(t.dir, "backup.key"), "next to the work key");
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.equal(fileMode(file), 0o600);
     const lines = fs.readFileSync(file, "utf8").trim().split("\n");
     assert.match(lines[0], /^# created: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
     const { identity, recipient } = t.hub.backupKey.load();
@@ -89,8 +89,9 @@ test("backup key: a damaged or unreadable key file is refused and left as it is;
       assert.ok(!body.error.includes(dir), "no path in the answer");
     } finally { hub.close(); }
 
-    // A key file that cannot be read at all (permissions) is the same error, not a new key.
-    if (process.getuid?.() !== 0) {
+    // A key file that cannot be read at all (permissions) is the same error, not a new key. Windows has no Unix
+    // permission bits to take reading away with (chmod 000 changes nothing there), so this part is for Linux and macOS.
+    if (process.platform !== "win32" && process.getuid?.() !== 0) {
       fs.chmodSync(file, 0o000);
       try { assert.throws(() => new BackupKey(file, path.join(dir, "r.json")).load(), /cannot be read \(EACCES\)/); }
       finally { fs.chmodSync(file, 0o600); }
@@ -105,7 +106,7 @@ test("backups are encrypted, and restore with the key or the recovery key gives 
     t.hub.store.create("task", { title: "pack for zanzibar", status: "next", order: 1 });
     const { file } = await runBackup(t.hub.db, t.hub.cfg.backupDir, t.hub.backupKey, new Date(2026, 10, 5, 3));
     assert.equal(path.basename(file), "hub-20261105-030000.sqlite.age");
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.equal(fileMode(file), 0o600);
     assert.ok(isAgeFile(file));
     assert.ok(!bytesOf(file).includes("zanzibar"));
     assert.ok(!bytesOf(file).includes("SQLite format 3"));
@@ -117,7 +118,7 @@ test("backups are encrypted, and restore with the key or the recovery key gives 
     const db = new Database(out, { readonly: true });
     assert.equal((db.prepare("SELECT count(*) AS n FROM entities WHERE fields LIKE '%zanzibar%'").get() as { n: number }).n, 1);
     db.close();
-    assert.equal(fs.statSync(out).mode & 0o777, 0o600);
+    assert.equal(fileMode(out), 0o600);
     await assert.rejects(restoreBackup(file, out, [t.hub.backupKey.identity()]), /already there/, "never over a file");
     const other = (await import("../src/backupkey.js")).newIdentity();
     await assert.rejects(restoreBackup(file, path.join(t.dir, "x.sqlite"), [other.identity]), /not encrypted with this key/);
@@ -173,7 +174,7 @@ test("old plain backups are sealed, lose their chat tables, are encrypted once w
     assert.deepEqual(fs.readdirSync(dir).sort(), ["hub-20261019-030000.sqlite.age", "hub-20261020-030000.sqlite.age"]);
     for (const f of fs.readdirSync(dir)) {
       assert.equal(fs.statSync(path.join(dir, f)).mtime.toISOString(), OLD.toISOString(), `${f} keeps its time`);
-      assert.equal(fs.statSync(path.join(dir, f)).mode & 0o777, 0o600);
+      assert.equal(fileMode(path.join(dir, f)), 0o600);
     }
     const plain = await plainBackup(t, `${good}.age`);
     assert.ok(!bytesOf(plain).includes("Dana"), "work items sealed before encrypting");
@@ -309,7 +310,7 @@ test("disk check: FileVault, LUKS, ZFS, fscrypt and plain disks, and null with a
   assert.equal(overlay.encrypted, null);
   assert.match(overlay.detail, /overlay/);
   assert.equal((await linux({ findmnt: { code: 1 } })).encrypted, null);
-  assert.deepEqual(await diskEncryption("C:\\data", fake({}), "win32"), { encrypted: null, detail: "not checked on win32" });
+  assert.deepEqual(await diskEncryption("C:\\data", fake({}), "win32"), { encrypted: null, detail: "not checked on Windows: reading BitLocker's state needs an administrator" });
 
   // This machine, for real: an answer of the right shape, quickly.
   const t0 = Date.now();
@@ -340,7 +341,7 @@ test("outbox: the settings in one encrypted archive, each picture and recording 
     assert.deepEqual(r.audio, { sealed: 1, kept: 0, removed: 0 });
     const walk = (dir: string): string[] => fs.readdirSync(dir).flatMap((n) => fs.statSync(path.join(dir, n)).isDirectory() ? walk(path.join(dir, n)) : [path.join(dir, n)]);
     const files = walk(r.dir);
-    assert.deepEqual(files.map((f) => path.relative(r.dir, f)).sort(), ["audio/idea.wav.age", "gallery/kept.png.age", "settings.zip.age"]);
+    assert.deepEqual(files.map((f) => path.relative(r.dir, f).split(path.sep).join("/")).sort(), ["audio/idea.wav.age", "gallery/kept.png.age", "settings.zip.age"]);
     for (const f of files) {
       assert.ok(isAgeFile(f), `${f} is encrypted`);
       for (const plain of ["Plainname", "shape-bytes", "gallery-picture-bytes", "hum-recording-bytes", "STEAMKEYFAKE"]) assert.ok(!bytesOf(f).includes(plain));

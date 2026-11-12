@@ -195,3 +195,20 @@ export async function stripSetupToken(): Promise<void> {
   const { token: _token, ...rest } = current;
   await fs.writeTextFile(SETUP_FILE, JSON.stringify(rest, null, 2) + "\n", opts);
 }
+
+/**
+ * Pairing links (`everythingapp://setup?...`, from a QR code scanned with the camera or a link clicked) that open the
+ * Windows or Android app, now and while it runs: `cb` gets the setup route (`/setup?...`). Other links are ignored.
+ */
+export async function onSetupLink(cb: (route: string) => void): Promise<() => void> {
+  if (!isTauri) return () => {};
+  const { getCurrent, onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
+  const take = (urls: string[] | null | undefined) => {
+    for (const u of urls ?? []) {
+      const m = /^everythingapp:\/\/setup\?(.+)$/i.exec(u.trim());
+      if (m) { cb(`/setup?${m[1]}`); return; }
+    }
+  };
+  take(await getCurrent().catch(() => null));
+  return onOpenUrl(take);
+}

@@ -19,7 +19,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
-	<string>202611081718</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>EAAppGroup</key>
 	<string>group.$(EA_BUNDLE_PREFIX).everythingapp</string>
 	<key>NSExtension</key>

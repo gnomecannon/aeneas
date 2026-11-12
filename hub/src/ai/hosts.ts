@@ -124,7 +124,7 @@ export function loadHosts(cfg: Pick<Config, "sshConfigPath" | "hostsFile">): Hos
   const self = os.hostname().toLowerCase().split(".")[0];
   const existing = hosts.get(self) ?? [...hosts.values()].find((h) => h.aliases.includes(self));
   if (existing) { existing.local = true; existing.via = "runs on the hub itself"; }
-  else hosts.set(self, { name: self, aliases: [self], target: self, os: process.platform === "darwin" ? "macos" : "linux", local: true, via: "runs on the hub itself" });
+  else hosts.set(self, { name: self, aliases: [self], target: self, os: process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux", local: true, via: "runs on the hub itself" });
   return [...hosts.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -662,6 +662,11 @@ function nonInteractive(cmd: string): string { return cmd.replace(/\bsudo\s+(?!-
 
 export function commandArgv(host: Host, command: string): { file: string; args: string[] } {
   const cmd = nonInteractive(command);
+  // A hub on Windows runs its own machine's commands in PowerShell, the way it reaches other Windows machines.
+  if (host.local && host.os === "windows") {
+    const encoded = Buffer.from(`$ProgressPreference='SilentlyContinue'; ${command}`, "utf16le").toString("base64");
+    return { file: "powershell.exe", args: ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded] };
+  }
   if (host.local) return { file: "bash", args: ["-lc", cmd] };
   const ssh = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3", "-o", "StrictHostKeyChecking=accept-new", "-o", "LogLevel=ERROR", host.target];
   if (host.os === "windows") {

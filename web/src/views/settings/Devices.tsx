@@ -51,9 +51,12 @@ export function PairDevice({ defaultName = "iPhone" }: { defaultName?: string })
           {qr && <img src={qr} width={240} height={240} alt="Pairing code for the Aeneas app" style={{ background: "#fff", borderRadius: 8 }} />}
           <div className="col small">
             <div style={{ fontFamily: "ui-monospace, monospace", fontSize: "2rem", letterSpacing: "0.12em" }} aria-label="Pairing code">{links.code}</div>
-            <div>Works once, for {remaining} more. On the new device, scan the QR code with the camera, or open Aeneas and type the code with the hub address {links.hub}.</div>
+            <div>Works once, for {remaining} more. {links.link === "direct"
+              ? "On the new device, scan the QR code with the camera. With Direct link the code alone isn't enough: the QR code or link carries this hub's key. On a computer, copy the app link and paste it into Aeneas's hub address field."
+              : `On the new device, scan the QR code with the camera, or open Aeneas and type the code with the hub address ${links.hub}.`}</div>
             <a href={links.app}>Open in the app on this Mac</a>
-            <button type="button" className="ghost small" onClick={() => void navigator.clipboard.writeText(links.web).then(() => setMsg({ ok: true, text: "Web link copied. It works once, for 10 minutes." }))}>Copy the web link</button>
+            <button type="button" className="ghost small" onClick={() => void navigator.clipboard.writeText(links.app).then(() => setMsg({ ok: true, text: "App link copied. Paste it into Aeneas on the new device. It works once, for 10 minutes." }))}>Copy the app link</button>
+            {links.link !== "direct" && <button type="button" className="ghost small" onClick={() => void navigator.clipboard.writeText(links.web).then(() => setMsg({ ok: true, text: "Web link copied. It works once, for 10 minutes." }))}>Copy the web link</button>}
             <button type="button" className="ghost small" onClick={() => { setLinks(null); setQr(""); }}>Hide</button>
           </div>
         </div>

@@ -44,9 +44,16 @@ struct WidgetDoneIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         let c = SharedConfig.shared
         // The device's own key, read from the Keychain the app shares with its widgets.
-        guard let id = c.nowTaskId, !c.deviceId.isEmpty, let client = HubClient.make(config: c) else { return .result() }
+        guard let id = c.nowTaskId, !c.deviceId.isEmpty else { return .result() }
         let now = ISO.now()
-        _ = try? await client.push(deviceId: c.deviceId, patches: [Patch(id: id, kind: .task, ts: now, fields: ["status": .string("done"), "done_at": .string(now)])])
+        if let client = HubClient.make(config: c) {
+            _ = try? await client.push(deviceId: c.deviceId, patches: [Patch(id: id, kind: .task, ts: now, fields: ["status": .string("done"), "done_at": .string(now)])])
+        } else if DirectHub.isDirect(c.hubURL) {
+            // Widgets cannot reach a Direct link hub themselves: the app sends this when it next opens.
+            c.pendingWidgetDone = "\(id)|\(now)"
+        } else {
+            return .result()
+        }
         c.nowTaskId = nil
         c.nowTaskTitle = nil
         c.nowTaskStatus = nil

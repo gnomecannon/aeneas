@@ -1,11 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { makeHub, type TestHub } from "./helpers.js";
 import { setBackendOverride, type AiMessage, type Backend } from "../src/ai/backends.js";
 import { gptTurns, importsIdle, kick, parseIcs, parseVcf, readEntries, type ImportJob } from "../src/imports/bulk.js";
+import { gpuProbe } from "../src/gpu.js";
+
+// The graphics card of the machine running the tests is not a hub's: learning never waits on it here (on a PC whose
+// card shows a game or a busy desktop, every piece waited a minute).
+gpuProbe.run = async () => null;
 
 const conv = (title: string, t: number, turns: [string, string][], branch = false) => {
   const mapping: Record<string, unknown> = { root: { message: null, parent: null } };
@@ -141,7 +147,7 @@ test("import: parsers", () => {
 });
 
 test("import: one upload reads at most so much, and says how many files it left out", async () => {
-  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? "/tmp", "ea-read-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ea-read-"));
   try {
     const file = path.join(dir, "notes.zip");
     fs.writeFileSync(file, zipSync({ "a.md": strToU8("a".repeat(100)), "b.md": strToU8("b".repeat(100)), "c.md": strToU8("c".repeat(100)), "photo.jpg": strToU8("x") }));

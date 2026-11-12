@@ -33,14 +33,22 @@ The privacy policy for the apps: [PRIVACY.md](PRIVACY.md). The details: `docs/06
 About 15 minutes in all, plus the model download (about 1.5 GB on a computer without a graphics card, up to about
 20 GB with a large one).
 
-1. On the computer that will be the hub (Linux or macOS, always on, 8 GB of memory or more), run the installer in a
-   terminal. It needs no root password and asks at most two questions (whether to download the model server, and
-   whether web searches should go through Tor; Enter takes the suggested answer). It installs Node, the hub as a
-   service, a local model server (Ollama), a local search server when Python is there, and HTTPS. A few minutes.
+1. On the computer that will be the hub (Linux, macOS or Windows, always on, 8 GB of memory or more), run the
+   installer in a terminal. It needs no root password and asks at most three questions (whether to download the model
+   server, where to keep the models, and whether web searches should go through Tor; Enter takes the suggested answer).
+   It installs Node, the hub as a service, a local model server (Ollama), a local search server when Python is there,
+   and HTTPS. A few minutes.
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/gnomecannon/aeneas/main/deploy/install.sh | bash
    ```
+
+   On Windows 10 or 11: download `Aeneas-Hub-Setup.exe` from the Releases page
+   (github.com/gnomecannon/aeneas/releases) and run it (see A Windows PC as the hub, below).
+
+   Either way, setup asks how your phone and computers reach the hub: Direct link (the default: no account, the QR
+   code carries the hub's key, works at home and away), Tailscale, or your home Wi-Fi only. Each has a note on what
+   it involves, and [docs/connections.md](docs/connections.md) compares them; Settings can change it later.
 
 2. Open the link it prints, in a browser on that computer or on another one on the same network. The first time,
    the browser says the connection is not private: the hub made its own certificate, so choose Advanced (or Show
@@ -49,15 +57,36 @@ About 15 minutes in all, plus the model download (about 1.5 GB on a computer wit
    pairing code for your other devices. About 5 minutes plus the download.
 3. Install Aeneas on your iPhone, iPad or Mac, or open the web app in a browser. (To look around before you
    have a hub, the Apple apps offer "Try it with sample data": a made-up month, kept on the device.) On Android,
-   install the APK from the Releases page (or from F-Droid once it is listed). Android accepts only a hub with a real
-   certificate, so it needs the hub's Tailscale address (see Away from home below).
+   install the APK from the Releases page (or from F-Droid once it is listed).
 4. On the Welcome page, press Make a pairing code and scan the QR code with the phone's camera (on a Mac, open the
    link). Each device gets its own key, and scanning lets it check the hub's certificate.
 
-**Away from home.** The hub listens on your home network. To reach it from anywhere, install Tailscale (free for
-personal use, tailscale.com) on the hub and your devices, then run the install command again: the hub gets an
-https address on your private Tailscale network. Gmail and Confluence need that address, because Google and
-Atlassian send you back only to an https name.
+**Away from home.** Direct link and Tailscale both work away from home; Home Wi-Fi only does not. Gmail and
+Confluence need the hub's Tailscale address, because Google and Atlassian send you back only to an https name.
+
+**A Windows PC as the hub.** A gaming PC with a good graphics card makes a fast hub (tested on Windows 11 Pro 24H2,
+build 26200, with an RTX 4090). What is different there:
+
+- One installer, `Aeneas-Hub-Setup.exe`, does all of it: the hub, Ollama, Tor and private search, and Tailscale when
+  you choose it and the PC does not have it (each download checked against its published checksum). Run it again to update; Settings,
+  Apps, Aeneas hub removes it and keeps your data. Windows shows a SmartScreen warning the first time, since the
+  installer is not code-signed yet: More info, then Run anyway.
+- With Tailscale chosen, the installer opens the browser to sign in to Tailscale, and once more to turn on HTTPS for
+  a new tailnet, and keeps Tailscale running while nobody is logged in. With Home Wi-Fi only, it makes the hub's own
+  certificate and a firewall rule that lets only the hub's own program take connections, on private networks only.
+- Windows asks once for permission (an administrator) during the install, to start the hub at boot before anyone
+  logs in (and, when chosen, to install Tailscale or add that firewall rule). Said no to the boot task alone, the hub starts when you log in instead.
+- The hub asks Windows not to sleep while the PC is on AC power (the screen still turns off); a sleeping PC cannot
+  answer your phone. Your phone keeps working offline and catches up when the hub is back.
+- The installer asks where to keep the models (1.5 to 19 GB each). Where they are only changes how fast a model loads
+  after 5 quiet minutes (an NVMe SSD about 5 to 10 seconds for a large
+  one, a hard drive about 2 minutes), never how fast it answers. Network drives cannot hold them: the hub runs before
+  anyone logs in and cannot reach them.
+- While a game (any program drawing hard on the card) runs, background work that needs the model (sorting notes,
+  reading mail, learning from an import) waits, so the game keeps the card. Chats still answer.
+- Not on Windows: several people on one machine (Linux only).
+- Everything lives in `%LOCALAPPDATA%\AeneasHub`. Updating, backups, restoring and uninstalling on Windows:
+  `docs/running-your-hub.md`.
 
 **Someone else in the house.** On a Linux hub with Tailscale, each person can have a hub of their own on the same
 machine: their own notes, chats, settings and devices, apart from yours, sharing the machine's model fairly (a reply
@@ -93,7 +122,7 @@ Connections, with the values to copy filled in and a check at the end: Steam pla
 | `hub/` | The hub: one TypeScript process, SQLite, Hono. Sync, reminders, notes, search, the assistant, backups | `npm --workspace hub test` |
 | `web/` | The web app and the Windows app (Tauri) | `npm --workspace web test` |
 | `apple/` | SwiftUI apps for iPhone, iPad, Mac and Watch, with widgets (`xcodegen generate`) | `cd apple/Packages/EACore && swift test` |
-| `deploy/` | The installer (`install.sh`), `pair-link.sh`, `restore.sh`, `uninstall.sh`, starter content, the Windows build script | `bash -n deploy/install.sh` |
+| `deploy/` | The installers (`install.sh` for Linux and macOS, `install.ps1` for Windows), `pair-link.sh`, `restore.sh`, `uninstall.sh` and their Windows twins in `deploy/windows`, the Windows hub service (`hub-service.ps1`), starter content, the Windows build script | `bash -n deploy/install.sh` |
 | `tools/` | The license check, the public copy tools and an Obsidian vault mirror | `npm run license-check` |
 
 ## Develop

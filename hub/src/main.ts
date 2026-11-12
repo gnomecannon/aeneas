@@ -1,3 +1,4 @@
+import { startLink } from "./link.js";
 import { startGalleryJob } from "./gallery.js";
 import { linkCaptureThreads, startFilingJob } from "./capture-filer.js";
 import { startMailJob } from "./mail-filer.js";
@@ -254,8 +255,11 @@ async function main(): Promise<void> {
     const how = tls ? `https://${cfg.bindHost}:${info.port} (plain HTTP for this machine only; certificate sha256 ${tls.fingerprint})` : `http://${cfg.bindHost}:${info.port}`;
     console.log(`[hub] v${VERSION} listening on ${how} data=${cfg.dataDir} vault=${cfg.vaultDir} ollama=${cfg.ollamaUrl ? logHost(cfg.ollamaUrl) : "off"} cloud=${cfg.anthropicApiKey ? "key set" : "off"} adapter=${cfg.adapterUrl ? logHost(cfg.adapterUrl) : "off"}`);
   });
+  // How devices reach the hub (link.ts): the Direct link starts here when it is the method in use.
+  const stopLink = await startLink(cfg, app.fetch);
   const shutdown = () => {
     console.log("[hub] shutting down");
+    void stopLink();
     stopReminders();
     stopBackup();
     stopSweep();

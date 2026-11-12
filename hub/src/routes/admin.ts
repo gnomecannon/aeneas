@@ -1,3 +1,4 @@
+import { chooseLink, linkView } from "../link.js";
 import { Hono } from "hono";
 import type { Hub } from "../hub.js";
 import { readJsonObject } from "../http.js";
@@ -40,6 +41,14 @@ export function adminRoutes() {
   r.get("/hub-update", async (c) => c.json(await updateInfo(c.get("hub"))));
   r.post("/hub-update/check", async (c) => c.json(await updateInfo(c.get("hub"), true)));
   r.post("/hub-update", async (c) => c.json(await startUpdate(c.get("hub")), 202));
+  // How devices reach the hub (link.ts): the method in use, which ones this install offers, and the Direct link's state.
+  r.get("/setup/link", (c) => c.json(linkView(c.get("hub").cfg)));
+  r.put("/setup/link", async (c) => {
+    const hub = c.get("hub");
+    const res = await chooseLink(hub.cfg, (await readJsonObject<{ method?: unknown }>(c)).method);
+    if (!res.ok) throw new StoreError(res.status, res.error);
+    return c.json(linkView(hub.cfg));
+  });
   r.get("/setup/pair", (c) => {
     const hub = c.get("hub");
     const address = hubAddress(hub, c.req.url, c.req.header("x-forwarded-host"), c.req.header("x-forwarded-proto"));

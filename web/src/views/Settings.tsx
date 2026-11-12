@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PeoplePage, usePeopleSummary } from "./settings/People";
 import { hubLabel, useHubIdentity } from "../lib/hubIdentity";
 import { HubClient, normalizeHubUrl } from "../sync/api";
+import { directState, isDirect, parseDirect, relayOwner } from "../sync/direct";
 import { db, META, setMeta, type RejectedEdit } from "../sync/db";
 import { engine } from "../sync/engine";
 import { useMeta, useSyncState } from "../sync/hooks";
@@ -19,6 +20,7 @@ import { ModulesPage, modulesSummary } from "./settings/Modules";
 import { useModules } from "../lib/modules";
 import { ConnectionsPage, connectionsSummary, useConnections } from "./settings/Connections";
 import { DevicesList, PairDevice } from "./settings/Devices";
+import { LinkChoice } from "./settings/Link";
 import { MachinesSettings, RetentionSettings } from "./settings/HubPrivacy";
 import { HubUpdateCard } from "./settings/HubUpdate";
 import { keyKind } from "./Setup";
@@ -63,6 +65,8 @@ export function Settings({ parts, params }: { parts: string[]; params: URLSearch
 }
 
 function hostOf(url: string): string {
+  const d = parseDirect(url);
+  if (d) return `Direct link hub ${d.node.slice(0, 10)}`;
   try {
     return new URL(url).host;
   } catch {
@@ -123,6 +127,34 @@ function SettingsHome() {
   );
 }
 
+/** A Direct link hub: how it is reached, its key, who runs the relay, and whether it is direct right now. */
+function DirectInfo({ address }: { address: string }) {
+  const d = parseDirect(address);
+  const [now, setNow] = useState("Checking");
+  useEffect(() => {
+    if (!d) return;
+    let live = true;
+    const ask = () => void directState(d.node).then((st) => {
+      if (!live) return;
+      if (!st) setNow("Only in the Aeneas app");
+      else if (!st.connected) setNow("Not connected (it connects when the app next talks to the hub)");
+      else setNow(`${st.direct ? "Connected directly" : "Connected through the relay"}${st.rtt_ms === null ? "" : st.rtt_ms === 0 ? ", under 1 ms" : `, ${st.rtt_ms} ms`}`);
+    }).catch(() => live && setNow("Unknown"));
+    ask();
+    const t = setInterval(ask, 5000);
+    return () => { live = false; clearInterval(t); };
+  }, [address]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!d) return <div className="error small">This Direct link address is not complete. Pair again with a new code.</div>;
+  return (
+    <dl className="facts">
+      <dt>Reached by</dt><dd>Direct link (iroh)</dd>
+      <dt>Hub key</dt><dd><code>{d.node.slice(0, 10)}</code></dd>
+      <dt>Relay</dt><dd>{relayOwner(d.relay)}</dd>
+      <dt>Right now</dt><dd>{now}</dd>
+    </dl>
+  );
+}
+
 function Connection() {
   const hubUrl = useMeta<string>(META.hubUrl) ?? "";
   const token = useMeta<string>(META.token) ?? "";
@@ -173,6 +205,7 @@ function Connection() {
           <label htmlFor="hub">Hub URL</label>
           <input id="hub" value={hub} onChange={(e) => setHub(e.target.value)} autoCapitalize="off" />
         </div>
+        {isDirect(hubUrl) && <DirectInfo address={hubUrl} />}
         <div className="small">
           {keyKind(token) === "own" ? "This device signs in with its own key. Removing it in Devices below, on any device, ends that key."
             : keyKind(token) === "main" ? "This device still uses the hub's main key. It is traded for a key of its own at the next sync."
@@ -208,6 +241,10 @@ function Connection() {
       <div className="card col">
         <h2>Devices</h2>
         <DevicesList />
+      </div>
+      <div className="card col">
+        <h2>How devices reach this hub</h2>
+        <LinkChoice />
       </div>
       <div className="card col">
         <h2>Pair another device</h2>

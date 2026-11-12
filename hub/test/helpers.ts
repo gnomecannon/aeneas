@@ -12,6 +12,15 @@ export const SEED_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.ur
 
 export const TOKEN = "test-token-0123456789-0123456789";
 
+/**
+ * A file's Unix permission bits (mode & 0o777). Windows has none: a hub there keeps its files in the user's own
+ * AppData folder, whose access list already lets in only that user, SYSTEM and administrators, so the owner-only value
+ * the tests expect (0o600) is given.
+ */
+export function fileMode(file: string): number {
+  return process.platform === "win32" ? 0o600 : fs.statSync(file).mode & 0o777;
+}
+
 export interface TestHub { hub: Hub; app: App; dir: string; cleanup(): void; api(path: string, init?: RequestInit & { json?: unknown }): Promise<Response> }
 
 /** A hub on a fresh temp dir with the fake AI backend, request logging off and every module on (`modulesPreset` changes that). */

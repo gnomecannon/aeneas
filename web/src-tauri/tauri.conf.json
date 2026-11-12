@@ -42,5 +42,21 @@
       }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "deep-link": {
+      "mobile": [
+        {
+          "scheme": [
+            "everythingapp"
+          ],
+          "appLink": false
+        }
+      ],
+      "desktop": {
+        "schemes": [
+          "everythingapp"
+        ]
+      }
+    }
+  }
 }

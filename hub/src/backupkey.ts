@@ -118,8 +118,9 @@ export class BackupKey {
     const scalar = line ? scalarOf(line) : null;
     if (!line || !scalar) throw new BackupKeyError(`the backup key file ${this.file} holds no usable key; it was left as it is. Put back the file, or the recovery key saved in the password manager, and start the hub again`);
     try {
-      // Owner-only: a copy put back with cp under a loose umask is closed again.
-      if ((fs.statSync(this.file).mode & 0o077) !== 0) { fs.chmodSync(this.file, 0o600); console.warn(`[backup] ${this.file} was readable by others; now owner-only`); }
+      // Owner-only: a copy put back with cp under a loose umask is closed again. Windows has no such bits (every file
+      // reads as 0o666); its user folder's access list keeps the key private there.
+      if (process.platform !== "win32" && (fs.statSync(this.file).mode & 0o077) !== 0) { fs.chmodSync(this.file, 0o600); console.warn(`[backup] ${this.file} was readable by others; now owner-only`); }
     } catch { /* read-only file system: the read still counts */ }
     return { identity: line, recipient: recipientOf(scalar) };
   }
@@ -207,16 +208,21 @@ export async function decryptBytes(data: Uint8Array, identities: string[]): Prom
 async function streamTo(src: string, dst: string, transform: (input: ReadableStream<Uint8Array>) => Promise<ReadableStream<Uint8Array>>): Promise<void> {
   const tmp = `${dst}.${process.pid}-${randomBytes(4).toString("hex")}.partial`;
   const rs = fs.createReadStream(src);
+  let ws: fs.WriteStream | null = null;
   try {
     const input = Readable.toWeb(rs) as unknown as ReadableStream<Uint8Array>;
     const out = await transform(input);
-    await pipeline(Readable.fromWeb(out as import("node:stream/web").ReadableStream<Uint8Array>), fs.createWriteStream(tmp, { flags: "wx", mode: 0o600 }));
+    ws = fs.createWriteStream(tmp, { flags: "wx", mode: 0o600 });
+    await pipeline(Readable.fromWeb(out as import("node:stream/web").ReadableStream<Uint8Array>), ws);
     const fd = fs.openSync(tmp, "r+");
     try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     fs.renameSync(tmp, dst);
     fsyncDir(path.dirname(dst));
   } catch (e) {
     rs.destroy();
+    // A failed pipeline closes the temp file later, not at once; Windows will not remove a file still open.
+    const w = ws;
+    if (w && !w.closed) await new Promise<void>((done) => { w.once("close", () => done()); w.destroy(); });
     fs.rmSync(tmp, { force: true });
     throw e;
   }

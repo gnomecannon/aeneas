@@ -24,3 +24,4 @@ hub/data/
 
 # Your own team and name for building the Apple apps (apple/README.md, Build it yourself)
 apple/Signing.local.xcconfig
+apple/Packages/EATailnet/TailscaleKit.xcframework/

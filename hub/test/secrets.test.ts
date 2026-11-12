@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { makeHub, type TestHub } from "./helpers.js";
+import { makeHub, type TestHub, fileMode } from "./helpers.js";
 import { cli, forgetItemNames, quoteFor } from "../src/secrets.js";
 import { isReadOnly } from "../src/ai/hosts.js";
 
@@ -157,7 +157,7 @@ test("password manager: the built-in KeePass vault is made on first choice, hold
     assert.equal(linked.status, 200);
     const file = path.join(t.hub.cfg.dataDir, "passwords.kdbx");
     assert.ok(fs.existsSync(file));
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.equal(fileMode(file), 0o600);
     const st = (await (await t.api("/connections/password-manager/status")).json()) as { signed_in: boolean };
     assert.equal(st.signed_in, true);
     // Add an item with a password, and one with a password made up for it.

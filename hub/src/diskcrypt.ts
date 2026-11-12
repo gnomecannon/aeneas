@@ -84,6 +84,7 @@ export async function diskEncryption(dir: string, run: CmdRunner = execRunner, p
   try {
     if (platform === "darwin") return await mac(dir, run);
     if (platform === "linux") return await linux(dir, run);
+    if (platform === "win32") return { encrypted: null, detail: "not checked on Windows: reading BitLocker's state needs an administrator" };
     return { encrypted: null, detail: `not checked on ${platform}` };
   } catch (e) {
     return { encrypted: null, detail: `could not tell: ${(e as Error).message}` };

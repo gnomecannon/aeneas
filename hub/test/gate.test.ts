@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { fileURLToPath } from "node:url";
 // The model gate shared by several people's hubs on one machine (hub/src/gate.ts) and the hub's side of it.
-const R = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+// A file: address, which import() takes on every system (a plain path with a drive letter is refused on Windows).
+const R = new URL("..", import.meta.url).href.replace(/\/$/, "");
 const { Scheduler, GateBusy, WARM_GUARD_MS, createGate, uidForPort, passwdNames } = await import(`${R}/src/gate.ts`);
 const { buildBackends, withPriority, GaveWayError } = await import(`${R}/src/ai/backends.ts`);
 const { loadConfig } = await import(`${R}/src/config.ts`);

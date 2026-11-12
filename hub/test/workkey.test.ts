@@ -7,7 +7,7 @@ import { loadConfig } from "../src/config.js";
 import { createHub } from "../src/hub.js";
 import { runBackup } from "../src/backup.js";
 import { WorkKey } from "../src/workkey.js";
-import { makeHub, plainBackup, TOKEN } from "./helpers.js";
+import { makeHub, plainBackup, TOKEN, fileMode } from "./helpers.js";
 
 const MEETING = { title: "1:1 with Dana", start: "2026-10-28T14:00:00.000Z", end: "2026-10-28T14:30:00.000Z", all_day: false, location: "Zephyr room" };
 
@@ -55,8 +55,12 @@ test("erasing the work space destroys the key, so older backups can no longer be
     const file = await plainBackup(t, (await runBackup(t.hub.db, t.hub.cfg.backupDir, t.hub.backupKey)).file);
     const before = fs.readFileSync(t.hub.cfg.workKeyFile);
     assert.equal(before.length, 32);
-    assert.equal(fs.statSync(t.hub.cfg.workKeyFile).mode & 0o777, 0o600);
-    assert.ok(t.hub.store.workKey.open(ev.id, (new Database(file, { readonly: true }).prepare("SELECT fields FROM entities WHERE id = ?").get(ev.id) as { fields: string }).fields));
+    assert.equal(fileMode(t.hub.cfg.workKeyFile), 0o600);
+    // Closed again at once: Windows cannot delete a file that is still open, and cleanup deletes it.
+    const copy = new Database(file, { readonly: true });
+    const sealedBefore = (copy.prepare("SELECT fields FROM entities WHERE id = ?").get(ev.id) as { fields: string }).fields;
+    copy.close();
+    assert.ok(t.hub.store.workKey.open(ev.id, sealedBefore));
 
     const off = await (await t.api("/space/work", { method: "PUT", json: { enabled: false, confirm: "erase work" } })).json() as { erased: number };
     assert.equal(off.erased, 1);

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { makeHub } from "./helpers.js";
+import { makeHub, fileMode } from "./helpers.js";
 import { probe, recommendModel, detectGpus, pullState, readAiSettings, type PullState } from "../src/setup.js";
 
 function fakeProbe(answers: Record<string, unknown>, gpu: string | null) {
@@ -63,7 +63,7 @@ test("setup: finds Ollama and LM Studio, chooses a model without a restart, and 
     assert.match(text, /"key_set":true/);
     assert.deepEqual([t.hub.cfg.openaiUrl, t.hub.cfg.openaiModel, t.hub.cfg.openaiKey], ["https://api.example.ai/v1", "big", "sk-right-key-123"], "applied to the running hub");
     const saved = path.join(t.hub.cfg.dataDir, "ai.json");
-    assert.equal(fs.statSync(saved).mode & 0o777, 0o600);
+    assert.equal(fileMode(saved), 0o600);
     // Turned off again, and the setting survives a restart (read back at start).
     await t.api("/setup/ai/openai", { method: "DELETE" });
     assert.equal(t.hub.cfg.openaiUrl, "");
@@ -260,4 +260,37 @@ test("Ollama models run on ollama.com are never offered or saved", async () => {
   try {
     await assert.rejects(saveAi(hub, { kind: "ollama", url: "http://127.0.0.1:11434", model: "gpt-oss:120b-cloud" }), /ollama\.com/);
   } finally { cleanup(); }
+});
+
+test("setup: the models folder chosen during setup is shown with its free space, and a download that does not fit or has no drive is refused first", async () => {
+  const t = makeHub();
+  const o = fakeOllama("http://127.0.0.1:11434", [], "NVIDIA GeForce RTX 4090, 24564\n");
+  const freeBefore = probe.freeBytes;
+  try {
+    t.hub.cfg.ollamaUrl = "http://127.0.0.1:11434";
+    // Not told (Ollama was already there): nothing shown, nothing checked.
+    t.hub.cfg.modelsDir = "";
+    let d = (await (await t.api("/setup/detect")).json()) as { models_dir: unknown };
+    assert.equal(d.models_dir, null);
+    // E:\AI\models with 10 GB free: shown; qwen3:30b (18.6 GB) is refused and nothing is saved or fetched.
+    t.hub.cfg.modelsDir = "E:\\AI\\models";
+    probe.freeBytes = (dir) => (dir === "E:\\AI\\models" ? 10 * 1024 ** 3 : null);
+    d = (await (await t.api("/setup/detect")).json()) as { models_dir: { path: string; free_gb: number; missing: boolean } };
+    assert.deepEqual(d.models_dir, { path: "E:\\AI\\models", free_gb: 10, missing: false });
+    const big = await t.api("/setup/model/auto", { method: "POST" });
+    assert.equal(big.status, 507);
+    assert.match(((await big.json()) as { error: string }).error, /qwen3:30b needs 18\.6 GB and E:\\AI\\models has 10 GB free/);
+    assert.deepEqual([t.hub.cfg.ollamaModel, o.pulls], ["", []]);
+    // A smaller one fits and is fetched.
+    const small = (await (await t.api("/setup/model/auto", { method: "POST", json: { model: "qwen3:4b" } })).json()) as { model: string; present: boolean };
+    assert.deepEqual([small.model, small.present], ["qwen3:4b", false]);
+    await pullDone();
+    assert.deepEqual(o.pulls, ["qwen3:4b"]);
+    // The drive is unplugged: said so, and nothing is fetched.
+    probe.freeBytes = () => null;
+    const gone = await t.api("/setup/model/auto", { method: "POST", json: { model: "qwen3:8b" } });
+    assert.equal(gone.status, 409);
+    assert.match(((await gone.json()) as { error: string }).error, /E:\\AI\\models is not there/);
+    assert.deepEqual(o.pulls, ["qwen3:4b"]);
+  } finally { probe.freeBytes = freeBefore; o.restore(); t.cleanup(); }
 });

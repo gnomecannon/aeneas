@@ -118,7 +118,9 @@ export function storeHostValues(hub: Hub, host: string, values: HostValue[], now
 }
 
 const localRunner: SshRunner = (_dest, remote, stdin, timeoutMs) => new Promise((resolve) => {
-  const child = execFile("sh", ["-c", remote], { timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+  // The same command line ssh would run on that machine: through cmd.exe on a Windows hub, sh elsewhere.
+  const [file, args] = process.platform === "win32" ? ["cmd.exe", ["/d", "/s", "/c", remote]] : ["sh", ["-c", remote]];
+  const child = execFile(file, args, { timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
     resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout: String(stdout ?? ""), stderr: String(stderr ?? "") });
   });
   feedStdin(child, stdin);

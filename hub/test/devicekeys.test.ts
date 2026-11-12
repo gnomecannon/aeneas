@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeHub, TOKEN } from "./helpers.js";
+import { makeHub, TOKEN, fileMode } from "./helpers.js";
 import { CODE_TTL_MS, DeviceKeys, normalizeCode } from "../src/devicekeys.js";
 import { ModuleStore, MODULES } from "../src/modules.js";
 
@@ -56,7 +57,7 @@ test("pairing: the links carry a code, never the hub's main key; the code buys o
     const rows = Object.values((JSON.parse(file) as { keys: Record<string, { hash: string }> }).keys);
     assert.equal(rows.length, 1);
     assert.match(rows[0].hash, /^[0-9a-f]{64}$/);
-    assert.equal(fs.statSync(path.join(t.dir, "device-keys.json")).mode & 0o777, 0o600);
+    assert.equal(fileMode(path.join(t.dir, "device-keys.json")), 0o600);
     // GET /setup/pair (older clients) also hands out a code.
     const old = (await (await t.api("/setup/pair?name=iPad")).json()) as { app: string };
     assert.ok(old.app.includes("code=") && !old.app.includes("token="));
@@ -135,7 +136,7 @@ test("a device key works as ?token= for EventSource and feeds, and a wrong key i
 });
 
 test("modules: personal-data modules list what they read and ask for; an older hub keeps features it always had", () => {
-  const dir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? "/tmp", "ea-mod-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ea-mod-"));
   try {
     const file = path.join(dir, "modules.json");
     // A modules.json from before voice, alerts, Apple Reminders, Calendar, Contacts and mail were modules.

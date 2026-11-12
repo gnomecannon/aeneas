@@ -144,6 +144,19 @@ export const launchUpdate: { run: Launcher } = {
       return;
     }
     try {
+      if (script.endsWith(".ps1")) {
+        // Windows, tested 2026-11-10: a child Node starts normally is in Node's own job and is killed when the hub
+        // stops (the updater stops the hub, so it killed itself); one started detached has no console, and
+        // PowerShell then exits at once without running its script. So a short launcher (normal, hidden) starts the
+        // updater with Start-Process, as a process of its own that outlives the hub; the hub waits for the launcher.
+        const quoted = `'"${script.replace(/'/g, "''")}"'`;
+        const launch = `Start-Process -FilePath powershell.exe -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',${quoted}`;
+        const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", launch], { stdio: "ignore", env: full, windowsHide: true });
+        const timer = setTimeout(() => reject(new Error("the update launcher did not finish")), 20_000);
+        child.on("error", (e) => { clearTimeout(timer); reject(e); });
+        child.on("exit", (code) => { clearTimeout(timer); if (code === 0) resolve(); else reject(new Error(`the update launcher exited with ${code}`)); });
+        return;
+      }
       const child = spawn("/bin/bash", [script], { detached: true, stdio: "ignore", env: full });
       child.on("error", reject);
       child.unref();
@@ -158,8 +171,9 @@ export async function startUpdate(hub: Hub): Promise<{ started: true; run: Updat
   if (owner) throw new StoreError(409, followsReason(owner), { reason: "follows_owner" });
   if (!(await isClone())) throw new StoreError(409, COPY_REASON, { reason: "not_git" });
   if (isRunning(lastRun(hub))) throw new StoreError(409, "An update is already running.", { reason: "running" });
-  const script = path.join(appDir(), "deploy", "update.sh");
-  if (!fs.existsSync(script)) throw new StoreError(409, "This hub's copy has no deploy/update.sh.", { reason: "no_script" });
+  // Linux and macOS: deploy/update.sh; Windows: its PowerShell twin.
+  const script = process.platform === "win32" ? path.join(appDir(), "deploy", "windows", "update.ps1") : path.join(appDir(), "deploy", "update.sh");
+  if (!fs.existsSync(script)) throw new StoreError(409, `This hub's copy has no ${path.relative(appDir(), script)}.`, { reason: "no_script" });
   const dir = updateDir(hub);
   fs.mkdirSync(dir, { recursive: true });
   const run: UpdateRun = { state: "starting", message: "Starting the update", from: (await git(["rev-parse", "HEAD"]).catch(() => "")) || null, to: null, at: new Date().toISOString() };

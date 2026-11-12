@@ -16,6 +16,7 @@
   "dependencies": {
     "@everythingapp/shared": "*",
     "@hono/node-server": "^2.1.6",
+    "@number0/iroh": "1.2.0",
     "@scure/base": "^2.4.0",
     "@spotify/basic-pitch": "^1.0.1",
     "@xmldom/xmldom": "^0.9.12",
@@ -25,6 +26,7 @@
     "hash-wasm": "^4.12.0",
     "hono": "^4.6.14",
     "kdbxweb": "^2.1.1",
+    "multicast-dns": "7.2.5",
     "tsx": "^4.19.2",
     "zod": "^4.6.7"
   },

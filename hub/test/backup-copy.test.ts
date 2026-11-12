@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { backupOverdue, copyBackup } from "../src/backup.js";
+import { fileMode } from "./helpers.js";
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "ea-backup-copy-"));
 
@@ -21,7 +22,7 @@ test("backups: each one is copied to the second folder, old copies there pruned,
   const r = copyBackup(file, copy);
   assert.equal(r.copied, path.join(copy, "hub-20261106-030000.sqlite.age"));
   assert.equal(fs.readFileSync(r.copied!, "utf8"), "age-encrypted");
-  assert.equal(fs.statSync(r.copied!).mode & 0o777, 0o600);
+  assert.equal(fileMode(r.copied!), 0o600);
   assert.equal(fs.existsSync(old), false, "a copy older than 30 days is pruned");
   assert.equal(fs.existsSync(mine), true, "anything that is not a backup is left alone");
 });

@@ -36,7 +36,8 @@ public enum PairingCode {
     }
 }
 
-/// `everythingapp://setup?hub=&code=&name=` (and `fp=`), or the older `?hub=&token=&name=`.
+/// `everythingapp://setup?hub=&code=&name=` (and `fp=`), `?link=direct&node=&relay=&code=&name=` for a Direct link hub,
+/// or the older `?hub=&token=&name=`.
 public struct SetupLink: Equatable, Sendable {
     public enum Credential: Equatable, Sendable {
         /// A one-time pairing code, normalized.
@@ -65,7 +66,12 @@ public struct SetupLink: Equatable, Sendable {
         if let pq = comps?.percentEncodedQuery { comps?.percentEncodedQuery = pq.replacingOccurrences(of: "+", with: "%20") }
         let items = comps?.queryItems ?? []
         func q(_ n: String) -> String { items.first { $0.name == n }?.value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
-        let hub = q("hub")
+        // A Direct link hub (link=direct): its key and relay are the address; any `hub` address is ignored.
+        var hub = q("hub")
+        if q("link") == "direct" {
+            guard DirectHub.validKey(q("node").lowercased()), DirectHub.validRelay(q("relay")) else { return nil }
+            hub = DirectHub.address(node: q("node"), relay: q("relay"))
+        }
         guard !hub.isEmpty, HTTPTransport.hubURL(hub) != nil else { return nil }
         let name = String(q("name").prefix(60))
         let credential: Credential

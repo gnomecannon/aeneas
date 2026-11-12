@@ -12,15 +12,19 @@ import { runTool, TOOLS, type ToolContext, type ApiCall } from "../src/ai/tools.
 // Updating the hub from the app or the assistant (hub/src/update.ts, deploy/update.sh).
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../deploy/update.sh");
+const SCRIPT_PS1 = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../deploy/windows/update.ps1");
+/** The updater the hub starts here: update.sh on Linux and macOS, deploy/windows/update.ps1 on Windows. */
+const UPDATER = process.platform === "win32" ? "deploy/windows/update.ps1" : "deploy/update.sh";
 const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.org", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.org" } }).trim();
 
 /** An "origin" with one commit and a clone of it as the installed app (with deploy/update.sh in it). */
 function installed(shallow = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ea-update-"));
   const origin = path.join(root, "origin");
-  fs.mkdirSync(path.join(origin, "deploy"), { recursive: true });
+  fs.mkdirSync(path.join(origin, "deploy", "windows"), { recursive: true });
   git(root, "init", "-q", "-b", "main", origin);
   fs.copyFileSync(SCRIPT, path.join(origin, "deploy/update.sh"));
+  fs.copyFileSync(SCRIPT_PS1, path.join(origin, "deploy/windows/update.ps1"));
   fs.writeFileSync(path.join(origin, "a.txt"), "one\n");
   git(origin, "add", "-A"); git(origin, "commit", "-q", "-m", "First version");
   const app = path.join(root, "app");
@@ -88,7 +92,7 @@ test("hub update: check lists what is new, the assistant installs only when aske
     assert.equal(out.status, "started");
     assert.deepEqual(out.whats_new, ["Update the hub from Settings", "Watch speaks louder"]);
     assert.equal(launched.length, 1);
-    assert.equal(launched[0].script, path.join(g.app, "deploy/update.sh"));
+    assert.equal(launched[0].script, path.join(g.app, UPDATER));
     assert.equal(launched[0].env.EA_REF, "main");
     assert.equal(launched[0].env.EA_UPDATE_DIR, path.join(t.hub.cfg.dataDir, "update"));
     // One at a time.
@@ -141,7 +145,10 @@ function runScript(g: ReturnType<typeof installed>, opts: { npmFails?: boolean; 
   });
 }
 
-test("update.sh: moves to the new version, installs and restarts; nothing newer says so", async () => {
+// update.sh is the updater for Linux and macOS hubs (bash, a systemd or launchd service); Windows has its own.
+const BASH_UPDATER = process.platform === "win32" ? "update.sh runs on Linux and macOS hubs" : false;
+
+test("update.sh: moves to the new version, installs and restarts; nothing newer says so", { skip: BASH_UPDATER }, async () => {
   const g = installed();
   try {
     let r = await runScript(g);
@@ -157,7 +164,7 @@ test("update.sh: moves to the new version, installs and restarts; nothing newer 
   } finally { fs.rmSync(g.root, { recursive: true, force: true }); }
 });
 
-test("update.sh: goes back to the old version when the new one does not install or does not start, and never overwrites changes", async () => {
+test("update.sh: goes back to the old version when the new one does not install or does not start, and never overwrites changes", { skip: BASH_UPDATER }, async () => {
   const g = installed();
   try {
     const from = git(g.app, "rev-parse", "HEAD");
@@ -181,7 +188,7 @@ test("update.sh: goes back to the old version when the new one does not install 
   } finally { fs.rmSync(g.root, { recursive: true, force: true }); }
 });
 
-test("update.sh and the check work on a shallow clone, as the installer makes", async () => {
+test("update.sh and the check work on a shallow clone, as the installer makes", { skip: BASH_UPDATER }, async () => {
   const g = installed(true);
   const t = makeHub();
   process.env.EA_UPDATE_APP_DIR = g.app;

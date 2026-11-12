@@ -6,6 +6,7 @@ import type { CheckRow, OpsData } from "../lib/ops";
 import type { Feel, FeelView } from "../feel/prefs";
 import type { Board, DashboardPrefs, MetricInfo, Series, Tile } from "../lib/dashboard";
 import type { WikiHit, WikiIndex, WikiPage } from "../lib/wiki";
+import { directBase, hubFetch, isDirect } from "./direct";
 
 /** GET /feeds: keys that open one door each (the calendar feed, sensor readings). */
 export interface FeedKeysView { calendar: { key: string; path: string }; sensors: { key: string; path: string } }
@@ -18,7 +19,7 @@ export type ModulePermission = "microphone" | "speech" | "notifications" | "remi
  * devices". `reads` says what personal data it reads; `setup` marks a part that needs the person's own key or app.
  */
 export interface ModuleInfo {
-  id: string; title: string; summary: string; group: string; on: boolean;
+  id: string; title: string; summary: string; example?: string; group: string; on: boolean;
   reads?: string; permissions?: ModulePermission[]; setup?: { minutes: string; needs: string };
 }
 
@@ -27,7 +28,10 @@ export const DEVICE_KEY_PREFIX = "ead1_";
 export const isDeviceKey = (k: string | undefined | null): boolean => !!k && k.startsWith(DEVICE_KEY_PREFIX);
 
 /** POST /devices/pairing: a one-time code (10 minutes) and the links that carry it. */
-export interface PairingLinks { hub: string; code: string; expires_at: string; app: string; web: string }
+export interface PairingLinks { hub: string; code: string; expires_at: string; app: string; web: string; link?: LinkMethod | null; node?: string | null }
+export type LinkMethod = "direct" | "tailscale" | "home";
+export interface DirectStatus { state: "off" | "starting" | "online" | "error"; id?: string; relay?: string; relay_by?: string; error?: string; connected: number; direct: number }
+export interface LinkView { method: LinkMethod | null; options: Record<LinkMethod, { available: boolean; how?: string }>; direct: DirectStatus }
 /** GET /hub-update: what the hub runs, what is newer (after a check) and how the last update went (hub/src/update.ts). */
 export interface HubUpdateRun { state: "starting" | "checking" | "installing" | "restarting" | "rolling_back" | "done" | "up_to_date" | "rolled_back" | "failed"; message: string; from: string | null; to: string | null; at: string }
 export interface HubUpdateInfo {
@@ -111,6 +115,8 @@ export type FetchLike = typeof fetch;
 export function normalizeHubUrl(u: string): string {
   let s = u.trim();
   if (!s) return s;
+  // A Direct link hub (iroh://<hub key>?relay=...) stays as it is.
+  if (isDirect(s)) return s;
   if (!/^https?:\/\//i.test(s)) s = "https://" + s;
   return s.replace(/\/+$/, "");
 }
@@ -140,6 +146,8 @@ export interface SetupDetect {
   cpu_only?: boolean;
   servers: Array<{ kind: "ollama" | "openai"; label: string; url: string; models: string[] }>;
   current: SetupAi;
+  /** Where downloaded models go, chosen during setup, and its free space (newer hubs; null when Ollama was already there). */
+  models_dir?: { path: string; free_gb: number | null; missing: boolean } | null;
 }
 export interface ImportJob {
   id: string; name: string; kinds: string[]; state: "waiting" | "reading" | "learning" | "done" | "failed" | "stopped"; learn: boolean;
@@ -201,13 +209,14 @@ export interface ConfluenceSync {
 export class HubClient {
   cfg: HubConfig;
   fetchImpl: FetchLike;
-  constructor(cfg: HubConfig, fetchImpl: FetchLike = (...a) => fetch(...a)) {
+  constructor(cfg: HubConfig, fetchImpl: FetchLike = hubFetch as FetchLike) {
     this.cfg = cfg;
     this.fetchImpl = fetchImpl;
   }
 
   url(path: string): string {
-    return normalizeHubUrl(this.cfg.hubUrl) + path;
+    // A Direct link hub: iroh://<hub key><path>, which hubFetch sends over the app's Direct link.
+    return (directBase(this.cfg.hubUrl) ?? normalizeHubUrl(this.cfg.hubUrl)) + path;
   }
 
   headers(extra: Record<string, string> = {}): Record<string, string> {
@@ -657,6 +666,9 @@ export class HubClient {
   hubRequest(id: string) { return this.req<HubRequest>("GET", `/hubs/requests/${encodeURIComponent(id)}`); }
   pairHub(account: string) { return this.req<{ request_id: string }>("POST", `/hubs/${encodeURIComponent(account)}/pair`); }
   stopHub(account: string) { return this.req<{ request_id: string }>("POST", `/hubs/${encodeURIComponent(account)}/stop`); }
+
+  link() { return this.req<LinkView>("GET", "/setup/link"); }
+  setLink(method: LinkMethod) { return this.req<LinkView>("PUT", "/setup/link", { method }); }
 
   pairing(name: string) {
     return this.req<PairingLinks>("POST", "/devices/pairing", { name });

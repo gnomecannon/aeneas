@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicU32, Ordering};
+mod link;
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -259,11 +260,14 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| on_second_start(app, args)));
     }
     builder = builder
+        // Pairing links (everythingapp://setup?...) open the app; the page reads them (tauri/bridge.ts, onSetupLink).
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(NotifyTarget::default()))
-        .invoke_handler(tauri::generate_handler![set_widget, get_widget, show_main_window, open_capture_window, open_window, set_notify_target, set_capture_shortcut, get_capture_shortcut]);
+        .manage(std::sync::Arc::new(link::Links::default()))
+        .invoke_handler(tauri::generate_handler![set_widget, get_widget, show_main_window, open_capture_window, open_window, set_notify_target, set_capture_shortcut, get_capture_shortcut, link::link_fetch, link::link_cancel, link::link_state]);
 
     #[cfg(desktop)]
     {
@@ -307,6 +311,13 @@ pub fn run() {
 /// The tray menu, the Now widget brought back after a restart, the Capture shortcut, and starting hidden at login.
 #[cfg(desktop)]
 fn desktop_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // Pairing links open this app, also when it was copied in place rather than installed (the installer registers
+    // them too): for this user only, in the registry.
+    #[cfg(windows)]
+    {
+        use tauri_plugin_deep_link::DeepLinkExt;
+        let _ = app.deep_link().register_all();
+    }
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let capture = MenuItem::with_id(app, "capture", "Capture", true, None::<&str>)?;
             let widget = CheckMenuItem::with_id(app, "widget", "Now widget", true, widget_remembered(app.handle()), None::<&str>)?;

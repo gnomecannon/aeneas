@@ -1,11 +1,20 @@
 import SwiftUI
 import CoreSpotlight
 import EACore
+import EALink
+import EATailnet
 
 @main
 struct EverythingAppApp: App {
     @StateObject private var model = AppModel.shared
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        // Direct link (iroh): hubs saved as iroh://<key> are reached through it.
+        EALink.install()
+        // Tailscale signed in inside Aeneas (off until the person does it): Tailscale hubs are reached through it.
+        EATailnet.install()
+    }
     #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     #elseif os(macOS)

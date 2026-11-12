@@ -25,8 +25,10 @@
 # (pip, with no hashes to check against). Ollama is asked about first when someone is at the terminal.
 # Before each change to the system (lingering, Tailscale Serve, opening the browser) a line says what it does.
 #
-# Options (environment): EA_DIR (app folder), EA_PORT (8787), EA_REPO_URL, EA_REF (main), EA_NO_TAILSCALE=1,
-# EA_LAN=1 (listen on the network even with Tailscale), EA_NO_OLLAMA=1 (no model server), EA_NO_SEARXNG=1 (no web
+# Options (environment): EA_DIR (app folder), EA_PORT (8787), EA_REPO_URL, EA_REF (main), EA_LINK (how devices reach
+# the hub, asked when someone is at the terminal: direct, the default, through iroh with no account; tailscale; or
+# home, the home network only), EA_NO_TAILSCALE=1, EA_LAN=1 (allow the home network choice on a machine that also
+# has a public address), EA_NO_OLLAMA=1 (no model server), EA_NO_SEARXNG=1 (no web
 # search), EA_TOR=0 (no Tor: web lookups stay off unless hub.env has EA_WEB_WITHOUT_TOR=1; EA_TOR=1 brings it back), EA_TOR_PORT
 # (Tor's SOCKS port, 9052, away from a system Tor on 9050 and Tor Browser on 9150).
 #
@@ -396,21 +398,80 @@ all_v4() {
   if [ "$OS" = Darwin ]; then ifconfig 2>/dev/null | awk '/inet / && $2 !~ /^127\./ { print $2 }'
   else hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.' || true; fi
 }
+# ---- how devices reach the hub (hub/src/link.ts) ----
+# Asked once (later runs keep the choice; Settings in the app can change it). Each option's note is the one the app
+# shows behind its info button.
+LINK_DOC="docs/connections.md in the app's folder, or https://github.com/gnomecannon/aeneas/blob/main/docs/connections.md"
+link_info() {
+  case "$1" in
+    1) note "Direct link: your devices connect straight to this hub, encrypted end to end, using iroh, open source networking software from the company n0. If a direct path is blocked, traffic passes through a relay that can't read it or pretend to be your hub. Relays are run by n0, free, with no uptime promise. No account: the QR code is the only key, and only devices that scanned it can connect." ;;
+    2) note "Tailscale: builds a private network of your devices. It's mature and widely audited. You need an account (Google, Apple, Microsoft or GitHub). Tailscale keeps a list of your devices and when they're online, and its server decides which devices belong to your network. Devices sign in again every 180 days unless you turn that off. Choose this if you already use Tailscale or want the hub to reach your other machines." ;;
+    3) note "Home Wi-Fi only: devices connect over your own network using the hub's own certificate, which the QR code lets them check. Nothing leaves your home. Away from home, the apps can't reach the hub." ;;
+  esac
+}
+choose_link() {
+  local a def=1
+  case "$1" in tailscale) def=2 ;; home) def=3 ;; esac
+  printf '\n    How will your phone and computers reach this hub? You can change this later in Settings.\n' >/dev/tty
+  printf '      1) Direct link (recommended, uses iroh): scan a QR code and you are done. No account. Works at home and away.\n' >/dev/tty
+  printf '      2) Tailscale: for people who already use Tailscale. Needs a free Tailscale account and a sign-in on each device.\n' >/dev/tty
+  printf '      3) Home Wi-Fi only: nothing to sign in to. Your devices reach the hub only on your home network.\n' >/dev/tty
+  while :; do
+    printf '    Type 1, 2 or 3 (?1, ?2 or ?3 to read more about one, ? for the full comparison) [%s] ' "$def" >/dev/tty
+    read -r a </dev/tty || a=""
+    a="${a// /}"
+    case "$a" in
+      "") a="$def"; break ;;
+      1|2|3) break ;;
+      "?1"|"?2"|"?3") link_info "${a#?}" >/dev/tty ;;
+      "?") note "The full comparison: $LINK_DOC" >/dev/tty ;;
+      *) note "Type 1, 2 or 3." >/dev/tty ;;
+    esac
+  done
+  case "$a" in 2) echo tailscale ;; 3) echo home ;; *) echo direct ;; esac
+}
+METHOD=""
+case "${EA_LINK:-}" in direct|tailscale|home) METHOD="$EA_LINK" ;; esac
+prev=""
+if [ -f "$ENV_FILE" ]; then
+  prev="$(get_env EA_LINK)"
+  if [ -z "$prev" ]; then
+    case "$(get_env EA_BIND_HOST)" in ""|127.*|localhost|::1) [ "$tailscale_ok" = 1 ] && prev=tailscale ;; *) prev=home ;; esac
+  fi
+fi
+if [ -z "$METHOD" ]; then
+  if [ -n "$prev" ]; then METHOD="$prev"
+  elif can_ask; then METHOD="$(choose_link "${prev:-direct}")"
+  else METHOD=direct; fi
+fi
+if [ "$METHOD" = tailscale ] && [ "$tailscale_ok" = 0 ]; then
+  say "Tailscale is not running on this machine, so it cannot be how your devices reach the hub yet"
+  note "Install it from tailscale.com/download and sign in, then run this again and choose Tailscale."
+  if ask "Use Direct link for now (no account; you can switch in Settings later)?" y; then METHOD=direct; else die "stopped: install Tailscale, sign in, then run this again"; fi
+fi
+if [ "$METHOD" = home ]; then
+  open_ip=""
+  for a in $(all_v4); do private_v4 "$a" || open_ip="$a"; done
+  if [ -n "$open_ip" ] && [ "${EA_LAN:-}" != 1 ]; then
+    say "This machine has a public internet address ($open_ip): listening on the network would put the hub on the internet, so Direct link is used instead"
+    note "Set EA_LAN=1 and run this again if this really is a private network."
+    METHOD=direct
+  fi
+fi
+case "$METHOD" in
+  direct) say "Devices reach the hub through Direct link (iroh): no account, the pairing QR code carries the hub's key" ;;
+  tailscale) say "Devices reach the hub through Tailscale" ;;
+  home) say "Devices reach the hub on your home network only" ;;
+esac
+
 if [ ! -f "$ENV_FILE" ]; then
   token="$(head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 48)"
   bind=127.0.0.1; public=""
-  if [ "$tailscale_ok" = 0 ] || [ -n "${EA_LAN:-}" ]; then
+  if [ "$METHOD" = home ]; then
     # Listening on the network is for a home network. A machine with a public address (a rented server) would put the
     # hub on the internet, so that needs EA_LAN=1 said on purpose.
-    open_ip=""
-    for a in $(all_v4); do private_v4 "$a" || open_ip="$a"; done
-    if [ -n "$open_ip" ] && [ "${EA_LAN:-}" != 1 ]; then
-      say "This machine has a public internet address ($open_ip), so the hub listens only on this machine, not on the network"
-      note "Install Tailscale (tailscale.com) and run this again, or set EA_LAN=1 if this really is a private network"
-    else
-      bind=0.0.0.0; ip="$(lan_ip || true)"; [ -n "$ip" ] && public="http://$ip:$PORT"
-      say "The hub will listen on your network (port $PORT, HTTPS with its own certificate)"
-    fi
+    bind=0.0.0.0; ip="$(lan_ip || true)"; [ -n "$ip" ] && public="http://$ip:$PORT"
+    say "The hub will listen on your network (port $PORT, HTTPS with its own certificate)"
   fi
   umask 077
   cat > "$ENV_FILE" <<EOF
@@ -433,6 +494,12 @@ else
   say "Keeping the settings in $ENV_FILE"
 fi
 PORT="$(get_env EA_PORT)"; PORT="${PORT:-8787}"
+set_env EA_LINK "$METHOD"
+# A later run with another choice: listen where that choice needs.
+case "$METHOD" in
+  home) case "$(get_env EA_BIND_HOST)" in ""|127.*|localhost|::1) set_env EA_BIND_HOST 0.0.0.0; set_env EA_PUBLIC_URL "" ;; esac ;;
+  *) case "$(get_env EA_BIND_HOST)" in ""|127.*|localhost|::1) ;; *) set_env EA_BIND_HOST 127.0.0.1; set_env EA_PUBLIC_URL "" ;; esac ;;
+esac
 # The hub's database is a plain file on this disk (only work items are sealed): say whether the disk is encrypted.
 disk_state() {
   local dev
@@ -635,6 +702,91 @@ model_chosen() {
       process.exit(j.ollama_url || j.openai_url || j.anthropic_key ? 0 : 1);
     } catch { process.exit(1); }' "$f" "$k"
 }
+# ---- where the models are kept ----
+# The installer's Ollama keeps models in one folder, chosen here (asked on every run at a terminal; Enter keeps it):
+# a second or external drive keeps them off the system disk. Where they are only changes how fast a model loads into
+# memory (after 5 quiet minutes it is loaded again), never how fast it answers once loaded. EA_MODELS_DIR=FOLDER
+# chooses without asking. The choice is kept in hub.env (EA_MODELS_DIR), which the Welcome page shows with its free space.
+MODELS_DIR=""
+near_dir() { local d="$1"; while [ -n "$d" ] && [ "$d" != / ] && [ ! -d "$d" ]; do d="$(dirname "$d")"; done; echo "${d:-/}"; }
+# The kind of disk DIR is on: nvme, ssd, hdd, usb, network, or nothing when it cannot be told.
+disk_kind() {
+  local d dev info proto ss fst
+  d="$(near_dir "$1")"
+  dev="$(df -P "$d" 2>/dev/null | awk 'NR == 2 { print $1 }' || true)"
+  case "$dev" in //*|*:/*) echo network; return 0 ;; esac
+  if [ "$OS" = Darwin ]; then
+    case "$dev" in /dev/*) ;; *) echo network; return 0 ;; esac
+    info="$(diskutil info "$dev" 2>/dev/null || true)"
+    proto="$(printf '%s\n' "$info" | awk -F': *' '/^ *Protocol:/ { print $2; exit }')"
+    ss="$(printf '%s\n' "$info" | awk -F': *' '/^ *Solid State:/ { print $2; exit }')"
+    case "$proto" in *USB*) echo usb; return 0 ;; esac
+    case "$ss" in Yes) case "$proto" in *SATA*) echo ssd ;; *) echo nvme ;; esac ;; No) echo hdd ;; esac
+  else
+    fst="$(findmnt -no FSTYPE -T "$d" 2>/dev/null || true)"
+    case "$fst" in nfs*|cifs|smb*|*sshfs|9p) echo network; return 0 ;; esac
+    info="$(lsblk -s -rno TYPE,ROTA,TRAN "$dev" 2>/dev/null | awk '$1 == "disk" { print $2, $3; exit }' || true)"
+    case "$info" in *usb*) echo usb ;; 1*) echo hdd ;; *nvme*) echo nvme ;; 0*) echo ssd ;; esac
+  fi
+  return 0
+}
+# How long a large model (19 GB) takes to load from a disk of that kind.
+kind_note() {
+  case "$1" in
+    nvme) echo "a fast SSD (NVMe): a large model loads in about 5 to 10 seconds" ;;
+    ssd) echo "an SSD: a large model loads in about 40 seconds" ;;
+    hdd) echo "a hard drive: a large model takes about 2 minutes to load, each time the assistant starts after 5 quiet minutes" ;;
+    usb) echo "a USB drive: a large model loads in 20 seconds (a USB SSD) to 2 minutes (a USB hard drive), and only while it is plugged in" ;;
+    network) echo "a network share: slow to load from, and the assistant cannot answer while the share is offline" ;;
+    *) echo "a disk whose kind this installer cannot tell" ;;
+  esac
+}
+free_gb() { local k; k="$(free_kb "$(near_dir "$1")")"; case "$k" in ""|*[!0-9]*) echo "?" ;; *) echo $((k / 1048576)) ;; esac; }
+# OWN: 1 when this installer's Ollama was here before this run (it kept models in ~/.ollama/models before this
+# question existed). Models are moved only from a folder this installer's Ollama used: another Ollama's are its own.
+models_dir_step() {
+  local own="${1:-}" cur old want a kind size explicit=""
+  cur="$(get_env EA_MODELS_DIR)"
+  # Ollama's own default, so a hub installed before this question keeps its models where they are. This installer
+  # puts its Ollama here only when no other Ollama is (ollama_step), so the folder holds no one else's models.
+  old="${cur:-$HOME/.ollama/models}"
+  want="$old"
+  if [ -n "${EA_MODELS_DIR:-}" ]; then
+    want="${EA_MODELS_DIR%/}"; explicit=1
+  elif can_ask; then
+    say "AI models are kept in $old: $(free_gb "$old") GB free, on $(kind_note "$(disk_kind "$old")"). A model takes 1.5 to 19 GB"
+    printf '    Press Enter to keep it there, or type another folder (a second or external drive works): ' >/dev/tty
+    read -r a </dev/tty || a=""
+    case "$a" in "~") a="$HOME" ;; "~/"*) a="$HOME/${a#\~/}" ;; esac
+    a="${a%/}"
+    case "$a" in "") ;; /*) want="$a" ;; *) say "That is not a full path (one starting with /), so models stay in $old" ;; esac
+  fi
+  case "$want" in /*) ;; *) say "EA_MODELS_DIR must be a full path (one starting with /), so models stay in $old"; want="$old"; explicit="" ;; esac
+  if [ "$want" != "$old" ]; then
+    if ! mkdir -p "$want" 2>/dev/null || [ ! -w "$want" ]; then
+      say "$want cannot be made or written to, so models stay in $old"; want="$old"
+    else
+      kind="$(disk_kind "$want")"
+      case "$kind" in hdd|usb|network)
+        if [ -z "$explicit" ] && ! ask "$want is on $(kind_note "$kind"). Keep models there anyway?" n; then want="$old"; fi ;;
+      esac
+    fi
+  fi
+  if { [ -n "$cur" ] || [ "$own" = 1 ]; } && [ "$want" != "$old" ] && [ -d "$old/blobs" ]; then
+    size="$(du -sk "$old" 2>/dev/null | awk '{ print int($1 / 1048576) }' || true)"
+    if ask "Move the models already in $old (${size:-?} GB) to $want now? Otherwise they are downloaded again when needed" y; then
+      svc_stop ollama
+      say "Moving the models to $want"
+      if [ ! -e "$want/blobs" ] && [ ! -e "$want/manifests" ] && mv "$old/blobs" "$old/manifests" "$want/" 2>/dev/null; then say "The models are in $want"
+      elif cp -R "$old/." "$want/" && rm -rf "$old/blobs" "$old/manifests"; then say "The models are in $want"
+      else say "Not every model could be moved; what was not stays in $old"; fi
+    fi
+  fi
+  mkdir -p "$want" 2>/dev/null || true
+  MODELS_DIR="$want"
+  set_env EA_MODELS_DIR "$MODELS_DIR"
+  say "Models are kept in $MODELS_DIR ($(free_gb "$MODELS_DIR") GB free)"
+}
 ollama_step() {
   local own="" found asset rocm="" a base want pinned new obin need v changed=0
   if [ -n "${EA_NO_OLLAMA:-}" ]; then say "EA_NO_OLLAMA is set, so no model server is installed"; return 0; fi
@@ -729,8 +881,10 @@ ollama_step() {
   obin="$OLLAMA_DIR/bin/ollama"
   if [ "$OS" = Darwin ] || { [ -z "$TEST" ] && [ ! -x "$obin" ]; }; then obin="$OLLAMA_DIR/ollama"; fi
   if [ -z "$TEST" ] && [ ! -x "$obin" ]; then say "The Ollama download has no ollama program where expected, so it is not started"; return 0; fi
+  models_dir_step "$own"
   # OLLAMA_NO_CLOUD: Ollama's own switch for its cloud features (models run on ollama.com, its web search), off here.
-  svc_write ollama "Ollama for Aeneas (local models)" "$OLLAMA_DIR" OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 -- "$obin" serve
+  # OLLAMA_MODELS: the folder chosen above.
+  svc_write ollama "Ollama for Aeneas (local models)" "$OLLAMA_DIR" OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NO_CLOUD=1 "OLLAMA_MODELS=$MODELS_DIR" -- "$obin" serve
   [ "$changed" != 1 ] || svc_changed=1
   svc_apply ollama "$svc_changed" || return 0
   if [ -z "$TEST" ] && ! wait_for 30 "$OLLAMA_HERE/api/tags"; then say "Ollama does not answer yet; see: $(svc_logs ollama)"; fi
@@ -1061,7 +1215,12 @@ searxng_step || say "The web search step stopped early; the hub runs without it"
 
 # ---- 6. the address devices use ----
 address="$(get_env EA_PUBLIC_URL)"
-if [ "$tailscale_ok" = 1 ] && [ "$(get_env EA_BIND_HOST)" = 127.0.0.1 ]; then
+case "$address" in https://*.ts.net*) [ "$METHOD" = tailscale ] || address="" ;; esac
+if [ "$METHOD" != tailscale ] && [ "$tailscale_ok" = 1 ] && [ -z "$TEST" ] && tailscale serve status 2>/dev/null | grep -q ":$PORT\b"; then
+  say "Turning off Tailscale Serve for the hub, which this choice no longer uses"
+  tailscale serve --https="$PORT" off >/dev/null 2>&1 || true
+fi
+if [ "$METHOD" = tailscale ] && [ "$tailscale_ok" = 1 ] && [ "$(get_env EA_BIND_HOST)" = 127.0.0.1 ]; then
   if [ -n "$TEST" ]; then
     note "test: Tailscale Serve is not changed"
   elif say "Setting up Tailscale Serve: HTTPS on port $PORT for your own devices on the tailnet, to the hub on this machine" && tailscale serve --bg --https="$PORT" "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
@@ -1071,8 +1230,8 @@ if [ "$tailscale_ok" = 1 ] && [ "$(get_env EA_BIND_HOST)" = 127.0.0.1 ]; then
     say "Tailscale did not let $USER serve HTTPS. Once, as an admin: sudo tailscale set --operator=$USER ; then run this again"
   fi
 fi
-[ -n "$address" ] || address="http://127.0.0.1:$PORT"
 set_env EA_PUBLIC_URL "$address"
+[ -n "$address" ] || address="http://127.0.0.1:$PORT"
 if [ "$env_changed" = 1 ]; then
   say "Restarting the hub with the new settings"
   restart_hub
@@ -1080,8 +1239,11 @@ if [ "$env_changed" = 1 ]; then
   for _ in $(seq 1 40); do if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then ok=1; break; fi; sleep 1; done
   [ "$ok" = 1 ] || say "The hub did not answer after the restart; see: $logs"
 fi
+# The choice is the hub's too (link.json), so one made in Settings earlier gives way to this run's.
+if [ -n "$TEST" ] && [ "$METHOD" = home ]; then note "test: the choice is not handed to the hub, which listens on 127.0.0.1 only in a test run"
+else curl -fsS --max-time 60 -X PUT -H @- -H 'content-type: application/json' -d "{\"method\":\"$METHOD\"}" "http://127.0.0.1:$PORT/setup/link" <<<"authorization: Bearer $(get_env EA_TOKEN)" >/dev/null 2>&1 || say "The hub did not take the choice of $METHOD yet; it can be changed in Settings"; fi
 tls_cert="$(get_env EA_TLS_CERT)"
-if [ -n "$tls_cert" ] && [ -f "$tls_cert" ]; then
+if [ "$METHOD" = home ] && [ -n "$tls_cert" ] && [ -f "$tls_cert" ]; then
   if [ -n "$TEST" ]; then
     if curl -fsS --max-time 5 --cacert "$tls_cert" "https://127.0.0.1:$PORT/health" >/dev/null 2>&1; then note "test: the hub answers HTTPS with its certificate"; else say "test: the hub does not answer HTTPS with its certificate"; fi
   fi
@@ -1101,7 +1263,7 @@ done
 pair_field() { printf '%s' "$pair_json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(String(JSON.parse(s)[process.argv[1]]??""))}catch{}})' "$1"; }
 link="$(pair_field web)"
 echo
-say "The hub is running at $address"
+if [ "$METHOD" = direct ] && [ "$address" = "http://127.0.0.1:$PORT" ]; then say "The hub is running at $address on this machine; other devices reach it through Direct link"; else say "The hub is running at $address"; fi
 if [ -n "$link" ]; then
   echo "    To finish, open this link in a browser on this computer, or on another computer on the same network"
   echo "    (it works once, for 10 minutes). The page that opens walks you through the rest:"
@@ -1113,7 +1275,7 @@ else
   echo "    The hub did not answer for a pairing code. Once it is up, run: $APP_DIR/deploy/pair-link.sh"
 fi
 echo
-case "$address" in http://1*|http://192*) echo "    Your network sees the hub without encryption. Tailscale (tailscale.com) gives it HTTPS: install it, then run this again." ;; esac
+case "$address" in http://1[0-9]*|http://192*) [ "$address" = "http://127.0.0.1:$PORT" ] || echo "    Your network sees the hub without encryption: openssl was missing when the certificate was due. Install it, then run this again." ;; esac
 echo "    Logs: $logs"
 echo "    Update later: Settings, About, Update hub in the app (or ask the assistant), or run the same command again."
 case "$address" in https://*.ts.net*) [ "$OS" = Linux ] && echo "    Someone else in the house can have a hub of their own here, kept apart from yours: see docs/multi-person.md. (Whoever has admin rights on this machine can read every hub's files.)" ;; esac

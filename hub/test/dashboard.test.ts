@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import path from "node:path";
 import { makeHub } from "./helpers.js";
 import { runBackup } from "../src/backup.js";
 
@@ -46,6 +47,6 @@ test("backup: VACUUM INTO writes a copy and prunes old ones", async () => {
     const r = await runBackup(t.hub.db, t.hub.cfg.backupDir, t.hub.backupKey);
     assert.ok(fs.existsSync(r.file));
     assert.ok(fs.statSync(r.file).size > 0);
-    assert.deepEqual(r.pruned, [old.file.split("/").pop()]);
+    assert.deepEqual(r.pruned, [path.basename(old.file)]);
   } finally { t.cleanup(); }
 });

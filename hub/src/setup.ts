@@ -1,3 +1,4 @@
+import { currentMethod, directStatus } from "./link.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,7 @@ import type { Hub } from "./hub.js";
 import type { Config } from "./config.js";
 import { StoreError } from "./store.js";
 import { showCode } from "./devicekeys.js";
-import { tlsFingerprint } from "./tls.js";
+import { isLoopbackHost, tlsFingerprint } from "./tls.js";
 import { SecretBox } from "./secretbox.js";
 
 /**
@@ -90,6 +91,10 @@ export const probe = {
   fetch: (url: string, init: RequestInit = {}, timeoutMs = 2500) => fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) }),
   /** The machine's memory in MiB. */
   memoryMib: () => Math.round(os.totalmem() / 1048576),
+  /** Free bytes on the disk holding `dir`, or null when it is not there. */
+  freeBytes: (dir: string): number | null => {
+    try { const s = fs.statfsSync(dir); return s.bavail * s.bsize; } catch { return null; }
+  },
 };
 
 export async function detectGpus(): Promise<Gpu[]> {
@@ -212,9 +217,20 @@ async function machine() {
   return { gpus, memory_mib, cpu_only: best < USABLE_VRAM_MIB, recommended: recommendModel(best, memory_mib) };
 }
 
+/**
+ * Where the installer's Ollama keeps models (EA_MODELS_DIR, chosen during setup) and the free space there, so the
+ * Welcome page can say where a download goes and stop one that does not fit. `missing`: the folder is not there (an
+ * external drive unplugged, a network share offline). Null when the hub was not told (Ollama was already installed).
+ */
+export function modelsFolder(cfg: Config): { path: string; free_gb: number | null; missing: boolean } | null {
+  if (!cfg.modelsDir) return null;
+  const free = probe.freeBytes(cfg.modelsDir);
+  return { path: cfg.modelsDir, free_gb: free === null ? null : Math.round((free / 1024 ** 3) * 10) / 10, missing: free === null };
+}
+
 export async function setupDetect(hub: Hub) {
   const [m, servers] = await Promise.all([machine(), findServers(hub.cfg)]);
-  return { platform: process.platform, ...m, servers, current: aiView(hub.cfg) };
+  return { platform: process.platform, ...m, servers, current: aiView(hub.cfg), models_dir: modelsFolder(hub.cfg) };
 }
 
 /**
@@ -373,8 +389,16 @@ export async function autoModel(hub: Hub, body: { model?: unknown }) {
   const ollamas = servers.filter((s) => s.kind === "ollama");
   const server = ollamas.find((s) => s.url === hub.cfg.ollamaUrl) ?? ollamas[0];
   if (!server) throw new StoreError(409, NO_OLLAMA);
-  await saveAi(hub, { kind: "ollama", url: server.url, model });
   const present = server.models.some((n) => n === model || n === `${model}:latest`);
+  // A download into the folder chosen during setup: refused before anything changes when that folder is not there or
+  // the model does not fit (1 GB kept spare).
+  const where = present ? null : modelsFolder(hub.cfg);
+  const size = MODELS[model]?.size_gb;
+  if (where?.missing) throw new StoreError(409, `The models folder ${where.path} is not there (a drive unplugged, or a network share offline). Connect it, then try again.`);
+  if (where && size && where.free_gb !== null && where.free_gb < size + 1) {
+    throw new StoreError(507, `${model} needs ${size} GB and ${where.path} has ${where.free_gb} GB free. Free some space there, or run the installer again and choose another drive for models.`);
+  }
+  await saveAi(hub, { kind: "ollama", url: server.url, model });
   let state: PullState | null = null;
   if (!present) {
     const now = pullState();
@@ -399,12 +423,22 @@ export function hubAddress(hub: Hub, requestUrl: string, forwardedHost?: string,
  * code that works for 10 minutes (devicekeys.ts), never a lasting secret: a photo of the QR code or a link left in a
  * message is useless afterwards.
  */
+function hostName(address: string): string {
+  try { return new URL(address).hostname.replace(/^\[|\]$/g, ""); } catch { return ""; }
+}
+
 export function pairingLinks(hub: Hub, address: string, name: string, by?: string) {
   const c = hub.deviceKeys.newCode(name || "My device", Date.now(), by);
   // A hub serving its own certificate (a home network, no Tailscale) puts its fingerprint in the link, so the app
   // accepts that certificate and no other: nobody on the network can stand in for the hub.
   const fp = address.startsWith("https:") ? tlsFingerprint(hub.cfg) : null;
+  // A Direct link hub adds its public key and relay (link.ts): the app connects to that key and no other. The
+  // address is left out when it is this machine only, which no other device can use.
+  const direct = currentMethod(hub.cfg) === "direct" ? directStatus() : null;
+  const node = direct?.state === "online" && direct.id && direct.relay ? { link: "direct", node: direct.id, relay: direct.relay } : null;
+  const local = isLoopbackHost(hostName(address));
+  const params: Record<string, string> = { ...(node && local ? {} : { hub: address }), code: c.code, name: c.name, ...(fp ? { fp } : {}), ...(node ?? {}) };
   // Spaces as %20, not "+": every client reads that the same way (Apple's URLComponents keeps a "+" as a plus).
-  const q = new URLSearchParams({ hub: address, code: c.code, name: c.name, ...(fp ? { fp } : {}) }).toString().replace(/\+/g, "%20");
-  return { hub: address, code: showCode(c.code), expires_at: c.expires_at, fp, app: `everythingapp://setup?${q}`, web: `${address}/app/#/setup?${q}` };
+  const q = new URLSearchParams(params).toString().replace(/\+/g, "%20");
+  return { hub: address, code: showCode(c.code), expires_at: c.expires_at, fp, link: node ? "direct" : currentMethod(hub.cfg), node: node?.node ?? null, app: `everythingapp://setup?${q}`, web: `${address}/app/#/setup?${q}` };
 }

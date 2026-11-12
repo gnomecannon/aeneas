@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 // Each case was a finding of the 2026-11-05 review of capture filing, the calendar feed and the work space; each fails on the code before the fix.
-const R = fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "");
+// A file: address, which import() takes on every system (a plain path with a drive letter is refused on Windows).
+const R = new URL("..", import.meta.url).href.replace(/\/$/, "");
 const { makeHub } = await import(`${R}/test/helpers.ts`);
 const { scripted } = await import(`${R}/test/ai-helpers.ts`);
 const { setBackendOverride } = await import(`${R}/src/ai/backends.ts`);

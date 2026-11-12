@@ -106,7 +106,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-visible, [role="link"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
 kbd { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
 textarea { resize: vertical; line-height: 1.45; }
-input[type="checkbox"] { width: auto; min-height: 0; }
+input[type="checkbox"], input[type="radio"] { width: auto; min-height: 0; }
 label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 
 .shell { display: grid; grid-template-columns: var(--rail) 1fr; min-height: 100vh; min-height: 100dvh; }
@@ -966,3 +966,21 @@ details.module-group > summary::before { content: "\25B8"; display: inline-block
 details.module-group[open] > summary::before { content: "\25BE"; }
 details.module-group > summary .muted.small { margin-left: 1em; }
 details.module-more > summary { padding: 2px 0; }
+
+/* How devices reach the hub (settings/Link.tsx) and its comparison page. */
+.link-choice { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.link-choice.chosen { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.link-choice.unavailable { opacity: 0.75; }
+.info-btn { background: none; border: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 2px 4px; cursor: pointer; min-width: 32px; min-height: 32px; }
+.info-btn[aria-expanded="true"] { color: var(--accent); }
+.link-info { margin: 8px 0 2px 28px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2, rgba(127,127,127,0.08)); line-height: 1.45; }
+.table-scroll { overflow-x: auto; }
+table.compare { border-collapse: collapse; width: 100%; font-size: 14px; }
+table.compare th, table.compare td { border-top: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+table.compare thead th { border-top: none; }
+table.compare tbody th { color: var(--muted); font-weight: 600; width: 22%; }
+.link-choice > .row { flex-wrap: nowrap; }
+.link-choice input[type="radio"] { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.link-question { font-size: 16px; font-weight: 600; margin-top: 4px; }
+.module-info { margin-left: 0; margin-top: 6px; color: var(--text); }
+.module-info > div + div { margin-top: 6px; }

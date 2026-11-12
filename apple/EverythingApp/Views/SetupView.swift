@@ -1,5 +1,6 @@
 import SwiftUI
 import EACore
+import EATailnet
 
 /// First run: the hub's address, a one-time pairing code from a device that is already paired (or the hub's Welcome
 /// page), and this device's name. The code is traded for this device's own key, kept in the Keychain.
@@ -14,6 +15,7 @@ struct SetupView: View {
     @State private var testOK = false
     @State private var pairing = false
     @State private var error: String?
+    @ObservedObject private var tailnet = TailnetSignIn.shared
 
     var body: some View {
         ScrollView {
@@ -67,6 +69,12 @@ struct SetupView: View {
 
                 if let e = error ?? model.setupError {
                     Label(e, systemImage: "xmark.circle").foregroundStyle(.red).font(.body)
+                }
+                // A hub on Tailscale that this device can't reach: sign in to Tailscale here, and pairing goes again.
+                if model.unreachedSetup != nil || tailnet.state != .off {
+                    TailscaleHereView(forSetup: true)
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.08)))
                 }
 
                 BigButton(title: testing ? "Checking" : "Check the address", symbol: "antenna.radiowaves.left.and.right") { test() }

@@ -3,6 +3,7 @@ import { db as defaultDb, EADatabase, META, getMeta, setMeta, type OutboxItem, t
 import { HubClient, HubError, isDeviceKey, readSse, type FetchLike, type ModuleInfo } from "./api";
 import { applyPatchLocal, mergeIncoming, planFlush, rejectedIds } from "./merge";
 import { celebrate } from "../feel/events";
+import { hubFetch } from "./direct";
 
 export type SyncStatus = "setup" | "offline" | "syncing" | "synced";
 
@@ -69,7 +70,7 @@ export class SyncEngine {
 
   constructor(opts: EngineOptions = {}) {
     this.db = opts.db ?? defaultDb;
-    this.fetchImpl = opts.fetchImpl ?? ((...a) => fetch(...a));
+    this.fetchImpl = opts.fetchImpl ?? (hubFetch as typeof fetch);
     this.platform = opts.platform ?? (() => "web");
     this.deviceName = opts.deviceName ?? (() => "web");
     this.liveEnabled = opts.live ?? true;

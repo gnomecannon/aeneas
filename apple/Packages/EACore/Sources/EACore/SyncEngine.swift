@@ -537,8 +537,54 @@ public final class SyncEngine: ObservableObject {
         } catch {
             note(error)
             status = client == nil ? .unconfigured : .offline
+            lookForMovedHub(after: error)
         }
         await afterChange()
+    }
+
+    /// Builds the hub connection again (the way to the hub changed, such as Tailscale signed in inside Aeneas) and syncs.
+    public func rebuildClient() async {
+        guard started, !deviceRemoved, makeClient == nil else { return }
+        client = buildClient()
+        status = client == nil ? .unconfigured : .offline
+        startLive()
+        await sync()
+    }
+
+    // MARK: a Home Wi-Fi hub that moved
+
+    private var lastHomeLook: Date?
+
+    /// A Home Wi-Fi hub that stopped answering may only have a new address from the router: look for its
+    /// announcement (HomeFinder), at most once a minute, and move to the new address once the hub there has shown
+    /// the pinned certificate and answered.
+    private func lookForMovedHub(after error: Error) {
+        guard platform != .watch, makeClient == nil, !deviceRemoved,
+              HomeFinder.worthLooking(hubURL: config.hubURL, pin: config.hubPin, error: error),
+              lastHomeLook.map({ Date().timeIntervalSince($0) > 60 }) ?? true else { return }
+        lastHomeLook = Date()
+        let current = config.hubURL
+        let pin = config.hubPin
+        let token = config.credential
+        Task { [weak self] in
+            guard let pin, let found = await HomeFinder.find(pin: pin), !HomeFinder.sameAddress(found, current) else { return }
+            // The pin is checked on this request: an announcement pointing anywhere else fails here and changes nothing.
+            guard let probe = HubClient.make(urlString: found, token: token, pin: pin) else {
+                HomeFinder.note("the hub's new address could not be used")
+                return
+            }
+            guard (try? await withDeadline(8) { try await probe.health() }) != nil else {
+                HomeFinder.note("the hub at its new address did not answer with its certificate")
+                return
+            }
+            HomeFinder.note("the hub moved; using its new address")
+            guard let self, self.config.hubURL == current else { return }
+            self.config.hubURL = found
+            self.client = self.buildClient()
+            self.lastError = nil
+            self.startLive()
+            await self.sync()
+        }
     }
 
     /// The hub refuses request bodies over 2 MB: pushes are cut to about 1.5 MB of patches each.

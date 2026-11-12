@@ -57,6 +57,15 @@ export interface Config {
   backupKeyFile: string;
   /** The key that seals connections.json and ai.json at rest (secretbox.ts). Next to the work key, in no backup. */
   secretsKeyFile: string;
+  /**
+   * How devices reach the hub (link.ts): EA_LINK "direct" (iroh, no account), "tailscale" or "home" (home network
+   * only), as chosen in the installer; the Welcome page and Settings can change it later (kept in link.json).
+   */
+  link: string;
+  /** The Direct link's private key (EA_LINK_KEY_FILE), next to the work key, owner-only, in no backup. */
+  linkKeyFile: string;
+  /** EA_LINK_RELAYS: relay servers of one's own, comma separated; empty: the relay iroh chose, kept from then on. */
+  linkRelays: string[];
   seedDir: string;
   /** The owner's own seed files (facts, monitors, rules...), read after the starter ones. Not in the repo. */
   seedPersonalDir: string;
@@ -64,6 +73,11 @@ export interface Config {
   modulesPreset: string;
   ollamaUrl: string;
   ollamaModel: string;
+  /**
+   * EA_MODELS_DIR: where the installer's own Ollama keeps models (its OLLAMA_MODELS), chosen during setup; empty when
+   * Ollama was already there (it keeps them where it was set up to). Only shown, with its free space, never written.
+   */
+  modelsDir: string;
   ollamaNumCtx: number;
   /**
    * Ollama keep_alive sent with every chat so the model stays loaded between messages. 5 minutes: the GPU's memory
@@ -244,12 +258,16 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     workKeyFile: env.EA_WORK_KEY_FILE ? path.resolve(HUB_DIR, env.EA_WORK_KEY_FILE) : path.join(dataDir, "work.key"),
     backupKeyFile: "",
     secretsKeyFile: "",
+    link: ["direct", "tailscale", "home"].includes((env.EA_LINK || "").trim()) ? (env.EA_LINK || "").trim() : "",
+    linkKeyFile: "",
+    linkRelays: (env.EA_LINK_RELAYS || "").split(",").map((u) => u.trim()).filter((u) => /^https:\/\/[^\s,]+$/.test(u)),
     seedDir: env.EA_SEED_DIR ? path.resolve(HUB_DIR, env.EA_SEED_DIR) : path.join(REPO_DIR, "deploy", "seed"),
     seedPersonalDir: env.EA_SEED_PERSONAL_DIR ? path.resolve(HUB_DIR, env.EA_SEED_PERSONAL_DIR) : path.join(dataDir, "seed"),
     modulesPreset: (env.EA_MODULES || "").trim(),
     ollamaUrl: (env.EA_OLLAMA_URL || "").replace(/\/+$/, ""),
     // No model is assumed: the Welcome page picks one that fits this machine (ai.json), or EA_OLLAMA_MODEL names it.
     ollamaModel: env.EA_OLLAMA_MODEL || "",
+    modelsDir: (env.EA_MODELS_DIR || "").trim(),
     ollamaNumCtx: int(env.EA_OLLAMA_NUM_CTX, 8192),
     ollamaKeepAlive: env.EA_OLLAMA_KEEP_ALIVE || "5m",
     ollamaThink: (env.EA_OLLAMA_THINK || "").trim().toLowerCase(),
@@ -293,7 +311,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     imageWorkers: imageWorkers(env.EA_IMAGE_WORKERS),
     webFetch: env.EA_AI_WEB_FETCH !== "0",
     hostActions: env.EA_AI_HOSTS !== "0",
-    sshConfigPath: env.EA_SSH_CONFIG || path.join(env.HOME || "", ".ssh", "config"),
+    sshConfigPath: env.EA_SSH_CONFIG || path.join(env.HOME || env.USERPROFILE || "", ".ssh", "config"),
     hostsFile: env.EA_HOSTS_FILE ? path.resolve(HUB_DIR, env.EA_HOSTS_FILE) : path.join(dataDir, "hosts.json"),
     commandTimeoutS: int(env.EA_COMMAND_TIMEOUT_S, 60),
     backupJobs: backupJobNames({ mac: env.EA_BACKUP_MAC_JOBS, windows: env.EA_BACKUP_WINDOWS_TASKS, linux: env.EA_BACKUP_LINUX_UNITS }),
@@ -317,6 +335,11 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     cfg.secretsKeyFile = env.EA_SECRETS_KEY_FILE && !overrides.dataDir && !overrides.workKeyFile
       ? path.resolve(HUB_DIR, env.EA_SECRETS_KEY_FILE)
       : path.join(path.dirname(cfg.workKeyFile), "secrets.key");
+  }
+  if (!overrides.linkKeyFile) {
+    cfg.linkKeyFile = env.EA_LINK_KEY_FILE && !overrides.dataDir && !overrides.workKeyFile
+      ? path.resolve(HUB_DIR, env.EA_LINK_KEY_FILE)
+      : path.join(path.dirname(cfg.workKeyFile), "link.key");
   }
   if (overrides.dataDir && !overrides.hostsFile) cfg.hostsFile = path.join(cfg.dataDir, "hosts.json");
   // Date math in shared helpers (nextOccurrence) uses the process timezone.

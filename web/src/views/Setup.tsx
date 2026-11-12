@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { HubClient, HubError, isDeviceKey, normalizeHubUrl } from "../sync/api";
+import { directAddress, isDirect, parseDirect, relayOwner, validRelay } from "../sync/direct";
 import { META, db, getMeta, setMeta } from "../sync/db";
 import { engine } from "../sync/engine";
 import { useMeta } from "../sync/hooks";
@@ -18,7 +19,27 @@ function defaultHub(): string {
  */
 function linkParams(): URLSearchParams {
   const h = window.location.hash;
-  return h.startsWith("#/setup?") ? new URLSearchParams(h.slice("#/setup?".length)) : new URLSearchParams();
+  return withDirectHub(h.startsWith("#/setup?") ? new URLSearchParams(h.slice("#/setup?".length)) : new URLSearchParams());
+}
+
+/**
+ * A Direct link pairing link carries the hub's key and relay (`link=direct&node=&relay=`) and no address: the hub's
+ * address becomes `iroh://<key>?relay=...`, which the Windows and Android apps reach over their own Direct link.
+ */
+function withDirectHub(p: URLSearchParams): URLSearchParams {
+  const node = p.get("node") ?? "";
+  const relay = p.get("relay") ?? "";
+  if (p.get("link") === "direct" && /^[0-9a-fA-F]{64}$/.test(node) && validRelay(relay)) p.set("hub", directAddress(node, relay));
+  return p;
+}
+
+/** A whole pairing link pasted into the address field (the app's `everythingapp://setup?...` or the web one). */
+export function pastedLink(text: string): URLSearchParams | null {
+  const t = text.trim();
+  const q = /^everythingapp:\/\/setup\?(.*)$/i.exec(t)?.[1] ?? /#\/setup\?(.*)$/.exec(t)?.[1];
+  if (!q) return null;
+  const p = withDirectHub(new URLSearchParams(q));
+  return p.get("hub") && (p.get("code") || p.get("token")) ? p : null;
 }
 
 const platform = () => (isWindowsApp ? "windows" : "web");
@@ -140,10 +161,16 @@ export function Setup() {
         </section>
       )}
       <form className="col" onSubmit={(e) => { e.preventDefault(); void pairWithCode(); }}>
-        <div className="muted small">On a device that is already paired, open Settings, Connection, Pair another device. It shows a code that works once, for 10 minutes.</div>
+        <div className="muted small">On a device that is already paired, open Settings, Connection, Pair another device. It shows a code that works once, for 10 minutes. On this device you can paste the whole pairing link into the address field instead.</div>
         <div>
           <label htmlFor="hub">Hub address</label>
-          <input id="hub" value={hub} onChange={(e) => setHub(e.target.value)} placeholder="https://core.tailnet.ts.net:8787" autoCapitalize="off" spellCheck={false} />
+          <input id="hub" value={hub} onChange={(e) => {
+            // A pasted pairing link fills in everything (a Direct link hub has no address to type).
+            const p = pastedLink(e.target.value);
+            if (p) { setHub(p.get("hub")!); if (p.get("code")) setCode(p.get("code")!); if (p.get("name")) setName(p.get("name")!); return; }
+            setHub(e.target.value);
+          }} placeholder="https://core.tailnet.ts.net:8787, or paste a pairing link" autoCapitalize="off" spellCheck={false} />
+          {isDirect(hub) && <div className="muted small">Direct link (iroh) to the hub with key {parseDirect(hub)?.node.slice(0, 10) ?? "?"}. Relay: {parseDirect(hub) ? relayOwner(parseDirect(hub)!.relay) : "?"}.</div>}
         </div>
         <div>
           <label htmlFor="code">Pairing code</label>

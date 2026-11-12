@@ -156,6 +156,9 @@ public final class SharedConfig: @unchecked Sendable {
 
     // Snapshot for widgets and complications.
     public var nowTaskId: String? { get { defaults.string(forKey: "now.id") } set { set("now.id", newValue) } }
+    /// The widget's Done for a hub it cannot reach itself (a Direct link hub: widgets carry no iroh), as "<task id>|<time>":
+    /// the app sends it on its next start or return to the foreground.
+    public var pendingWidgetDone: String? { get { defaults.string(forKey: "now.donePending") } set { set("now.donePending", newValue) } }
     public var nowTaskTitle: String? { get { defaults.string(forKey: "now.title") } set { set("now.title", newValue) } }
     public var nowTaskStatus: String? { get { defaults.string(forKey: "now.status") } set { set("now.status", newValue) } }
     public var nowBlockEnd: Date? {

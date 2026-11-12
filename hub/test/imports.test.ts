@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { makeHub } from "./helpers.js";
+import { makeHub, fileMode } from "./helpers.js";
 import { norm, stableId } from "../src/imports/util.js";
 import { filmsFromRss } from "../src/imports/letterboxd.js";
 import { TOOLS } from "../src/ai/tools.js";
@@ -93,7 +93,7 @@ test("steam: the hub holds the key, a member signs in through Steam, games come 
     assert.equal(view.steam.persona, "Gnome");
     assert.equal(view.steam.games, 3);
     assert.equal(JSON.stringify(view).includes(key), false, "the key never leaves the hub");
-    assert.equal(fs.statSync(path.join(t.hub.cfg.dataDir, "connections.json")).mode & 0o777, 0o600);
+    assert.equal(fileMode(path.join(t.hub.cfg.dataDir, "connections.json")), 0o600);
 
     const games = t.hub.store.list({ kind: "game" });
     assert.equal(games.length, 3, "the hand-typed game gained Steam's numbers instead of a copy");

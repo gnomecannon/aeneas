@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { makeHub, type TestHub } from "./helpers.js";
+import { makeHub, type TestHub, fileMode } from "./helpers.js";
 import { ConnectionStore } from "../src/imports/connections.js";
 import { WorkSpace } from "../src/work.js";
 import { FeedKeys } from "../src/feedkeys.js";
@@ -85,7 +85,7 @@ test("foundation: a backup is listed only once it is whole, and one damaged copy
     const r = await runBackup(t.hub.db, dir, t.hub.backupKey, new Date(2026, 10, 5, 3));
     assert.equal(path.basename(r.file), "hub-20261105-030000.sqlite.age");
     assert.deepEqual(fs.readdirSync(dir).filter((n) => n.includes("partial")), []);
-    assert.equal(fs.statSync(r.file).mode & 0o777, 0o600);
+    assert.equal(fileMode(r.file), 0o600);
     assert.equal(path.basename(listBackups(dir)[0].file), "hub-20261105-030000.sqlite.age");
     // Seal: the damaged file is skipped, the good one is still handled (it has no plain work rows here).
     assert.doesNotThrow(() => sealWorkInBackups(dir, t.hub.store.workKey));

@@ -4,7 +4,8 @@ Everything after setup: updating, backups, restoring, moving to a new machine, d
 uninstalling, and what to do when something is wrong. Setup itself is in the README.
 
 Commands are for the hub's machine, as the user the hub runs as (not root). Where Linux and macOS differ, both are
-given. `~/everythingapp` is the app folder unless you installed with `EA_DIR`.
+given. `~/everythingapp` is the app folder unless you installed with `EA_DIR`. A Windows hub has its own section, On
+Windows, near the end.
 
 ## Where things are
 
@@ -155,11 +156,12 @@ systemctl --user restart everythingapp-hub              # Linux
 launchctl kickstart -k gui/$(id -u)/app.everythingapp.hub   # macOS
 ```
 
-## Away from home
+## How devices reach the hub
 
-The hub listens on your home network. To reach it from anywhere, install Tailscale on the hub and your devices and
-run the install command again: the hub gets an https address on your private Tailscale network, and devices paired
-after that use it. Pair existing devices again once.
+Setup asks once: Direct link (iroh, no account, works at home and away), Tailscale, or home Wi-Fi only.
+[connections.md](connections.md) compares them. Settings, How devices reach this hub changes it later; Tailscale and
+home Wi-Fi need the installer run again (it installs or sets up what they need). Devices paired over the old way need
+a new pairing code.
 
 ## Web lookups and Tor
 
@@ -187,6 +189,43 @@ To go without Tor (faster, but engines and sites see your home address), install
 It asks once, then stops and removes the hub and the services and programs the installer added, and the app folder.
 It keeps your data and keys, and names the folders that hold them: copy what you want to keep, then delete them
 yourself. Remove the apps from your devices as usual.
+
+## On Windows
+
+A Windows hub (installed with `Aeneas-Hub-Setup.exe`, which runs `deploy/install.ps1`) keeps everything in
+`%LOCALAPPDATA%\AeneasHub`:
+
+| Folder | What is in it | In a backup? |
+|---|---|---|
+| `app` | The app. Replaced on each update | No |
+| `data` | Your data: `hub.sqlite`, `chats.sqlite`, `vault`, `backups`, `logs` | `hub.sqlite` only |
+| `config` | `hub.env` (settings and the hub's main key), `backup.key`, `work.key`, `secrets.key`, `services.json`, Tor's settings | No, on purpose |
+| `models` (or the folder chosen during setup) | Ollama's models | No (downloaded again) |
+| `node`, `git`, `ollama`, `tor` | Programs the installer added (only the ones it needed) | No |
+
+The scheduled task `\Aeneas\Aeneas hub` starts `app\deploy\windows\hub-service.ps1` at boot, as you, before anyone
+logs in. It runs the hub, Ollama and Tor (as listed in `config\services.json`), starts each again when it stops, and
+asks Windows not to sleep while the PC is on AC power.
+
+As the user who installed the hub (the commands in PowerShell):
+
+| To | Run |
+|---|---|
+| Update | Settings, About, Update hub in the app (or ask the assistant), or run `Aeneas-Hub-Setup.exe` again |
+| Restart the hub | `Stop-Process -Id (Get-Content "$env:LOCALAPPDATA\AeneasHub\run\hub.pid")` (its service starts it again within seconds) |
+| Restart everything | `Get-ScheduledTask -TaskName 'Aeneas hub' \| Stop-ScheduledTask; Get-ScheduledTask -TaskName 'Aeneas hub' \| Start-ScheduledTask` |
+| Read the logs | `Get-Content "$env:LOCALAPPDATA\AeneasHub\data\logs\hub.log" -Tail 50` (also `ollama.log`, `tor.log`, `service.log`) |
+| Pair a device from the hub's PC | `powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\AeneasHub\app\deploy\windows\pair-link.ps1" "Name"` |
+| List or restore backups | `powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\AeneasHub\app\deploy\windows\restore.ps1" [backup]` |
+| Uninstall | Windows Settings, Apps, Aeneas hub, Uninstall (it keeps `data`, `config` and the models, and names them) |
+
+When the app cannot reach a Windows hub: is the PC on and awake? With Tailscale, is it connected on the PC; with
+Direct link, does Settings, How devices reach this hub say it is on? In Task Scheduler,
+folder Aeneas, the task `Aeneas hub` should be Running; `data\logs\service.log` says what it started and when anything
+stopped. A Windows update that restarts the PC needs nothing from you: the task starts the hub at boot.
+
+A second copy of each night's backup: add `EA_BACKUP_COPY_DIR=D:\Backup\aeneas` (a folder on a local drive; the hub
+runs before anyone logs in and cannot reach network drives) to `config\hub.env`, then restart the hub.
 
 ## When something is wrong
 

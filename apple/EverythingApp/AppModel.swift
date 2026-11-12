@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import EACore
+import EATailnet
 import os.log
 #if canImport(UIKit)
 import UIKit
@@ -272,6 +273,16 @@ final class AppModel: ObservableObject {
 
     var config: SharedConfig { engine.config }
 
+    /// The Now widget's Done for a Direct link hub, which the widget could not send itself.
+    func sendPendingWidgetDone() async {
+        guard let p = config.pendingWidgetDone else { return }
+        let parts = p.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { config.pendingWidgetDone = nil; return }
+        guard !config.deviceId.isEmpty, let client = HubClient.make(config: config) else { return }
+        let done = Patch(id: parts[0], kind: .task, ts: parts[1], fields: ["status": .string("done"), "done_at": .string(parts[1])])
+        if (try? await client.push(deviceId: config.deviceId, patches: [done])) != nil { config.pendingWidgetDone = nil }
+    }
+
     func start() async {
         // Out of iCloud Backup unless the person chose otherwise (Settings, Privacy on this device).
         BackupExclusion.apply(config: engine.config)
@@ -284,6 +295,7 @@ final class AppModel: ObservableObject {
             await RemindersSync.shared.runIfReady(reason: "foreground")
             await EventMirrorSync.shared.runIfReady(reason: "foreground")
             await ContactsSync.shared.runNow(reason: "foreground")
+            await sendPendingWidgetDone()
             #if os(iOS)
             await sendPendingShares()
             // Hums from the Watch that could not reach the hub before go now.
@@ -293,6 +305,8 @@ final class AppModel: ObservableObject {
             return
         }
         started = true
+        // Tailscale signed in or out inside Aeneas: the hub is reached another way now.
+        TailnetSignIn.shared.onChange = { [weak self] in Task { @MainActor in await self?.tailnetChanged() } }
         ReminderScheduler.shared.registerCategories()
         await engine.start()
         isConfigured = config.isConfigured && !engine.deviceRemoved
@@ -343,10 +357,21 @@ final class AppModel: ObservableObject {
         return "A pairing code has 8 letters and numbers, like ABCD-EFGH."
     }
 
+    /// Tailscale inside Aeneas connected or signed out: the paired hub's connection is made again; a pairing that
+    /// could not reach a Tailscale hub is tried again.
+    func tailnetChanged() async {
+        if isConfigured { await engine.rebuildClient(); return }
+        if let link = unreachedSetup, case .connected = TailnetSignIn.shared.state { setupError = await connect(link) }
+    }
+
+    /// The last setup link that could not reach its hub: tried again once Tailscale is signed in inside Aeneas.
+    @Published var unreachedSetup: SetupLink?
+
     /// Connect with a setup link or what was typed on the setup screen.
     func connect(_ link: SetupLink) async -> String? {
         await ensureStarted()
         guard HTTPTransport.hubURL(link.hub) != nil else { return "That hub address is not valid." }
+        defer { if isConfigured { unreachedSetup = nil } }
         do {
             switch link.credential {
             case .code(let code): try await engine.pair(hubURL: link.hub, code: code, deviceName: link.name, pin: link.pin)
@@ -354,6 +379,7 @@ final class AppModel: ObservableObject {
             }
         } catch {
             Self.log.notice("pairing failed: \(String(describing: type(of: error)), privacy: .public)")
+            if Tailnet.isTailnetHub(link.hub), let h = error as? HubError, case .transport = h { unreachedSetup = link }
             return Self.pairingMessage(error)
         }
         isConfigured = config.isConfigured

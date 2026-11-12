@@ -1,3 +1,4 @@
+import { LinkChoice } from "./settings/Link";
 import { useEffect, useState } from "react";
 import { RetentionSettings } from "./settings/HubPrivacy";
 import { HubError, type BackupStatus, type PullState, type SetupDetect, type SetupView } from "../sync/api";
@@ -149,6 +150,13 @@ function ModelStep({ view, onDone }: { view: SetupView | null; onDone: () => voi
           The model that fits best: <strong>{d.recommended.model}</strong> ({d.recommended.size_gb} GB download{d.recommended.license ? `, ${d.recommended.license} license` : ""}); {d.recommended.why}. It runs on the hub's machine, so what you ask never leaves it.
         </div>
       )}
+      {d?.models_dir && (
+        <div className={d.models_dir.missing || (d.models_dir.free_gb !== null && d.models_dir.free_gb < d.recommended.size_gb + 1) ? "error small" : "muted small"}>
+          {d.models_dir.missing
+            ? <>Models go in {d.models_dir.path}, which is not there right now (a drive unplugged, or a network share offline). Connect it, then <button type="button" className="ghost small" onClick={detect} disabled={looking}>look again</button>.</>
+            : <>Models go in {d.models_dir.path}{d.models_dir.free_gb !== null ? `, which has ${d.models_dir.free_gb} GB free` : ""}{d.models_dir.free_gb !== null && d.models_dir.free_gb < d.recommended.size_gb + 1 ? `: not enough for ${d.recommended.model}. Free some space, or run the installer again and choose another drive` : ""}. You chose this folder during setup; the installer asks again when you run it again.</>}
+        </div>
+      )}
       {d && ollama && rec && !(current?.ollama?.model === rec) && (
         <div>
           <button type="button" className="primary" disabled={busy || (!!pull && !pull.done)} onClick={() => void auto(rec, ollama.url)}>
@@ -295,6 +303,9 @@ function PasswordStep({ n, view, onDone }: { n: number; view: SetupView | null; 
 function DevicesStep({ n }: { n: number }) {
   return (
     <Step n={n} title="Your other devices" done={false}>
+      <div className="link-question">How will your phone and computers reach this hub?</div>
+      <LinkChoice />
+      <div className="link-question" style={{ marginTop: 12 }}>Pair a device</div>
       <div className="muted small">Install Aeneas on your iPhone, iPad or Mac, then make a code here. Scan the QR code with the iPhone or iPad camera and it connects; on a Mac, open the link; on another computer, open the web link. Each device gets its own key, and the code works once, for 10 minutes.</div>
       <PairDevice />
     </Step>
