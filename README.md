@@ -111,7 +111,8 @@ removing a device, uninstalling and fixing problems: `docs/running-your-hub.md`.
 
 **Advanced additions.** Services that need your own key or app come with a step-by-step guide in Settings,
 Connections, with the values to copy filled in and a check at the end: Steam playtime (about 2 minutes), Confluence
-(about 10) and Gmail (10 to 15). Each module says before you turn it on whether it needs one.
+(about 10) and Gmail (10 to 15; to read the steps before you install, see [docs/gmail-setup.md](docs/gmail-setup.md)).
+Each module says before you turn it on whether it needs one.
 
 ## Layout
 

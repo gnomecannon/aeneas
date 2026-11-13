@@ -53,6 +53,7 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
   const view = hub.connections.view();
   const https = address.startsWith("https:");
   if (service === "google") {
+    // docs/gmail-setup.md has these steps for reading before an install: change both (test/gmail-setup-doc.test.ts).
     const ret = `${address}/connections/google/return`;
     return {
       service, title: "Your own Google app, for Gmail", minutes: "10 to 15", done: view.google.app,
