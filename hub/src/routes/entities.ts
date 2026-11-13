@@ -184,7 +184,9 @@ export function entityRoutes() {
     const limit = Math.min(parseInt(c.req.query("limit") ?? "50", 10) || 50, 200);
     // Items of a module that is off stay out of search, as their screens do.
     const shown = (kind: string) => { const m = moduleOfKind(kind); return !m || hub.modules.on(m); };
-    return c.json({ hits: hub.store.search(q, { kinds, limit: limit * 2 }).filter((h) => shown(h.kind)).slice(0, limit) });
+    // Assistant chats too (kept in the chat database, not as items), unless the search asks for item kinds only.
+    const chats = !kinds.length || kinds.includes("chat") ? hub.ai.sessions.search(q, Math.min(limit, 20)) : [];
+    return c.json({ hits: hub.store.search(q, { kinds: kinds.filter((k) => k !== "chat"), limit: limit * 2 }).filter((h) => shown(h.kind)).slice(0, limit), chats });
   });
 
   // ---- logs and dashboard ----

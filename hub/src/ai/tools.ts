@@ -571,11 +571,11 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "library", writes: false,
-    description: "Ranked lists of {{owner}}'s games (Steam library and games added by hand: hours played, last two weeks, last played), films (Letterboxd: rating, when watched, times watched, likes; watchlist=yes for the watchlist) job applications (stage, applied date) and subscriptions (renewals in the subscription category with cost: monthly and yearly totals). Use for questions like most played games, films watched this year, best rated films, or open applications. For a written list, read here first, then save it with save_note or create_item kind=checklist.",
+    description: "Ranked lists of {{owner}}'s games (Steam library and games added by hand: hours played, last two weeks, last played), films (Letterboxd: rating, when watched, times watched, likes; watchlist=yes for the watchlist) job applications (stage, applied date) subscriptions (renewals in the subscription category with cost: monthly and yearly totals) and renewals (every renewal with a cost, any category: what they cost together a month and a year, by category, and any left out because they do not repeat). For \"how much do my renewals cost\", use what=renewals. Use for questions like most played games, films watched this year, best rated films, or open applications. For a written list, read here first, then save it with save_note or create_item kind=checklist.",
     parameters: {
       type: "object",
       properties: {
-        what: { type: "string", enum: ["games", "films", "applications", "subscriptions"] },
+        what: { type: "string", enum: ["games", "films", "applications", "subscriptions", "renewals"] },
         sort: { type: "string", description: "games: playtime (default), two_weeks, recent, rating, name. films: recent (default), rating, rewatched, title, year." },
         limit: { type: "number" },
         query: { type: "string", description: "optional text to match in names, titles, tags, companies or roles" },
@@ -597,7 +597,8 @@ export const TOOLS: ToolDef[] = [
       }
       if (what === "applications") return call(api, "GET", `/library/applications${q({ stage: str(a.stage), limit: num(a.limit), q: str(a.query) })}`);
       if (what === "subscriptions") return call(api, "GET", "/finance/subscriptions");
-      return Promise.resolve({ error: "what must be games, films, applications or subscriptions" });
+      if (what === "renewals") return call(api, "GET", "/finance/renewals");
+      return Promise.resolve({ error: "what must be games, films, applications, subscriptions or renewals" });
     },
   },
   {

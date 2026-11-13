@@ -9,9 +9,26 @@ import { fmtDateTime } from "../lib/time";
 type FactF = { category: string; key: string; value: string; source?: string; confidence?: number; private?: boolean };
 type RuleF = { text: string; enforce: string; pattern?: string; active: boolean };
 const CATS = ["identity", "constraint", "preference", "health", "relationship", "host", "project", "gear", "history"];
+/** Folded fact categories, kept on this device. */
+const FOLDED_KEY = "memory.folded";
+
+function readFolded(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(FOLDED_KEY) ?? "[]");
+    return new Set(Array.isArray(v) ? v.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** Whether `words` all appear in any of `fields` (case blind): "dog name" finds dog:name Pepper. */
+export function memoryMatch(words: string, ...fields: unknown[]): boolean {
+  const hay = fields.map((f) => String(f ?? "")).join(" ").toLowerCase();
+  return words.toLowerCase().split(/\s+/).filter(Boolean).every((w) => hay.includes(w));
+}
 
 /** Open ledgers from the hub, else the local copy. */
-function Ledgers() {
+function Ledgers({ query }: { query: string }) {
   const local = useEntities("ledger", (e) => e.fields.open !== false);
   const [hub, setHub] = useState<Entity[] | null>(null);
   useEffect(() => {
@@ -24,7 +41,11 @@ function Ledgers() {
       alive = false;
     };
   }, [local.length]);
-  const ledgers = (hub ?? local).slice().sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1));
+  const ledgers = (hub ?? local)
+    .filter((l) => memoryMatch(query, (l.fields as LedgerF).topic))
+    .slice()
+    .sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1));
+  if (query.trim() && !ledgers.length) return null;
   return (
     <section style={{ marginTop: 20 }}>
       <h2>Open ledgers</h2>
@@ -59,6 +80,21 @@ export function Memory() {
   const [seenErr, setSeenErr] = useState("");
   const [nf, setNf] = useState({ category: "preference", key: "", value: "" });
   const [nr, setNr] = useState("");
+  const [query, setQuery] = useState("");
+  const [folded, setFolded] = useState<Set<string>>(readFolded);
+  const searching = !!query.trim();
+  const toggle = (cat: string) =>
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      try {
+        localStorage.setItem(FOLDED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* private window: folding still works until the page reloads */
+      }
+      return next;
+    });
 
   useEffect(() => {
     let alive = true;
@@ -74,17 +110,44 @@ export function Memory() {
   const grouped = useMemo(() => {
     const m = new Map<string, Entity[]>();
     for (const f of facts) {
-      const c = (f.fields as FactF).category;
-      m.set(c, [...(m.get(c) ?? []), f]);
+      const x = f.fields as FactF;
+      if (!memoryMatch(query, x.category, x.key, x.value)) continue;
+      m.set(x.category, [...(m.get(x.category) ?? []), f]);
     }
     return CATS.filter((c) => m.has(c)).map((c) => [c, m.get(c)!.sort((a, b) => String(a.fields.key).localeCompare(String(b.fields.key)))] as const);
-  }, [facts]);
+  }, [facts, query]);
+  const shownRules = useMemo(() => rules.filter((r) => memoryMatch(query, (r.fields as RuleF).text, (r.fields as RuleF).pattern)), [rules, query]);
+  const factCount = grouped.reduce((n, [, items]) => n + items.length, 0);
 
   return (
     <div>
       <h1>Memory</h1>
+      <input type="search" placeholder="Search facts, rules and ledgers" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search memory" style={{ marginBottom: 6 }} />
+      {searching && (
+        <div className="muted small" role="status" style={{ marginBottom: 8 }}>
+          {factCount} fact{factCount === 1 ? "" : "s"} and {shownRules.length} rule{shownRules.length === 1 ? "" : "s"} match
+        </div>
+      )}
       <section>
-        <h2>Facts</h2>
+        <div className="row between">
+          <h2>Facts</h2>
+          {!searching && grouped.length > 1 && (
+            <button
+              className="small ghost"
+              onClick={() => {
+                const all = folded.size >= grouped.length ? new Set<string>() : new Set(grouped.map(([c]) => c));
+                setFolded(all);
+                try {
+                  localStorage.setItem(FOLDED_KEY, JSON.stringify([...all]));
+                } catch {
+                  /* kept until the page reloads */
+                }
+              }}
+            >
+              {folded.size >= grouped.length ? "Open all" : "Fold all"}
+            </button>
+          )}
+        </div>
         <form
           className="row"
           style={{ marginBottom: 12 }}
@@ -106,10 +169,19 @@ export function Memory() {
           </button>
         </form>
         {!facts.length && <div className="empty">No facts.</div>}
-        {grouped.map(([cat, items]) => (
+        {facts.length > 0 && searching && !grouped.length && <div className="muted small">No facts match.</div>}
+        {grouped.map(([cat, items]) => {
+          // A search shows every category it finds something in, folded or not.
+          const open = searching || !folded.has(cat);
+          return (
           <div key={cat} className="card">
-            <h3>{cat}</h3>
-            <div className="col">
+            <h3 style={{ margin: 0 }}>
+              <button className="fold-head" onClick={() => toggle(cat)} aria-expanded={open} disabled={searching}>
+                <span aria-hidden="true">{open ? "▾" : "▸"}</span> {cat} <span className="muted small">{items.length}</span>
+              </button>
+            </h3>
+            {open && (
+            <div className="col" style={{ marginTop: 8 }}>
               {items.map((f) => {
                 const x = f.fields as FactF;
                 return (
@@ -128,8 +200,10 @@ export function Memory() {
                 );
               })}
             </div>
+            )}
           </div>
-        ))}
+          );
+        })}
       </section>
       <section style={{ marginTop: 20 }}>
         <h2>Rules</h2>
@@ -148,8 +222,9 @@ export function Memory() {
           </button>
         </form>
         {!rules.length && <div className="empty">No rules.</div>}
+        {rules.length > 0 && searching && !shownRules.length && <div className="muted small">No rules match.</div>}
         <div className="list">
-          {rules.map((r) => {
+          {shownRules.map((r) => {
             const x = r.fields as RuleF;
             return (
               <div key={r.id} className="item">
@@ -173,7 +248,7 @@ export function Memory() {
           })}
         </div>
       </section>
-      <Ledgers />
+      <Ledgers query={query} />
       <section style={{ marginTop: 20 }}>
         <h2>What the assistant sees</h2>
         {seenErr && <div className="error">{seenErr}</div>}
@@ -181,10 +256,10 @@ export function Memory() {
         {seen && (
           <div className="card">
             <div className="small muted">
-              {seen.facts.length} facts, {seen.rules.length} rules injected
+              {seen.facts.length} facts, {seen.rules.length} rules injected{searching ? "; those matching the search:" : ""}
             </div>
             <ul className="small" style={{ paddingLeft: 18, margin: "6px 0" }}>
-              {seen.facts.map((f) => (
+              {seen.facts.filter((f) => memoryMatch(query, f.fields.category, f.fields.key, f.fields.value)).map((f) => (
                 <li key={f.id}>
                   <span className="mono">
                     {String(f.fields.category)}:{String(f.fields.key)}
@@ -194,7 +269,7 @@ export function Memory() {
               ))}
             </ul>
             <ul className="small" style={{ paddingLeft: 18, margin: 0 }}>
-              {seen.rules.map((r) => (
+              {seen.rules.filter((r) => memoryMatch(query, r.fields.text)).map((r) => (
                 <li key={r.id}>{String(r.fields.text)}</li>
               ))}
             </ul>

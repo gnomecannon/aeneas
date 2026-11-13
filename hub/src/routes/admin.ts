@@ -6,7 +6,7 @@ import { StoreError } from "../store.js";
 import { autoModel, hubAddress, pairingLinks, pullState, removeAi, saveAi, setupDetect, setupView, setupViewChecked, startPull } from "../setup.js";
 import {
   applicationBoard, calcPayoff, calcSplit, calcUnit, draftCoverLetter, instantiateChecklist,
-  markPlayed, pickGame, subscriptions, toggleChecklistItem,
+  markPlayed, pickGame, renewalTotals, subscriptions, toggleChecklistItem,
 } from "../admin.js";
 import { calcTakeHome } from "../takehome.js";
 import { mealsTax } from "../mealstax.js";
@@ -109,6 +109,7 @@ export function adminRoutes() {
   r.put("/settings/retention", async (c) => c.json(setRetention(c.get("hub"), await readJsonObject(c))));
 
   r.get("/finance/subscriptions", (c) => c.json(subscriptions(c.get("hub").store)));
+  r.get("/finance/renewals", (c) => c.json(renewalTotals(c.get("hub").store)));
 
   return r;
 }

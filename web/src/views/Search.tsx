@@ -3,6 +3,9 @@ import { engine } from "../sync/engine";
 import { db } from "../sync/db";
 import { kindLabel, linkFor } from "../lib/links";
 import { go } from "../lib/router";
+import { fmtDateTime } from "../lib/time";
+import type { ChatHit } from "../sync/api";
+import { useSyncState } from "../sync/hooks";
 
 interface Hit {
   id: string;
@@ -31,8 +34,13 @@ async function localSearch(q: string): Promise<Hit[]> {
 export function Search({ q }: { q: string }) {
   const [text, setText] = useState(q);
   const [hits, setHits] = useState<Hit[]>([]);
+  /** Assistant chats: kept on the hub only, so a search on this device alone has none. */
+  const [chats, setChats] = useState<ChatHit[]>([]);
   const [src, setSrc] = useState("");
   const [busy, setBusy] = useState(false);
+  // Search again once the hub is connected: opened right after the app starts, it searched this device only and stayed so.
+  useSyncState();
+  const ready = !!engine.client;
 
   useEffect(() => {
     if (!q.trim()) return;
@@ -44,12 +52,14 @@ export function Search({ q }: { q: string }) {
         const r = await engine.client.search(q);
         if (alive) {
           setHits(r.hits);
+          setChats(r.chats ?? []);
           setSrc("hub");
         }
       } catch {
         const r = await localSearch(q);
         if (alive) {
           setHits(r);
+          setChats([]);
           setSrc("local");
         }
       } finally {
@@ -60,7 +70,7 @@ export function Search({ q }: { q: string }) {
     return () => {
       alive = false;
     };
-  }, [q]);
+  }, [q, ready]);
 
   return (
     <div>
@@ -73,10 +83,12 @@ export function Search({ q }: { q: string }) {
         }}
         style={{ marginBottom: 8 }}
       >
-        <input type="search" placeholder="Search tasks, notes, fix notes and everything else" value={text} onChange={(e) => setText(e.target.value)} aria-label="Search everything" autoFocus={!q} />
+        <input type="search" placeholder="Search tasks, notes, chats and everything else" value={text} onChange={(e) => setText(e.target.value)} aria-label="Search everything" autoFocus={!q} />
       </form>
       <div className="muted small" style={{ marginBottom: 8 }}>
-        {q ? `${hits.length} ${hits.length === 1 ? "result" : "results"} for "${q}"${src === "local" ? " (this device only, hub not reachable)" : ""}${busy ? ", searching" : ""}` : "Results come from the hub, or from this device when the hub is out of reach."}
+        {q
+          ? `${hits.length + chats.length} ${hits.length + chats.length === 1 ? "result" : "results"} for "${q}"${chats.length ? ` (${chats.length} in assistant chats)` : ""}${src === "local" ? " (this device only, hub not reachable; chats need the hub)" : ""}${busy ? ", searching" : ""}`
+          : "Results come from the hub, or from this device when the hub is out of reach. Assistant chats are searched on the hub."}
       </div>
       <div className="list">
         {hits.map((h) => (
@@ -91,6 +103,30 @@ export function Search({ q }: { q: string }) {
           </a>
         ))}
       </div>
+      {chats.length > 0 && (
+        <section style={{ marginTop: 16 }}>
+          <h2 style={{ margin: "0 0 6px" }}>Assistant chats</h2>
+          <div className="list">
+            {chats.map((c) => (
+              <a key={c.session_id} href={`#/assistant/${encodeURIComponent(c.session_id)}`} className="item" style={{ color: "inherit" }}>
+                <div className="body">
+                  <div className="t">
+                    <span className="muted small">Chat </span>
+                    {c.title}
+                  </div>
+                  {c.snippet && (
+                    <div className="meta">
+                      {c.role === "assistant" ? "Assistant: " : c.role === "user" ? "You: " : ""}
+                      {c.snippet}
+                    </div>
+                  )}
+                  <div className="meta">{fmtDateTime(c.at ?? c.last_at)}</div>
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

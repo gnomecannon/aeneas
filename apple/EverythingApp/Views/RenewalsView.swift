@@ -6,8 +6,22 @@ struct RenewalsView: View {
     @EnvironmentObject var engine: SyncEngine
     @State private var editing: Entity?
     @State private var creating = false
+    /// What they cost together, from the hub (the assistant reads the same numbers).
+    @State private var totals: RenewalTotals?
 
     private struct Group: Identifiable { var id: String { title }; var title: String; var items: [Entity] }
+
+    /// Changes when a renewal is added, changed or removed, so the totals load again.
+    private var watchesSignature: String { "\(engine.watches.count)|\(engine.watches.map(\.updated_at).max() ?? "")" }
+
+    private static func money(_ v: Double) -> String { v.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD")) }
+
+    private var totalsLine: String? {
+        guard let t = totals, t.count > 0 else { return nil }
+        var line = "\(Self.money(t.monthly_total)) a month, \(Self.money(t.yearly_total)) a year, for \(t.count) renewal\(t.count == 1 ? "" : "s") with a cost"
+        if !t.left_out.isEmpty { line += "; \(t.left_out.count) not counted because \(t.left_out.count == 1 ? "it does" : "they do") not repeat" }
+        return line
+    }
 
     private var groups: [Group] {
         let cal = Calendar.current
@@ -25,6 +39,9 @@ struct RenewalsView: View {
 
     var body: some View {
         List {
+            if let line = totalsLine {
+                Text(line).font(.footnote).foregroundStyle(.secondary).listRowSeparator(.hidden)
+            }
             ForEach(groups) { g in
                 SwiftUI.Section(header: Text(g.title).font(.headline)) {
                     ForEach(g.items) { w in
@@ -39,7 +56,13 @@ struct RenewalsView: View {
         .toolbar { ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Label("New", systemImage: "plus") } } }
         .sheet(item: $editing) { w in WatchEditView(watch: w) }
         .sheet(isPresented: $creating) { WatchEditView(watch: nil) }
-        .refreshable { await engine.sync() }
+        .refreshable { await engine.sync(); await loadTotals() }
+        .task(id: watchesSignature) { await loadTotals() }
+    }
+
+    private func loadTotals() async {
+        guard let c = engine.client, let t = try? await c.renewalTotals() else { return }
+        totals = t
     }
 }
 

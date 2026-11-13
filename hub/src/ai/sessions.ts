@@ -36,6 +36,19 @@ export interface Session {
 
 export interface SessionListItem { session_id: string; title: string; task_type: string; created_at: string; last_at: string; message_count: number; preview: string }
 
+/** A chat that matched a search: its title, the line that matched (whose it was and when), and when it was last used. */
+export interface ChatHit { session_id: string; title: string; snippet: string; role: "user" | "assistant" | null; at: string | null; last_at: string }
+
+/** About 160 characters around the first place `needle` is in `text`, on one line. */
+export function snippetAround(text: string, needle: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const i = flat.toLowerCase().indexOf(needle);
+  if (i < 0) return flat.slice(0, 160);
+  const start = Math.max(0, i - 60);
+  const end = Math.min(flat.length, i + needle.length + 100);
+  return `${start > 0 ? "..." : ""}${flat.slice(start, end).trim()}${end < flat.length ? "..." : ""}`;
+}
+
 interface Row { session_id: string; task_type: string; title: string | null; created_at: string; last_at: string; messages: string; summary: string | null; summary_upto: number; deleted_at: string | null }
 
 /** A title from the first user line: plain text, at most 60 characters. */
@@ -92,6 +105,32 @@ export class Sessions {
       title: r.title || titleFrom(messages.find((m) => m.role === "user")?.content ?? ""),
       summary: r.summary, summary_upto: Math.min(r.summary_upto ?? 0, messages.length),
     };
+  }
+
+  /**
+   * Chats with `q` in their title or in what was said (yours and the assistant's: not tool results, which hold command
+   * output and other data), newest first, each with its first matching line. SQLite narrows the rows (LIKE, case
+   * blind for ASCII), then each is read to find the line. Internal sessions are left out, as in `list`.
+   */
+  search(q: string, limit = 20): ChatHit[] {
+    const needle = q.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!needle) return [];
+    const like = `%${needle.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const rows = this.db.prepare(
+      "SELECT * FROM sessions WHERE deleted_at IS NULL AND session_id NOT LIKE '%:%' AND (messages LIKE ? ESCAPE '\\' OR coalesce(title, '') LIKE ? ESCAPE '\\') ORDER BY last_at DESC LIMIT ?",
+    // A word the stored JSON itself holds ("assistant", "content") matches every row here: read enough rows that the
+    // newest real matches are still among them.
+    ).all(like, like, 500) as Row[];
+    const out: ChatHit[] = [];
+    for (const r of rows) {
+      const messages = parse(r.messages);
+      const title = r.title || titleFrom(messages.find((m) => m.role === "user")?.content ?? "");
+      const hit = messages.find((m) => m.content.replace(/\s+/g, " ").toLowerCase().includes(needle));
+      if (hit) out.push({ session_id: r.session_id, title, snippet: snippetAround(hit.content, needle), role: hit.role, at: hit.at ?? null, last_at: r.last_at });
+      else if (title.toLowerCase().includes(needle)) out.push({ session_id: r.session_id, title, snippet: "", role: null, at: null, last_at: r.last_at });
+      if (out.length >= limit) break;
+    }
+    return out;
   }
 
   /** Newest first. Internal sessions (resume cards, quiz builds) carry a ':' suffix and are left out. */

@@ -173,14 +173,16 @@ struct SearchView: View {
     @EnvironmentObject var engine: SyncEngine
     @State private var query = ""
     @State private var hits: [SearchHit] = []
+    /// Assistant chats: kept on the hub only, so a search on this device alone has none.
+    @State private var chats: [ChatHit] = []
     @State private var searching = false
 
     var body: some View {
         List {
             if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                Text("Search tasks, notes, fix notes, snippets, projects and everything else.")
+                Text("Search tasks, notes, assistant chats, fix notes, projects and everything else.")
                     .font(.callout).foregroundStyle(.secondary)
-            } else if hits.isEmpty && !searching {
+            } else if hits.isEmpty && chats.isEmpty && !searching {
                 Text("Nothing found for \u{201C}\(query)\u{201D}.").foregroundStyle(.secondary)
             }
             ForEach(hits) { h in
@@ -195,19 +197,43 @@ struct SearchView: View {
                     }
                 }
             }
+            if !chats.isEmpty {
+                SwiftUI.Section("Assistant chats") {
+                    ForEach(chats) { c in
+                        Button { model.openChat(c.session_id) } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(.tint).font(.caption)
+                                    Text(StyleGuard.dashes(c.title)).foregroundStyle(.primary)
+                                }
+                                if !c.snippet.isEmpty {
+                                    Text((c.role == "assistant" ? "Assistant: " : c.role == "user" ? "You: " : "") + StyleGuard.dashes(c.snippet))
+                                        .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                                }
+                                if let d = ISO.date(c.at ?? c.last_at) { Text(d.shortDateTime).font(.caption2).foregroundStyle(.secondary) }
+                            }
+                        }
+                    }
+                }
+            }
         }
         .navigationTitle("Search")
         .searchable(text: $query, prompt: "Search everything")
         .overlay { if searching && hits.isEmpty { ProgressView() } }
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
-            guard !q.isEmpty else { hits = []; return }
+            guard !q.isEmpty else { hits = []; chats = []; return }
             try? await Task.sleep(nanoseconds: 250_000_000)
             if Task.isCancelled { return }
             searching = true
             defer { searching = false }
             // A hit from a module that is off would open a screen that is not there.
-            if let c = engine.client, let r = try? await c.search(q) { hits = r.filter { model.shows(Self.section(for: $0.kind)) }; return }
+            if let c = engine.client, let r = try? await c.searchWithChats(q) {
+                hits = r.hits.filter { model.shows(Self.section(for: $0.kind)) }
+                chats = r.chats
+                return
+            }
+            chats = []
             let needle = q.lowercased()
             hits = engine.entities.values
                 .filter { !$0.isDeleted && model.shows(Self.section(for: $0.kind)) && ($0.str("title") + " " + $0.str("text") + " " + $0.str("body")).lowercased().contains(needle) }

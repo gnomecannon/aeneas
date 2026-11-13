@@ -795,6 +795,11 @@ export class HubClient {
     return this.req<{ state: string; name: string; pct: number; note: string }>("POST", "/calc/meals-tax", { lat: r(lat), lon: r(lon) });
   }
 
+  /** What every renewal with a cost and a repeat costs together, a month and a year. */
+  renewalTotals() {
+    return this.req<RenewalTotals>("GET", "/finance/renewals");
+  }
+
   subscriptions() {
     return this.req<unknown>("GET", "/finance/subscriptions");
   }
@@ -840,7 +845,7 @@ export class HubClient {
 
   search(q: string, kinds?: string[]) {
     const k = kinds?.length ? `&kinds=${kinds.join(",")}` : "";
-    return this.req<{ hits: Array<{ id: string; kind: string; title: string; snippet: string; score: number }> }>(
+    return this.req<{ hits: Array<{ id: string; kind: string; title: string; snippet: string; score: number }>; chats?: ChatHit[] }>(
       "GET",
       `/search?q=${encodeURIComponent(q)}${k}&limit=50`,
     );
@@ -1240,4 +1245,16 @@ function withPreferences<T extends { commitments: Commitment[]; preferences?: Co
   const extra = (d.preferences ?? []).filter((p) => !d.commitments.some((c) => c.rule_id === p.rule_id && c.start === p.start));
   const { preferences: _p, ...rest } = d;
   return { ...(rest as T), commitments: [...d.commitments, ...extra].sort((a, b) => a.start.localeCompare(b.start)) };
+}
+
+/** An assistant chat that matched a search (GET /search `chats`). */
+export interface ChatHit { session_id: string; title: string; snippet: string; role: "user" | "assistant" | null; at: string | null; last_at: string }
+
+/** GET /finance/renewals. */
+export interface RenewalTotals {
+  monthly_total: number;
+  yearly_total: number;
+  count: number;
+  by_category: { category: string; count: number; monthly: number; yearly: number }[];
+  left_out: { id: string; title: string; reason: string }[];
 }

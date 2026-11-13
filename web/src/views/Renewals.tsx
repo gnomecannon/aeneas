@@ -7,6 +7,8 @@ import { renewWatch } from "../sync/planner";
 import { daysLeft, fmtDaysLeft, groupWatches, isDateOnly, localDate, parseDue } from "../lib/planner";
 import { fmtDate, fmtDateTime, relative } from "../lib/time";
 import { useEscape } from "../lib/keys";
+import { usePoll } from "../lib/usePoll";
+import { money } from "../lib/calc";
 
 const CATEGORIES = ["cert", "subscription", "prescription", "insurance", "rma", "warranty", "domain", "other"] as const;
 type Category = (typeof CATEGORIES)[number];
@@ -114,6 +116,8 @@ function WatchForm({ value, onChange, idPrefix }: { value: typeof EMPTY; onChang
 
 export function Renewals({ focus }: { focus?: string | null } = {}) {
   const watches = useEntities("watch");
+  // What they cost together, from the hub (the assistant reads the same numbers); it reloads when a renewal changes.
+  const totals = usePoll((c) => c.renewalTotals(), 5 * 60_000);
   const reminders = useEntities("task", (e) => !!e.fields.linked_id);
   const [form, setForm] = useState({ ...EMPTY });
   const [adding, setAdding] = useState(false);
@@ -272,6 +276,12 @@ export function Renewals({ focus }: { focus?: string | null } = {}) {
           </button>
         )}
       </div>
+      {totals.data && totals.data.count > 0 && (
+        <div className="muted small renewal-totals" title={totals.data.by_category.map((c) => `${c.category}: ${money(c.monthly)} a month`).join("\n")}>
+          {money(totals.data.monthly_total)} a month, {money(totals.data.yearly_total)} a year, for {totals.data.count} renewal{totals.data.count === 1 ? "" : "s"} with a cost
+          {totals.data.left_out.length > 0 && `; ${totals.data.left_out.length} not counted because ${totals.data.left_out.length === 1 ? "it does" : "they do"} not repeat`}
+        </div>
+      )}
       {adding && (
         <form
           className="card col"

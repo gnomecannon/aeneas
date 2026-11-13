@@ -424,6 +424,32 @@ export function subscriptions(store: Store) {
   return { items, monthly_total, yearly_total, skipped };
 }
 
+/**
+ * What every renewal costs together, for the top of Renewals and the assistant: each renewal with a cost and a repeat
+ * in days, weeks, months or years (any category: subscriptions, insurance, domains, prescriptions), as a monthly and a
+ * yearly amount, totalled and by category. One cancelled by mail is not a cost. One with a cost but no such repeat
+ * (bought once, or every few hours) is left out and named, so the total says what it does not count.
+ */
+export function renewalTotals(store: Store) {
+  const items: { id: string; title: string; category: string; cost: number; repeat: string; autopay: boolean; monthly: number; yearly: number }[] = [];
+  const left_out: { id: string; title: string; reason: string }[] = [];
+  for (const w of store.list({ kind: "watch", limit: 100000 })) {
+    if (w.fields.cancelled_by_mail === true || typeof w.fields.cost !== "number") continue;
+    const title = String(w.fields.title ?? "");
+    const repeat = typeof w.fields.repeat === "string" ? w.fields.repeat : "";
+    const per = repeat ? perYear(repeat) : null;
+    if (per === null) { left_out.push({ id: w.id, title, reason: repeat ? `it repeats ${repeat}, not in days, weeks, months or years` : "it does not repeat" }); continue; }
+    const yearly = w.fields.cost * per;
+    items.push({ id: w.id, title, category: String(w.fields.category ?? "other"), cost: w.fields.cost, repeat, autopay: w.fields.autopay === true, monthly: dollars(toCents(yearly / 12)), yearly: dollars(toCents(yearly)) });
+  }
+  items.sort((a, b) => b.monthly - a.monthly || a.title.localeCompare(b.title));
+  const total = (xs: typeof items) => ({ monthly: dollars(xs.reduce((n, i) => n + toCents(i.monthly), 0)), yearly: dollars(xs.reduce((n, i) => n + toCents(i.yearly), 0)) });
+  const categories = [...new Set(items.map((i) => i.category))].sort();
+  const by_category = categories.map((category) => { const xs = items.filter((i) => i.category === category); return { category, count: xs.length, ...total(xs) }; }).sort((a, b) => b.monthly - a.monthly);
+  const all = total(items);
+  return { monthly_total: all.monthly, yearly_total: all.yearly, count: items.length, by_category, items, left_out };
+}
+
 // ---------- seed and status ----------
 
 export const US_STATES = [

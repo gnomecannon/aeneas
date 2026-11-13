@@ -1,25 +1,52 @@
 import SwiftUI
 import EACore
 
-/// Facts by category (edit, delete) and rules (toggle, edit).
+/// Facts by category (edit, delete) and rules (toggle, edit). A search narrows both; a category folds by its heading,
+/// and the folded ones are remembered on this device.
 struct MemoryView: View {
     @EnvironmentObject var engine: SyncEngine
     @State private var editingFact: Entity?
     @State private var editingRule: Entity?
     @State private var newFact = false
     @State private var newRule = false
+    @State private var query = ""
+    @AppStorage("memory.folded") private var foldedRaw = ""
+
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
+    private var folded: Set<String> { Set(foldedRaw.split(separator: ",").map(String.init)) }
+
+    private func toggle(_ c: FactCategory) {
+        var f = folded
+        if f.contains(c.rawValue) { f.remove(c.rawValue) } else { f.insert(c.rawValue) }
+        foldedRaw = f.sorted().joined(separator: ",")
+    }
+
+    /// Every word typed is in one of the fields (case blind): "dog name" finds dog:name Pepper.
+    private func matches(_ fields: String...) -> Bool {
+        let hay = fields.joined(separator: " ").lowercased()
+        return query.lowercased().split(whereSeparator: \.isWhitespace).allSatisfy { hay.contains($0) }
+    }
 
     private var factsByCategory: [(FactCategory, [Entity])] {
         FactCategory.allCases.compactMap { c in
-            let f = engine.facts.filter { $0.str("category") == c.rawValue }.sorted { $0.str("key") < $1.str("key") }
+            let f = engine.facts.filter { $0.str("category") == c.rawValue && matches(c.rawValue, $0.str("key"), $0.str("value")) }.sorted { $0.str("key") < $1.str("key") }
             return f.isEmpty ? nil : (c, f)
         }
     }
 
+    private var shownRules: [Entity] {
+        engine.rules.filter { matches($0.str("text"), $0.str("pattern")) }.sorted { $0.str("text") < $1.str("text") }
+    }
+
     var body: some View {
         List {
+            if searching && factsByCategory.isEmpty && shownRules.isEmpty {
+                Text("Nothing in memory matches \u{201C}\(query)\u{201D}.").foregroundStyle(.secondary)
+            }
             ForEach(factsByCategory, id: \.0) { cat, facts in
-                SwiftUI.Section(header: Text(cat.rawValue.capitalized).font(.headline)) {
+                // A search shows every category it finds something in, folded or not.
+                let open = searching || !folded.contains(cat.rawValue)
+                SwiftUI.Section(isExpanded: Binding(get: { open }, set: { _ in if !searching { toggle(cat) } })) {
                     ForEach(facts) { f in
                         VStack(alignment: .leading, spacing: 3) {
                             HStack {
@@ -38,10 +65,24 @@ struct MemoryView: View {
                             Button("Delete", role: .destructive) { Task { await engine.softDelete(f.id) } }
                         }
                     }
+                } header: {
+                    Button { toggle(cat) } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold)).frame(width: 12)
+                            Text(cat.rawValue.capitalized).font(.headline)
+                            Text("\(facts.count)").font(.subheadline).foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(searching)
+                    .accessibilityLabel("\(cat.rawValue.capitalized), \(facts.count) facts, \(open ? "open" : "folded")")
                 }
             }
+            if !searching || !shownRules.isEmpty {
             SwiftUI.Section(header: Text("Rules").font(.headline)) {
-                ForEach(engine.rules.sorted { $0.str("text") < $1.str("text") }) { r in
+                ForEach(shownRules) { r in
                     HStack(spacing: 12) {
                         Toggle("", isOn: Binding(get: { r.bool("active") ?? true }, set: { v in Task { _ = await engine.update(r.id, fields: ["active": .bool(v)]) } })).labelsHidden()
                         VStack(alignment: .leading, spacing: 3) {
@@ -63,9 +104,11 @@ struct MemoryView: View {
                 }
                 if engine.rules.isEmpty { Text("No rules").foregroundStyle(.secondary) }
             }
+            }
         }
         .listStyle(.plain)
         .navigationTitle("Memory")
+        .searchable(text: $query, prompt: "Search facts and rules")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu { Button("New fact") { newFact = true }; Button("New rule") { newRule = true } } label: { Label("New", systemImage: "plus") }

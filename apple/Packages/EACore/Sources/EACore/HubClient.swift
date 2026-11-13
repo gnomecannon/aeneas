@@ -363,6 +363,14 @@ public final class HubClient: Sendable {
         try await get("search", query: ["q": q, "kinds": kinds.map { $0.map(\.rawValue).joined(separator: ",") }, "limit": String(limit)], as: SearchResponse.self).hits
     }
 
+    /// Items and assistant chats in one search (the Search screen).
+    public func searchWithChats(_ q: String, limit: Int = 50) async throws -> SearchResponse {
+        try await get("search", query: ["q": q, "limit": String(limit)], as: SearchResponse.self)
+    }
+
+    /// What every renewal with a cost and a repeat costs together (the top of Renewals).
+    public func renewalTotals() async throws -> RenewalTotals { try await get("finance/renewals", as: RenewalTotals.self) }
+
     // MARK: Notes (knowledge map)
     public func related(noteId: String) async throws -> RelatedResponse { try await get("notes/\(noteId)/related", as: RelatedResponse.self) }
     public func related(itemId: String) async throws -> [RelatedItem] { try await get("entities/\(itemId)/related", as: RelatedItemsResponse.self).items }

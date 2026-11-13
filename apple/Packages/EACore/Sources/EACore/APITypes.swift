@@ -266,7 +266,40 @@ public struct SearchHit: Codable, Identifiable, Sendable {
     }
 }
 
-public struct SearchResponse: Codable, Sendable { public var hits: [SearchHit] }
+public struct SearchResponse: Codable, Sendable {
+    public var hits: [SearchHit]
+    /// Assistant chats that matched (kept on the hub only); empty from a hub before 2026-11-13.
+    public var chats: [ChatHit]
+    enum CodingKeys: String, CodingKey { case hits, chats }
+    public init(hits: [SearchHit], chats: [ChatHit] = []) { self.hits = hits; self.chats = chats }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hits = try c.decodeIfPresent([SearchHit].self, forKey: .hits) ?? []
+        chats = (try? c.decodeIfPresent([ChatHit].self, forKey: .chats)) ?? []
+    }
+}
+
+/// An assistant chat that matched a search: its title, the line that matched (whose and when), and when it was last used.
+public struct ChatHit: Codable, Identifiable, Hashable, Sendable {
+    public var session_id: String
+    public var title: String
+    public var snippet: String
+    public var role: String?
+    public var at: String?
+    public var last_at: String
+    public var id: String { session_id }
+}
+
+/// `GET /finance/renewals`: what every renewal with a cost and a repeat costs together.
+public struct RenewalTotals: Codable, Equatable, Sendable {
+    public struct Category: Codable, Equatable, Sendable { public var category: String; public var count: Int; public var monthly: Double; public var yearly: Double }
+    public struct LeftOut: Codable, Equatable, Sendable { public var id: String; public var title: String; public var reason: String }
+    public var monthly_total: Double
+    public var yearly_total: Double
+    public var count: Int
+    public var by_category: [Category]
+    public var left_out: [LeftOut]
+}
 
 // Notes (knowledge map)
 public struct RelatedNote: Codable, Identifiable, Hashable, Sendable {
