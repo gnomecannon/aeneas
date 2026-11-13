@@ -529,7 +529,8 @@ table.parts tr.missing td:first-child { color: var(--warn); }
 .ops-light.tone-ok { background: var(--ok); }
 .ops-light.tone-danger { background: var(--danger); }
 .ops-light.tone-muted { background: var(--muted); }
-.ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; align-items: start; }
+/* dense: a card opened to full width does not leave a hole where it was. */
+.ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-flow: row dense; gap: 12px; align-items: start; }
 .ops-grid .card { margin: 0; cursor: pointer; min-width: 0; }
 .ops-grid .card.open { grid-column: 1 / -1; cursor: default; }
 .ops-grid .card.down { border-color: var(--danger); }
@@ -542,6 +543,11 @@ table.parts tr.missing td:first-child { color: var(--warn); }
 .dot.unknown { background: var(--muted); }
 .mon-target { overflow-wrap: anywhere; margin-top: 2px; }
 .mon-stats { display: flex; gap: 4px 12px; flex-wrap: wrap; font-size: 13px; color: var(--text-2); margin-top: 6px; }
+.job-lines { margin: 8px 0 0; display: grid; gap: 4px; font-size: 13px; }
+.job-lines li { display: grid; grid-template-columns: auto 92px 1fr; gap: 8px; align-items: baseline; min-width: 0; }
+.job-lines li > span:last-child { overflow-wrap: anywhere; }
+.job-lines .dot { align-self: center; }
+.job-label { color: var(--text-2); }
 .inc-strip { margin-top: 10px; border-left: 4px solid var(--danger); background: var(--surface-2); border-radius: var(--radius); padding: 8px 10px; }
 .inc-strip .err { color: var(--danger); font-weight: 600; overflow-wrap: anywhere; }
 .ack-form { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }

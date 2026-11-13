@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectHost, deriveHosts, paramNames, renderDefaults, renderSnippet, snippetSegments, splitPreflight } from "./memory";
+import { detectHost, deriveHosts, keepTyped, paramNames, renderDefaults, renderSnippet, snippetSegments, splitPreflight } from "./memory";
 import type { Entity } from "@everythingapp/shared";
 
 const body = "zfs snapshot {{pool}}/{{dataset}}@{{ tag }}\nzfs list -t snapshot {{pool}}/{{dataset}}";
@@ -72,5 +72,16 @@ describe("deriveHosts", () => {
       { host: "core", runbooks: 0, journal_entries: 0, last_change: null, snippets: 0 },
       { host: "pve1", runbooks: 1, journal_entries: 2, last_change: "2026-10-22T10:00:00.000Z", snippets: 1 },
     ]);
+  });
+});
+
+describe("keepTyped", () => {
+  it("keeps what was typed when the snippet is used, and follows a changed parameter list", () => {
+    const snip = { body: "zfs list {{pool}}/{{dataset}}", params: [{ name: "pool", default: "tank" }] };
+    const typed = [{ name: "pool", value: "backup" }, { name: "dataset", value: "photos" }];
+    expect(keepTyped(typed, snip).map((r) => [r.name, r.value])).toEqual([["pool", "backup"], ["dataset", "photos"]]);
+    // dataset gone from the body, host added: the gone one drops, the new one starts from its default.
+    const changed = { body: "zfs list {{pool}} on {{host}}", params: [{ name: "pool", default: "tank" }, { name: "host", default: "nas" }] };
+    expect(keepTyped(typed, changed).map((r) => [r.name, r.value])).toEqual([["pool", "backup"], ["host", "nas"]]);
   });
 });

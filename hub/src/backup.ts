@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
 import Database from "better-sqlite3";
 import type { DB } from "./db.js";
 import { scheduleDaily } from "./schedule.js";
@@ -231,6 +232,51 @@ export function listBackups(backupDir: string): BackupInfo[] {
     try { const st = fs.statSync(path.join(backupDir, n)); out.push({ file: n, at: st.mtime.toISOString(), bytes: st.size, encrypted }); } catch { /* removed meanwhile */ }
   }
   return out.sort((a, b) => b.file.localeCompare(a.file));
+}
+
+/** One line about the hub's own backups on Ops, beside the backed up machines: what, whether it is fine, and when. */
+export interface HubBackupLine { label: string; ok: boolean; at?: string | null; text: string }
+
+/** Older than this, a copy of the hub's data counts as missed (made nightly at 03:00, or 10 minutes after a late start). */
+export const HUB_BACKUP_WARN_HOURS = 30;
+
+export interface UnitState { load?: string; active?: string; result?: string; exitedAt?: string | null }
+export type UnitReader = (unit: string) => Promise<UnitState | null>;
+
+/** A systemd user unit's state, read locally (Linux only; null elsewhere or when systemctl cannot say). */
+export const readUserUnit: UnitReader = (unit) => new Promise((resolve) => {
+  if (process.platform !== "linux") { resolve(null); return; }
+  execFile("systemctl", ["--user", "show", unit, "-p", "LoadState", "-p", "ActiveState", "-p", "Result", "-p", "ExecMainExitTimestamp", "--timestamp=unix"], { timeout: 5000 }, (err, out) => {
+    if (err) { resolve(null); return; }
+    const get = (k: string) => new RegExp(`^${k}=(.*)$`, "m").exec(String(out))?.[1]?.trim();
+    const secs = /^@(\d+)$/.exec(get("ExecMainExitTimestamp") ?? "")?.[1];
+    resolve({ load: get("LoadState"), active: get("ActiveState"), result: get("Result"), exitedAt: secs && secs !== "0" ? new Date(Number(secs) * 1000).toISOString() : null });
+  });
+});
+
+/**
+ * The hub's own backups for Ops: the nightly encrypted copy, the second folder (EA_BACKUP_COPY_DIR) when set, and on
+ * Linux the copy to storage (`everythingapp-backup` user timer, deploy/user-backup) and the live copy (Litestream,
+ * `everythingapp-litestream`) when those units are installed. Only reads.
+ */
+export async function hubBackupLines(cfg: { backupDir: string; backupCopyDir: string }, now: Date = new Date(), readUnit: UnitReader = readUserUnit): Promise<HubBackupLine[]> {
+  const fresh = (iso?: string | null) => !!iso && now.getTime() - Date.parse(iso) <= HUB_BACKUP_WARN_HOURS * 3600_000;
+  const lines: HubBackupLine[] = [];
+  const nightly = listBackups(cfg.backupDir);
+  const newest = nightly[0]?.at ?? null;
+  lines.push({ label: "Nightly copy", ok: fresh(newest), at: newest, text: nightly.length ? `${nightly.length} kept${nightly.every((b) => b.encrypted) ? ", encrypted" : ", one not encrypted yet"}` : "none made yet" });
+  if (cfg.backupCopyDir) {
+    const copies = listBackups(cfg.backupCopyDir);
+    lines.push({ label: "Second copy", ok: fresh(copies[0]?.at), at: copies[0]?.at ?? null, text: copies.length ? cfg.backupCopyDir : `none in ${cfg.backupCopyDir} yet` });
+  }
+  const storage = await readUnit("everythingapp-backup.service");
+  if (storage?.load === "loaded") {
+    const failed = !!storage.result && storage.result !== "success";
+    lines.push({ label: "Copy to storage", ok: !failed && fresh(storage.exitedAt), at: storage.exitedAt ?? null, text: failed ? `last run failed (${storage.result})` : "" });
+  }
+  const live = await readUnit("everythingapp-litestream.service");
+  if (live?.load === "loaded") lines.push({ label: "Live copy", ok: live.active === "active", text: live.active === "active" ? "running" : `not running (${live.active ?? "unknown"})` });
+  return lines;
 }
 
 /**

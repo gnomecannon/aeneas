@@ -135,6 +135,16 @@ public struct Entity: Codable, Equatable, Hashable, Identifiable, Sendable {
                 field_ts[key] = hubTs
             }
         }
+        // A field the hub cleared is gone from its fields but keeps a stamp. Only the fields the hub sent were walked
+        // above, so a cleared field (a monitor's error once it answers again) stayed here for good. It goes when the
+        // hub's clear is not older than this copy's own write; a newer local edit not sent yet still wins.
+        for (key, hubTs) in hub.field_ts where key != "deleted_at" && hub.fields[key] == nil {
+            let localTs = field_ts[key]
+            if localTs == nil || !ISO.isAfter(localTs!, hubTs) {
+                fields.removeValue(forKey: key)
+                field_ts[key] = hubTs
+            }
+        }
         if let d = hub.deleted_at, !d.isEmpty {
             let hubTs = hub.field_ts["deleted_at"] ?? hub.updated_at
             let localTs = field_ts["deleted_at"]

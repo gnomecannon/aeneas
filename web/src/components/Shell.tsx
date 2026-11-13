@@ -1,3 +1,4 @@
+import { trafficLight } from "../lib/ops";
 import { useEffect, useState, type ReactNode } from "react";
 import { HubChip } from "./HubChip";
 import { showKeyboardHints } from "../lib/keyboardHints";
@@ -301,7 +302,6 @@ function useSummaries(): Record<string, string> {
       const remToday = of("task").filter((e) => { const a = taskAlertAt(e.fields); return !!a && new Date(a).toDateString() === today; }).length;
       const renew = of("watch").filter((e) => Date.parse(String(e.fields.due)) < soon).length;
       const monitors = of("monitor");
-      const down = monitors.filter((e) => e.fields.state === "down").length;
       const running = of("procedure").filter((e) => !e.fields.done_at).length;
       const doneToday = of("task").filter((e) => typeof e.fields.done_at === "string" && new Date(e.fields.done_at).toDateString() === today).length;
       const logsToday = of("log").filter((e) => new Date(String(e.fields.at ?? "")).toDateString() === today).length;
@@ -312,7 +312,8 @@ function useSummaries(): Record<string, string> {
         "/dashboard": doneToday || logsToday ? [doneToday ? `${doneToday} done today` : "", logsToday ? n(logsToday, "log today", "logs today") : ""].filter(Boolean).join(", ") : "Charts of logs, tasks and sensors",
         "/notes": n(of("note").length, "note", "notes"),
         "/memory": n(of("fact").length, "fact", "facts"),
-        "/ops": monitors.length ? (down ? `${down} down` : `All ${monitors.length} up`) : "No monitors",
+        // The Ops light's own words: off monitors are left out, unknown ones are said.
+        "/ops": trafficLight(monitors).label,
         "/hosts": n(new Set([...of("runbook"), ...of("journal"), ...of("snippet"), ...of("monitor")].map((e) => String(e.fields.host ?? "").trim().toLowerCase()).filter(Boolean)).size, "machine", "machines"),
         "/journal": n(of("journal").length, "entry", "entries"),
         "/snippets": n(of("snippet").length, "snippet", "snippets"),

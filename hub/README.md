@@ -183,7 +183,7 @@ Pre-flight: the detector table in `src/preflight.ts` (`DESTRUCTIVE`, one row per
 
 | Rule | Pattern |
 | --- | --- |
-| rm -rf | `\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*(?:r[a-zA-Z]*f|f[a-zA-Z]*r)[a-zA-Z]*\b` |
+| rm -rf | `\brm\s+(?:[^\n;&|]*\s)?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\b` (every recursive rm) |
 | zpool destroy | `\bzpool\s+destroy\b` |
 | zfs destroy | `\bzfs\s+destroy\b` |
 | mkfs | `\bmkfs(?:\.[a-z0-9]+)?\b` |
@@ -199,6 +199,16 @@ Pre-flight: the detector table in `src/preflight.ts` (`DESTRUCTIVE`, one row per
 | rsync --delete | `\brsync\b[^\n]*--delete` |
 | git push --force | `\bgit\s+push\b[^\n]*(?:--force\b|\s-f\b)` |
 | terraform destroy | `\bterraform\s+destroy\b` |
+| blkdiscard | `\bblkdiscard\b` |
+| docker compose down -v | `\bdocker(?:\s+|-)compose\b[^\n]*\bdown\b[^\n]*(?:\s-v\b|\s--volumes\b)` |
+| zfs rollback | `\bzfs\s+rollback\b` |
+| Remove-Item -Recurse | `\bRemove-Item\b[^\n]*\s-r[a-z]*\b|\b(?:rd|rmdir|del|erase)\s+(?:\/[a-z]+\s+)*\/s\b` (i) |
+| git clean | `\bgit\b[^\n]*\bclean\b[^\n]*(?:\s-[a-zA-Z]*f|\s--force\b)` |
+| sgdisk | `\bsgdisk\b` with an option other than `-p`, `-v`, `-b` (print, verify, back up the table) |
+| sfdisk | `\bsfdisk\b` without `-d`, `-l`, `-J`, `-V`, `-s`, `-g`, `-F` or their long forms |
+| lvremove | `\b(?:lvremove|vgremove|pvremove)\b` |
+
+A reply about a command that already ran in its turn (an approved change it reports on) gets no block and no planned entry.
 
 Close flow, `POST /ai/sessions/:id/close`:
 
@@ -206,7 +216,7 @@ Close flow, `POST /ai/sessions/:id/close`:
 2. Host: `host` from the body, else the first known host named anywhere in the session, else none. Project: `project_id` from the body (404 when unknown), else the first project id mentioned in the session.
 3. With a backend available, one chat call with a strict JSON instruction asks for `{ runbook_section, journal: [{ what, command?, risk, rollback? }], snippets: [{ title, os, language, body, params }] }` from the outcome, note, host, ledger and the last 12000 characters of the transcript. The answer is parsed defensively: code fences stripped, unknown `risk` becomes `medium`, unknown `os` becomes `any`, malformed rows dropped, at most two snippets. When no backend answers or the JSON has no section, the rule-based summary is used instead: `## <date>: <ledger topic or first user line>`, the outcome and note, the first symptom line, the ledger's tried, ruled out and confirmed lists, and the last three user messages. `via` in the response says which path ran.
 4. Runbook: when a host is known, `Runbook: <host>` is found or created and the section is appended wrapped in `<!-- session:<id> -->` and `<!-- /session:<id> -->`; a section that does not start with `## ` gets a `## <date>: <topic>` heading; `last_verified` is set. A second close of the same session replaces the section between its markers.
-5. Journal: rows from a previous close of this session are deleted, then one row per entry is created with `host` (`unknown` without a host), `session_id`, `runbook_id` and outcome `done` (`failed` for the rule-based row of an abandoned session). Pre-flight rows (`outcome: planned`) are never touched.
+5. Journal: rows a previous close of this session wrote (`source: close`, or a `runbook_id` from before that mark) are deleted, then one row per entry is created with `host` (`unknown` without a host), `session_id`, `runbook_id`, `source: close` and outcome `done` (`failed` for the rule-based row of an abandoned session). An entry for a change already in the session's journal (same host, same command ignoring spacing, `sudo` and case) is not created. Pre-flight rows (`outcome: planned`), the hub's rows for commands it ran and rows from `journal_entry` or the owner are never touched.
 6. Snippets: created with `source_session`, `host` and the host as a tag; on a second close they are matched by title and updated, and leftovers from the earlier close are deleted.
 7. The session's ledger is closed (`open: false`).
 8. With a project, `POST /ai/resume-card` logic writes `project.resume_card` through the model; without a model a three-heading card (Where I left off, What to do next, Open questions) is written from the section and the note. `resume_card_written` reports it.

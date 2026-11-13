@@ -8,6 +8,7 @@ import { appendCloseToPlan } from "./projects.js";
 import type { Hub } from "./hub.js";
 import { isReadOnly } from "./ai/hosts.js";
 import { errCode } from "./logsafe.js";
+import { normalizeCommand } from "./preflight.js";
 
 /**
  * Module 2: memory and runbooks. Hosts come from `fact` keys `host:<name>` and from runbooks; a runbook per host
@@ -188,9 +189,33 @@ export async function runSnippet(hub: Hub, id: string, params: Record<string, un
 
 export interface HostMemory { host: string; runbook: string; journal: { at: string; what: string; risk: string; outcome: string; rollback?: string }[] }
 
-/** Runbook head and the last three journal entries for each host, trimmed to the budget (runbooks first). */
+/**
+ * What of a host's fix notes goes to the model, at most `max` characters. Sections are appended at the end (a close,
+ * runbook_note), so the head alone left out the newest: this is the first section (Facts) and then the newest
+ * sections that fit, in their order, without the session markers.
+ */
+export function runbookForModel(body: string, max = RUNBOOK_CHARS): string {
+  const text = body.replace(/^<!-- \/?session:[^\n]*-->\n?/gm, "").trim();
+  if (text.length <= max) return text;
+  const parts = text.split(/\n+(?=## )/);
+  if (parts.length < 2) return text.slice(0, max);
+  const head = parts[0].slice(0, Math.floor(max / 2)).trimEnd();
+  const newest: string[] = [];
+  let used = head.length;
+  for (let i = parts.length - 1; i >= 1; i--) {
+    const room = max - used - 2;
+    if (room <= 0) break;
+    const p = parts[i].trim().slice(0, room);
+    newest.unshift(p);
+    used += p.length + 2;
+  }
+  return [head, ...newest].join("\n\n").slice(0, max);
+}
+
+/** Fix notes (Facts and the newest sections) and the last three journal entries for each host, trimmed to the budget (runbooks first). */
 export function hostMemory(store: Store, hosts: string[], budget = MEMORY_BUDGET): HostMemory[] {
   const out: HostMemory[] = [];
+  const bodies = new Map<string, string>();
   for (const host of hosts) {
     const rb = runbookFor(store, host);
     const journal = store.list({ kind: "journal", limit: 100000 })
@@ -199,14 +224,15 @@ export function hostMemory(store: Store, hosts: string[], budget = MEMORY_BUDGET
       .slice(0, 3)
       .map((j) => ({ at: String(j.fields.at), what: String(j.fields.what), risk: String(j.fields.risk), outcome: String(j.fields.outcome ?? "done"), ...(j.fields.rollback ? { rollback: String(j.fields.rollback) } : {}) }));
     if (!rb && !journal.length) continue;
-    out.push({ host, runbook: rb ? String(rb.fields.body ?? "").slice(0, RUNBOOK_CHARS) : "", journal });
+    const body = rb ? String(rb.fields.body ?? "") : "";
+    bodies.set(host, body);
+    out.push({ host, runbook: runbookForModel(body), journal });
   }
   const journalChars = out.reduce((n, h) => n + JSON.stringify(h.journal).length, 0);
-  let runbookChars = out.reduce((n, h) => n + h.runbook.length, 0);
+  const runbookChars = out.reduce((n, h) => n + h.runbook.length, 0);
   if (journalChars + runbookChars > budget && out.length) {
     const each = Math.max(0, Math.floor((budget - journalChars) / out.length));
-    for (const h of out) h.runbook = h.runbook.slice(0, each);
-    runbookChars = out.reduce((n, h) => n + h.runbook.length, 0);
+    for (const h of out) h.runbook = each > 0 ? runbookForModel(bodies.get(h.host) ?? "", each) : "";
   }
   return out;
 }
@@ -359,21 +385,28 @@ export async function closeSession(store: Store, ai: Gateway, sessionId: string,
     runbookId = store.patch(runbook.id, { body: bodyText, last_verified: nowIso() }).id;
   }
 
-  // Journal: entries from a previous close of this session go away; `planned` is reserved for pre-flight rows, which stay.
-  // Model entries describe changes that were made, so they are `done`; the rule-based summary row is `failed` for an abandoned session.
+  // Journal: a close marks its entries `source: close`, and closing the session again replaces only those (and the ones
+  // an older close wrote before that mark, which carry a runbook_id). Everything else stays: pre-flight rows (`planned`),
+  // the entries the hub wrote for commands it ran (the exact command, whether it failed, its rollback), and the ones
+  // the assistant (journal_entry) or the owner wrote. Model entries describe changes that were made, so they are
+  // `done`; the rule-based summary row is `failed` for an abandoned session.
   const now = nowIso();
-  // The entries the hub wrote itself for commands it ran stay too: they hold the exact command, whether it failed and
-  // its rollback, and a close had replaced a failed one with model entries that all said done.
   const ran = ai.hosts.journalIds(sessionId);
+  const kept: Entity[] = [];
   if (homelab) for (const j of store.list({ kind: "journal", where: { session_id: sessionId } })) {
-    if (j.fields.outcome !== "planned" && !ran.has(j.id)) store.patch(j.id, { deleted_at: now });
+    const byClose = j.fields.source === "close" || (j.fields.source === undefined && j.fields.runbook_id !== undefined && j.fields.outcome !== "planned" && !ran.has(j.id));
+    if (byClose) store.patch(j.id, { deleted_at: now }); else kept.push(j);
   }
   const outcome = via === "rules" && body.outcome === "abandoned" ? "failed" : "done";
-  // A command the hub ran already has its own entry, with its real outcome: the close does not add a second one.
-  const ranCommands = new Set([...ran].map((id) => String(store.get(id)?.fields.command ?? "").trim()).filter(Boolean));
-  const journalIds = (homelab ? plan.journal : []).filter((j) => !(j.command && ranCommands.has(j.command.trim()))).map((j) => store.create("journal", {
+  // A change already in the journal (a command the hub ran, one recorded with journal_entry) is not added a second
+  // time: the same host and the same command, whatever its spacing, sudo or case. Without a known host, the command.
+  const recorded = kept.filter((j) => j.fields.command && j.fields.outcome !== "planned");
+  const sameHost = new Set(recorded.map((j) => `${String(j.fields.host ?? "").trim().toLowerCase()}\n${normalizeCommand(String(j.fields.command))}`));
+  const anyHost = new Set(recorded.map((j) => normalizeCommand(String(j.fields.command))));
+  const already = (command: string) => (host ? sameHost.has(`${host}\n${normalizeCommand(command)}`) : anyHost.has(normalizeCommand(command)));
+  const journalIds = (homelab ? plan.journal : []).filter((j) => !(j.command && already(j.command))).map((j) => store.create("journal", {
     host: host ?? "unknown", at: now, what: j.what, ...(j.command ? { command: j.command } : {}), risk: j.risk,
-    ...(j.rollback ? { rollback: j.rollback } : {}), outcome, session_id: sessionId, ...(runbookId ? { runbook_id: runbookId } : {}),
+    ...(j.rollback ? { rollback: j.rollback } : {}), outcome, session_id: sessionId, ...(runbookId ? { runbook_id: runbookId } : {}), source: "close",
   }).id);
 
   // Snippets: matched by title within the session, extra old ones removed.

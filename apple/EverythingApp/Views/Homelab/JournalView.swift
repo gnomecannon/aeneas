@@ -13,7 +13,7 @@ struct JournalView: View {
 
     private var shown: [Entity] {
         entries.filter { e in
-            (hostFilter == nil || e.str("host") == hostFilter) && (riskFilter == nil || e.str("risk") == riskFilter?.rawValue)
+            (hostFilter.map { Homelab.sameHost(e.str("host"), $0) } ?? true) && (riskFilter == nil || e.str("risk") == riskFilter?.rawValue)
         }
     }
 
@@ -29,7 +29,8 @@ struct JournalView: View {
         return out
     }
 
-    private var hosts: [String] { Array(Set(entries.map { $0.str("host") }.filter { !$0.isEmpty })).sorted() }
+    /// One per machine however its entries spell it ("NAS" and "nas"), as Machines lists them.
+    private var hosts: [String] { Homelab.hostKeys(entries) }
 
     var body: some View {
         List {
@@ -192,6 +193,8 @@ struct JournalEditor: View {
     @State private var at = Date()
     @State private var confirmDelete = false
     @State private var preflight: PreflightHit?
+    /// The fields as loaded, to send only what was changed here.
+    @State private var loaded: [String: JSONValue] = [:]
 
     private var valid: Bool { !Homelab.trimmed(host).isEmpty && !Homelab.trimmed(what).isEmpty }
 
@@ -271,9 +274,10 @@ struct JournalEditor: View {
         outcome = JournalOutcome(rawValue: e.str("outcome")) ?? .done
         rollback = e.str("rollback")
         at = e.date("at") ?? at
+        loaded = fields()
     }
 
-    private func save() {
+    private func fields() -> [String: JSONValue] {
         var f: [String: JSONValue] = [
             "host": .string(Homelab.trimmed(host)),
             "what": .string(Homelab.trimmed(what)),
@@ -284,12 +288,18 @@ struct JournalEditor: View {
         let cmd = Homelab.trimmed(command), rb = Homelab.trimmed(rollback)
         f["command"] = cmd.isEmpty ? .null : .string(cmd)
         f["rollback"] = rb.isEmpty ? .null : .string(rb)
-        Task {
-            if let e = entry {
-                _ = await engine.update(e.id, fields: f)
-            } else {
-                _ = await engine.create(kind: .journal, fields: f.filter { !$0.value.isNull })
-            }
+        return f
+    }
+
+    private func save() {
+        let f = fields()
+        if let e = entry {
+            // Only what was changed here: every field used to go with a new time, undoing an edit made elsewhere
+            // meanwhile (Mark done on another device).
+            let changed = f.filter { loaded[$0.key] != $0.value }
+            if !changed.isEmpty { Task { _ = await engine.update(e.id, fields: changed) } }
+        } else {
+            Task { _ = await engine.create(kind: .journal, fields: f.filter { !$0.value.isNull }) }
         }
         dismiss()
     }

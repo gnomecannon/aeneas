@@ -2,12 +2,23 @@ import { Hono } from "hono";
 import type { Hub } from "../hub.js";
 import { StoreError } from "../store.js";
 import { ackIncident, history, opsView, runCheck } from "../monitors.js";
+import { hubBackupLines, type HubBackupLine } from "../backup.js";
+
+/** The hub's own backup lines, read at most once a minute: every open Ops screen asks every 30 s. */
+const hubBackupCache = new WeakMap<Hub, { at: number; lines: Promise<HubBackupLine[]> }>();
+function hubBackup(hub: Hub, now = Date.now()): Promise<HubBackupLine[]> {
+  const c = hubBackupCache.get(hub);
+  if (c && now - c.at < 60_000) return c.lines;
+  const lines = hubBackupLines(hub.cfg).catch(() => []);
+  hubBackupCache.set(hub, { at: now, lines });
+  return lines;
+}
 
 /** Module 6: the ops board, on-demand checks, check history and incident acknowledgement. */
 export function opsRoutes() {
   const r = new Hono<{ Variables: { hub: Hub } }>();
 
-  r.get("/ops", (c) => c.json(opsView(c.get("hub"))));
+  r.get("/ops", async (c) => c.json({ ...opsView(c.get("hub")), hub_backup: await hubBackup(c.get("hub")) }));
 
   r.post("/monitors/:id/check", async (c) => c.json(await runCheck(c.get("hub"), c.req.param("id"))));
 

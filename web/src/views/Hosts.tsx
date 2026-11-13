@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Entity } from "@everythingapp/shared";
 import { useEntities, useEntity } from "../sync/hooks";
 import { createEntity, updateEntity, softDelete } from "../sync/edits";
@@ -32,9 +32,15 @@ function useHosts(): { hosts: HostSummary[]; source: "hub" | "local" } {
 }
 
 export function Hosts({ host, runbookId }: { host?: string; runbookId?: string | null }) {
-  if (host) return <HostPage host={decodeURIComponent(host)} runbookId={runbookId ?? undefined} />;
+  // A link to fix notes names only the notes (search, linked items): open them on their machine's page.
+  const rb = useEntity(!host && runbookId ? runbookId : undefined);
+  const name = host ? decodeURIComponent(host) : typeof rb?.fields.host === "string" && rb.fields.host.trim() ? rb.fields.host : null;
+  if (name) return <HostPage host={name} runbookId={runbookId ?? undefined} />;
   return <HostList />;
 }
+
+/** Machine names compare without case ("NAS" and "nas" are one machine, as the Machines list counts them). */
+const sameHost = (a: unknown, b: string) => typeof a === "string" && a.trim().toLowerCase() === b.trim().toLowerCase();
 
 function HostList() {
   const { hosts, source } = useHosts();
@@ -85,9 +91,9 @@ function HostList() {
 }
 
 function HostPage({ host, runbookId }: { host: string; runbookId?: string }) {
-  const runbooks = useEntities("runbook", (e) => e.fields.host === host, [host]);
-  const journal = useEntities("journal", (e) => e.fields.host === host, [host]);
-  const snippets = useEntities("snippet", (e) => e.fields.host === host, [host]);
+  const runbooks = useEntities("runbook", (e) => sameHost(e.fields.host, host), [host]);
+  const journal = useEntities("journal", (e) => sameHost(e.fields.host, host), [host]);
+  const snippets = useEntities("snippet", (e) => sameHost(e.fields.host, host), [host]);
   const allJournal = useEntities("journal");
   const hosts = useMemo(() => [...new Set(allJournal.map((e) => String(e.fields.host)))].sort(), [allJournal]);
   const [editing, setEditing] = useState<string | null>(null);
@@ -260,6 +266,10 @@ function RunbookEditor({ id, onClose }: { id: string; onClose: () => void }) {
   const [draft, setDraft] = useState<RunbookDraft | null>(null);
   const [saved, setSaved] = useState(true);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Every field changed since the last save, with its newest value: a title typed and then the body within a second both save. */
+  const pending = useRef<Partial<RunbookDraft>>({});
+  const rbRef = useRef(rb);
+  rbRef.current = rb;
 
   useEffect(() => {
     if (rb && !draft) {
@@ -269,21 +279,28 @@ function RunbookEditor({ id, onClose }: { id: string; onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rb?.id]);
 
-  useEffect(() => () => {
+  /** Save what is pending now (the timer, Done, or the editor closing). */
+  const flush = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+    const fields = pending.current;
+    pending.current = {};
+    const cur = rbRef.current;
+    if (!cur || !Object.keys(fields).length) return Promise.resolve();
+    return updateEntity(cur, fields as Record<string, unknown>).then(() => setSaved(true));
   }, []);
+
+  // Closing the editor (another machine, another screen) saves the last edit instead of dropping it.
+  useEffect(() => () => void flush(), [flush]);
 
   const edit = (patch: Partial<RunbookDraft>) => {
     if (!draft || !rb) return;
     const next = { ...draft, ...patch };
     setDraft(next);
     setSaved(false);
+    pending.current = { ...pending.current, ...patch };
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      const fields: Record<string, unknown> = {};
-      for (const k of Object.keys(patch) as Array<keyof RunbookDraft>) fields[k] = next[k];
-      void updateEntity(rb, fields).then(() => setSaved(true));
-    }, 1000);
+    timer.current = setTimeout(() => void flush(), 1000);
   };
 
   const setCmd = (i: number, patch: Partial<RunbookCommand>) => {
@@ -318,7 +335,7 @@ function RunbookEditor({ id, onClose }: { id: string; onClose: () => void }) {
       <div className="row between small muted">
         <span>{saved ? `saved ${fmtDateTime(rb.updated_at)}` : "editing"}</span>
         <div className="row">
-          <button className="small" onClick={onClose}>
+          <button className="small" onClick={() => void flush().then(onClose)}>
             Done
           </button>
           <button className="small ghost danger" onClick={() => confirm("Delete these fix notes") && softDelete(rb).then(onClose)}>

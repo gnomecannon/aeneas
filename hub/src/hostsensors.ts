@@ -102,17 +102,28 @@ export function worthKeeping(sensor: Entity | null, v: HostValue, now: Date): bo
 }
 
 /** Store what a host reported: new sensors get their thresholds; existing ones keep any the owner changed. */
+/** Sensor names are at most 80 characters: a long mount path keeps its start and end, joined by "..". */
+export function sensorName(name: string): string {
+  return name.length <= 80 ? name : `${name.slice(0, 50)}..${name.slice(-28)}`;
+}
+
 export function storeHostValues(hub: Hub, host: string, values: HostValue[], now: Date = new Date()): number {
   let kept = 0;
-  for (const v of values) {
-    let sensor = sensorByName(hub, v.name);
-    if (!sensor) {
-      const s = specFor(v.name);
-      sensor = hub.store.create("sensor", { name: v.name, unit: s.unit, location: host, alert: true, stale_minutes: STALE_MINUTES, ...(s.min !== undefined ? { min: s.min } : {}), ...(s.max !== undefined ? { max: s.max } : {}) });
+  for (const raw of values) {
+    // One value that cannot be stored no longer stops the rest of the machine's values (and its missing-value check).
+    try {
+      const v = { ...raw, name: sensorName(raw.name) };
+      let sensor = sensorByName(hub, v.name);
+      if (!sensor) {
+        const s = specFor(v.name);
+        sensor = hub.store.create("sensor", { name: v.name, unit: s.unit, location: host, alert: true, stale_minutes: STALE_MINUTES, ...(s.min !== undefined ? { min: s.min } : {}), ...(s.max !== undefined ? { max: s.max } : {}) });
+      }
+      if (!worthKeeping(sensor, v, now)) continue;
+      recordReading(hub, v.name, { value: v.value, unit: v.unit || undefined, at: now.toISOString() }, now);
+      kept++;
+    } catch (e) {
+      console.error(`[hostsensors] a value from one machine was not stored: ${errCode(e)}`);
     }
-    if (!worthKeeping(sensor, v, now)) continue;
-    recordReading(hub, v.name, { value: v.value, unit: v.unit || undefined, at: now.toISOString() }, now);
-    kept++;
   }
   return kept;
 }
@@ -145,7 +156,7 @@ export const MISSING_TICKS = 3;
 export function markMissing(hub: Hub, host: string, values: HostValue[], now: Date = new Date()): string[] {
   let m = missing.get(hub);
   if (!m) { m = new Map(); missing.set(hub, m); }
-  const present = new Set(values.map((v) => v.name));
+  const present = new Set(values.map((v) => sensorName(v.name)));
   const out: string[] = [];
   for (const s of hub.store.list({ kind: "sensor", limit: 10000 })) {
     const name = String(s.fields.name);

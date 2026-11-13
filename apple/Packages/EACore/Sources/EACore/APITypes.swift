@@ -559,8 +559,16 @@ public struct NotifyEvent: Equatable, Sendable {
     public var at: String?
     public var friction: Friction?
     public var log_id: String?
-    public init(kind: String = "reminder", id: String? = nil, title: String = "", at: String? = nil, friction: Friction? = nil, log_id: String? = nil) {
-        self.kind = kind; self.id = id; self.title = title; self.at = at; self.friction = friction; self.log_id = log_id
+    /// `monitor` down: the open incident, so the alert can offer Acknowledge.
+    public var incident_id: String?
+    /// `monitor` and `sensor`: what the alert is about and its state (`down`, `up`), and for a monitor the error.
+    public var name: String?
+    public var state: String?
+    public var error: String?
+    public init(kind: String = "reminder", id: String? = nil, title: String = "", at: String? = nil, friction: Friction? = nil, log_id: String? = nil, incident_id: String? = nil,
+                name: String? = nil, state: String? = nil, error: String? = nil) {
+        self.kind = kind; self.id = id; self.title = title; self.at = at; self.friction = friction; self.log_id = log_id; self.incident_id = incident_id
+        self.name = name; self.state = state; self.error = error
     }
 }
 

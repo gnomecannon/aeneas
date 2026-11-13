@@ -20,7 +20,7 @@ import { installWatchHooks, probeTls, syncWatchReminder, type TlsProbe } from ".
 import { installPetHooks, syncHandoffs, syncPetReminder } from "./pets.js";
 import { installRecordHooks } from "./records.js";
 import { installProjectHooks } from "./projects.js";
-import { defaultCheckers, installMonitorHooks, type Checkers } from "./monitors.js";
+import { defaultCheckers, installMonitorHooks, mergeBackupMonitors, type Checkers } from "./monitors.js";
 import { backupChecker, sshRunner } from "./backups.js";
 import { installAdminHooks, syncApplicationReminder } from "./admin.js";
 import { linkedTask, migrateRemindersToTasks, syncLinkedTask } from "./reminders.js";
@@ -205,6 +205,7 @@ export function createHub(cfg: Config): Hub {
   });
   installWatchHooks(hub);
   installMonitorHooks(hub);
+  mergeBackupMonitors(store);
   installPetHooks(hub);
   installRecordHooks(hub);
   installProjectHooks(hub);

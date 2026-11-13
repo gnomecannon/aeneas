@@ -414,7 +414,7 @@ export function todayView(hub: Hub, now: Date = new Date(), minHours = 3): Today
   if (due.length) lines.push(`Due: ${due.join("; ")}`);
   // What went wrong while no app was open to hear it: a down monitor or an out of range sensor notifies once, over
   // the live stream only, so the morning digest says it again.
-  const ops = opsLine(hub);
+  const ops = opsLine(hub, now);
   if (ops) lines.push(ops);
   if (charges.length) lines.push(`Charges: ${charges.slice(0, 4).map((w) => `${String(w.fields.title ?? "")}${typeof w.fields.cost === "number" ? ` $${w.fields.cost.toFixed(2)}` : ""} on ${dayKey(localDateOf(w.fields.due))}`).join(", ")}${charges.length > 4 ? ", ..." : ""}`);
   const everyone = hub.store.list({ kind: "person", limit: 100000 });
@@ -438,11 +438,16 @@ export function todayView(hub: Hub, now: Date = new Date(), minHours = 3): Today
 }
 
 /** "Homelab: down Storage backup, oldbox ping; sensors storage.zfs.tank.healthy low", or null when all is well. */
-export function opsLine(hub: Hub): string | null {
+export function opsLine(hub: Hub, now: Date = new Date()): string | null {
   const parts: string[] = [];
   if (hub.modules.on("homelab")) {
     const down = hub.store.list({ kind: "monitor", limit: 100000 }).filter((m) => m.fields.enabled !== false && m.fields.state === "down").map((m) => String(m.fields.name));
     if (down.length) parts.push(`down ${down.slice(0, 3).join(", ")}${down.length > 3 ? `, ${down.length - 3} more` : ""}`);
+    // Alerts reach only the apps open at that moment: an outage that came and went overnight is said here.
+    const since = now.getTime() - 24 * 3600_000;
+    const recent = hub.store.list({ kind: "incident", limit: 100000 }).filter((i) => !i.fields.merged_into && Date.parse(String(i.fields.opened_at)) >= since);
+    const ended = recent.filter((i) => i.fields.closed_at).length;
+    if (ended) parts.push(`${ended} incident${ended === 1 ? "" : "s"} came and went in the last 24 h`);
   }
   if (hub.modules.on("sensors")) {
     const off = hub.store.list({ kind: "sensor", limit: 10000 }).filter((x) => x.fields.alert !== false && ["low", "high", "stale"].includes(String(x.fields.state))).map((x) => `${String(x.fields.name)} ${String(x.fields.state)}`);

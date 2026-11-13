@@ -10,13 +10,14 @@ struct SnippetsView: View {
     @State private var creating = false
 
     private var snippets: [Entity] { engine.list(.snippet) }
-    private var hosts: [String] { Array(Set(snippets.map { $0.str("host") }.filter { !$0.isEmpty })).sorted() }
+    /// One per machine however its snippets spell it ("NAS" and "nas"), as Machines lists them.
+    private var hosts: [String] { Homelab.hostKeys(snippets) }
     private var tags: [String] { Array(Set(snippets.flatMap { $0.stringArray("tags") })).sorted() }
 
     private var shown: [Entity] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         return snippets.filter { e in
-            if let h = hostFilter, e.str("host") != h { return false }
+            if let h = hostFilter, !Homelab.sameHost(e.str("host"), h) { return false }
             if let t = tagFilter, !e.stringArray("tags").contains(t) { return false }
             guard !q.isEmpty else { return true }
             return [e.str("title"), e.str("body"), e.str("host")].contains { $0.lowercased().contains(q) }
@@ -317,6 +318,8 @@ struct SnippetEditor: View {
     @State private var params: [ParamDraft] = []
     @State private var tags = ""
     @State private var confirmDelete = false
+    /// The fields as loaded, to send only what was changed here.
+    @State private var loaded: [String: JSONValue] = [:]
 
     private var undeclared: [String] {
         SnippetText.paramNames(bodyText).filter { n in !params.contains { Homelab.trimmed($0.name) == n } }
@@ -420,9 +423,22 @@ struct SnippetEditor: View {
         bodyText = e.str("body")
         params = SnippetText.declared(e).map { ParamDraft(name: $0.name, defaultValue: $0.defaultValue, description: $0.description ?? "") }
         tags = e.stringArray("tags").joined(separator: ", ")
+        loaded = fields()
     }
 
     private func save() {
+        let f = fields()
+        if let e = entry {
+            // Only what was changed here: every field used to go with a new time, undoing an edit made elsewhere meanwhile.
+            let changed = f.filter { loaded[$0.key] != $0.value }
+            if !changed.isEmpty { Task { _ = await engine.update(e.id, fields: changed) } }
+        } else {
+            Task { _ = await engine.create(kind: .snippet, fields: f.filter { !$0.value.isNull }) }
+        }
+        dismiss()
+    }
+
+    private func fields() -> [String: JSONValue] {
         let ps: [JSONValue] = params.compactMap { p in
             let n = Homelab.trimmed(p.name)
             guard !n.isEmpty else { return nil }
@@ -443,11 +459,7 @@ struct SnippetEditor: View {
         ]
         let h = Homelab.trimmed(hostText)
         f["host"] = h.isEmpty ? .null : .string(h)
-        Task {
-            if let e = entry { _ = await engine.update(e.id, fields: f) }
-            else { _ = await engine.create(kind: .snippet, fields: f.filter { !$0.value.isNull }) }
-        }
-        dismiss()
+        return f
     }
 }
 

@@ -6,7 +6,8 @@ import type { Store } from "./store.js";
  * Pre-flight for destructive commands (Module 2).
  * When an assistant reply contains one of the commands below, a short block is placed right before the first
  * code block or line that holds it: what to back up or snapshot, how to verify the target, and the rollback.
- * A journal entry with outcome `planned` and risk `high` records that the command was proposed.
+ * A journal entry with outcome `planned` and risk `high` records that the command was proposed. A reply about a
+ * command that already ran in its turn (an approved change) gets neither.
  * Add a row to DESTRUCTIVE to extend the detector; the README lists the table.
  */
 
@@ -21,8 +22,9 @@ export interface DestructiveRule {
 
 export const DESTRUCTIVE: DestructiveRule[] = [
   {
+    // Every recursive rm: -rf, -r alone, -r -f, -R, --recursive --force, the option before or after the path.
     name: "rm -rf",
-    pattern: /\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*(?:r[a-zA-Z]*f|f[a-zA-Z]*r)[a-zA-Z]*\b/,
+    pattern: /\brm\s+(?:[^\n;&|]*\s)?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\b/,
     backup: "Back up: tar the path (`tar czf /root/pre-rm.tgz <path>`) or snapshot the filesystem it lives on.",
     verify: "Verify: `ls -la <path>` and `pwd`; make sure no variable in the path expands to nothing.",
     rollback: "Rollback: restore from the tar or snapshot. rm has no undo.",
@@ -132,6 +134,64 @@ export const DESTRUCTIVE: DestructiveRule[] = [
     verify: "Verify: `terraform workspace show` and any `-target` list; confirm the account or project.",
     rollback: "Rollback: `terraform apply` from the saved code and state. Data inside destroyed resources is not recoverable.",
   },
+  {
+    name: "blkdiscard",
+    pattern: /\bblkdiscard\b/,
+    backup: "Back up: image the device first (`dd if=<dev> of=/path/pre-discard.img bs=4M`) or confirm nothing on it is needed.",
+    verify: "Verify: `lsblk -f <dev>`; confirm it is the intended device and that nothing on it is mounted.",
+    rollback: "Rollback: write the image back. Discarded blocks read as zeros and cannot be recovered.",
+  },
+  {
+    name: "docker compose down -v",
+    pattern: /\bdocker(?:\s+|-)compose\b[^\n]*\bdown\b[^\n]*(?:\s-v\b|\s--volumes\b)/,
+    backup: "Back up: archive each named volume first (`docker volume ls`, then a tar of each from a throwaway container), or snapshot the disk that holds them.",
+    verify: "Verify: `docker compose config --volumes` lists the volumes it deletes; without the volumes flag they are kept.",
+    rollback: "Rollback: create the volumes again and restore their archives. Removed volumes are gone.",
+  },
+  {
+    name: "zfs rollback",
+    pattern: /\bzfs\s+rollback\b/,
+    backup: "Back up: `zfs snapshot <dataset>@pre-rollback` keeps what is there now.",
+    verify: "Verify: `zfs list -t snapshot -r <dataset>`; with -r every snapshot newer than the target is destroyed too.",
+    rollback: "Rollback: roll back to the pre-rollback snapshot. Snapshots destroyed by -r are gone.",
+  },
+  {
+    name: "Remove-Item -Recurse",
+    pattern: /\bRemove-Item\b[^\n]*\s-r[a-z]*\b|\b(?:rd|rmdir|del|erase)\s+(?:\/[a-z]+\s+)*\/s\b/i,
+    backup: "Back up: copy the folder first (`Copy-Item <path> <backup> -Recurse`), or make a restore point or a snapshot.",
+    verify: "Verify: `Get-ChildItem <path> -Recurse | Measure-Object` and the full path; a wildcard or an empty variable reaches more than meant.",
+    rollback: "Rollback: restore from the copy. Items removed this way skip the Recycle Bin.",
+  },
+  {
+    name: "git clean",
+    pattern: /\bgit\b[^\n]*\bclean\b[^\n]*(?:\s-[a-zA-Z]*f|\s--force\b)/,
+    backup: "Back up: `git clean -n` with the same -d and -x lists what goes; copy anything untracked you need, or `git stash -u`.",
+    verify: "Verify: `git status --ignored` in the right repository; -x also deletes ignored files such as .env and build output.",
+    rollback: "Rollback: untracked files are not in git; only the copy or the stash brings them back.",
+  },
+  {
+    // Every sgdisk but printing, verifying and saving a backup of the table writes to the disk.
+    name: "sgdisk",
+    pattern: /\bsgdisk\b(?=[^\n]*\s(?:-(?![pvb]\b)[a-zA-Z]|--(?!print\b|verify\b|backup\b)[a-z]))/,
+    backup: "Back up: `sgdisk --backup=/root/pre-sgdisk.gpt <dev>` saves the partition table; image anything you cannot lose.",
+    verify: "Verify: `sgdisk -p <dev>` and `lsblk <dev>`; confirm the device name.",
+    rollback: "Rollback: `sgdisk --load-backup=/root/pre-sgdisk.gpt <dev>` restores the table; data needs the image.",
+  },
+  {
+    // sfdisk writes a partition table unless it only dumps, lists or checks one.
+    name: "sfdisk",
+    pattern: /\bsfdisk\b(?![^\n]*\s(?:-[dlJVsgF]\b|--(?:dump|list|json|verify|show-size|show-geometry|list-free)\b))/,
+    backup: "Back up: `sfdisk -d <dev> > /root/pre-sfdisk.table` saves the partition table; image anything you cannot lose.",
+    verify: "Verify: `sfdisk -l <dev>` and `lsblk <dev>`; confirm the device name.",
+    rollback: "Rollback: feed /root/pre-sfdisk.table back to sfdisk for the device; data needs the image.",
+  },
+  {
+    name: "lvremove",
+    pattern: /\b(?:lvremove|vgremove|pvremove)\b/,
+    backup: "Back up: copy the volume's data or take an LVM snapshot (`lvcreate -s`); `vgcfgbackup` saves the layout.",
+    verify: "Verify: `lvs`, `vgs` and `findmnt`; confirm the volume name and that nothing is mounted from it.",
+    rollback: "Rollback: `vgcfgrestore` can bring the layout back until the space is reused; the data needs the backup.",
+  },
 ];
 
 export interface DestructiveMatch { rule: DestructiveRule; index: number; line: number; command: string }
@@ -178,13 +238,26 @@ export function checkCommand(text: string): PreflightCheck {
 
 export interface PreflightResult { text: string; inserted: boolean; match: DestructiveMatch | null }
 
+/** A command as compared with another: no backticks, sudo or sudo -n, case or extra spaces. */
+export function normalizeCommand(s: string): string {
+  return s.replace(/`/g, "").replace(/^\s*[$#]\s+/, "").replace(/\bsudo\s+(?:-n\s+)?/g, "").replace(/[;\s]+$/, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/** The reply's destructive command is one of `ran` (written as the reply shows it, up to a backtick or the line end). */
+function alreadyRan(reply: string, m: DestructiveMatch, ran: string[]): boolean {
+  const shown = normalizeCommand(reply.slice(m.index).split(/[`\n]/)[0]);
+  return !!shown && ran.map(normalizeCommand).some((c) => !!c && (c.includes(shown) || shown.includes(c)));
+}
+
 /**
  * Place the block immediately before the first code block or line that contains the command.
- * A reply that already carries a block is returned unchanged, so the pipeline can never insert twice.
+ * A reply that already carries a block is returned unchanged, so the pipeline can never insert twice. A command in
+ * `ran` already ran in this turn (an approved change the reply reports on): it gets no block and no planned entry.
  */
-export function insertPreflight(reply: string): PreflightResult {
+export function insertPreflight(reply: string, ran: string[] = []): PreflightResult {
   const m = detectDestructive(reply);
   if (!m) return { text: reply, inserted: false, match: null };
+  if (ran.length && alreadyRan(reply, m, ran)) return { text: reply, inserted: false, match: null };
   if (MARKER.test(reply)) return { text: reply, inserted: false, match: m };
   const lines = reply.split(/\r?\n/);
   let at = m.line;

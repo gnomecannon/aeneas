@@ -94,6 +94,21 @@ enum Homelab {
         return m.values.sorted { $0.host.localizedCaseInsensitiveCompare($1.host) == .orderedAscending }
     }
 
+    /// Fresh copies from the hub (`GET /entities/:id`), read at the same time; any that cannot be read are left out.
+    static func fresh(_ ids: [String], client c: HubClient) async -> [Entity] {
+        await withTaskGroup(of: Entity?.self) { group in
+            for id in ids { group.addTask { try? await c.entity(id) } }
+            var out: [Entity] = []
+            for await e in group { if let e { out.append(e) } }
+            return out
+        }
+    }
+
+    /// A filter menu's hosts: each machine once, in the hub's lowercase form, however its items spell it.
+    static func hostKeys(_ items: [Entity]) -> [String] {
+        Array(Set(items.map { hostKey($0.str("host")) }.filter { !$0.isEmpty })).sorted()
+    }
+
     static func errorText(_ error: Error) -> String {
         if let h = error as? HubError {
             if case .http(let status, let message) = h {
@@ -103,6 +118,19 @@ enum Homelab {
             return h.errorDescription ?? "The hub did not answer."
         }
         return error.localizedDescription
+    }
+}
+
+extension ScenePhase {
+    /// Whether a screen's 30 s refresh runs: not in the background (a minimized Mac window, the app put away), and on
+    /// the iPhone and iPad not while inactive either. A Mac window behind another app's keeps refreshing, so Ops on a
+    /// second display stays current.
+    var refreshes: Bool {
+        #if os(macOS)
+        return self != .background
+        #else
+        return self == .active
+        #endif
     }
 }
 
@@ -156,6 +184,84 @@ enum MonitorStatus: String {
     }
 }
 
+/// One job of a backup machine as the hub last read it (the monitor's `jobs`): backup, verification or restore test.
+struct BackupJobLine: Identifiable, Equatable {
+    var job: String
+    var state: String
+    var running: Bool
+    var lastGood: Date?
+    var lastRun: Date?
+    var maxHours: Int
+    var error: String?
+    var id: String { job }
+
+    /// The lines of a backup monitor read as a whole machine; empty for any other monitor.
+    /// A machine away keeps its last read, so a job fine then can be past its limit now: such a line is over the limit
+    /// (red) whatever the stored state says.
+    static func lines(_ monitor: Entity, now: Date = Date()) -> [BackupJobLine] {
+        guard monitor.str("type") == "backup", let jobs = monitor.fields["jobs"]?.arrayValue else { return [] }
+        return jobs.compactMap { v in
+            guard let o = v.objectValue, let job = o["job"]?.stringValue else { return nil }
+            var line = BackupJobLine(job: job, state: o["state"]?.stringValue ?? "ok", running: o["running"]?.boolValue ?? false,
+                                     lastGood: ISO.date(o["last_good"]?.stringValue), lastRun: ISO.date(o["last_run"]?.stringValue),
+                                     maxHours: Int(o["max_hours"]?.doubleValue ?? 0), error: o["error"]?.stringValue)
+            if line.state == "ok", line.maxHours > 0, let good = line.lastGood, now.timeIntervalSince(good) > Double(line.maxHours) * 3600 {
+                line.state = "stale"
+            }
+            return line
+        }
+    }
+
+    var label: String {
+        switch job {
+        case "verify": return "Verification"
+        case "restore": return "Restore test"
+        default: return "Backup"
+        }
+    }
+    var ok: Bool { state == "ok" }
+    /// "last good 10 h ago", "failed 2 h ago; last good 26 h ago", "not set up on this machine".
+    var text: String {
+        let good = lastGood.map { "last good \(Homelab.ago($0))" } ?? ""
+        let run = running ? "running now" : ""
+        func join(_ parts: String...) -> String { parts.filter { !$0.isEmpty }.joined(separator: "; ") }
+        switch state {
+        case "missing": return "not set up on this machine"
+        case "never": return join(run, "no good run on record")
+        case "failed": return join(run, lastRun.map { "failed \(Homelab.ago($0))" } ?? "failed", good)
+        case "stale": return join(run, "\(good), over the \(maxHours) h limit")
+        default: return join(run, good)
+        }
+    }
+    /// The time the line is about: when it failed, else the last good run.
+    var at: Date? { state == "failed" ? lastRun : lastGood }
+}
+
+/// A backup machine's jobs, one line each: a mark, the job, and when it last went well or what went wrong.
+struct BackupJobsList: View {
+    var lines: [BackupJobLine]
+    var showTimes = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(lines) { l in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: l.ok ? MonitorStatus.up.symbol : MonitorStatus.down.symbol)
+                        .foregroundStyle(l.ok ? Color.green : Color.red)
+                    Text(l.label).fontWeight(.semibold).frame(minWidth: 86, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 1) {
+                        // Wraps instead of being cut off in a list row.
+                        Text(l.text).foregroundStyle(l.ok ? Color.secondary : Color.red).fixedSize(horizontal: false, vertical: true)
+                        if showTimes, let at = l.at { Text(at.shortDateTime).foregroundStyle(.secondary) }
+                    }
+                }
+                .font(.caption)
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+}
+
 enum JournalRisk: String, CaseIterable, Identifiable {
     case low, medium, high
     var id: String { rawValue }
@@ -176,23 +282,29 @@ enum JournalRisk: String, CaseIterable, Identifiable {
     }
 }
 
+/// `running`: an approved change the hub is running now; `interrupted`: it was cut off (a timeout, or the hub restarted
+/// while it ran), so whether it finished is not known. The hub sets both; they showed as Done before.
 enum JournalOutcome: String, CaseIterable, Identifiable {
-    case planned, done, failed, reverted
+    case planned, running, done, failed, interrupted, reverted
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
     var color: Color {
         switch self {
         case .planned: return .blue
+        case .running: return .blue
         case .done: return .green
         case .failed: return .red
+        case .interrupted: return .orange
         case .reverted: return .orange
         }
     }
     var symbol: String {
         switch self {
         case .planned: return "clock"
+        case .running: return "hourglass"
         case .done: return "checkmark"
         case .failed: return "xmark"
+        case .interrupted: return "exclamationmark.triangle"
         case .reverted: return "arrow.uturn.backward"
         }
     }

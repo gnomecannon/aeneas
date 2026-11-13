@@ -49,6 +49,6 @@ test("the calculator tool only reaches the calculators; a path in its type is re
 
 test("a backup monitor's ssh destination can never be an ssh option", () => {
   assert.equal(parseBackupTarget("linux:gnomecannon@10.0.0.16").dest, "gnomecannon@10.0.0.16");
-  assert.equal(parseBackupTarget("windows:desk-pc#verify").job, "verify");
+  assert.deepEqual(parseBackupTarget("windows:desk-pc#verify").jobs, ["verify"]);
   for (const bad of ["linux:-oProxyCommand=touch${IFS}/tmp/x", "mac:-F/tmp/cfg", "linux:host;id", "linux:$(id)"]) assert.throws(() => parseBackupTarget(bad), /backup target/, bad);
 });

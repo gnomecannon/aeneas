@@ -65,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class NotificationHandler: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationHandler()
 
+    /// Why Acknowledge on a monitor alert did not go through, in a few words.
+    static func ackFailure(_ error: Error) -> String {
+        if let h = error as? HubError, case .http(let status, _) = h, status == 404 { return "the hub no longer has this incident" }
+        return Homelab.errorText(error)
+    }
+
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         [.banner, .sound, .list]
     }
@@ -90,6 +96,27 @@ final class NotificationHandler: NSObject, UNUserNotificationCenterDelegate {
                     }
                 }
             }
+            return
+        }
+        // A monitor that went down: Acknowledge on the alert, without opening the app. A tap falls through to its Ops link.
+        if response.actionIdentifier == ReminderScheduler.incidentAckAction, let incident = info["incident_id"] as? String {
+            let alert = response.notification.request.content.title
+            // Awaited, so the app is not suspended in the background before the hub has it.
+            await Task { @MainActor in
+                let model = AppModel.shared
+                await model.ensureStarted()
+                // A failure used to pass in silence, so the incident went on re-notifying with no word why.
+                guard let c = model.engine.client else {
+                    await ReminderScheduler.shared.notifyNotAcknowledged(reason: "this device is not connected to a hub", alert: alert, incidentId: incident)
+                    return
+                }
+                do {
+                    let updated = try await c.acknowledgeIncident(id: incident, note: nil)
+                    await model.engine.absorb(updated)
+                } catch {
+                    await ReminderScheduler.shared.notifyNotAcknowledged(reason: Self.ackFailure(error), alert: alert, incidentId: incident)
+                }
+            }.value
             return
         }
         // An answer Siri could not wait for opens its chat.

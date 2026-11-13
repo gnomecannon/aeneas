@@ -47,6 +47,12 @@ export function relative(iso: string, from = new Date()): string {
   return diff > 0 ? `in ${unit}` : `${unit} ago`;
 }
 
+/** For times that are always in the past (checked, acknowledged, last reading): a clock behind the hub's says "now", not "in 1m". */
+export function relativePast(iso: string, from = new Date()): string {
+  const r = relative(iso, from);
+  return r.startsWith("in ") ? "now" : r;
+}
+
 /** Seconds as "3d 4h", "2h 5m", "4m 10s" or "40s". */
 export function fmtDuration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));

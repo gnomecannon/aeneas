@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { makeHub, type TestHub } from "./helpers.js";
-import { backupChecker, backupOutcome, parseBackupTarget, type SshRunner } from "../src/backups.js";
+import { backupChecker, backupOutcome, type SshRunner } from "../src/backups.js";
 import { AWAY_LIMIT_MS, renotifyTick, runCheck, tlsOutcome, type CheckOutcome, type Checker } from "../src/monitors.js";
 import { markMissing, MISSING_TICKS, storeHostValues } from "../src/hostsensors.js";
 import { recordReading, sensorByName } from "../src/sensors.js";
@@ -54,18 +54,19 @@ test("ops: an ssh login the machine refuses is a failure, not a machine away; aw
 test("ops: a retry still running after a failed run stays down instead of flapping up", () => {
   const now = new Date("2026-10-29T17:00:00Z");
   const ms = (s: string) => new Date(s).getTime();
-  const t = parseBackupTarget("linux:storage");
   const r = { running: true, events: [
     { at: ms("2026-10-29T08:00:00Z"), kind: "ok" as const },
     { at: ms("2026-10-29T12:00:00Z"), kind: "start" as const },
     { at: ms("2026-10-29T12:30:00Z"), kind: "fail" as const, detail: "one or more sources failed" },
     { at: ms("2026-10-29T16:30:00Z"), kind: "start" as const },
   ] };
-  const out = backupOutcome(t, r, 28, now);
+  const out = backupOutcome("backup", r, 28, now);
   assert.equal(out.ok, false);
-  assert.match(String(out.error), /running since 2026-10-29 16:30 UTC; the backup at 2026-10-29 12:30 UTC failed: one or more sources failed/);
+  assert.match(String(out.error), /running since Oct 29, 12:30 PM; the backup at Oct 29, 8:30 AM failed: one or more sources failed/);
+  assert.equal(out.state.state, "failed");
+  assert.equal(out.state.running, true);
   // Running after a good run is still fine.
-  assert.equal(backupOutcome(t, { running: true, events: [r.events[0], r.events[3]] }, 28, now).ok, true);
+  assert.equal(backupOutcome("backup", { running: true, events: [r.events[0], r.events[3]] }, 28, now).ok, true);
 });
 
 test("ops: deleting a down monitor ends its incident; a hand check of one that is off opens none", async () => {

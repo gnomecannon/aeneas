@@ -190,36 +190,76 @@ export function monitorLine(n: Pick<NotifyEvent, "name" | "state" | "error" | "t
   return { down, text: down ? `DOWN ${name}${n.error ? `: ${n.error}` : ""}` : `UP ${name}` };
 }
 
-/** Monitor banner: red when a monitor goes down, green when it comes back, with a link to Ops. */
+type MonitorNote = { name: string; down: boolean; text: string; incident?: string };
+
+/**
+ * Monitor banners: one per monitor (a second alert replaced the first, and its Acknowledge with it). A red one stays
+ * until that monitor is back or it is dismissed; a green one goes by itself after 8 seconds. With Acknowledge and Ops.
+ */
 export function MonitorBanner() {
-  const [n, setN] = useState<{ down: boolean; text: string } | null>(null);
+  const [items, setItems] = useState<MonitorNote[]>([]);
+  const [errs, setErrs] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState("");
   useEffect(
     () =>
       engine.onNotify((ev: NotifyEvent) => {
         if (ev.kind !== "monitor") return;
         const line = monitorLine(ev);
-        setN(line);
+        const name = ev.name ?? ev.title ?? "monitor";
+        setItems((xs) => [...xs.filter((x) => x.name !== name), { name, ...line, incident: line.down ? ev.incident_id : undefined }].slice(-4));
         void notify(line.down ? "Monitor down" : "Monitor up", line.text, "/ops");
       }),
     [],
   );
-  useEscape(useCallback(() => setN(null), []));
-  if (!n) return null;
+  useEffect(() => {
+    if (!items.some((x) => !x.down)) return;
+    const t = setTimeout(() => setItems((xs) => xs.filter((x) => x.down)), 8000);
+    return () => clearTimeout(t);
+  }, [items]);
+  useEscape(useCallback(() => setItems([]), []));
+  if (!items.length) return null;
+  const drop = (name: string) => setItems((xs) => xs.filter((x) => x.name !== name));
+  const ack = async (n: MonitorNote) => {
+    if (!engine.client || !n.incident) return;
+    setBusy(n.name);
+    setErrs((e) => ({ ...e, [n.name]: "" }));
+    try {
+      const out = await engine.client.incidentAck(n.incident);
+      await engine.absorb([out]).catch(() => undefined);
+      drop(n.name);
+    } catch (e) {
+      setErrs((x) => ({ ...x, [n.name]: e instanceof Error ? e.message : String(e) }));
+    } finally {
+      setBusy("");
+    }
+  };
   return (
-    <div className={`banner monitor ${n.down ? "down" : "up"}`} role={n.down ? "alert" : "status"}>
-      <strong className="grow">{n.text}</strong>
-      <button
-        className="small primary"
-        onClick={() => {
-          setN(null);
-          go("/ops");
-        }}
-      >
-        Ops
-      </button>
-      <button className="small" onClick={() => setN(null)} aria-label="Dismiss the monitor alert">
-        Dismiss
-      </button>
-    </div>
+    <>
+      {items.map((n) => (
+        <div key={n.name} className={`banner monitor ${n.down ? "down" : "up"}`} role={n.down ? "alert" : "status"}>
+          <strong className="grow">
+            {n.text}
+            {errs[n.name] && <div className="error small">{errs[n.name]}</div>}
+          </strong>
+          {n.incident && engine.client && (
+            <button className="small" onClick={() => void ack(n)} disabled={busy === n.name}>
+              {busy === n.name ? "Acknowledging" : "Acknowledge"}
+            </button>
+          )}
+          <button
+            className="small primary"
+            onClick={() => {
+              setItems([]);
+              go("/ops");
+            }}
+          >
+            Ops
+          </button>
+          <button className="small" onClick={() => drop(n.name)} aria-label={`Dismiss the alert for ${n.name}`}>
+            Dismiss
+          </button>
+        </div>
+      ))}
+    </>
   );
 }

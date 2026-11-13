@@ -211,8 +211,8 @@ final class AppModel: ObservableObject {
         engine.onNotify = { id, title, friction in
             Task { await ReminderScheduler.shared.notifyNow(reminderId: id, title: title, friction: friction) }
         }
-        engine.onAlert = { title, kind in
-            Task { await ReminderScheduler.shared.notifyAlert(title: StyleGuard.dashes(title), kind: kind) }
+        engine.onAlert = { alert in
+            Task { await ReminderScheduler.shared.notifyAlert(alert) }
         }
         engine.onActivityCheckin = { [weak self] c in self?.activityCheckin = c }
         engine.onModules = { [weak self] list in self?.applyModules(list, offer: true) }
@@ -226,13 +226,20 @@ final class AppModel: ObservableObject {
                 Task { await SpotlightIndexer.shared.update(self.engine) }
             }
         // A task or event changed here or synced from another device reaches Apple Reminders or Calendar a few seconds later.
+        // Each copy runs only when what it reads changed: Ops brings in fresh monitors every 30 s, which none of them read.
         appleReminders = engine.$entities
             .debounce(for: .seconds(3), scheduler: RunLoop.main)
-            .sink { [weak self] _ in
-                RemindersSync.shared.scheduleRun(after: 2); EventMirrorSync.shared.scheduleRun(after: 2); ContactsSync.shared.scheduleRun(after: 3)
+            .sink { [weak self] entities in
+                guard let self else { return }
+                let prints = Self.mirrorPrints(entities)
+                let changed = Set(Self.mirrorKinds.filter { prints[$0] != self.lastMirrorPrints[$0] })
+                self.lastMirrorPrints = prints
+                if changed.contains(.task) { RemindersSync.shared.scheduleRun(after: 2) }
+                if changed.contains(.event) { EventMirrorSync.shared.scheduleRun(after: 2) }
+                if changed.contains(.person) { ContactsSync.shared.scheduleRun(after: 3) }
                 #if os(iOS)
                 // New generated images go to Photos when that switch is on, and only while Images is on.
-                if let self, PhotosOptions.saveGenerated, self.isOn(.images) { Task { await PhotosOptions.saveNew(engine: self.engine) } }
+                if PhotosOptions.saveGenerated, self.isOn(.images) { Task { await PhotosOptions.saveNew(engine: self.engine) } }
                 #endif
             }
         #if canImport(ActivityKit) && os(iOS)
@@ -256,6 +263,15 @@ final class AppModel: ObservableObject {
     }
     private var spotlight: AnyCancellable?
     private var appleReminders: AnyCancellable?
+    /// The kinds the Apple copies read: tasks (Reminders), events (Calendar), people (Contacts).
+    private static let mirrorKinds: [Kind] = [.task, .event, .person]
+    private var lastMirrorPrints: [Kind: Int] = [:]
+    /// One hash per kind over every item of it, deleted ones too, the same in any order.
+    private static func mirrorPrints(_ entities: [String: Entity]) -> [Kind: Int] {
+        var out: [Kind: Int] = [:]
+        for e in entities.values where mirrorKinds.contains(e.kind) { out[e.kind, default: 0] &+= e.hashValue }
+        return out
+    }
     private var liveActivity: AnyCancellable?
     #if os(iOS)
     private var healthWrites: AnyCancellable?

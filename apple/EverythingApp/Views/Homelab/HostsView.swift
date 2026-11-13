@@ -124,6 +124,7 @@ struct HostRow: View {
 
 struct HostDetailView: View {
     @EnvironmentObject var engine: SyncEngine
+    @Environment(\.scenePhase) private var scenePhase
     var host: String
 
     @State private var newRunbook = false
@@ -218,7 +219,22 @@ struct HostDetailView: View {
         .sheet(item: $editingEntry) { e in JournalEditor(entry: e) }
         .sheet(isPresented: $newSnippet) { SnippetEditor(entry: nil, host: host) }
         .sheet(isPresented: $newMonitor) { MonitorEditor(monitor: nil, host: host) }
-        .refreshable { await engine.sync() }
+        .refreshable { await engine.sync(); await refreshMonitors() }
+        // Each check's own fields (when it ran, the error, a backup's job lines) reach no device by sync, and Ops
+        // stops loading its board once a page is pushed: read this machine's monitors every 30 s while it is shown.
+        .task(id: scenePhase.refreshes) {
+            guard scenePhase.refreshes else { return }
+            while !Task.isCancelled {
+                await refreshMonitors()
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    private func refreshMonitors() async {
+        let ids = monitors.map(\.id)
+        guard !ids.isEmpty, let c = engine.client else { return }
+        await engine.absorb(await Homelab.fresh(ids, client: c))
     }
 }
 

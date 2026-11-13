@@ -143,11 +143,13 @@ public actor SyncStore {
     }
 
     /// Store a hub copy, merging per field against any local copy. Returns the stored entity.
+    /// A copy that changes nothing is not written again (screens load the same monitors every 30 s).
     @discardableResult
     public func upsertFromHub(_ hub: Entity) throws -> Entity {
         if var local = try get(hub.id) {
+            let before = local
             local.merge(hub: hub)
-            try write(local)
+            if local != before { try write(local) }
             return local
         }
         try write(hub)

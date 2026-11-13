@@ -149,7 +149,7 @@ const READ_CMDS = new Set([
   "resolvectl", "virsh", "pvs", "vgs", "lvs", "mdadm", "hdparm", "fdisk", "parted", "sgdisk", "lshw", "dmidecode", "upower", "acpi",
 ]);
 
-/** Subcommands that keep a command read-only, for tools that can also change things. */
+/** Subcommands that keep a command read-only, for tools that can also change things. ip and nmcli: ipReads, nmcliReads. */
 const READ_SUB: Record<string, RegExp> = {
   systemctl: /^(status|is-active|is-enabled|is-failed|list-units|list-unit-files|list-timers|list-sockets|show|cat|--version|get-default)$/,
   docker: /^(ps|logs|inspect|images|image|stats|version|info|top|port|events|compose|network|volume|system|container)$/,
@@ -162,17 +162,16 @@ const READ_SUB: Record<string, RegExp> = {
   tailscale: /^(status|ip|ping|netcheck|version|whois|dns)$/,
   ollama: /^(list|ls|ps|show|--version|-v)$/,
   ufw: /^(status)$/,
-  ip: /^(-[a-z0-9]+|addr|address|a|route|r|link|l|neigh|n|rule|maddr|monitor)$/,
   npm: /^(ls|list|view|outdated|-v|--version|config)$/,
   pip: /^(list|show|freeze|--version)$/, pip3: /^(list|show|freeze|--version)$/,
   brew: /^(list|info|outdated|--version|config|doctor|services)$/,
-  launchctl: /^(list|print|blame)$/,
+  // launchctl print shows each service's environment, which can hold keys.
+  launchctl: /^(list|blame)$/,
   diskutil: /^(list|info|apfs|activity)$/,
   kubectl: /^(get|describe|logs|top|version|cluster-info|api-resources)$/,
   virsh: /^(list|dominfo|domifaddr|domstate|net-list|net-dhcp-leases|pool-list|vol-list|dumpxml|nodeinfo|version|capabilities)$/,
   timedatectl: /^(status|show|list-timezones)?$/,
   hostnamectl: /^(status)?$/,
-  nmcli: /^(-t|-f|device|dev|d|connection|con|c|general|g|radio)$/,
   resolvectl: /^(status|query|dns|domain|statistics)$/,
   mdadm: /^(--detail|-D|--examine|-E|--query|-Q)$/,
   fdisk: /^(-l|--list)$/, parted: /^(-l|--list)$/, sgdisk: /^(-p|--print)$/, hdparm: /^(-I|-i)$/,
@@ -206,7 +205,9 @@ const DOCKER_VALUE_FLAGS = /^(-f|--file|-p|--project-name|--env-file|--profile|-
 /** Per-command flags that turn an otherwise read-only command into a change. Tested against " <args joined by spaces>". */
 const WRITE_FLAGS: Record<string, RegExp> = {
   find: /\s-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)(\s|$)/,
-  curl: /\s(-X|--request|-d|--data[a-z-]*|-F|--form[a-z-]*|-T|--upload-file|-o|-O|--output|--remote-name[a-z-]*|-c|--cookie-jar|-K|--config|-x|--proxy|--preproxy|--resolve|--connect-to|--doh-url|--dns-servers|-D|--dump-header|--trace[a-z-]*|--libcurl|--stderr|--etag-save|--hsts|--alt-svc|--json|-Q|--quote|--output-dir|--create-dirs)(\s|=|$)/,
+  // curl 8.3 and later also write files from --write-out (%output{f}), and read a format (-w @f), variables
+  // (--variable, from files and the environment) and a config from files.
+  curl: /\s(-X|--request|-d|--data[a-z-]*|-F|--form[a-z-]*|-T|--upload-file|-o|-O|--output|--remote-name[a-z-]*|-c|--cookie-jar|-K|--config|-x|--proxy|--preproxy|--resolve|--connect-to|--doh-url|--dns-servers|-D|--dump-header|--trace[a-z-]*|--libcurl|--stderr|--etag-save|--hsts|--alt-svc|--json|-Q|--quote|--output-dir|--create-dirs|--variable|--expand-[a-z-]+|--ssl-sessions)(\s|=|$)|%output\{|\s-[a-zA-Z]*w\s*@|\s--write-out(\s+|=)@/,
   wget: /^(?!.*(\s-O\s*-|\s--spider|\s-qO-|\s-qO\s*-))|\s(-e|--execute|--post-data|--post-file|--body-data|--body-file|--method|-i|--input-file|--config|-o|--output-file|-a|--append-output|--save-cookies|--save-headers|-x|--force-directories|-P|--directory-prefix)(\s|=|$)/,
   top: /^(?!.*\s-b)/, journalctl: /--(vacuum|rotate|flush|sync|relinquish|setup-keys|update-catalog|cursor-file)/,
   // less writes its input to a log file (-o, -O, --log-file) and runs an initial command given as +cmd (+!sh).
@@ -220,7 +221,10 @@ const WRITE_FLAGS: Record<string, RegExp> = {
   git: /\s(branch|tag)\s+[^-\s]|\s(branch\s+-[dDmMcCfu]|tag\s+-[dfas])(\s|$)|\sremote\s+(add|remove|rm|set-url|set-head|set-branches|rename|prune|update)|--output(=|\s)|\s-o\s|--ext-diff/,
   ip: /\b(add|del|delete|set|flush|change|replace|append|prepend|restore|save)\b|\s-(b|ba|bat|batc|batch|fo|for|forc|force)(\s|$)/, mount: /\S/, nc: /\S/,
   tailscale: /\b(up|down|set|logout|login|serve|funnel|cert|file|drive|switch|update)\b/,
-  zpool: /\bevents\s+-c\b/, openssl: /\s-(out|keyout|outform\s+\S+\s+-out|sess_out|keylogfile|msgfile|writerand|new|newkey|CAcreateserial|CAserial|proxy)(\s|$)/,
+  // events -c (also -vc, -H -c) clears the event list.
+  zpool: /\bevents\b.*\s-[a-zA-Z]*c/,
+  // OpenSSL also takes -opt=value and --opt; -engine and -provider load a library, -config can make it load one.
+  openssl: /\s--?(out|keyout|sess_out|keylogfile|msgfile|writerand|new|newkey|CAcreateserial|CAserial|proxy|engine|provider|provider-path|provider_path|config|ssl_config)(\s|=|$)/,
   sort: /\s(-o|--output|--compress-program)(\s|=|$)|\s-[a-zA-Z]*o/, tree: /\s-o/, yq: /\s(-i|--inplace)(\s|$)/,
   date: /\s(-s|--set)(\s|=|$)/, hostname: /\s[^-\s]/, arp: /\s(-d|-s|-f|--delete|--set|--file)(\s|$)/,
   smartctl: /\s(-t|--test|-s|--smart|-o|--offlineauto|-S|--saveauto|-X|--abort)(\s|=|$)/,
@@ -238,28 +242,157 @@ const WRITE_FLAGS: Record<string, RegExp> = {
 /** Commands whose second positional argument is a file they write (uniq in out, xxd in out). */
 const WRITES_SECOND_ARG = new Set(["uniq", "xxd"]);
 
+/** How a command's options are read: letters that take a value (`short`, the rest of the cluster or the next word),
+ * letters whose value can only be attached (`optional`), and long options that take the next word. */
+interface OptSpec { short?: string; optional?: string; long?: string[] }
+
+/**
+ * Options as getopt reads them: short ones in clusters (`-us` is `-u -s`), a letter that takes a value ending its
+ * cluster (`-tlong` is `-t long`) or taking the next word, long ones with `=value` or the next word, nothing after `--`.
+ */
+function parseOpts(args: string[], spec: OptSpec): { opts: { name: string; value?: string }[]; positional: string[] } {
+  const opts: { name: string; value?: string }[] = [];
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w === "--") { positional.push(...args.slice(i + 1)); break; }
+    if (/^--[^-]/.test(w)) {
+      const eq = w.indexOf("=");
+      if (eq > 0) opts.push({ name: w.slice(0, eq), value: w.slice(eq + 1) });
+      else if (spec.long?.includes(w)) opts.push({ name: w, value: args[++i] ?? "" });
+      else opts.push({ name: w });
+      continue;
+    }
+    if (/^-./.test(w)) {
+      for (let j = 1; j < w.length; j++) {
+        const ch = w[j];
+        if (spec.short?.includes(ch)) { opts.push({ name: `-${ch}`, value: j + 1 < w.length ? w.slice(j + 1) : args[++i] ?? "" }); break; }
+        if (spec.optional?.includes(ch)) { opts.push({ name: `-${ch}`, ...(j + 1 < w.length ? { value: w.slice(j + 1) } : {}) }); break; }
+        opts.push({ name: `-${ch}` });
+      }
+      continue;
+    }
+    positional.push(w);
+  }
+  return { opts, positional };
+}
+
+/**
+ * Options that change something, read as getopt reads them (WRITE_FLAGS only sees the words as written, so a cluster
+ * like date -us, ss -tK, dmesg -rc, arp -nd or smartctl -tlong got past it).
+ */
+const OPT_WRITES: Record<string, { spec: OptSpec; writes: string[] }> = {
+  date: { spec: { short: "dfrsvzF", optional: "I", long: ["--date", "--file", "--reference", "--set"] }, writes: ["-s", "--set"] },
+  ss: { spec: { short: "fAFN", long: ["--family", "--query", "--filter", "--net"] }, writes: ["-K", "--kill", "-D", "--diag"] },
+  smartctl: { spec: { short: "dTbrnsolvFPBtqgf", long: ["--device", "--tolerance", "--badsum", "--report", "--nocheck", "--smart", "--offlineauto", "--saveauto", "--log", "--vendorattribute", "--firmwarebug", "--presets", "--drivedb", "--test", "--quietmode", "--get", "--format"] }, writes: ["-t", "--test", "-s", "--smart", "-o", "--offlineauto", "-S", "--saveauto", "-X", "--abort", "--set"] },
+  dmesg: { spec: { short: "flnsF", long: ["--facility", "--level", "--console-level", "--buffer-size", "--file", "--time-format"] }, writes: ["-c", "-C", "-D", "-E", "-n", "--clear", "--read-clear", "--console-off", "--console-on", "--console-level"] },
+  arp: { spec: { short: "HipAf", long: ["--hw-type", "--device", "--protocol", "--file"] }, writes: ["-d", "-s", "-f", "--delete", "--set", "--file"] },
+  hostname: { spec: { short: "F", long: ["--file"] }, writes: ["-F", "--file", "-b", "--boot"] },
+  sensors: { spec: { short: "c", long: ["--config-file"] }, writes: ["-s", "--set"] },
+  // tree -R writes an HTML file into every folder.
+  tree: { spec: { short: "LPIoHT" }, writes: ["-o", "-R", "--output"] },
+  // yq -s writes each document to a file of its own.
+  yq: { spec: { short: "Iops", long: ["--indent", "--output-format", "--input-format", "--split-exp"] }, writes: ["-i", "--inplace", "-s", "--split-exp"] },
+  // gawk writes its variables (-d), a profile (-p) or the program (-o) to files, and loads programs and libraries.
+  awk: { spec: { short: "FvfilEeW", optional: "dopDL", long: ["--field-separator", "--assign", "--file", "--include", "--load", "--exec", "--source"] }, writes: ["-f", "-i", "-l", "-E", "-W", "-d", "-o", "-p", "-D", "--file", "--include", "--load", "--exec", "--dump-variables", "--pretty-print", "--profile", "--debug"] },
+};
+
+/** Long options that write or run, for GNU tools that also take them shortened (sort --out=f is sort --output=f). */
+const WRITE_LONG: Record<string, string[]> = {
+  sort: ["--output", "--compress-program"],
+  journalctl: ["--vacuum-size", "--vacuum-time", "--vacuum-files", "--rotate", "--flush", "--sync", "--relinquish-var", "--smart-relinquish-var", "--setup-keys", "--update-catalog", "--cursor-file"],
+  less: ["--log-file", "--LOG-FILE", "--lesskey-file", "--lesskey-src", "--lesskey-content"],
+  file: ["--compile"], dmidecode: ["--dump-bin"], whois: ["--host"],
+  pip: ["--index-url", "--extra-index-url", "--find-links", "--proxy", "--trusted-host"],
+  pip3: ["--index-url", "--extra-index-url", "--find-links", "--proxy", "--trusted-host"],
+  sed: ["--in-place", "--file", "--expression"],
+  "nvidia-smi": ["--persistence-mode", "--power-limit", "--applications-clocks", "--reset-applications-clocks", "--compute-mode", "--ecc-config", "--gpu-reset", "--lock-gpu-clocks", "--reset-gpu-clocks", "--lock-memory-clocks", "--reset-memory-clocks"],
+};
+
+/** A shortened long option written out in full when it is the start of one of `names` (`--se` is `--set`). */
+function expandLong(args: string[], names: string[]): string[] {
+  if (!names.length) return args;
+  return args.map((w) => {
+    const m = /^(--[^=]+)(=[\s\S]*)?$/.exec(w);
+    if (!m || m[1].length < 3 || names.includes(m[1])) return w;
+    const full = names.find((n) => n.startsWith(m[1]));
+    return full ? full + (m[2] ?? "") : w;
+  });
+}
+
+const longWrites = (w0: string): string[] => [...(WRITE_LONG[w0] ?? []), ...(OPT_WRITES[w0]?.writes ?? []).filter((n) => n.startsWith("--"))];
+
+/** The options of a command in OPT_WRITES, and what its other words mean, only read. */
+function optionsRead(w0: string, args: string[]): boolean {
+  const ow = OPT_WRITES[w0];
+  if (!ow) return true;
+  const p = parseOpts(args, ow.spec);
+  if (p.opts.some((o) => ow.writes.includes(o.name))) return false;
+  // date sets the clock from a word that is not a +format (date 0101), unless BSD's -j says not to.
+  if (w0 === "date" && !p.opts.some((o) => o.name === "-j") && p.positional.some((w) => !w.startsWith("+"))) return false;
+  if (w0 === "hostname" && p.positional.length) return false;
+  // smartctl -l scterc,70,70 and -l scttempint,N change the drive's settings.
+  if (w0 === "smartctl" && p.opts.some((o) => (o.name === "-l" || o.name === "--log") && /^(scttempint|scterc),/.test(o.value ?? ""))) return false;
+  // gawk runs an extension with @load, and calls any function by a name in a variable (@f(), f = "system").
+  if (w0 === "awk") {
+    const given = p.opts.filter((o) => o.name === "-e" || o.name === "--source").map((o) => o.value ?? "");
+    if ([...given, ...(given.length ? [] : p.positional.slice(0, 1))].some((prog) => prog.includes("@"))) return false;
+  }
+  return true;
+}
+
 /** Environment prefixes a read may carry; any other (GIT_EXTERNAL_DIFF=..., LD_PRELOAD=...) can run code. */
 const SAFE_ENV = /^(LC_[A-Z]+|LANG|LANGUAGE|TZ|COLUMNS|LINES|NO_COLOR|TERM)=/;
 
 /**
+ * Variables a read may expand ($HOME, ${USER}): any other can hold a token or a key ($GITHUB_TOKEN,
+ * ${AWS_SECRET_ACCESS_KEY}), so a command that expands one waits for approval.
+ */
+const SAFE_VARS = /^(HOME|USER|LOGNAME|PATH|PWD|OLDPWD|SHELL|HOSTNAME|HOSTTYPE|OSTYPE|MACHTYPE|LANG|LANGUAGE|LC_[A-Z]+|TERM|TZ|TMPDIR|UID|EUID|PPID|SHLVL|COLUMNS|LINES|BASH_VERSION|ZSH_VERSION|XDG_RUNTIME_DIR|_)$/;
+
+/** Variables the shell expands in a command: $NAME, ${NAME} and ${#NAME} outside single quotes (not $1, $? or $$). */
+export function expandedVars(c: string): string[] {
+  const names: string[] = [];
+  let quote: "'" | '"' | null = null;
+  for (let i = 0; i < c.length; i++) {
+    const ch = c[i];
+    if (quote === "'") { if (ch === "'") quote = null; continue; }
+    if (ch === "\\") { i++; continue; }
+    if (ch === '"') { quote = quote ? null : '"'; continue; }
+    if (ch === "'" && !quote) { quote = "'"; continue; }
+    if (ch !== "$") continue;
+    const m = /^\$(?:\{#?([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/.exec(c.slice(i));
+    if (m) { names.push(m[1] ?? m[2]); i += m[0].length - 1; }
+  }
+  return names;
+}
+
+/**
  * Files and folders that hold secrets: reading them always waits for approval. The hub's own data folder and key
  * folder are added at start (`addSensitivePath`). Output of every command is also stripped of the hub's secret
- * values (HostActions.hiddenValues), for a read this list misses.
+ * values (HostActions.hiddenValues), for a read this list misses. secret and token count as words after _ and - too
+ * (client_secret.json, AWS_SECRET_ACCESS_KEY, GITHUB_TOKEN), and so do the logins other tools keep: gh's hosts.yml,
+ * Docker's config.json, rclone.conf, WireGuard configs, Tailscale's state, SSH host keys, saved Wi-Fi keys, shell
+ * histories, .npmrc, .pypirc, .my.cnf, TLS private keys and Kerberos keytabs.
  */
-const SENSITIVE = /connections\.json|hub\.env|(^|[\s/'"=])\.env\b|work\.key|passwords\.kdbx|\bai\.json|\.ssh(\/|\b)|\bid_(rsa|dsa|ecdsa|ed25519)|\.netrc|\.pgpass|\.aws\/|\.kube\/config|\/etc\/(shadow|gshadow|sudoers)|\b(shadow|gshadow)\b|\.gnupg|\.config\/everythingapp|\.local\/share\/everythingapp|\/environ\b|keychain|\bsecrets?\b|\btokens?\b|credentials|lpass|lastpass|1password|bitwarden|vaultwarden|\.kdbx\b/i;
+const SENSITIVE = /connections\.json|hub\.env|(^|[\s/'"=])\.env\b|work\.key|passwords\.kdbx|\bai\.json|\.ssh(\/|\b)|\bid_(rsa|dsa|ecdsa|ed25519)|\.netrc|\.pgpass|\.aws[\\/]|\.kube[\\/]config|\/etc\/(shadow|gshadow|sudoers)|\b(shadow|gshadow)\b|\.gnupg|\.config\/everythingapp|\.local\/share\/everythingapp|\/environ\b|keychain|(?<![a-z0-9])(secrets?|tokens?)(?![a-z0-9])|credentials|lpass|lastpass|1password|bitwarden|vaultwarden|\.kdbx\b|\bgh[\\/]hosts\.yml|\.docker[\\/]|rclone\.conf|wireguard|\bwg[\w-]*\.conf\b|tailscaled\.state|[\\/]var[\\/]lib[\\/]tailscale\b|ssh_host_|system-connections|wpa_supplicant|_history\b|\.npmrc|\.pypirc|\.my\.cnf|\.password-store|keytab|privkey|[\\/]ssl[\\/]private|\.(p12|pfx)\b|pve[\\/]priv/i;
+/** camelCase names (accessToken, clientSecret), which the case-blind list above does not see as words. */
+const SENSITIVE_CAMEL = /[a-z0-9](Token|Secret)s?(?![a-z])/;
 const sensitivePaths = new Set<string>();
 export function addSensitivePath(p: string): void { if (p && p.length > 3) sensitivePaths.add(p.replace(/\/+$/, "")); }
 function touchesSecrets(c: string): boolean {
-  if (SENSITIVE.test(c)) return true;
+  if (SENSITIVE.test(c) || SENSITIVE_CAMEL.test(c)) return true;
   for (const p of sensitivePaths) if (c.includes(p)) return true;
   return false;
 }
 
 /**
  * Each word of a command as the shell will see it: quotes and backslashes taken out (`.s''sh` and `.s\sh` are
- * `.ssh`), and whether it has a wildcard the shell expands (`*`, `?`, `[`, `{a,b}` outside quotes).
+ * `.ssh`, `-"o"` is `-o`), backslash-newline line joins removed, and whether it has a wildcard the shell expands
+ * (`*`, `?`, `[`, `{a,b}` outside quotes). With `dropRedirects`, a redirect and its target (2>&1, >/dev/null) are not
+ * words of the command.
  */
-export function shellWords(c: string): { text: string; glob: boolean }[] {
+export function shellWords(c: string, dropRedirects = false): { text: string; glob: boolean }[] {
   const out: { text: string; glob: boolean }[] = [];
   let cur = "", glob = false, started = false;
   let quote: "'" | '"' | null = null;
@@ -269,18 +402,41 @@ export function shellWords(c: string): { text: string; glob: boolean }[] {
     if (quote === "'") { if (ch === "'") quote = null; else cur += ch; continue; }
     if (quote === '"') {
       if (ch === '"') quote = null;
+      else if (ch === "\\" && c[i + 1] === "\n") i++;
       else if (ch === "\\" && i + 1 < c.length && '"\\$`'.includes(c[i + 1])) cur += c[++i];
       else cur += ch;
       continue;
     }
     if (ch === "'" || ch === '"') { quote = ch; started = true; continue; }
-    if (ch === "\\") { cur += c[++i] ?? ""; started = true; continue; }
+    if (ch === "\\") { if (c[i + 1] === "\n") { i++; continue; } cur += c[++i] ?? ""; started = true; continue; }
+    if (dropRedirects && (ch === "<" || ch === ">" || (ch === "&" && c[i + 1] === ">"))) {
+      // A file descriptor number right before the operator (2>) belongs to it.
+      if (/^\d+$/.test(cur)) { cur = ""; glob = false; started = false; } else end();
+      let j = i;
+      while (j < c.length && /[<>&|]/.test(c[j])) j++;
+      while (j < c.length && /[ \t]/.test(c[j])) j++;
+      i = wordEnd(c, j) - 1;
+      continue;
+    }
     if (/\s/.test(ch) || ch === ";" || ch === "|" || ch === "&") { end(); continue; }
     if ("*?[{".includes(ch)) glob = true;
     cur += ch; started = true;
   }
   end();
   return out;
+}
+
+/** Where the shell word starting at `i` ends (quotes and backslashes kept together). */
+function wordEnd(c: string, i: number): number {
+  let quote: string | null = null;
+  for (; i < c.length; i++) {
+    const ch = c[i];
+    if (quote) { if (ch === quote) quote = null; else if (ch === "\\" && quote === '"') i++; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; continue; }
+    if (ch === "\\") { i++; continue; }
+    if (/[\s;&|<>]/.test(ch)) break;
+  }
+  return i;
 }
 
 /** Files and folders that hold secrets, as a wildcard could reach them (`~` is any home). */
@@ -290,7 +446,30 @@ const SECRET_FILES = [
   "~/.local/share/everythingapp/hub.sqlite", "~/.local/share/everythingapp/chats.sqlite", "~/.local/share/everythingapp/ai.json",
   "~/.local/share/everythingapp/passwords.kdbx", "~/.netrc", "~/.pgpass", "~/.aws/credentials", "~/.kube/config", "~/.gnupg/private-keys-v1.d",
   "~/.lpass/session", "~/.local/share/lpass/session", "/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/proc/1/environ", "/proc/self/environ", "~/.env",
+  "~/.config/gh/hosts.yml", "~/.docker/config.json", "~/.config/rclone/rclone.conf", "~/.bash_history", "~/.zsh_history", "~/.npmrc", "~/.pypirc",
+  "~/.my.cnf", "~/.git-credentials", "~/.password-store/x", "/etc/wireguard/wg0.conf", "/var/lib/tailscale/tailscaled.state",
+  "/etc/ssh/ssh_host_ed25519_key", "/etc/ssh/ssh_host_rsa_key", "/etc/ssh/ssh_host_ecdsa_key", "/etc/NetworkManager/system-connections/x",
+  "/etc/wpa_supplicant/wpa_supplicant.conf", "/etc/krb5.keytab", "/etc/ssl/private/x", "/etc/pve/priv/x",
 ];
+
+/** Any home folder written as ~ ($HOME, ${HOME}, ~user, /home/<user>, /Users/<user>, /root). */
+const asHome = (p: string): string => p.replace(/^(\$HOME|\$\{HOME\}|~[a-z_][a-z0-9_-]*|\/home\/[^/]+|\/Users\/[^/]+|\/root)(?=\/|$)/, "~");
+
+/** Every secret path, and every folder a wildcard may reach one through: in a home, each folder down to it; elsewhere
+ * its own folder (so /var/* is not one, /var/lib/tailscale is). */
+function secretCandidates(): Set<string> {
+  const candidates = new Set<string>();
+  for (const f of [...SECRET_FILES, ...[...sensitivePaths].map((p) => `${asHome(p)}/x`)]) {
+    const parts = f.split("/");
+    for (let n = f.startsWith("~/") ? 2 : Math.max(2, parts.length - 1); n <= parts.length; n++) {
+      const p = parts.slice(0, n).join("/");
+      candidates.add(p);
+      // A word with no leading slash may be relative to the home folder.
+      if (p.startsWith("~/")) candidates.add(p.slice(2));
+    }
+  }
+  return candidates;
+}
 
 /** A wildcard word that could name a secret file or a folder holding one (`~/.ss?/id_*`, `~/.config/everything*`). */
 function globReachesSecret(raw: string): boolean {
@@ -307,25 +486,52 @@ function globReachesSecret(raw: string): boolean {
   }
   let rx: RegExp;
   try { rx = new RegExp(`^${re}/?$`); } catch { return true; }
-  const candidates = new Set<string>();
-  for (const f of [...SECRET_FILES, ...[...sensitivePaths].map((p) => `${p}/x`)]) {
-    const parts = f.split("/");
-    for (let n = 2; n <= parts.length; n++) {
-      const p = parts.slice(0, n).join("/");
-      candidates.add(p);
-      // A word with no leading slash may be relative to the home folder.
-      if (p.startsWith("~/")) candidates.add(p.slice(2));
-    }
-  }
-  for (const cand of candidates) if (rx.test(cand)) return true;
+  for (const cand of secretCandidates()) if (rx.test(cand)) return true;
   return false;
+}
+
+/**
+ * A folder a recursive read (grep -r, rg over hidden files, diff -r) would read secrets from: one holding a secret
+ * file, a home, or a relative path when a cd moved the folder the command runs in (otherwise its home).
+ */
+function holdsSecret(raw: string, cwdMoved: boolean): boolean {
+  let p = asHome(raw).replace(/\/+$/, "");
+  if (!p) return true;
+  if (!p.startsWith("/") && !p.startsWith("~")) {
+    if (cwdMoved || /(^|\/)\.\.(\/|$)/.test(p)) return true;
+    p = p === "." ? "~" : `~/${p.replace(/^\.\//, "")}`;
+  }
+  if (p === "/home" || p === "/Users") return true;
+  return [...SECRET_FILES, ...[...sensitivePaths].map(asHome)].some((s) => s === p || s.startsWith(`${p}/`));
+}
+
+/** grep -r, rg with hidden files (--hidden, -uu, -.) and diff -r read every file below their folders. */
+function readsSecretTree(w0: string, args: string[], cwdMoved: boolean): boolean {
+  let paths: string[];
+  if (w0 === "grep" || w0 === "egrep" || w0 === "fgrep") {
+    const p = parseOpts(args, { short: "efmABCdD", long: ["--regexp", "--file", "--max-count", "--after-context", "--before-context", "--context", "--directories", "--devices", "--label", "--include", "--exclude", "--exclude-dir", "--exclude-from", "--binary-files"] });
+    const recursive = p.opts.some((o) => /^(-r|-R|--recursive|--dereference-recursive)$/.test(o.name) || (/^(-d|--directories)$/.test(o.name) && o.value === "recurse"));
+    if (!recursive) return false;
+    paths = p.positional.slice(p.opts.some((o) => /^(-e|-f|--regexp|--file)$/.test(o.name)) ? 0 : 1);
+  } else if (w0 === "rg") {
+    const p = parseOpts(args, { short: "efgtTmABCMjErd", long: ["--regexp", "--file", "--glob", "--iglob", "--type", "--type-not", "--max-count", "--after-context", "--before-context", "--context", "--max-columns", "--threads", "--encoding", "--replace", "--max-depth", "--pre", "--sort", "--sortr"] });
+    const unrestricted = p.opts.filter((o) => o.name === "-u" || o.name === "--unrestricted").length;
+    if (p.opts.some((o) => o.name === "--files") || !(unrestricted >= 2 || p.opts.some((o) => o.name === "--hidden" || o.name === "-."))) return false;
+    paths = p.positional.slice(p.opts.some((o) => /^(-e|-f|--regexp|--file)$/.test(o.name)) ? 0 : 1);
+  } else if (w0 === "diff") {
+    const p = parseOpts(args, { short: "CUIxXFLDWS", long: ["--context", "--unified", "--ignore-matching-lines", "--exclude", "--exclude-from", "--show-function-line", "--label", "--ifdef", "--width", "--starting-file", "--from-file", "--to-file"] });
+    if (!p.opts.some((o) => o.name === "-r" || o.name === "--recursive")) return false;
+    paths = p.positional;
+  } else return false;
+  return (paths.length ? paths : ["."]).some((p) => holdsSecret(p, cwdMoved));
 }
 
 // Trace-Command -Command runs any command, and Find-/Search- cmdlets fetch from any feed given (-Source http://...).
 const PS_READ_VERBS = /^(get|test|resolve|measure|select|where|sort|format|out-string|out-host|convertto|convertfrom|compare|group|show|read)-/i;
 const WIN_READ_CMDS = new Set(["ipconfig", "hostname", "whoami", "systeminfo", "tasklist", "netstat", "ping", "nslookup", "tracert", "pathping", "dir", "type", "where", "nvidia-smi", "driverquery", "ver", "echo", "findstr", "more", "sort", "arp", "route", "getmac", "query", "qwinsta", "quser", "gpresult", "w32tm", "wsl", "sc", "netsh", "fsutil", "wmic", "chkdsk", "powercfg"]);
 const WIN_READ_SUB: Record<string, RegExp> = { route: /^print$/i, sc: /^(query|queryex|qc|qdescription)$/i, netsh: /^(interface|int|wlan|advfirewall|http|winhttp)$/i, wsl: /^(-l|--list|--status|--version|-v)$/i, w32tm: /^\/(query|tz|stripchart)$/i, fsutil: /^(fsinfo|volume|8dot3name)$/i, wmic: /\S/, chkdsk: /^[a-z]:$/i, powercfg: /^(\/l|\/list|\/q|\/query|\/a|\/availablesleepstates|\/getactivescheme|\/batteryreport)$/i };
-const WIN_WRITE: RegExp = /\b(set|add|delete|remove|stop|start|restart|reset|config|create|new|install|uninstall|enable|disable|\/f|\/delete|call|export|import|dump|repair)\b|\s\/(o|out|output)\b/i;
+// wmic writes its output to a file with /output:, /append: and /record:.
+const WIN_WRITE: RegExp = /\b(set|add|delete|remove|stop|start|restart|reset|config|create|new|install|uninstall|enable|disable|\/f|\/delete|call|export|import|dump|repair)\b|\s\/(o|out|output|append|record)\b/i;
 /** Windows commands where every argument must be one of these (ipconfig /release, chkdsk /r and arp -d change things). */
 const WIN_STRICT: Record<string, RegExp> = {
   ipconfig: /^\/(all|displaydns|allcompartments)$/i,
@@ -340,10 +546,32 @@ const WIN_FSUTIL2: Record<string, RegExp> = {
   "8dot3name": /^(query|scan)$/i,
 };
 
+/** netsh only reads with show, reached through context words (netsh interface ipv4 show addresses); never key=clear. */
+function netshReads(args: string[]): boolean {
+  const lower = args.map((w) => w.toLowerCase());
+  const show = lower.indexOf("show");
+  if (show < 1 || lower.some((w) => /^key\s*=\s*clear$/.test(w))) return false;
+  return lower.slice(0, show).every((w) => /^(interface|int|ipv4|ipv6|ip|wlan|lan|advfirewall|firewall|http|winhttp|tcp|udp|portproxy|winsock|namespace|bridge|mbn|branchcache|trace|dhcpclient)$/.test(w));
+}
+
+/** Environment variables a Windows read may name ($env:PATH, Env:\COMPUTERNAME); the rest can hold keys. */
+const WIN_SAFE_ENV = /^(PATH|PATHEXT|COMPUTERNAME|USERNAME|USERDOMAIN|USERPROFILE|HOMEDRIVE|HOMEPATH|OS|PROCESSOR_ARCHITECTURE|PROCESSOR_IDENTIFIER|NUMBER_OF_PROCESSORS|TEMP|TMP|SYSTEMROOT|WINDIR|SYSTEMDRIVE|PROGRAMFILES|PROGRAMDATA|APPDATA|LOCALAPPDATA|PUBLIC|LOGONSERVER)$/i;
+
+/** A Windows read that shows the environment (Get-ChildItem Env:, $env:GITHUB_TOKEN) or saved Wi-Fi keys (key=clear). */
+function windowsShowsSecrets(c: string): boolean {
+  for (const m of c.matchAll(/env:\s*([^\s;|&'"`$)}\],]*)/gi)) {
+    const name = m[1].replace(/^[\\/]/, "");
+    if (!name || !WIN_SAFE_ENV.test(name)) return true;
+  }
+  return /\[\s*(System\.)?Environment\s*\]/i.test(c) || /key\s*=\s*clear/i.test(c);
+}
+
 /**
  * Split a command line on unquoted |, ||, &&, ; and newlines. `redirect` is true when an unquoted > writes
  * somewhere other than /dev/null or another stream, and `unsafe` when there is a lone & (it starts a background
- * command, so `true & anything` would run anything) or a quote is left open. Quoted text stays inside its segment.
+ * command, so `true & anything` would run anything), a quote is left open, a here-document (<<) or ANSI-C quoting
+ * ($'...') is used. Quoted text stays inside its segment; a # that starts a word starts a comment, which is dropped
+ * up to the end of its line, and a backslash before a newline joins the lines, as the shell reads them.
  */
 export function lex(cmd: string): { segments: string[]; redirect: boolean; unsafe: boolean } {
   const segments: string[] = [];
@@ -351,15 +579,23 @@ export function lex(cmd: string): { segments: string[]; redirect: boolean; unsaf
   let quote: "'" | '"' | null = null;
   let redirect = false;
   let unsafe = false;
+  // At the start of a word: where a # starts a comment.
+  let wordStart = true;
   // Where an output redirect goes: only /dev/null, $null and another stream (2>&1, >&2) keep a command read-only.
   const harmless = (target: string) => /^(\/dev\/null\b|\$null\b|&\s*[0-9-](?![\w./]))/i.test(target);
   for (let i = 0; i < cmd.length; i++) {
     const ch = cmd[i];
     if (quote) { cur += ch; if (ch === quote) quote = null; else if (ch === "\\" && quote === '"') cur += cmd[++i] ?? ""; continue; }
-    if (ch === "'" || ch === '"') { quote = ch; cur += ch; continue; }
-    if (ch === "\\") { cur += ch + (cmd[++i] ?? ""); continue; }
-    if (ch === "&" && cmd[i + 1] === "&") { i++; segments.push(cur); cur = ""; continue; }
+    if (ch === "\\" && cmd[i + 1] === "\n") { i++; continue; }
+    if (ch === "#" && wordStart) { while (i + 1 < cmd.length && cmd[i + 1] !== "\n") i++; continue; }
+    // $'...' takes backslash escapes, \' among them, so its quote ends where a plain one does not: the rest of the
+    // line would be read differently here than by the shell.
+    if (ch === "$" && cmd[i + 1] === "'") unsafe = true;
+    if (ch === "'" || ch === '"') { quote = ch; cur += ch; wordStart = false; continue; }
+    if (ch === "\\") { cur += ch + (cmd[++i] ?? ""); wordStart = false; continue; }
+    if (ch === "&" && cmd[i + 1] === "&") { i++; segments.push(cur); cur = ""; wordStart = true; continue; }
     if (ch === "&") {
+      wordStart = true;
       // &> and &>> send both streams to a file.
       if (cmd[i + 1] === ">") {
         const target = cmd.slice(i + 2).replace(/^>/, "").trimStart();
@@ -371,26 +607,44 @@ export function lex(cmd: string): { segments: string[]; redirect: boolean; unsaf
       unsafe = true; cur += ch; continue;
     }
     if (ch === "|" || ch === ";" || ch === "\n") {
+      wordStart = true;
       if (ch === "|" && cmd[i + 1] === "|") i++;
       // >| forces a write.
       if (ch === "|" && cur.endsWith(">")) { redirect = true; cur += ch; continue; }
       segments.push(cur); cur = ""; continue;
     }
-    if (ch === ">") {
-      const rest = cmd.slice(i + 1).replace(/^>/, "").trimStart();
-      const prev = cur.slice(-1);
-      // "a -> b" in an argument and "x=>y" are not redirects.
-      if (!(harmless(rest) || prev === "-" || prev === "=")) redirect = true;
+    // A here-document's lines are data, not commands, and a quote in them would throw this reading out of step with
+    // the shell's. <<< (a here-string) is one word.
+    if (ch === "<" && cmd[i + 1] === "<") {
+      if (cmd[i + 2] === "<") { cur += "<<<"; i += 2; wordStart = true; continue; }
+      unsafe = true;
     }
+    // Every unquoted > is a redirect, also after - or = (echo x ->~/.bashrc and a=>~/.profile write those files).
+    if (ch === ">" && !harmless(cmd.slice(i + 1).replace(/^>/, "").trimStart())) redirect = true;
     // <> opens a file for writing too.
     if (ch === "<" && cmd[i + 1] === ">") redirect = true;
     cur += ch;
+    wordStart = /[\s()<>]/.test(ch);
   }
   segments.push(cur);
   return { segments: segments.map((x) => x.trim()).filter(Boolean), redirect: redirect || quote !== null, unsafe: unsafe || quote !== null };
 }
 
-/** Words of one segment with quotes removed (good enough to read the command name and its flags). */
+/** The command with quoted and escaped characters blanked out: what the shell itself reads as syntax. */
+function bareText(c: string): string {
+  let out = "";
+  let quote: string | null = null;
+  for (let i = 0; i < c.length; i++) {
+    const ch = c[i];
+    if (quote) { if (ch === quote) quote = null; else if (ch === "\\" && quote === '"') { i++; out += "_"; } out += "_"; continue; }
+    if (ch === "'" || ch === '"') { quote = ch; out += "_"; continue; }
+    if (ch === "\\") { i++; out += "__"; continue; }
+    out += ch;
+  }
+  return out;
+}
+
+/** Words of one segment with quotes removed (good enough to read a PowerShell command's name and its flags). */
 function words(seg: string): string[] {
   return (seg.match(/'[^']*'|"(?:\\.|[^"\\])*"|\S+/g) ?? []).map((w) => w.replace(/^(['"])([\s\S]*)\1$/, "$2"));
 }
@@ -464,7 +718,8 @@ function shortCluster(w: string): string | null {
 /** git config only reads with --get/--list (or get/list), or with one name and no value; anything else sets. */
 function gitConfigReads(ws: string[]): boolean {
   const at = ws.indexOf("config");
-  const args = ws.slice(at + 1);
+  // git takes a long option shortened (--unse is --unset).
+  const args = expandLong(ws.slice(at + 1), ["--add", "--unset", "--unset-all", "--replace-all", "--rename-section", "--remove-section", "--edit"]);
   if (args.some((w) => /^--(add|unset|unset-all|replace-all|rename-section|remove-section|edit)$/.test(w) || w === "-e")) return false;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -476,6 +731,222 @@ function gitConfigReads(ws: string[]): boolean {
   if (/^(set|unset|rename-section|remove-section|edit)$/.test(positional[0] ?? "")) return false;
   if (args.some((w) => /^(--get|--get-all|--get-regexp|--get-urlmatch|--get-color|--get-colorbool|-l|--list)$/.test(w))) return positional.length <= 3;
   return positional.length <= 1;
+}
+
+/** How git branch and git tag only list: the letters and long options of listing, and the ones that take a commit or a
+ * key; a word that is not an option is a pattern only when listing (-l, --list, --contains, --merged, ...). */
+const GIT_LISTING: Record<string, { letters: string; long: string[]; listsWith: RegExp }> = {
+  branch: { letters: "arvliq", long: ["--all", "--remotes", "--verbose", "--list", "--ignore-case", "--quiet", "--no-color", "--color", "--no-column", "--column", "--show-current", "--omit-empty", "--no-abbrev", "--abbrev"], listsWith: /^(-[a-z]*l[a-z]*|--list)$/ },
+  tag: { letters: "lin", long: ["--list", "--ignore-case", "--no-color", "--color", "--no-column", "--column", "--omit-empty", "--verify"], listsWith: /^(-[a-z]*l[a-z]*|--list|-n\d*|--verify|-v)$/ },
+};
+const GIT_VALUE_OPTS = ["--sort", "--format", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at"];
+
+/** git branch and git tag that only list (git branch -dr x, git branch --force, git tag -m m v9 make or delete). */
+function gitListOnly(sub: "branch" | "tag", args: string[]): boolean {
+  const spec = GIT_LISTING[sub];
+  let listing = false;
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w === "--") { positional.push(...args.slice(i + 1)); break; }
+    if (w.startsWith("--")) {
+      const name = w.split("=", 1)[0];
+      if (GIT_VALUE_OPTS.includes(name)) {
+        if (name !== "--sort" && name !== "--format") listing = true;
+        if (!w.includes("=") && args[i + 1] !== undefined && !args[i + 1].startsWith("-")) i++;
+        continue;
+      }
+      if (!spec.long.includes(name)) return false;
+      if (spec.listsWith.test(name)) listing = true;
+      continue;
+    }
+    if (/^-./.test(w)) {
+      const ok = sub === "tag" && /^-n\d*$/.test(w) ? true : /^-[a-z]+$/.test(w) && [...w.slice(1)].every((ch) => spec.letters.includes(ch)) || (sub === "tag" && w === "-v");
+      if (!ok) return false;
+      if (spec.listsWith.test(w)) listing = true;
+      continue;
+    }
+    positional.push(w);
+  }
+  return !positional.length || listing;
+}
+
+/** git remote only lists (git remote, -v, show, get-url): git remote -v prune and the rest change remotes. */
+function gitRemoteReads(args: string[]): boolean {
+  let i = 0;
+  while (args[i] === "-v" || args[i] === "--verbose") i++;
+  const sub = args[i];
+  if (sub === undefined) return true;
+  const rest = args.slice(i + 1);
+  if (sub === "show") return rest.every((w) => !w.startsWith("-") || w === "-n");
+  if (sub === "get-url") return rest.every((w) => !w.startsWith("-") || w === "--push" || w === "--all");
+  return false;
+}
+
+function gitReads(ws: string[]): boolean {
+  if (ws[1] === "config") return gitConfigReads(ws);
+  if (ws[1] === "branch" || ws[1] === "tag") return gitListOnly(ws[1], ws.slice(2));
+  if (ws[1] === "remote") return gitRemoteReads(ws.slice(2));
+  return true;
+}
+
+/** ip's objects, in the order ip matches a shortened one (ip a is address, ip n is neighbor). */
+const IP_OBJECTS = ["address", "addrlabel", "maddress", "route", "rule", "neighbor", "neighbour", "ntable", "ntbl", "link", "l2tp", "fou", "ila", "macsec", "tunnel", "tunl", "tuntap", "tap", "token", "tcpmetrics", "tcp_metrics", "monitor", "xfrm", "mroute", "mrule", "netns", "netconf", "vrf", "sr", "nexthop", "mptcp", "ioam", "stats", "help"];
+
+/**
+ * ip only reads when it shows: its global options first (each skipped with its value: -n takes a namespace, -batch
+ * reads commands from a file and waits), then the object, then nothing or a showing action. Every flag used to pass
+ * as the object, so ip -4 netns exec ns rm -rf /x read as ip -4. netns exec, vrf exec and netns attach run or change.
+ */
+function ipReads(args: string[]): boolean {
+  let i = 0;
+  for (; i < args.length && args[i].startsWith("-"); i++) {
+    const o = args[i].replace(/^--?/, "");
+    if (!o || /^(b|ba|bat|batc|batch|fo|for|forc|force)$/.test(o)) return false;
+    if (/^(n|ne|net|netn|netns|l|lo|loo|loop|loops|f|fa|fam|fami|famil|family|rc|rcv|rcvb|rcvbu|rcvbuf)$/.test(o)) i++;
+  }
+  if (i >= args.length) return true;
+  const obj = IP_OBJECTS.find((o) => o.startsWith(args[i]));
+  if (!obj) return false;
+  const rest = args.slice(i + 1);
+  const showing = (w: string | undefined) => w === undefined || /^(show|sh|list|lst|ls|get|help)$/.test(w);
+  switch (obj) {
+    case "monitor": return true;
+    case "netns": return rest[0] === undefined || /^(list|list-id|identify|pids|monitor|help)$/.test(rest[0]);
+    case "vrf": return rest[0] === undefined || /^(show|identify|pids|help)$/.test(rest[0]);
+    case "xfrm": return rest[0] === "monitor" || (/^(state|policy)$/.test(rest[0] ?? "") && (rest[1] === undefined || /^(list|show|get|count)$/.test(rest[1])));
+    case "mptcp": return rest[0] === "monitor" || (/^(endpoint|limits)$/.test(rest[0] ?? "") && showing(rest[1]));
+    default: return showing(rest[0]);
+  }
+}
+
+type NmKind = "read" | "bare" | "write" | "wifi" | "lldp";
+/** nmcli's objects and their actions, in nmcli's order; `bare` reads only with nothing after it (general hostname). */
+const NMCLI: Record<string, [string, NmKind][]> = {
+  general: [["status", "read"], ["hostname", "bare"], ["permissions", "read"], ["logging", "bare"], ["reload", "write"]],
+  networking: [["on", "write"], ["off", "write"], ["connectivity", "read"]],
+  radio: [["all", "bare"], ["wifi", "bare"], ["wwan", "bare"]],
+  connection: [["show", "read"], ["up", "write"], ["down", "write"], ["add", "write"], ["modify", "write"], ["clone", "write"], ["edit", "write"], ["delete", "write"], ["monitor", "read"], ["reload", "write"], ["load", "write"], ["import", "write"], ["export", "write"], ["migrate", "write"]],
+  device: [["status", "read"], ["show", "read"], ["set", "write"], ["connect", "write"], ["reapply", "write"], ["modify", "write"], ["disconnect", "write"], ["delete", "write"], ["monitor", "read"], ["wifi", "wifi"], ["lldp", "lldp"], ["up", "write"], ["down", "write"], ["checkpoint", "write"]],
+  agent: [], monitor: [], help: [],
+};
+const NMCLI_WIFI: [string, NmKind][] = [["list", "read"], ["connect", "write"], ["hotspot", "write"], ["rescan", "write"], ["show-password", "write"]];
+/** nmcli's global options: `value` takes the next word; show-secrets and ask hand out or ask for secrets. */
+const NMCLI_OPTS: [string, "flag" | "value" | "no"][] = [["terse", "flag"], ["pretty", "flag"], ["mode", "value"], ["colors", "value"], ["escape", "value"], ["fields", "value"], ["get-values", "value"], ["ask", "no"], ["show-secrets", "no"], ["wait", "value"], ["version", "flag"], ["help", "flag"], ["overview", "flag"], ["offline", "flag"], ["complete-args", "flag"]];
+
+/** What a word nmcli may take shortened stands for: its exact match, else what every name it starts reads as. */
+function nmPick(word: string, table: [string, NmKind][]): NmKind | null {
+  const exact = table.find(([n]) => n === word);
+  if (exact) return exact[1];
+  const kinds = new Set(table.filter(([n]) => word && n.startsWith(word)).map(([, k]) => k));
+  if (!kinds.size) return null;
+  return kinds.size === 1 ? [...kinds][0] : "write";
+}
+
+/**
+ * nmcli only reads with a showing action (allow-listed: nmcli general hostname X and nmcli device wifi hotspot used
+ * to pass). nmcli takes every word shortened (nmcli d w h is device wifi hotspot): a short word that could be a change
+ * waits.
+ */
+function nmcliReads(args: string[]): boolean {
+  let i = 0;
+  for (; i < args.length && args[i].startsWith("-"); i++) {
+    const o = args[i].replace(/^--?/, "");
+    const kinds = new Set(NMCLI_OPTS.filter(([n]) => o && n.startsWith(o)).map(([, k]) => k));
+    if (!kinds.size || kinds.has("no")) return false;
+    if (kinds.has("value")) i++;
+  }
+  if (i >= args.length) return true;
+  const obj = Object.keys(NMCLI).find((o) => o.startsWith(args[i]));
+  if (!obj || obj === "agent") return false;
+  if (obj === "monitor" || obj === "help") return true;
+  const rest = args.slice(i + 1);
+  if (rest.some((w) => /^--?s/.test(w) && "show-secrets".startsWith(w.replace(/^--?/, "")))) return false;
+  if (rest[0] === undefined || rest[0] === "help") return true;
+  switch (nmPick(rest[0], NMCLI[obj])) {
+    case "read": return true;
+    case "bare": return rest.length === 1;
+    case "wifi": return rest[1] === undefined || nmPick(rest[1], NMCLI_WIFI) === "read";
+    case "lldp": return rest[1] === undefined || rest[1] === "list";
+    default: return false;
+  }
+}
+
+/** ps with each process's environment (BSD-style e as in ps eww, and -E on macOS and BSD): it holds tokens and keys. */
+function psShowsEnv(args: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w.startsWith("-")) {
+      if (/^-[a-zA-Z]*E/.test(w)) return true;
+      // Options that take the next word (-o pid,user: user is not a BSD option word).
+      if (/^-[a-zA-Z]*[oOpqtuUgGCsk]$/.test(w) || /^--(format|sort|pid|ppid|user|group|sid|tty|cols|columns|width|rows|lines|quick-pid|User|Group)$/.test(w)) i++;
+      continue;
+    }
+    if (/^[a-zA-Z]+$/.test(w)) {
+      if (w.includes("e")) return true;
+      if (/[oOptUk]$/.test(w)) i++;
+    }
+  }
+  return false;
+}
+
+/** A Go template for docker inspect that names fields only ({{.State.Status}}), none that hold the environment or a
+ * volume's mount options. */
+function inspectFormatSafe(args: string[]): boolean {
+  const formats: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w === "-f" || w === "--format") formats.push(args[++i] ?? "");
+    else if (w.startsWith("--format=")) formats.push(w.slice(9));
+    else if (/^-f./.test(w)) formats.push(w.slice(2));
+  }
+  if (!formats.length) return false;
+  return formats.every((f) => {
+    const parts = f.match(/\{\{[\s\S]*?\}\}/g) ?? [];
+    if (f.replace(/\{\{[\s\S]*?\}\}/g, "").includes("{{")) return false;
+    return parts.every((p) => /^\{\{-?\s*(\.[A-Za-z_][A-Za-z0-9_]*)+\s*-?\}\}$/.test(p) && !/\.(Config|Env|Options)\b/.test(p));
+  });
+}
+
+/** docker inspect without a narrow --format shows each container's environment; docker compose config fills in the
+ * .env values. */
+function dockerShowsSecrets(ws: string[]): boolean {
+  const args = ws.slice(1);
+  const first = args.findIndex((w) => !w.startsWith("-"));
+  if (first < 0) return false;
+  const group = args[first];
+  const after = args.slice(first + 1);
+  if (group === "inspect") return !inspectFormatSafe(after);
+  if (!DOCKER_READ2[group]) return false;
+  const j = after.findIndex((w, k) => !w.startsWith("-") && !(k > 0 && DOCKER_VALUE_FLAGS.test(after[k - 1])));
+  if (after[j] === "inspect") return !inspectFormatSafe(after.slice(j + 1));
+  if (group === "compose" && after[j] === "config") {
+    const rest = after.slice(j + 1);
+    return !rest.some((w) => /^(--services|--volumes|--profiles|--images|--networks|-q|--quiet)$|^--hash(=|$)/.test(w)) || rest.some((w) => /^(-o|--output)(=|$)|^-o./.test(w));
+  }
+  return false;
+}
+
+/** systemctl show with no property named, or the Environment one, prints a unit's environment. */
+function systemctlShowsEnv(args: string[]): boolean {
+  const props: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const w = args[i];
+    if (w === "-p" || w === "-P" || w === "--property") props.push(args[++i] ?? "");
+    else if (w.startsWith("--property=")) props.push(w.slice(11));
+    else if (/^-[pP]./.test(w)) props.push(w.slice(2));
+  }
+  return !props.length || props.some((p) => !p.trim() || /environment/i.test(p));
+}
+
+/** Reads that print secrets: the environment (ps eww, jq env, systemctl show), docker inspect, docker compose config. */
+function showsSecrets(w0: string, firstArg: string, ws: string[]): boolean {
+  const args = ws.slice(1);
+  if (w0 === "ps") return psShowsEnv(args);
+  if (w0 === "jq") return args.some((w) => /(^|[^\w.$])env\b|\$ENV\b/.test(w));
+  if (w0 === "systemctl" && firstArg === "show") return systemctlShowsEnv(args);
+  if (w0 === "docker") return dockerShowsSecrets(ws);
+  return false;
 }
 
 /** curl and wget fetch only over http(s) (gopher:// or dict:// to a server on the network can send it commands). */
@@ -563,6 +1034,60 @@ function uncLeavesNetwork(c: string): boolean {
   return false;
 }
 
+/** The command a segment runs, after any VAR=value prefixes. */
+function commandWord(seg: string): string {
+  return shellWords(seg, true).map((w) => w.text).find((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) ?? "";
+}
+
+/** One segment of a Linux or macOS command (between |, ;, && and ||) only reads. */
+function segmentReads(seg: string, cwdMoved: boolean): boolean {
+  let ws = shellWords(seg, true).map((w) => w.text);
+  // VAR=value before a command: only harmless locale and display settings.
+  while (ws.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[0])) {
+    if (!SAFE_ENV.test(ws[0])) return false;
+    ws = ws.slice(1);
+  }
+  // git -C <dir> and --no-pager come before the subcommand.
+  if (ws[0] === "git") ws = ws.filter((w, i) => w !== "--no-pager" && w !== "-C" && ws[i - 1] !== "-C");
+  // Nothing but assignments: it changes the shell's own variables, which a later ${x@P} or $((x)) could run.
+  if (!ws.length) return false;
+  // A command named by path only counts when it is the system's own copy (./ls could be anything).
+  if (ws[0].includes("/") && !/^\/(usr\/)?(local\/)?s?bin\/[^/]+$|^\/opt\/homebrew\/bin\/[^/]+$/.test(ws[0])) return false;
+  const w0 = ws[0].replace(/^.*\//, "");
+  if (!READ_CMDS.has(w0)) return false;
+  // GNU tools take a long option shortened (sort --out=f is sort --output=f): the ones that write are written out.
+  ws = [ws[0], ...expandLong(ws.slice(1), longWrites(w0))];
+  const sub = READ_SUB[w0];
+  let firstArg = "";
+  if (sub) {
+    firstArg = ws.slice(1).find((w) => !(w0 === "systemctl" && /^--(user|no-pager|all|full|type=.*|state=.*|plain|no-legend)$/.test(w))) ?? "";
+    if (!sub.test(firstArg)) return false;
+    if (w0 === "docker" && DOCKER_READ2[firstArg]) {
+      const after = ws.slice(ws.indexOf(firstArg) + 1);
+      const second = after.find((w, i) => !w.startsWith("-") && !(i > 0 && DOCKER_VALUE_FLAGS.test(after[i - 1])));
+      if (!second || !DOCKER_READ2[firstArg].test(second)) return false;
+    }
+  }
+  const wf = WRITE_FLAGS[w0];
+  if (wf && wf.test(` ${ws.slice(1).join(" ")}`)) return false;
+  if (!optionsRead(w0, ws.slice(1))) return false;
+  const strict = STRICT_ARGS[w0];
+  if (strict && !ws.slice(1).every((w) => (w.startsWith("-") ? strict.flags : strict.other).test(w))) return false;
+  if (WRITES_SECOND_ARG.has(w0) && ws.slice(1).filter((w) => !w.startsWith("-")).length >= 2) return false;
+  if ((w0 === "curl" || w0 === "wget") && !(fetchesOnlyPrivate(ws) && webSchemeOnly(ws))) return false;
+  if (w0 === "curl" && curlShortWrites(ws)) return false;
+  if (w0 === "wget" && !wgetReads(ws)) return false;
+  if (w0 === "git" && !gitReads(ws)) return false;
+  if (w0 === "ip" && !ipReads(ws.slice(1))) return false;
+  if (w0 === "nmcli" && !nmcliReads(ws.slice(1))) return false;
+  if (w0 === "npm" && firstArg === "config" && !/^(get|list|ls)$/.test(ws[ws.indexOf("config") + 1] ?? "list")) return false;
+  if (!serversPrivate(w0, ws)) return false;
+  if (w0 === "sed" && !sedReads(ws)) return false;
+  if (showsSecrets(w0, firstArg, ws)) return false;
+  if (readsSecretTree(w0, ws.slice(1), cwdMoved)) return false;
+  return true;
+}
+
 /** True when every part of the command only reads. Anything unknown counts as a change. */
 export function isReadOnly(command: string, hostOs: HostOs): boolean {
   const c = command.trim();
@@ -590,6 +1115,8 @@ export function isReadOnly(command: string, hostOs: HostOs): boolean {
     // A plain filter ({ $_.Status -eq 'Running' -and $_.CPU -gt 10 }) only compares, so it is kept.
     if (/[(){}]/.test(unquoted(c.replace(PS_FILTER_BLOCK, " ")))) return false;
     if (uncLeavesNetwork(c)) return false;
+    // The environment (Get-ChildItem Env:, $env:GITHUB_TOKEN) and saved Wi-Fi keys (key=clear) hold secrets.
+    if (windowsShowsSecrets(c)) return false;
     return segments.every((seg) => {
       const ws = words(seg.replace(/^&\s*/, ""));
       const w0 = (ws[0] ?? "").toLowerCase().replace(/\.exe$/, "");
@@ -602,47 +1129,22 @@ export function isReadOnly(command: string, hostOs: HostOs): boolean {
       if (w0 === "fsutil" && !(ws[2] && WIN_FSUTIL2[ws[1].toLowerCase()]?.test(ws[2]))) return false;
       if (w0 === "gpresult" && ws.slice(1).some((w) => /^\/(h|x)$/i.test(w))) return false;
       if (w0 === "nvidia-smi" && WRITE_FLAGS["nvidia-smi"].test(` ${ws.slice(1).join(" ")}`)) return false;
-      return !WIN_WRITE.test(ws.slice(1).join(" ")) || w0 === "netstat" || w0 === "ping" || w0 === "query" || w0 === "quser";
+      if (w0 === "netsh" && !netshReads(ws.slice(1))) return false;
+      // With the leading space, like the Linux checks: a first argument such as wmic /output:x is seen too.
+      return !WIN_WRITE.test(` ${ws.slice(1).join(" ")}`) || w0 === "netstat" || w0 === "ping" || w0 === "query" || w0 === "quser";
     });
   }
-  return segments.every((seg) => {
-    let ws = words(seg);
-    // VAR=value before a command: only harmless locale and display settings.
-    while (ws.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(ws[0])) {
-      if (!SAFE_ENV.test(ws[0])) return false;
-      ws = ws.slice(1);
-    }
-    // git -C <dir> and --no-pager come before the subcommand.
-    if (ws[0] === "git") ws = ws.filter((w, i) => w !== "--no-pager" && w !== "-C" && ws[i - 1] !== "-C");
-    // Nothing but assignments: it changes the shell's own variables, which a later ${x@P} or $((x)) could run.
-    if (!ws.length) return false;
-    // A command named by path only counts when it is the system's own copy (./ls could be anything).
-    if (ws[0].includes("/") && !/^\/(usr\/)?(local\/)?s?bin\/[^/]+$|^\/opt\/homebrew\/bin\/[^/]+$/.test(ws[0])) return false;
-    const w0 = ws[0].replace(/^.*\//, "");
-    if (!READ_CMDS.has(w0)) return false;
-    const sub = READ_SUB[w0];
-    if (sub) {
-      const firstArg = ws.slice(1).find((w) => !(w0 === "systemctl" && /^--(user|no-pager|all|full|type=.*|state=.*|plain|no-legend)$/.test(w))) ?? "";
-      if (!sub.test(firstArg)) return false;
-      if (w0 === "docker" && DOCKER_READ2[firstArg]) {
-        const after = ws.slice(ws.indexOf(firstArg) + 1);
-        const second = after.find((w, i) => !w.startsWith("-") && !(i > 0 && DOCKER_VALUE_FLAGS.test(after[i - 1])));
-        if (!second || !DOCKER_READ2[firstArg].test(second)) return false;
-      }
-    }
-    const wf = WRITE_FLAGS[w0];
-    if (wf && wf.test(` ${ws.slice(1).join(" ")}`)) return false;
-    const strict = STRICT_ARGS[w0];
-    if (strict && !ws.slice(1).every((w) => (w.startsWith("-") ? strict.flags : strict.other).test(w))) return false;
-    if (WRITES_SECOND_ARG.has(w0) && ws.slice(1).filter((w) => !w.startsWith("-")).length >= 2) return false;
-    if ((w0 === "curl" || w0 === "wget") && !(fetchesOnlyPrivate(ws) && webSchemeOnly(ws))) return false;
-    if (w0 === "curl" && curlShortWrites(ws)) return false;
-    if (w0 === "wget" && !wgetReads(ws)) return false;
-    if (w0 === "git" && ws[1] === "config" && !gitConfigReads(ws)) return false;
-    if (!serversPrivate(w0, ws)) return false;
-    if (w0 === "sed" && !sedReads(ws)) return false;
-    return true;
-  });
+  // Commands on a Mac run in its login shell, zsh, over ssh: zsh runs code from =(cmd) (a temporary file) and from glob
+  // qualifiers (*(e:'cmd':)), bash from a function defined as `ls () ( cmd )`, fish from (cmd). Wrapping every command
+  // in bash -c '...' was the other way to make every host read it alike; it would stop every command on hosts without
+  // bash (OpenWrt, Alpine, pfSense) and run an approved change in another shell than the one its owner approved it for.
+  // So the forms are refused instead, which leaves how commands run unchanged: no ( or ) outside quotes is a read, nor
+  // zsh's $~x, $=x and $^x, nor brace expansion (sort {-o,f} is sort -o f, a word the checks below never see).
+  const bare = bareText(segments.join("\n"));
+  if (/[()]/.test(bare) || /\$[~=^]/.test(bare) || /\{[^{}\s]*(,|\.\.)[^{}\s]*\}/.test(bare)) return false;
+  if (expandedVars(segments.join("\n")).some((v) => !SAFE_VARS.test(v))) return false;
+  const cwdMoved = segments.some((s) => commandWord(s) === "cd");
+  return segments.every((seg) => segmentReads(seg, cwdMoved));
 }
 
 // ---------- running ----------
@@ -657,8 +1159,39 @@ export function capOutput(text: string): string {
   return `${text.slice(0, OUT_HEAD)}\n... [${text.length - OUT_HEAD - OUT_TAIL} characters cut] ...\n${text.slice(-OUT_TAIL)}`;
 }
 
-/** sudo would wait for a password nobody can type; make it fail at once instead. */
-function nonInteractive(cmd: string): string { return cmd.replace(/\bsudo\s+(?!-n\b)/g, "sudo -n "); }
+/**
+ * sudo would wait for a password nobody can type; make it fail at once instead. Only where sudo is the command a
+ * segment runs (after ;, &&, |, a newline, ( or a keyword such as then): quoted text keeps its words, so an approved
+ * sed -i 's/sudo reboot/x/' f runs as approved. A here-document and what follows it are left as written.
+ */
+export function nonInteractive(cmd: string): string {
+  let out = "";
+  let atCommand = true;
+  let i = 0;
+  while (i < cmd.length) {
+    const ch = cmd[i];
+    if (ch === "'" || ch === '"') {
+      let j = i + 1;
+      while (j < cmd.length && cmd[j] !== ch) { if (ch === '"' && cmd[j] === "\\") j++; j++; }
+      out += cmd.slice(i, j + 1); i = j + 1; atCommand = false; continue;
+    }
+    if (ch === "\\") { out += cmd.slice(i, i + 2); i += 2; atCommand = false; continue; }
+    if (cmd.startsWith("<<", i) && !cmd.startsWith("<<<", i)) { out += cmd.slice(i); break; }
+    if (/[;&|\n(`]/.test(ch)) { out += ch; i++; atCommand = true; continue; }
+    if (/\s/.test(ch)) { out += ch; i++; continue; }
+    const word = /^[^\s;&|()<>`'"\\]+/.exec(cmd.slice(i))?.[0] ?? ch;
+    const next = cmd[i + word.length];
+    const whole = next === undefined || /[\s;&|()<>`]/.test(next);
+    out += word; i += word.length;
+    if (atCommand && whole && word === "sudo") {
+      if (!/^\s+(-[a-zA-Z]*n[a-zA-Z]*|--non-interactive)(\s|$)/.test(cmd.slice(i))) out += " -n";
+      atCommand = false; continue;
+    }
+    // VAR=value and keywords (if, then, do, !, time) keep the next word in command position.
+    atCommand = atCommand && whole && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word) || /^(if|then|else|elif|do|while|until|!|time|\{)$/.test(word));
+  }
+  return out;
+}
 
 export function commandArgv(host: Host, command: string): { file: string; args: string[] } {
   const cmd = nonInteractive(command);
@@ -673,6 +1206,7 @@ export function commandArgv(host: Host, command: string): { file: string; args: 
     const encoded = Buffer.from(`$ProgressPreference='SilentlyContinue'; ${command}`, "utf16le").toString("base64");
     return { file: "ssh", args: [...ssh, `powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`] };
   }
+  // Runs in the host's login shell (zsh on a Mac): isReadOnly refuses the forms zsh runs code from.
   return { file: "ssh", args: [...ssh, cmd] };
 }
 
@@ -696,29 +1230,55 @@ export function redactValues(text: string, values: string[]): string {
   return out;
 }
 
+/**
+ * Runs a command and gives its result once it ends. It runs in a process group of its own, so a timeout stops
+ * everything it started (killing only the shell left its children holding the output open, and the call, with the
+ * chat waiting on it, never returned). The result comes when the command exits, at most a moment later than that
+ * even when something it started in the background still holds its output.
+ */
 export const spawnRunner: Runner = (host, command, timeoutS) => new Promise((resolve) => {
   const { file, args } = commandArgv(host, command);
   const t0 = Date.now();
   let out = "";
   let timedOut = false;
-  const child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"], env: commandEnv() });
+  let done = false;
+  let grace: NodeJS.Timeout | undefined;
+  const group = process.platform !== "win32";
+  const child = spawn(file, args, { stdio: ["ignore", "pipe", "pipe"], env: commandEnv(), detached: group, windowsHide: true });
   const take = (b: Buffer) => { out += b.toString("utf8"); if (out.length > 400_000) out = out.slice(0, OUT_HEAD) + out.slice(-OUT_TAIL * 4); };
   child.stdout.on("data", take);
   child.stderr.on("data", take);
-  const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutS * 1000);
-  child.on("error", (e) => { clearTimeout(timer); resolve({ exit_code: null, output: `could not start ${file}: ${e.message}`, timed_out: false, ms: Date.now() - t0 }); });
-  child.on("close", (code) => { clearTimeout(timer); resolve({ exit_code: code, output: capOutput(out.replace(/\r\n/g, "\n")), timed_out: timedOut, ms: Date.now() - t0 }); });
+  const finish = (r: Omit<RunResult, "ms">) => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer); clearTimeout(grace);
+    child.stdout.destroy(); child.stderr.destroy();
+    resolve({ ...r, ms: Date.now() - t0 });
+  };
+  const killAll = () => {
+    if (child.pid === undefined) return;
+    if (group) { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } }
+    else { try { spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => {}); } catch { /* no taskkill */ } }
+    try { child.kill("SIGKILL"); } catch { /* already gone */ }
+  };
+  const result = (code: number | null) => ({ exit_code: code, output: capOutput(out.replace(/\r\n/g, "\n")), timed_out: timedOut });
+  const timer = setTimeout(() => { timedOut = true; killAll(); grace = setTimeout(() => finish(result(null)), 2000); }, timeoutS * 1000);
+  child.on("error", (e) => finish({ exit_code: null, output: `could not start ${file}: ${e.message}`, timed_out: false }));
+  child.on("exit", (code) => { clearTimeout(grace); grace = setTimeout(() => finish(result(code)), 500); });
+  child.on("close", (code) => finish(result(code)));
 });
 
 // ---------- pending actions ----------
 
 export interface ActionRow {
   id: string; session_id: string; host: string; command: string; purpose: string; rollback: string | null;
-  kind: "read" | "change"; status: "pending" | "running" | "done" | "failed" | "cancelled" | "expired";
+  kind: "read" | "change"; status: "pending" | "running" | "done" | "failed" | "interrupted" | "cancelled" | "expired";
   created_at: string; ran_at: string | null; exit_code: number | null; output: string | null; journal_id: string | null;
 }
 
 export const ACTION_TTL_MS = 60 * 60 * 1000;
+/** How long an approved change may run (an upgrade or a backup takes minutes); reads stop at EA_COMMAND_TIMEOUT_S. */
+export const CHANGE_TIMEOUT_S = 600;
 /** A short reply that approves the pending command. */
 export const AFFIRMATION = /^\s*(y|yes|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|run it|approve[d]?|confirm(ed)?|proceed|go|please do|send it|yes please|yes,? (run|do) it)[\s.!]*$/i;
 
@@ -728,6 +1288,8 @@ export class HostActions {
   fillSecrets: ((command: string, host: Host) => Promise<{ command: string; values: string[] }>) | null = null;
   /** The hub's own secret values (its token, API keys, linked accounts' keys): cut out of every command's output. */
   hiddenValues: () => string[] = () => [];
+  /** Seconds an approved change may run (never less than a read's limit). */
+  changeTimeoutS = CHANGE_TIMEOUT_S;
   private cache: { at: number; hosts: Host[] } | null = null;
 
   constructor(private cfg: Config, private db: DB, private store: Store) {}
@@ -798,7 +1360,11 @@ export class HostActions {
     return this.get(id);
   }
 
-  /** Run an approved change and journal it. Throws when the action is not pending. */
+  /**
+   * Run an approved change and journal it. Throws when the action is not pending. The journal entry is written before
+   * the command runs (outcome running), so a change that restarts the hub or reboots its machine still has one; it is
+   * updated when the command returns: done, failed, or interrupted when it was stopped at its time limit.
+   */
   async approve(id: string): Promise<{ action: ActionRow; result: RunResult; journal: Entity }> {
     const a = this.get(id);
     if (!a) throw new Error("no such action");
@@ -817,19 +1383,41 @@ export class HostActions {
         throw e;
       }
     }
-    this.setStatus(id, "running");
-    const raw = await this.runner(host, filled.command, this.cfg.commandTimeoutS);
-    const result = { ...raw, output: redactValues(raw.output, [...filled.values, ...this.hiddenValues()]) };
-    const ok = result.exit_code === 0 && !result.timed_out;
     const destructive = detectDestructive(a.command);
     const journal = this.store.create("journal", {
       host: host.name, at: nowIso(), what: a.purpose || a.command.slice(0, 200), command: a.command,
       risk: destructive ? "high" : "medium",
       ...(a.rollback || destructive ? { rollback: a.rollback || destructive!.rule.rollback.replace(/^Rollback:\s*/, "") } : {}),
-      outcome: ok ? "done" : "failed", session_id: a.session_id,
+      outcome: "running", session_id: a.session_id,
     });
-    this.db.prepare("UPDATE ai_actions SET status = ?, ran_at = ?, exit_code = ?, output = ?, journal_id = ? WHERE id = ?")
-      .run(ok ? "done" : "failed", nowIso(), result.exit_code, result.output.slice(0, 20_000), journal.id, id);
-    return { action: this.get(id)!, result, journal };
+    this.db.prepare("UPDATE ai_actions SET status = 'running', ran_at = ?, journal_id = ? WHERE id = ?").run(nowIso(), journal.id, id);
+    let raw: RunResult;
+    try {
+      raw = await this.runner(host, filled.command, Math.max(this.cfg.commandTimeoutS, this.changeTimeoutS));
+    } catch (e) {
+      this.finish(id, journal.id, "failed", null, (e as Error).message);
+      throw e;
+    }
+    const result = { ...raw, output: redactValues(raw.output, [...filled.values, ...this.hiddenValues()]) };
+    // Stopped at the time limit, it may have done part of its work: interrupted, not failed.
+    const status = result.timed_out ? "interrupted" : result.exit_code === 0 ? "done" : "failed";
+    const done = this.finish(id, journal.id, status, result.exit_code, result.output);
+    return { action: this.get(id)!, result, journal: done };
+  }
+
+  private finish(id: string, journalId: string, status: "done" | "failed" | "interrupted", exitCode: number | null, output: string): Entity {
+    this.db.prepare("UPDATE ai_actions SET status = ?, ran_at = ?, exit_code = ?, output = ? WHERE id = ?").run(status, nowIso(), exitCode, output.slice(0, 20_000), id);
+    return this.store.patch(journalId, { outcome: status });
+  }
+
+  /**
+   * At start (main.ts serve): commands the last run of the hub left running, because it stopped or restarted while
+   * they ran (as a change that restarts the hub or reboots its machine does), are marked interrupted, and so are their
+   * journal entries. Returns how many actions were.
+   */
+  recoverInterrupted(): number {
+    const n = this.db.prepare("UPDATE ai_actions SET status = 'interrupted' WHERE status = 'running'").run().changes;
+    for (const j of this.store.list({ kind: "journal", where: { outcome: "running" }, limit: 100000 })) this.store.patch(j.id, { outcome: "interrupted" });
+    return n;
   }
 }

@@ -169,6 +169,7 @@ export function Sensors() {
   const [howto, setHowto] = useState(false);
   // The sensor key only posts readings, so it can sit on a board (feedkeys.ts); fetched when the how-to opens.
   const [key, setKey] = useState("");
+  const [keyErr, setKeyErr] = useState("");
   useEffect(() => { if (howto && !key) void engine.client?.feeds().then((f) => setKey(f.sensors.key)).catch(() => undefined); }, [howto, key]);
   const list = (p.data ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
   const example = `import network, urequests, time
@@ -216,11 +217,14 @@ while True:
             className="ghost small"
             onClick={() => {
               if (!confirm("Make a new sensor key? Boards using the old key stop posting until they get the new one.")) return;
-              void engine.client?.rotateFeed("sensors").then((f) => setKey(f.sensors.key)).catch(() => undefined);
+              setKeyErr("");
+              // A key that was not replaced must not look replaced (a leaked one would stay in use).
+              void engine.client?.rotateFeed("sensors").then((f) => setKey(f.sensors.key)).catch((e) => setKeyErr(`The key was not replaced: ${e instanceof Error ? e.message : String(e)}`));
             }}
           >
             New key
           </button>
+          {keyErr && <span className="error">{keyErr}</span>}
         </div>
       </details>
     </div>

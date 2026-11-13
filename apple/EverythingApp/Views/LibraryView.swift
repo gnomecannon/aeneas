@@ -119,10 +119,15 @@ extension SyncEngine {
         case .memory: return n(count(.fact), "fact", "facts")
         case .people: return n(count(.person), "person", "people")
         case .ops:
-            let monitors = list(.monitor)
-            let down = monitors.filter { $0.str("state") == "down" }.count
-            if monitors.isEmpty { return "No monitors" }
-            return down > 0 ? "\(down) down" : "All \(monitors.count) up"
+            // As Ops counts them: a monitor that is off or not known yet is not up.
+            let states = list(.monitor).map(MonitorStatus.init)
+            if states.isEmpty { return "No monitors" }
+            let down = states.filter { $0 == .down }.count, unknown = states.filter { $0 == .unknown }.count
+            let up = states.filter { $0 == .up }.count, off = states.filter { $0 == .off }.count
+            if down > 0 { return "\(down) down" }
+            if unknown > 0 { return "\(unknown) unknown" }
+            if up == 0 { return "All \(off) off" }
+            return "All \(up) up" + (off > 0 ? ", \(off) off" : "")
         case .hosts:
             let names = Set([Kind.runbook, .journal, .snippet, .monitor].flatMap { list($0) }.map { $0.str("host").trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty })
             return n(names.count, "machine", "machines")

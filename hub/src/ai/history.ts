@@ -14,11 +14,25 @@ export function estimateTokens(text: string): number {
 }
 
 /**
+ * Text cut to at most `max` characters (and the note) by leaving out its middle: a quarter from the start, the rest
+ * from the end, where a command's errors are.
+ */
+export function trimMiddle(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const head = Math.floor(max / 4);
+  return `${text.slice(0, head)}\n... [${text.length - max} characters cut from the middle] ...\n${text.slice(text.length - (max - head))}`;
+}
+
+/** Tools whose results are command output: cut in the middle, so the end (the error) stays. */
+const COMMAND_TOOLS = new Set(["run_command", "approve_command"]);
+
+/**
  * Cut the largest tool results until a request fits `limit` tokens (with `fixed` tokens of tool specs on top), so
  * a round of many calls (twelve get_item results) never sends a local model more than its context, which it would
- * silently truncate from the start. Each cut keeps the head and says how much was shown. Returns how many were cut.
+ * silently truncate from the start. Each cut keeps the head (command output its head and end) and says how much was
+ * shown. Returns how many were cut.
  */
-export function fitToolResults(messages: { role: string; content: string }[], fixed: number, limit: number): number {
+export function fitToolResults(messages: { role: string; content: string; tool_name?: string }[], fixed: number, limit: number): number {
   const total = () => fixed + messages.reduce((n, m) => n + estimateTokens(m.content ?? ""), 0);
   let cut = 0;
   for (let guard = 0; guard < 100 && total() > limit; guard++) {
@@ -29,7 +43,10 @@ export function fitToolResults(messages: { role: string; content: string }[], fi
     const over = Math.ceil((total() - limit) * 3.5);
     const keep = Math.max(800, size - over - 200);
     if (keep >= size) break;
-    messages[idx] = { ...messages[idx], content: `${messages[idx].content.slice(0, keep)}\n[cut to fit the model's context: ${keep} of ${size} characters shown]` };
+    const m = messages[idx];
+    messages[idx] = { ...m, content: COMMAND_TOOLS.has(m.tool_name ?? "")
+      ? `${trimMiddle(m.content, keep)}\n[cut to fit the model's context: ${keep} of ${size} characters shown, the middle left out]`
+      : `${m.content.slice(0, keep)}\n[cut to fit the model's context: ${keep} of ${size} characters shown]` };
     cut++;
   }
   return cut;

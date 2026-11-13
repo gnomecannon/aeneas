@@ -22,6 +22,7 @@ import { ensureRunbook, factKey, upsertSection } from "../memory.js";
 import { detectDestructive } from "../preflight.js";
 import { openLedger } from "./ledger.js";
 import { AFFIRMATION, isReadOnly, type HostActions } from "./hosts.js";
+import { trimMiddle } from "./history.js";
 import { NO_TOR, fetchPage, webPrivate, webSearch } from "./web.js";
 import { cleanTag } from "../note-linker.js";
 import { moduleDef, moduleOfKind, type ModuleCheck, type ModuleId } from "../modules.js";
@@ -38,11 +39,28 @@ export function approvalOf(a: { id: string; host: string; command: string; purpo
   return { id: a.id, host: a.host, command: a.command, purpose: a.purpose, risk: d ? "high" : "medium", ...(d ? { preflight: { backup: d.rule.backup, verify: d.rule.verify, rollback: d.rule.rollback } } : {}) };
 }
 
+/**
+ * One turn of a chat, shared by every model tried for it: when the owner's message arrived, the changes proposed in
+ * this turn, and the commands approved and run in it (by the Run button or approve_command).
+ */
+export interface TurnState { startedAt: string; proposed: Set<string>; ran: string[] }
+
+const fallbackTurns = new WeakMap<object, TurnState>();
+/** The turn a tool call belongs to; a caller that gives none (a test) gets one that starts at its first call. */
+export function turnOf(ctx: ToolContext): TurnState {
+  if (ctx.turn) return ctx.turn;
+  let t = fallbackTurns.get(ctx);
+  if (!t) { t = { startedAt: nowIso(), proposed: new Set(), ran: [] }; fallbackTurns.set(ctx, t); }
+  return t;
+}
+
 /** What a tool can reach besides the hub's HTTP API. */
 export interface ToolContext {
   sessionId: string;
   /** The newest user message of this turn (the approval check reads it). */
   lastUser: string;
+  /** This turn: approve_command runs only a change proposed before it began, and nothing is proposed after a change ran. */
+  turn?: TurnState;
   /** First line of the conversation, for ledger topics. */
   topic: string;
   store: Store;
@@ -84,6 +102,8 @@ export interface ToolDef {
   writes: boolean;
   /** Longest result the model gets from this tool (default 6000 characters). */
   maxChars?: number;
+  /** A longer result loses its middle, not its end: command output, whose errors come last. */
+  cutMiddle?: boolean;
   /** Hidden when this returns false (feature off or not configured). */
   available?(cfg: Config): boolean;
   /** Parameters that depend on the hub's settings (the image workers one may pick). */
@@ -144,10 +164,11 @@ function compact(v: unknown): unknown {
   return v;
 }
 
-/** JSON text for the model, capped. */
-export function renderResult(v: unknown, max = MAX_RESULT_CHARS): string {
+/** JSON text for the model, capped: from the end, or with `middle` from the middle (the head and the end kept). */
+export function renderResult(v: unknown, max = MAX_RESULT_CHARS, middle = false): string {
   const text = JSON.stringify(compact(v));
-  return text.length > max ? `${text.slice(0, max)} ... [cut; ask for something narrower]` : text;
+  if (text.length <= max) return text;
+  return middle ? trimMiddle(text, max) : `${text.slice(0, max)} ... [cut; ask for something narrower]`;
 }
 
 /** One line per field: name, type, ? when optional. Built from the shared schemas so it never drifts (zod 4's `_zod.def`). */
@@ -213,7 +234,8 @@ export function opsForModel(d: OpsData, filter?: string): unknown {
     incidents_last_7_days: d.incidents_7d ?? 0,
     uptime_below_100_today: (d.uptime_24h ?? []).filter((u) => u.pct < 100),
     renewals_due_30d: (d.watches_due_30d ?? []).map((w) => ({ name: w.fields.name ?? w.fields.title, due: w.fields.due ?? w.fields.renews_at })),
-    recent_changes: (d.journal_recent ?? []).slice(0, 5).map((j) => ({ host: j.fields.host, at: j.fields.at, what: j.fields.what })),
+    // With the outcome: a planned or failed change read as done without it.
+    recent_changes: (d.journal_recent ?? []).slice(0, 5).map((j) => ({ host: j.fields.host, at: j.fields.at, what: j.fields.what, outcome: j.fields.outcome ?? "done" })),
   };
 }
 
@@ -1215,7 +1237,7 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
-    name: "run_command", writes: true, maxChars: 9000,
+    name: "run_command", writes: true, maxChars: 9000, cutMiddle: true,
     available: (cfg) => cfg.hostActions,
     description: "Run a shell command on one of {{owner}}'s machines (list_hosts). Windows hosts take PowerShell. Read-only commands (status, logs, listing, df, ping, Get-*) run at once. Anything that changes the system is held for {{owner}}'s approval: after calling, show them the exact command and why, then stop and wait. Never use sudo unless they say it works without a password. Always give purpose, and rollback for a change.",
     parameters: { type: "object", properties: { host: { type: "string" }, command: { type: "string" }, purpose: { type: "string", description: "one line: why" }, rollback: { type: "string", description: "how to undo it, for changes" } }, required: ["host", "command", "purpose"] },
@@ -1230,14 +1252,19 @@ export const TOOLS: ToolDef[] = [
         const r = await ctx.hosts.runRead(ctx.sessionId, host, command, purpose);
         return { host: host.name, exit_code: r.exit_code, timed_out: r.timed_out || undefined, output: r.output || "(no output)" };
       }
+      // One approval runs one change: a new one proposed in the same reply would have its card come with the result,
+      // and an "ok" to that result would approve it unseen. It is proposed in a later reply.
+      const turn = turnOf(ctx);
+      if (turn.ran.length) return { error: "a change already ran in this reply: tell {{owner}} its result first; propose the next change in a later reply, after they answer" };
       const action = ctx.hosts.propose(ctx.sessionId, host, command, purpose, str(a.rollback) ?? null);
+      turn.proposed.add(action.id);
       const approval = approvalOf({ id: action.id, host: host.name, command, purpose });
       ctx.onApproval?.(approval);
       return { status: "waiting_for_approval", action_id: action.id, host: host.name, command, risk: approval.risk, ...(approval.preflight ? { preflight: approval.preflight } : {}), instruction: "Not run yet. Tell {{owner}} exactly what this will do, then stop. It runs only after they approve." };
     },
   },
   {
-    name: "approve_command", writes: true, maxChars: 9000,
+    name: "approve_command", writes: true, maxChars: 9000, cutMiddle: true,
     available: (cfg) => cfg.hostActions,
     description: "Run the command that is waiting for approval in this conversation, after {{owner}} has just said yes to it. Never call it unless their latest message approves it.",
     parameters: { type: "object", properties: {} },
@@ -1245,10 +1272,14 @@ export const TOOLS: ToolDef[] = [
       if (!ctx.hosts) return { error: "host commands are off" };
       const pending = ctx.hosts.pendingFor(ctx.sessionId);
       if (!pending) return { error: "nothing is waiting for approval" };
+      // The yes must be to a change {{owner}} saw: one proposed before their message, not in this reply.
+      const turn = turnOf(ctx);
+      if (turn.proposed.has(pending.id) || pending.created_at >= turn.startedAt) return { error: "that change was proposed in this reply, so {{owner}} has not seen it: show them the exact command and stop; it runs after their next yes" };
       if (!AFFIRMATION.test(ctx.lastUser)) return { error: "{{owner}}'s latest message is not a clear yes; ask them to approve" };
       try {
         const out = await ctx.hosts.approve(pending.id);
-        return { host: out.action.host, command: out.action.command, exit_code: out.result.exit_code, timed_out: out.result.timed_out || undefined, output: out.result.output || "(no output)", journaled: out.journal.id };
+        turn.ran.push(out.action.command);
+        return { host: out.action.host, command: out.action.command, exit_code: out.result.exit_code, timed_out: out.result.timed_out || undefined, status: out.action.status, output: out.result.output || "(no output)", journaled: out.journal.id };
       } catch (e) { return { error: (e as Error).message }; }
     },
   },
@@ -1349,7 +1380,7 @@ export async function runTool(api: ApiCall, call: ToolCall, ctx: ToolContext, to
     const ok = !(out && typeof out === "object" && "error" in (out as object));
     const waiting = !!(out && typeof out === "object" && (out as { status?: string }).status === "waiting_for_approval");
     // Text that carries them with no mark on it (the digest's "Calendar:" line, a person's notes) is scrubbed too.
-    const text = renderResult(out, t.maxChars);
+    const text = renderResult(out, t.maxChars, t.cutMiddle);
     return { text: ctx.cloud ? cloudScrubber(cloudSecrets(ctx.store))(text) : text, ok, writes: t.writes && !waiting };
   } catch (e) {
     return { text: JSON.stringify({ error: (e as Error).message }), ok: false, writes: t.writes };

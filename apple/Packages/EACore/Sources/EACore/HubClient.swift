@@ -255,9 +255,22 @@ public final class HubClient: Sendable {
             if let c = try? JSONCoding.decode(C.self, from: d) { return .change(seq: c.seq, id: c.id, kind: c.kind) }
             return .unknown(name: msg.event, data: msg.data)
         case "notify":
-            struct N: Decodable { var id: String?; var kind: String?; var title: String?; var at: String?; var friction: Friction?; var log_id: String? }
+            struct N: Decodable {
+                var id: String?; var kind: String?; var title: String?; var at: String?; var friction: Friction?; var log_id: String?; var incident_id: String?
+                var name: String?; var state: String?; var error: String?
+                enum CodingKeys: String, CodingKey { case id, kind, title, at, friction, log_id, incident_id, name, state, error }
+                init(from decoder: Decoder) throws {
+                    let c = try decoder.container(keyedBy: CodingKeys.self)
+                    // Each field is read on its own: one of an unexpected type is left out instead of losing the alert.
+                    func s(_ k: CodingKeys) -> String? { try? c.decodeIfPresent(String.self, forKey: k) }
+                    id = s(.id); kind = s(.kind); title = s(.title); at = s(.at); log_id = s(.log_id); incident_id = s(.incident_id)
+                    name = s(.name); state = s(.state); error = s(.error)
+                    friction = try? c.decodeIfPresent(Friction.self, forKey: .friction)
+                }
+            }
             if let n = try? JSONCoding.decode(N.self, from: d) {
-                return .notify(NotifyEvent(kind: n.kind ?? "reminder", id: n.id, title: n.title ?? "", at: n.at, friction: n.friction, log_id: n.log_id))
+                return .notify(NotifyEvent(kind: n.kind ?? "reminder", id: n.id, title: n.title ?? "", at: n.at, friction: n.friction, log_id: n.log_id, incident_id: n.incident_id,
+                                           name: n.name, state: n.state, error: n.error))
             }
             return .unknown(name: msg.event, data: msg.data)
         case "modules":

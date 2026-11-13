@@ -6,7 +6,7 @@ import type { Entity } from "@everythingapp/shared";
 
 export type SnippetParam = { name: string; default?: string; description?: string };
 export type SnippetF = { title: string; os: "linux" | "windows" | "macos" | "any"; language: string; body: string; params?: SnippetParam[]; tags?: string[]; host?: string; source_session?: string; last_used?: string };
-export type JournalF = { host: string; at: string; what: string; command?: string; risk: "low" | "medium" | "high"; rollback?: string; outcome?: "planned" | "done" | "failed" | "reverted"; session_id?: string; runbook_id?: string };
+export type JournalF = { host: string; at: string; what: string; command?: string; risk: "low" | "medium" | "high"; rollback?: string; outcome?: "planned" | "running" | "done" | "failed" | "interrupted" | "reverted"; session_id?: string; runbook_id?: string };
 export type RunbookCommand = { label: string; host: string; user: string; command: string };
 export type RunbookF = { host: string; title: string; body?: string; commands?: RunbookCommand[]; last_verified?: string };
 export type LedgerF = { session_id: string; topic: string; tried?: Array<{ at: string; what: string; result: string }>; ruled_out?: string[]; confirmed?: string[]; open?: boolean };
@@ -50,6 +50,16 @@ export function renderDefaults(snippet: Pick<SnippetF, "body" | "params">): Arra
     const p = declared.find((d) => d.name === name);
     return { name, value: p?.default ?? "", description: p?.description };
   });
+}
+
+/**
+ * The form's rows after the snippet changed: rows for the parameters it has now, keeping what was typed for those that
+ * are still there. (A Render or Run moves the snippet's `updated_at`; starting over then reset typed values, and Run
+ * could run another command than the one just shown.)
+ */
+export function keepTyped(prev: Array<{ name: string; value: string }>, snippet: Pick<SnippetF, "body" | "params">): Array<{ name: string; value: string; description?: string }> {
+  const typed = new Map(prev.map((r) => [r.name, r.value]));
+  return renderDefaults(snippet).map((r) => (typed.has(r.name) ? { ...r, value: typed.get(r.name)! } : r));
 }
 
 /** Local stand-in for POST /snippets/:id/render. Throws with the missing names when a value is empty. */

@@ -214,6 +214,9 @@ async function main(): Promise<void> {
   learnOwnTailnet();
   const resumed = resumeHums(hub);
   if (resumed) console.log(`[hum] ${resumed} hum(s) left listening by the last run heard again`);
+  // Commands the last run left running (a change that restarted the hub or rebooted its machine): interrupted.
+  const interrupted = hub.ai.hosts.recoverInterrupted();
+  if (interrupted) console.log(`[ai] ${interrupted} command(s) the last run left running marked interrupted`);
   const rec = hub.vault.reconcile();
   if (rec.imported || rec.exported) console.log(`[vault] reconciled: ${rec.imported} imported from disk, ${rec.exported} written to disk`);
   const app = createApp(hub);

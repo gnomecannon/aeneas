@@ -10,7 +10,8 @@ import { Markdown } from "../components/Markdown";
 import { rollbackText, usePreflight } from "../sync/preflight";
 
 const RISKS = ["low", "medium", "high"] as const;
-const OUTCOMES = ["planned", "done", "failed", "reverted"] as const;
+/** `running` and `interrupted` are set by the hub for an approved change (running now, or cut off by a timeout or a restart). */
+const OUTCOMES = ["planned", "running", "done", "failed", "interrupted", "reverted"] as const;
 
 export const EMPTY_JOURNAL = { host: "", what: "", command: "", risk: "low" as JournalF["risk"], rollback: "", outcome: "done" as NonNullable<JournalF["outcome"]> };
 export type JournalDraft = typeof EMPTY_JOURNAL;

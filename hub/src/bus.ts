@@ -21,6 +21,8 @@ export interface NotifyEvent {
   state?: string;
   date?: string;
   error?: string;
+  /** `monitor` down: the open incident, so the alert can acknowledge it. */
+  incident_id?: string;
 }
 
 export interface BusEvents {

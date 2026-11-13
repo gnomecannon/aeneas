@@ -9,6 +9,18 @@ export type MonitorType = "ping" | "tcp" | "http" | "tls" | "dns" | "backup";
 export const MONITOR_TYPES: MonitorType[] = ["ping", "tcp", "http", "tls", "dns", "backup"];
 export type MonitorState = "up" | "down" | "unknown";
 
+export type BackupJob = "backup" | "verify" | "restore";
+/** A backup machine's job as the hub last read it (the monitor's `jobs`). */
+export type BackupJobState = {
+  job: BackupJob;
+  state: "ok" | "failed" | "stale" | "never" | "missing";
+  running?: boolean;
+  last_good?: string;
+  last_run?: string;
+  max_hours: number;
+  error?: string;
+};
+
 export type MonitorF = {
   name: string;
   host?: string;
@@ -27,6 +39,12 @@ export type MonitorF = {
   /** backup: when the last good run was, or that one is running. */
   last_detail?: string;
   consecutive_fails?: number;
+  /** backup: one entry per job of the machine (backup, verification, restore test). */
+  jobs?: BackupJobState[];
+  /** The last check that reached the thing checked (a skipped check of a machine away does not). */
+  last_reached?: string;
+  /** Down with its machine: the machine's incident. */
+  joined_incident?: string;
 };
 
 export type IncidentF = {
@@ -39,6 +57,8 @@ export type IncidentF = {
   last_error?: string;
   checks_failed?: number;
   journal_id?: string;
+  /** A machine that stopped answering: its other monitors that went down with it. */
+  also_down?: string[];
 };
 
 /** One row of GET /monitors/:id/history. */
@@ -54,6 +74,16 @@ export interface OpsData {
   watches_due_30d: Entity[];
   journal_recent: Entity[];
   hosts: HostSummary[];
+  /** The hub's own backups (a hub from before 2026-11-13 leaves it out). */
+  hub_backup?: HubBackupLine[];
+}
+
+/** One line about the hub's own backups: the nightly copy, a second folder, the copy to storage, the live copy. */
+export type HubBackupLine = { label: string; ok: boolean; at?: string | null; text: string };
+
+/** "last 11 h ago; 30 kept, encrypted", "running". */
+export function hubLineText(l: HubBackupLine, now: Date = new Date()): string {
+  return [l.at ? `last ${agoWords(l.at, now)}` : "", l.text].filter(Boolean).join("; ") || (l.ok ? "fine" : "not fine");
 }
 
 export const monitorState = (f: Pick<MonitorF, "state">): MonitorState => (f.state === "up" || f.state === "down" ? f.state : "unknown");
@@ -99,22 +129,20 @@ export type StripCell = { state: "ok" | "fail" | "none"; from: string; to: strin
 export const STRIP_MAX_CELLS = 144;
 
 /**
- * The 24 h strip. With `maxCells` or fewer checks in the window there is one cell per check, in time
- * order. With more, the window is cut into `maxCells` equal slices and a slice is red when any check
- * in it failed, green when every check passed and empty when nothing was checked.
+ * The 24 h strip, cut by time: `min(maxCells, window / interval)` equal slices, so a slice holds about one check at the
+ * monitor's interval. A slice is red when any check in it failed, green when every check passed and empty when nothing
+ * was checked (a machine away, a monitor made today). One cell per check hid those gaps behind a full green day.
  */
-export function uptimeStrip(history: CheckRow[], opts: { hours?: number; now?: Date; maxCells?: number } = {}): StripCell[] {
+export function uptimeStrip(history: CheckRow[], opts: { hours?: number; now?: Date; maxCells?: number; intervalS?: number } = {}): StripCell[] {
   const hours = opts.hours ?? 24;
   const end = (opts.now ?? new Date()).getTime();
   const start = end - hours * 3600_000;
-  const maxCells = opts.maxCells ?? STRIP_MAX_CELLS;
+  const byInterval = opts.intervalS && opts.intervalS > 0 ? Math.floor((hours * 3600) / opts.intervalS) : Infinity;
+  const maxCells = Math.max(1, Math.min(opts.maxCells ?? STRIP_MAX_CELLS, byInterval));
   const rows = history
     .map((r) => ({ ...r, t: new Date(r.at).getTime() }))
     .filter((r) => Number.isFinite(r.t) && r.t >= start && r.t <= end)
     .sort((a, b) => a.t - b.t);
-  if (rows.length <= maxCells) {
-    return rows.map((r) => ({ state: r.ok ? "ok" : "fail", from: r.at, to: r.at, checks: 1, fails: r.ok ? 0 : 1 }));
-  }
   const width = (end - start) / maxCells;
   const cells: StripCell[] = [];
   for (let i = 0; i < maxCells; i++) {
@@ -199,3 +227,39 @@ export function monitorFields(d: MonitorDraft): Record<string, unknown> {
     enabled: d.enabled,
   };
 }
+
+export const JOB_LABEL: Record<BackupJob, string> = { backup: "Backup", verify: "Verification", restore: "Restore test" };
+
+/** "40 min ago", "10 h ago", "12 days ago": the same words the hub uses. */
+export function agoWords(iso: string, now: Date = new Date()): string {
+  const h = (now.getTime() - new Date(iso).getTime()) / 3600_000;
+  if (!Number.isFinite(h)) return "";
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))} min ago`;
+  return h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`;
+}
+
+/** A backup job's line on its machine's card: the job, a tone, what to say, and the exact time it is about. */
+export function jobLine(job: BackupJobState, now: Date = new Date()): { label: string; tone: Tone; text: string; at?: string } {
+  // A machine away keeps its last read: a job fine then can be past its limit now.
+  const over = job.state === "ok" && !!job.last_good && now.getTime() - Date.parse(job.last_good) > job.max_hours * 3600_000;
+  const j: BackupJobState = over ? { ...job, state: "stale" } : job;
+  const label = JOB_LABEL[j.job] ?? j.job;
+  const good = j.last_good ? `last good ${agoWords(j.last_good, now)}` : "";
+  const running = j.running ? "running now" : "";
+  const join = (...xs: string[]) => xs.filter(Boolean).join("; ");
+  switch (j.state) {
+    case "missing":
+      return { label, tone: "danger", text: "not set up on this machine" };
+    case "never":
+      return { label, tone: "danger", text: join(running, "no good run on record") };
+    case "failed":
+      return { label, tone: "danger", text: join(running, j.last_run ? `failed ${agoWords(j.last_run, now)}` : "failed", good), at: j.last_run };
+    case "stale":
+      return { label, tone: "danger", text: join(running, `${good}, over the ${j.max_hours} h limit`), at: j.last_good };
+    default:
+      return { label, tone: "ok", text: join(running, good), at: j.last_good };
+  }
+}
+
+/** Backup machines apart from the other monitors: the Ops screen lists them under Backups. */
+export const isBackup = (m: { fields: Record<string, unknown> }) => m.fields.type === "backup";

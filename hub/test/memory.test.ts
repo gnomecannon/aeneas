@@ -27,6 +27,14 @@ test("preflight: the table detects every listed command and leaves harmless text
     "rsync --delete": "rsync -av --delete src/ dst/",
     "git push --force": "git push --force origin main",
     "terraform destroy": "terraform destroy -auto-approve",
+    blkdiscard: "blkdiscard /dev/nvme1n1",
+    "docker compose down -v": "docker compose down -v",
+    "zfs rollback": "zfs rollback -r tank/data@monday",
+    "Remove-Item -Recurse": "Remove-Item C:\\builds -Recurse -Force",
+    "git clean": "git clean -fdx",
+    sgdisk: "sgdisk -Z /dev/sdb",
+    sfdisk: "sfdisk /dev/sdb < table.txt",
+    lvremove: "lvremove vg0/old",
   };
   for (const [name, cmd] of Object.entries(hits)) {
     const m = detectDestructive(`Run this:\n\`\`\`\n${cmd}\n\`\`\``);
@@ -35,7 +43,13 @@ test("preflight: the table detects every listed command and leaves harmless text
     assert.equal(m!.command, cmd);
   }
   assert.equal(DESTRUCTIVE.length, Object.keys(hits).length, "every table row is covered");
-  for (const safe of ["fdisk -l", "parted -l", "rm -r is not forced here", "format the output as JSON", "git push origin main", "rsync -av src/ dst/", "zpool status tank"]) {
+  // Every recursive rm, however its options are written, and the other spellings of the new rows.
+  for (const [cmd, name] of [["rm -r /srv/old", "rm -rf"], ["rm -r -f /srv/old", "rm -rf"], ["rm --recursive --force /srv/old", "rm -rf"], ["rm -v -R /srv/old", "rm -rf"], ["rm /srv/old -r", "rm -rf"],
+    ["docker-compose down --volumes", "docker compose down -v"], ["rd /s /q C:\\builds", "Remove-Item -Recurse"], ["git clean -xdf", "git clean"], ["vgremove vg0", "lvremove"], ["sfdisk -d /dev/sda | sfdisk /dev/sdb", "sfdisk"]]) {
+    assert.equal(detectDestructive(cmd)?.rule.name, name, cmd);
+  }
+  for (const safe of ["fdisk -l", "parted -l", "rm -f one-file.txt", "format the output as JSON", "git push origin main", "rsync -av src/ dst/", "zpool status tank",
+    "docker compose down", "git clean -n", "sgdisk -p /dev/sda", "sgdisk --backup=/root/t.gpt /dev/sda", "sfdisk -d /dev/sda", "sfdisk -l", "zfs list -t snapshot", "Get-ChildItem C:\\builds -Recurse"]) {
     assert.equal(detectDestructive(safe), null, `false positive on: ${safe}`);
   }
 });

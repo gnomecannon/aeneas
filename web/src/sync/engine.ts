@@ -32,6 +32,8 @@ export interface NotifyEvent {
   /** `monitor`: the monitor state and the error that took it down. */
   state?: string;
   error?: string;
+  /** `monitor` down: the open incident, which the banner can acknowledge. */
+  incident_id?: string;
 }
 
 type Listener = (s: SyncState) => void;

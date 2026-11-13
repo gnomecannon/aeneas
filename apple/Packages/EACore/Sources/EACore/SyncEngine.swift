@@ -37,8 +37,9 @@ public final class SyncEngine: ObservableObject {
     /// Called for `notify` events of kind `reminder` from `/live`.
     public var onNotify: ((_ reminderId: String, _ title: String, _ friction: Friction) -> Void)?
     /// Called for other `notify` events (a monitor down, a sensor out of range, the recall quiz): plain alerts with
-    /// no reminder buttons, since Done and Snooze mean nothing for them.
-    public var onAlert: ((_ title: String, _ kind: String) -> Void)?
+    /// no reminder buttons, since Done and Snooze mean nothing for them. The whole event, so a monitor's alert can
+    /// name the monitor, its state and error, and offer Acknowledge for its incident.
+    public var onAlert: ((_ alert: NotifyEvent) -> Void)?
     /// Called for `notify` events of kind `activity` (from `/live`, or found on a pulled log's
     /// `checkins` when the client polls): the activity name, hours so far and the log id.
     public var onActivityCheckin: ((_ checkin: ActivityCheckin) -> Void)?
@@ -751,7 +752,7 @@ public final class SyncEngine: ObservableObject {
         case "reminder":
             if let id = n.id { onNotify?(id, n.title, n.friction ?? .none) }
         default:
-            onAlert?(n.title, n.kind)
+            onAlert?(n)
         }
     }
 
@@ -850,6 +851,24 @@ public final class SyncEngine: ObservableObject {
             entities[stored.id] = stored
             if before != nil, let m = FeelMoment.detect(before: before, after: stored, created: false) { moment(m, kind: stored.kind) }
         }
+    }
+
+    /// Many hub copies at once (every monitor on the ops board): one store transaction and at most one publish, and
+    /// copies that change nothing are neither written nor published. One at a time, each was a write and a publish
+    /// that redrew every screen.
+    public func absorb(_ list: [Entity]) async {
+        guard !list.isEmpty, let stored = try? await store.upsertManyFromHub(list) else { return }
+        var next = entities
+        var changed = false
+        var finished: [(FeelMoment, Kind)] = []
+        for e in stored where next[e.id] != e {
+            if let before = next[e.id], let m = FeelMoment.detect(before: before, after: e, created: false) { finished.append((m, e.kind)) }
+            next[e.id] = e
+            changed = true
+        }
+        guard changed else { return }
+        entities = next
+        for (m, kind) in finished { moment(m, kind: kind) }
     }
 
     /// Report a create or finish to `onMoment`, unless a background import is running.

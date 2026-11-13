@@ -5,7 +5,7 @@ import { createEntity, updateEntity, softDelete } from "../sync/edits";
 import { engine } from "../sync/engine";
 import { HubError } from "../sync/api";
 import { copyText } from "../sync/memory";
-import { paramNames, renderDefaults, renderSnippet, snippetSegments, type SnippetF, type SnippetParam } from "../lib/memory";
+import { keepTyped, paramNames, renderDefaults, renderSnippet, snippetSegments, type SnippetF, type SnippetParam } from "../lib/memory";
 import { go } from "../lib/router";
 import { fmtDateTime } from "../lib/time";
 import { CsvButton } from "../components/CsvButton";
@@ -156,7 +156,9 @@ function RenderForm({ e }: { e: Entity }) {
   // Shell snippets can be tried on their host: read-only ones run at once, others go through the assistant.
   const runnable = /^(bash|sh|shell|zsh|powershell|pwsh)$/i.test(f.language) && !!f.host;
   const [copied, setCopied] = useState(false);
-  useEffect(() => setRows(renderDefaults(f)), [e.updated_at]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Only a change to the body or the parameters changes the rows, and typed values stay.
+  const shape = JSON.stringify([f.body, f.params ?? []]);
+  useEffect(() => setRows((prev) => keepTyped(prev, f)), [shape]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async () => {
     if (!engine.client) return;

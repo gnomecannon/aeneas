@@ -13,13 +13,13 @@ import { countNumberedSteps, createProcedure, splitSteps } from "../procedures.j
 import path from "node:path";
 import crypto from "node:crypto";
 import { harvestSnippets, saysWorked } from "./harvest.js";
-import { availableTools, cloudSecrets, runTool, toolGuide, toolSpecs, type ApiCall, type DevicePhoto, type PendingApproval, type ToolContext } from "./tools.js";
+import { availableTools, cloudSecrets, runTool, toolGuide, toolSpecs, type ApiCall, type DevicePhoto, type PendingApproval, type ToolContext, type TurnState } from "./tools.js";
 import { Sessions, type StoredMessage, type TouchedItem } from "./sessions.js";
 import { recordImage } from "../gallery.js";
 import { ImageStore } from "./images.js";
 import { HostActions } from "./hosts.js";
 import type { ModuleCheck } from "../modules.js";
-import { estimateTokens, fallbackSummary, fitToolResults, planWindow, SUMMARY_SYSTEM, summaryPrompt } from "./history.js";
+import { estimateTokens, fallbackSummary, fitToolResults, planWindow, SUMMARY_SYSTEM, summaryPrompt, trimMiddle } from "./history.js";
 import { errCode, logHost } from "../logsafe.js";
 import { webPrivate } from "./web.js";
 import { gpuBusyNow, onThisMachine } from "../gpu.js";
@@ -384,7 +384,8 @@ export class Gateway {
   private turnText(m: StoredMessage): string {
     if (m.role === "user" && m.approval) {
       const a = this.hosts.get(m.approval.action_id);
-      const out = a?.output ? `\n\`\`\`\n${a.output.slice(-6000)}\n\`\`\`` : "";
+      // Its head and its end, where an error is.
+      const out = a?.output ? `\n\`\`\`\n${trimMiddle(a.output, 6000)}\n\`\`\`` : "";
       return `${m.content}\n\n[Approved. The hub ran \`${m.approval.command}\` on ${m.approval.host}: ${a?.status ?? "unknown"}, exit ${a?.exit_code ?? "none"}.]${out}`;
     }
     if (m.role === "assistant" && m.approval && m.approval.status === "pending") {
@@ -550,6 +551,8 @@ export class Gateway {
 
   private async turn(req: ChatInput, onToken?: (t: string) => void, onEvent?: (e: ChatEvent) => void): Promise<ChatOutput> {
     const startedAt = nowIso();
+    // Shared by every model tried for this turn: approve_command runs only a change proposed before it began.
+    const turnState: TurnState = { startedAt, proposed: new Set(), ran: [] };
     const stored = this.sessions.get(req.session_id);
     const clientSystem = (req.messages ?? []).filter((m) => m.role === "system").map((m) => m.content);
     let history: StoredMessage[];
@@ -576,6 +579,7 @@ export class Gateway {
         onEvent?.({ type: "status", text: `Running on ${a.host}` });
         try {
           const done = await this.hosts.approve(a.id);
+          turnState.ran.push(a.command);
           turn.approval = { action_id: a.id, host: a.host, command: a.command, status: done.action.status, exit_code: done.action.exit_code };
           onEvent?.({ type: "tool", tool: "run_command", ok: done.action.status === "done", writes: true });
         } catch (e) {
@@ -665,6 +669,7 @@ export class Gateway {
       const messages: AiMessage[] = [{ role: "system", content: system }, ...convo];
       const ctx: ToolContext = {
         sessionId: req.session_id, lastUser, topic, store: this.store, cfg: this.cfg, owner: this.owner(), hosts: this.cfg.hostActions && this.moduleOn("homelab") ? this.hosts : null,
+        turn: turnState,
         moduleOn: turnOn,
         // Work items never reach a cloud model, through memory or through what a tool returns.
         cloud,
@@ -688,8 +693,9 @@ export class Gateway {
         const ms = Date.now() - t0;
         const styled = applyStyle(result.text, [...this.filterRules(), ...(SLEEP_ASKED.test(lastUser) ? [] : [UNASKED_BEDTIME])]);
         this.record({ session_id: req.session_id, task_type: mode, backend: backend.name, model: backend.model, redactions, usage: result.usage, ms, ok: true });
-        // Module 2 pre-flight: a destructive command gets its block and a planned journal entry, once per reply.
-        const pf = insertPreflight(styled.text);
+        // Module 2 pre-flight: a destructive command gets its block and a planned journal entry, once per reply; not
+        // one that already ran in this turn (an approved change), which a "back up first" would follow after the fact.
+        const pf = insertPreflight(styled.text, turnState.ran);
         const applied = [...styled.applied];
         if (pf.inserted && pf.match && !pending && this.moduleOn("homelab")) {
           const hosts = knownHosts(this.store);

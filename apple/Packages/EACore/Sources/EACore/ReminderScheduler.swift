@@ -61,6 +61,68 @@ public enum ReminderPlanner {
     }
 }
 
+/// What a `notify` alert from `/live` shows, and the request id it goes under. Pure, so it is tested.
+public struct AlertNotice: Equatable, Sendable {
+    /// `alert|monitor|<monitor id>` for a monitor, so a later alert for the same monitor (a re-notify, back up) takes
+    /// the earlier one's place, with its Acknowledge. Any other alert has an id of its own: two in the same second
+    /// both show (the id used to be the kind and the second, so one replaced the other).
+    public var id: String
+    public var title: String
+    public var body: String
+    public var thread: String
+    /// A monitor down with its incident: the alert offers Acknowledge.
+    public var incidentId: String?
+    /// Where a tap goes (a monitor alert opens Ops).
+    public var url: String?
+
+    public static let opsURL = "everythingapp://section/ops"
+
+    public init(_ n: NotifyEvent) {
+        thread = n.kind
+        incidentId = n.kind == "monitor" ? n.incident_id : nil
+        url = n.kind == "monitor" ? Self.opsURL : nil
+        let name = Self.trimmed(n.name), state = Self.trimmed(n.state), error = Self.trimmed(n.error)
+        if n.kind == "monitor" {
+            let key = Self.monitorId(fromNotifyId: n.id) ?? (name.isEmpty ? UUID().uuidString.lowercased() : "name:" + name)
+            id = "alert|monitor|" + key
+        } else {
+            let own = Self.trimmed(n.id)
+            id = "alert|\(n.kind)|" + (own.isEmpty ? UUID().uuidString.lowercased() : own)
+        }
+        if n.kind == "monitor", !name.isEmpty, !state.isEmpty {
+            let text = Self.monitorText(name: name, state: state, error: error, hubTitle: n.title)
+            title = StyleGuard.dashes(text.title)
+            body = StyleGuard.dashes(text.body)
+        } else {
+            // An older hub sends the title alone ("Ollama down: connection refused").
+            title = StyleGuard.dashes(n.title)
+            body = ""
+        }
+    }
+
+    /// The monitor in a monitor alert's id, `monitor:<monitor id>:<state>:<at>`.
+    public static func monitorId(fromNotifyId id: String?) -> String? {
+        guard let id, id.hasPrefix("monitor:") else { return nil }
+        let rest = id.dropFirst("monitor:".count)
+        let monitor = rest.firstIndex(of: ":").map { String(rest[..<$0]) } ?? String(rest)
+        return monitor.isEmpty ? nil : monitor
+    }
+
+    /// "Ollama down" over the error. A re-notify ("Ollama still down since Nov 13, 9:14 PM (6 h): <error>") keeps
+    /// "still" in the title and puts since when in the body, before the error.
+    static func monitorText(name: String, state: String, error: String, hubTitle: String) -> (title: String, body: String) {
+        let still = "\(name) still \(state)"
+        guard hubTitle.hasPrefix(still) else { return ("\(name) \(state)", error) }
+        var since = String(hubTitle.dropFirst(still.count))
+        if !error.isEmpty, since.hasSuffix(": " + error) { since = String(since.dropLast(error.count + 2)) }
+        since = since.trimmingCharacters(in: .whitespaces)
+        if let first = since.first { since = first.uppercased() + since.dropFirst() }
+        return (still, [since, error].filter { !$0.isEmpty }.joined(separator: ": "))
+    }
+
+    private static func trimmed(_ s: String?) -> String { (s ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+}
+
 #if canImport(UserNotifications)
 /// Schedules the planned notifications with UNUserNotificationCenter. Re-run after every sync.
 public final class ReminderScheduler: @unchecked Sendable {
@@ -82,7 +144,10 @@ public final class ReminderScheduler: @unchecked Sendable {
         let still = UNNotificationAction(identifier: ActivityCheckin.stillAction, title: "Still on it", options: [])
         let stop = UNNotificationAction(identifier: ActivityCheckin.stopAction, title: "Stop", options: [])
         let act = UNNotificationCategory(identifier: ActivityCheckin.categoryId, actions: [still, stop], intentIdentifiers: [], options: [])
-        center.setNotificationCategories([cat, reasonCat, act])
+        // A monitor that went down: Acknowledge from the alert (iPhone, Watch, Mac) stops the 6 hour reminders.
+        let ackIncident = UNNotificationAction(identifier: Self.incidentAckAction, title: "Acknowledge", options: [])
+        let incident = UNNotificationCategory(identifier: Self.incidentCategoryId, actions: [ackIncident], intentIdentifiers: [], options: [])
+        center.setNotificationCategories([cat, reasonCat, act, incident])
     }
 
     /// Asked only from the permission screen after setup or a module switched on, or from Settings, Notifications.
@@ -97,8 +162,8 @@ public final class ReminderScheduler: @unchecked Sendable {
     /// Replace all pending reminder notifications with the given plan.
     public func replan(reminders: [Entity], now: Date = Date()) async {
         let plan = ReminderPlanner.plan(reminders: reminders, now: now)
-        // Reminder ids are `<reminder id>|<time>`; activity check-ins and the digest keep their own prefixes.
-        let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.contains("|") && !$0.hasPrefix("activity|") && !$0.hasPrefix("digest|") }
+        // Reminder ids are `<reminder id>|<time>`; activity check-ins, the digest and alerts keep their own prefixes.
+        let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.contains("|") && !$0.hasPrefix("activity|") && !$0.hasPrefix("digest|") && !$0.hasPrefix("alert|") }
         center.removePendingNotificationRequests(withIdentifiers: pending)
         for p in plan {
             let content = UNMutableNotificationContent()
@@ -148,15 +213,39 @@ public final class ReminderScheduler: @unchecked Sendable {
         try? await center.add(UNNotificationRequest(identifier: "digest|\(Int(Date().timeIntervalSince1970))", content: content, trigger: nil))
     }
 
+    public static let incidentCategoryId = "monitor-incident"
+    public static let incidentAckAction = "incident-ack"
+
     /// Show a notification right now (used for `notify` events from `/live`).
-    /// A plain alert (monitor, sensor, quiz): no Done or Snooze buttons.
-    public func notifyAlert(title: String, kind: String) async {
+    /// A plain alert (sensor, quiz, a monitor back up); a monitor down with its incident gets Acknowledge, and a tap
+    /// opens Ops. A monitor's newer alert replaces its earlier one (`AlertNotice.id`).
+    public func notifyAlert(_ n: NotifyEvent) async {
+        guard alertsOn else { return }
+        let a = AlertNotice(n)
+        let content = UNMutableNotificationContent()
+        content.title = a.title
+        if !a.body.isEmpty { content.body = a.body }
+        content.sound = .default
+        content.threadIdentifier = a.thread
+        if let url = a.url { content.userInfo["url"] = url }
+        if let incidentId = a.incidentId {
+            content.categoryIdentifier = Self.incidentCategoryId
+            content.userInfo["incident_id"] = incidentId
+        }
+        try? await center.add(UNNotificationRequest(identifier: a.id, content: content, trigger: nil))
+    }
+
+    /// Acknowledge on a monitor alert did not reach the hub: say so and why. A tap opens Ops; Acknowledge tries again.
+    public func notifyNotAcknowledged(reason: String, alert: String, incidentId: String) async {
         guard alertsOn else { return }
         let content = UNMutableNotificationContent()
-        content.title = title
+        content.title = StyleGuard.dashes("Not acknowledged: \(reason)")
+        if !alert.isEmpty { content.body = alert }
         content.sound = .default
-        content.threadIdentifier = kind
-        try? await center.add(UNNotificationRequest(identifier: "alert|\(kind)|\(Int(Date().timeIntervalSince1970))", content: content, trigger: nil))
+        content.threadIdentifier = "monitor"
+        content.categoryIdentifier = Self.incidentCategoryId
+        content.userInfo = ["url": AlertNotice.opsURL, "incident_id": incidentId]
+        try? await center.add(UNNotificationRequest(identifier: "alert|ack|\(incidentId)", content: content, trigger: nil))
     }
 
     public func notifyNow(reminderId: String, title: String, friction: Friction) async {

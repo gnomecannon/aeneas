@@ -248,9 +248,13 @@ export const JournalFields = z.object({
   command: z.string().optional(),
   risk: z.enum(["low", "medium", "high"]),
   rollback: z.string().optional(),
-  outcome: z.enum(["planned", "done", "failed", "reverted"]).default("done"),
+  /** running: an approved command the hub is running now; interrupted: it stopped at its time limit, or the hub
+   * stopped or restarted while it ran (a change that restarts the hub or reboots its machine), so it may be half done. */
+  outcome: z.enum(["planned", "running", "done", "failed", "interrupted", "reverted"]).default("done"),
   session_id: z.string().optional(),
   runbook_id: z.string().optional(),
+  /** `close`: written by a session close, which replaces only these when the session is closed again. */
+  source: z.enum(["close"]).optional(),
 });
 
 export const SnippetFields = z.object({
@@ -391,6 +395,20 @@ export const MonitorFields = z.object({
   last_error: z.string().optional(),
   last_detail: z.string().optional(),
   consecutive_fails: z.number().int().optional(),
+  /** Down while its machine was unreachable: the machine's incident it joined instead of opening one, hub-managed. */
+  joined_incident: z.string().optional(),
+  /** The last check that reached the thing checked, failed or not (a skipped check of a machine away does not), hub-managed. */
+  last_reached: iso.optional(),
+  /** backup: each job of the machine (backup, verify, restore) as last read, hub-managed. */
+  jobs: z.array(z.object({
+    job: z.enum(["backup", "verify", "restore"]),
+    state: z.enum(["ok", "failed", "stale", "never", "missing"]),
+    running: z.boolean().optional(),
+    last_good: iso.optional(),
+    last_run: iso.optional(),
+    max_hours: z.number(),
+    error: z.string().optional(),
+  })).optional(),
 });
 
 export const IncidentFields = z.object({
@@ -405,6 +423,10 @@ export const IncidentFields = z.object({
   journal_id: z.string().optional(),
   /** When the hub last said it again (every 6 hours until acknowledged), kept across restarts. */
   renotified_at: iso.optional(),
+  /** A machine that stopped answering: the other monitors on it that went down with it (names), hub-managed. */
+  also_down: z.array(z.string()).optional(),
+  /** Closed into its machine's incident when the machine stopped answering soon after it opened, hub-managed. */
+  merged_into: z.string().optional(),
 });
 
 export const ChecklistFields = z.object({

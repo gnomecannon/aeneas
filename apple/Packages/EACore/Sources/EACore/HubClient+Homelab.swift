@@ -46,6 +46,15 @@ public struct UptimeEntry: Decodable, Equatable, Sendable {
     public var pct: Double?
 }
 
+/// One line about the hub's own backups on Ops: the nightly copy, a second folder, the copy to storage, the live copy.
+public struct HubBackupLine: Decodable, Equatable, Identifiable, Sendable {
+    public var label: String
+    public var ok: Bool
+    public var at: String?
+    public var text: String
+    public var id: String { label }
+}
+
 /// `GET /ops`: the board the Ops screen is built from.
 public struct OpsBoard: Decodable, Equatable, Sendable {
     public var monitors: [OpsMonitor]
@@ -55,8 +64,10 @@ public struct OpsBoard: Decodable, Equatable, Sendable {
     public var watches_due_30d: [Entity]
     public var journal_recent: [Entity]
     public var hosts: [HostSummary]
+    /// The hub's own backups (empty from a hub before 2026-11-13).
+    public var hub_backup: [HubBackupLine]
 
-    enum CodingKeys: String, CodingKey { case monitors, incidents_open, incidents_7d, uptime_24h, watches_due_30d, journal_recent, hosts }
+    enum CodingKeys: String, CodingKey { case monitors, incidents_open, incidents_7d, uptime_24h, watches_due_30d, journal_recent, hosts, hub_backup }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -67,6 +78,7 @@ public struct OpsBoard: Decodable, Equatable, Sendable {
         watches_due_30d = try c.decodeIfPresent([Entity].self, forKey: .watches_due_30d) ?? []
         journal_recent = try c.decodeIfPresent([Entity].self, forKey: .journal_recent) ?? []
         hosts = try c.decodeIfPresent([HostSummary].self, forKey: .hosts) ?? []
+        hub_backup = (try? c.decodeIfPresent([HubBackupLine].self, forKey: .hub_backup)) ?? []
     }
 
     /// 24 h uptime percent by monitor name.
