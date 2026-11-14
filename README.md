@@ -37,10 +37,10 @@ About 15 minutes in all, plus the model download (about 1.5 GB on a computer wit
 20 GB with a large one).
 
 1. On the computer that will be the hub (Linux, macOS or Windows, always on, 8 GB of memory or more), run the
-   installer in a terminal. It needs no root password and asks at most three questions (whether to download the model
-   server, where to keep the models, and whether web searches should go through Tor; Enter takes the suggested answer).
-   It installs Node, the hub as a service, a local model server (Ollama), a local search server when Python is there,
-   and HTTPS. A few minutes.
+   installer in a terminal. It needs no root password and asks at most three questions (how your devices reach the
+   hub, whether to download the model server, and where to keep the models; Enter takes the suggested answer). It
+   installs Node, the hub as a service, a local model server (Ollama), Tor and a local search server (with its own
+   Python when the computer has none). A few minutes.
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/gnomecannon/aeneas/main/deploy/install.sh | bash
@@ -128,7 +128,7 @@ Each module says before you turn it on whether it needs one.
 | `web/` | The web app and the Windows app (Tauri) | `npm --workspace web test` |
 | `apple/` | SwiftUI apps for iPhone, iPad, Mac and Watch, with widgets (`xcodegen generate`) | `cd apple/Packages/EACore && swift test` |
 | `deploy/` | The installers (`install.sh` for Linux and macOS, `install.ps1` for Windows), `pair-link.sh`, `restore.sh`, `uninstall.sh` and their Windows twins in `deploy/windows`, the Windows hub service (`hub-service.ps1`), starter content, the Windows build script | `bash -n deploy/install.sh` |
-| `tools/` | The license check, the public copy tools and an Obsidian vault mirror | `npm run license-check` |
+| `tools/` | The license check and an Obsidian vault mirror | `npm run license-check` |
 
 ## Develop
 

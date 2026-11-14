@@ -78,7 +78,7 @@ Steam game pictures come from the hub (`/games/art/:appid`) and outside wiki pic
   the PC has none, is MinGit from `github.com/git-for-windows/git` releases; Python for SearXNG always comes from
   `github.com/astral-sh/python-build-standalone`; and Tor is checked against its published sums file only (Windows has
   no gpg to check that file's signature, which `install.sh` does). Each download is checked against its published
-  SHA-256. It also talks to the Tailscale service on the PC (`tailscale status`, `tailscale serve`) and registers the
+  SHA-256. With Tailscale chosen and missing, it downloads Tailscale's installer from `pkgs.tailscale.com` and checks it against Tailscale's published SHA-256. It also talks to the Tailscale service on the PC (`tailscale status`, `tailscale serve`) and registers the
   scheduled task `\Aeneas\Aeneas hub`, after saying so. `deploy/windows/update.ps1` reaches what `update.sh` does.
 - `deploy/install-hub.sh`: the Debian or Ubuntu mirrors and `deb.nodesource.com`. `deploy/install-hub-user.sh`: `nodejs.org`.
 - `deploy/litestream/install-litestream.sh`: `api.github.com` and `github.com` for the Litestream release.

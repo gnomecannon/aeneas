@@ -201,10 +201,10 @@ A Windows hub (installed with `Aeneas-Hub-Setup.exe`, which runs `deploy/install
 | `data` | Your data: `hub.sqlite`, `chats.sqlite`, `vault`, `backups`, `logs` | `hub.sqlite` only |
 | `config` | `hub.env` (settings and the hub's main key), `backup.key`, `work.key`, `secrets.key`, `services.json`, Tor's settings | No, on purpose |
 | `models` (or the folder chosen during setup) | Ollama's models | No (downloaded again) |
-| `node`, `git`, `ollama`, `tor` | Programs the installer added (only the ones it needed) | No |
+| `node`, `git`, `ollama`, `tor`, `python`, `searxng` | Programs the installer added (only the ones it needed) | No |
 
 The scheduled task `\Aeneas\Aeneas hub` starts `app\deploy\windows\hub-service.ps1` at boot, as you, before anyone
-logs in. It runs the hub, Ollama and Tor (as listed in `config\services.json`), starts each again when it stops, and
+logs in. It runs the hub, Ollama, Tor and the search server (the ones listed in `config\services.json`), starts each again when it stops, and
 asks Windows not to sleep while the PC is on AC power.
 
 As the user who installed the hub (the commands in PowerShell):
@@ -231,7 +231,7 @@ runs before anyone logs in and cannot reach network drives) to `config\hub.env`,
 
 | What you see | What to do |
 |---|---|
-| The app says it cannot reach the hub | Is the hub's machine on and awake? On it, `curl -sk https://127.0.0.1:8787/health` should answer `{"ok":true}` (use `http` if the hub is on Tailscale). If not, read the log and restart the hub. Away from home, is Tailscale on, on the device? |
+| The app says it cannot reach the hub | Is the hub's machine on and awake? On it, `curl -s http://127.0.0.1:8787/health` should answer `{"ok":true}` (with Home Wi-Fi only, `curl -sk https://127.0.0.1:8787/health`). If not, read the log and restart the hub. Away from home: with Direct link, Settings, Connection says whether it is on and when it tries again; with Tailscale, check that Tailscale is on, on the device; with Home Wi-Fi only, the apps reach the hub only at home. |
 | "This device was removed" or "unknown key" | The device was removed, or the hub was restored without its device keys: pair it again |
 | The browser warns the connection is not private | Expected on the home network: the hub made its own certificate. Choose Advanced, then continue |
 | No backup for more than a day (Status page) | Read the log for `[backup]`. Was the recovery key saved? Is the disk full (`df -h ~`)? |
