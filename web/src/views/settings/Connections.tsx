@@ -4,7 +4,7 @@ import type { AtlassianConnection, AtlassianSpace, Connections as ConnectionsVie
 import { spacesChanged } from "../../lib/wiki";
 import { fmtDateTime } from "../../lib/time";
 import { META } from "../../sync/db";
-import { useMeta, useSyncState } from "../../sync/hooks";
+import { useHubReady, useMeta, useSyncState } from "../../sync/hooks";
 import { SubPage, errorText } from "./common";
 import { isTauri, openExternal } from "../../tauri/bridge";
 import { useModules } from "../../lib/modules";
@@ -419,7 +419,8 @@ function CalendarFeed() {
   const [key, setKey] = useState("");
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState("");
-  useEffect(() => { void engine.client?.feeds().then((f) => setKey(f.calendar.key)).catch(() => undefined); }, []);
+  const ready = useHubReady();
+  useEffect(() => { void engine.client?.feeds().then((f) => setKey(f.calendar.key)).catch(() => undefined); }, [ready]);
   if (!hubUrl || !key) return null;
   // The calendar key reads this feed and nothing else, so the link is safe in a calendar app that syncs it elsewhere.
   const https = `${hubUrl.replace(/\/+$/, "")}/calendar.ics?key=${encodeURIComponent(key)}`;

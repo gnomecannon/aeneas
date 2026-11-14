@@ -29,6 +29,15 @@ export function useMeta<T = string>(key: string): T | undefined {
   return row?.value as T | undefined;
 }
 
+/**
+ * True once the sync engine has its hub client. A screen that asks the hub when it opens waits for this: after a
+ * reload the screen opens before the client exists, and asking only once left it on "Asking the hub" for good.
+ */
+export function useHubReady(): boolean {
+  useSyncState();
+  return !!engine.client;
+}
+
 export function useSyncState(): SyncState {
   const [s, setS] = useState<SyncState>(engine.state);
   useEffect(() => engine.subscribe(setS), []);

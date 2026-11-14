@@ -173,6 +173,8 @@ export function statusReport(hub: Hub, now: Date = new Date()): Record<string, u
       last_call_at: lastCall?.at ?? null,
       last_backend: lastCall?.backend ?? null,
       avg_latency_ms_24h: ai.avg_ms === null ? null : Math.round(ai.avg_ms),
+      // EA_OLLAMA_NUM_CTX (0: automatic), the context the hub uses, and the floor a smaller value is raised to.
+      context: hub.ai.contextWindow(),
     },
     reminders: { due_next: upcoming?.r ?? null, fired_24h: fired24h },
     planner: plannerStatus(hub, now),

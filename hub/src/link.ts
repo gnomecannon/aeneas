@@ -79,6 +79,8 @@ export interface DirectStatus {
   /** Who runs the relay, said plainly. */
   relay_by?: string;
   error?: string;
+  /** After a failed start: when it is tried again (a hub that started before the network keeps trying). */
+  retry_at?: string;
   /** Devices connected now, and how many of them reach the hub directly (not through the relay). */
   connected: number;
   direct: number;
@@ -144,8 +146,11 @@ export class DirectLink {
   private stopping = false;
   /** Bumped by every stop: a start still waiting on the relay when a stop comes closes what it made instead of running. */
   private generation = 0;
+  /** The next try after a failed start, and how many starts failed in a row. */
+  private retry: NodeJS.Timeout | null = null;
+  private failures = 0;
 
-  constructor(private cfg: Config, fetch: (req: Request, env?: unknown) => Response | Promise<Response>, private loadIroh: () => Promise<Iroh> = () => import("@number0/iroh"), private opts: { noRelay?: boolean } = {}) {
+  constructor(private cfg: Config, fetch: (req: Request, env?: unknown) => Response | Promise<Response>, private loadIroh: () => Promise<Iroh> = () => import("@number0/iroh"), private opts: { noRelay?: boolean; onlineMs?: number; retryMs?: number[] } = {}) {
     this.server = http.createServer(getRequestListener(fetch as never));
     this.server.on("clientError", (_e, socket) => socket.destroy());
   }
@@ -176,9 +181,11 @@ export class DirectLink {
   async start(): Promise<DirectStatus> {
     if (this.ep) return this.status();
     if (this.status_.state === "starting") return this.status();
+    if (this.retry) { clearTimeout(this.retry); this.retry = null; }
     const gen = this.generation;
     this.stopping = false;
     this.status_ = { state: "starting", connected: 0, direct: 0 };
+    let bound: Endpoint | null = null;
     try {
       const iroh = await this.loadIroh();
       const saved = readLinkFile(this.cfg.dataDir);
@@ -190,7 +197,8 @@ export class DirectLink {
       b.alpns([Array.from(Buffer.from(LINK_ALPN))]);
       b.relayMode(this.opts.noRelay ? iroh.RelayMode.disabled() : relays.length ? iroh.RelayMode.customFromUrls(relays) : iroh.RelayMode.defaultMode());
       const ep = await b.bind();
-      if (!this.opts.noRelay) await Promise.race([ep.online(), new Promise((_, no) => setTimeout(() => no(new Error("no relay answered in 30 seconds (is this computer online?)")), 30_000))]);
+      bound = ep;
+      if (!this.opts.noRelay) await Promise.race([ep.online(), new Promise((_, no) => setTimeout(() => no(new Error("no relay answered in 30 seconds (is this computer online?)")), this.opts.onlineMs ?? 30_000))]);
       if (gen !== this.generation) {
         await ep.close().catch(() => {});
         return this.status();
@@ -199,17 +207,38 @@ export class DirectLink {
       // The relay first given is kept: a paired device knows only that one.
       if (!this.cfg.linkRelays.length && relay && relay !== saved.relay) writeLinkFile(this.cfg.dataDir, { ...readLinkFile(this.cfg.dataDir), relay });
       this.ep = ep;
+      this.failures = 0;
       this.status_ = { state: "online", id: ep.id().toString(), relay: relay ?? undefined, relay_by: relayOwner(relay ?? undefined), connected: 0, direct: 0 };
       void this.acceptLoop(ep);
       console.log(`[link] Direct link online, hub key ${ep.id().fmtShort()}, relay ${relay}`);
     } catch (e) {
       this.ep = null;
+      // The endpoint made before the relay timed out is closed, not left open.
+      if (bound) await bound.close().catch(() => {});
       if (gen !== this.generation) return this.status();
       const msg = (e as Error).message ?? String(e);
-      this.status_ = { state: "error", error: /Cannot find module|not supported|ERR_DLOPEN/i.test(msg) ? `Direct link cannot run on this system (${msg.split("\n")[0]})` : msg, connected: 0, direct: 0 };
+      const cannotRun = /Cannot find module|not supported|ERR_DLOPEN/i.test(msg);
+      this.status_ = { state: "error", error: cannotRun ? `Direct link cannot run on this system (${msg.split("\n")[0]})` : msg, connected: 0, direct: 0 };
       console.error(`[link] Direct link did not start: ${msg}`);
+      if (!cannotRun) this.retryLater(gen);
     }
     return this.status();
+  }
+
+  /**
+   * A start that failed for a passing reason (after a power cut the PC can boot before the router) is tried again:
+   * after 15 s, 30 s, 1 min, 2 min, then every 5 min, until it works or the method changes.
+   */
+  private retryLater(gen: number): void {
+    const delays = this.opts.retryMs ?? [15_000, 30_000, 60_000, 120_000, 300_000];
+    const wait = delays[Math.min(this.failures, delays.length - 1)];
+    this.failures++;
+    this.status_ = { ...this.status_, retry_at: new Date(Date.now() + wait).toISOString() };
+    this.retry = setTimeout(() => {
+      this.retry = null;
+      if (gen === this.generation && !this.ep && !this.stopping) void this.start();
+    }, wait);
+    this.retry.unref?.();
   }
 
   private async acceptLoop(ep: Endpoint): Promise<void> {
@@ -234,6 +263,8 @@ export class DirectLink {
 
   async stop(): Promise<void> {
     this.generation++;
+    if (this.retry) { clearTimeout(this.retry); this.retry = null; }
+    this.failures = 0;
     this.stopping = true;
     const ep = this.ep;
     this.ep = null;

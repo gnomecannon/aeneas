@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import type { HubRequest, HubsList, PersonHub } from "../../sync/api";
 import { engine } from "../../sync/engine";
 import { SubPage, errorText } from "./common";
+import { useHubReady } from "../../sync/hooks";
 
 /**
  * Settings, People on this machine: give someone a hub of their own on the machine this hub runs on, in one step.
@@ -15,12 +16,13 @@ const TAILSCALE_MACHINES = "https://login.tailscale.com/admin/machines";
 /** The Settings row's summary, or null to leave the row out (another person's hub, a Mac hub). */
 export function usePeopleSummary(): string | null {
   const [s, setS] = useState<string | null>(null);
+  const ready = useHubReady();
   useEffect(() => {
     engine.client?.hubs().then(
       (h) => setS(h.reason === "not_owner" || h.reason === "linux_only" ? null : !h.available ? "Give someone their own hub here" : others(h.hubs) ? `${others(h.hubs)} more besides you` : "Only you so far"),
       () => setS(null),
     );
-  }, []);
+  }, [ready]);
   return s;
 }
 const others = (list: PersonHub[]) => list.filter((h) => !h.owner).length;
@@ -101,8 +103,9 @@ export function PeoplePage() {
   const [busyAccount, setBusyAccount] = useState("");
   const [op, setOp] = useState<"add" | "pair" | "stop" | null>(null);
   const req = useRequest(reqId);
+  const ready = useHubReady();
   const load = () => void engine.client?.hubs().then(setData, (e) => setMsg(errorText(e)));
-  useEffect(load, []);
+  useEffect(load, [ready]);
   const finished = useRef<string | null>(null);
   useEffect(() => {
     if (req && (req.state === "done" || req.state === "failed") && finished.current !== reqId) { finished.current = reqId; setBusyAccount(""); load(); }

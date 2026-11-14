@@ -73,6 +73,37 @@ describe("mergeIncoming", () => {
   });
 });
 
+describe("a capture saved on the hub and, its answer late, on this device with the same id", () => {
+  const at = "2026-11-13T10:00:00.000Z";
+  const hubFields = { text: "buy a new bike seat", source: "web", processed: true, suggested_kind: "none", sorted_by: "auto", filing: "done", filed: "Tasks: Buy a new bike seat" };
+  const onHub: Entity = { ...base, kind: "capture", fields: hubFields, field_ts: Object.fromEntries(Object.keys(hubFields).map((k) => [k, at])), created_at: at, updated_at: at };
+  // Newer stamps than the hub's: Save kept it here after giving up on the hub's answer.
+  const mine: Patch = { id: base.id, kind: "capture", space: "personal", ts: "2026-11-13T10:00:08.000Z", create: true, fields: { text: "buy a new bike seat", source: "web", processed: false, sort: true, suggested_kind: "task" } };
+
+  it("the hub's copy here first: this device's own copy does not put it back in Unsorted Info", () => {
+    const e = applyPatchLocal(onHub, mine);
+    expect(e.fields).toEqual(hubFields);
+    expect(e.field_ts).toEqual(onHub.field_ts);
+  });
+
+  it("the hub's copy arriving while this device's copy waits to be sent: the hub's sorting and filing show", () => {
+    const e = mergeIncoming(onHub, [mine]);
+    expect(e.fields).toEqual(hubFields);
+  });
+
+  it("only fields the copy here lacks go in, never its sorting", () => {
+    const withPhoto: Patch = { ...mine, fields: { ...mine.fields, attachments: [{ name: "seat.jpg", mime: "image/jpeg", bytes_b64: "AA==" }] } };
+    const e = applyPatchLocal(onHub, withPhoto);
+    expect(e.fields.attachments).toHaveLength(1);
+    expect(e.fields.processed).toBe(true);
+    expect(e.fields.sort).toBeUndefined();
+  });
+
+  it("a capture saved here first is created as sent", () => {
+    expect(applyPatchLocal(undefined, mine).fields).toMatchObject({ processed: false, sort: true });
+  });
+});
+
 describe("planFlush", () => {
   const item = (seq: number, ts: string): OutboxItem => ({ seq, attempts: 0, enqueued_at: ts, patch: patch(ts, { title: `t${seq}` }) });
 

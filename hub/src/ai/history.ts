@@ -13,6 +13,33 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 3.5);
 }
 
+/** Tokens kept free for the model's reply, its thinking included. */
+export const REPLY_RESERVE = 6000;
+/**
+ * Tokens kept free inside one turn for what tools return. The window of earlier turns is planned without them, so a
+ * full window still leaves tool results this much room before fitToolResults cuts them.
+ */
+export const TOOL_RESULT_ROOM = 4096;
+/**
+ * What the context floor allows for the system prompt: the hub's own instructions and tool guide (about 2,000 tokens),
+ * then the owner's rules, facts and list names and a long chat's summary.
+ */
+export const SYSTEM_ALLOWANCE = 4096;
+/** What the context floor allows for the conversation itself, the newest turns sent word for word. */
+export const HISTORY_ALLOWANCE = 4096;
+/** Context sizes are whole multiples of this. */
+const CONTEXT_STEP = 8192;
+
+/**
+ * The smallest context that holds the system prompt, the tools (`toolTokens`, every tool the hub can offer), a reply,
+ * tool results and some history, rounded up to a multiple of 8192. A smaller EA_OLLAMA_NUM_CTX is raised to it: with
+ * 8192, the tool list alone filled the context and Ollama dropped the system prompt from every request.
+ */
+export function contextFloor(toolTokens: number): number {
+  const need = toolTokens + SYSTEM_ALLOWANCE + REPLY_RESERVE + TOOL_RESULT_ROOM + HISTORY_ALLOWANCE;
+  return Math.ceil(need / CONTEXT_STEP) * CONTEXT_STEP;
+}
+
 /**
  * Text cut to at most `max` characters (and the note) by leaving out its middle: a quarter from the start, the rest
  * from the end, where a command's errors are.
@@ -67,11 +94,16 @@ export interface WindowPlan {
 }
 
 /**
- * Pick the verbatim window: walk back from the newest message until `budget` tokens are used.
- * Always keeps at least the newest `minKeep` messages (the turn being answered must go in whole).
- * A window never starts on an assistant turn, so the model always sees what was asked.
+ * When older turns must be summarized, the share of the budget kept word for word. The rest is room for the next
+ * turns: a window filled to the whole budget needed another summary on the very next turn, so a long chat waited
+ * for a summary on every message.
  */
-export function planWindow(messages: Pick<StoredMessage, "role" | "content" | "images">[], summaryUpto: number, budget: number, minKeep = 2): WindowPlan {
+export const KEEP_AFTER_SUMMARY = 0.5;
+
+type WindowMessage = Pick<StoredMessage, "role" | "content" | "images">;
+
+/** The first message of the newest run that fits `budget` (at least the newest `minKeep`), never an assistant turn. */
+function fitStart(messages: WindowMessage[], budget: number, minKeep: number): number {
   let used = 0;
   let start = messages.length;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -82,8 +114,20 @@ export function planWindow(messages: Pick<StoredMessage, "role" | "content" | "i
     start = i;
   }
   while (start > 0 && start < messages.length && messages[start].role === "assistant") start++;
+  return start;
+}
+
+/**
+ * Pick the verbatim window: walk back from the newest message until `budget` tokens are used.
+ * Always keeps at least the newest `minKeep` messages (the turn being answered must go in whole).
+ * A window never starts on an assistant turn, so the model always sees what was asked.
+ * When turns past the stored summary no longer fit, only about half the budget stays word for word
+ * (KEEP_AFTER_SUMMARY) and the rest goes into the summary, so the next several turns fit without another one.
+ */
+export function planWindow(messages: WindowMessage[], summaryUpto: number, budget: number, minKeep = 2): WindowPlan {
+  const start = fitStart(messages, budget, minKeep);
   if (start <= summaryUpto) return { start: Math.min(start, messages.length), needsSummary: false };
-  return { start, needsSummary: start > summaryUpto };
+  return { start: fitStart(messages, Math.floor(budget * KEEP_AFTER_SUMMARY), minKeep), needsSummary: true };
 }
 
 export const SUMMARY_SYSTEM = [

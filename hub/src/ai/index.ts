@@ -19,7 +19,8 @@ import { recordImage } from "../gallery.js";
 import { ImageStore } from "./images.js";
 import { HostActions } from "./hosts.js";
 import type { ModuleCheck } from "../modules.js";
-import { estimateTokens, fallbackSummary, fitToolResults, planWindow, SUMMARY_SYSTEM, summaryPrompt, trimMiddle } from "./history.js";
+import { contextFloor, estimateTokens, fallbackSummary, fitToolResults, planWindow, REPLY_RESERVE, SUMMARY_SYSTEM, summaryPrompt, TOOL_RESULT_ROOM, trimMiddle } from "./history.js";
+import { knownPatternProblem } from "./rule-guard.js";
 import { errCode, logHost } from "../logsafe.js";
 import { webPrivate } from "./web.js";
 import { gpuBusyNow, onThisMachine } from "../gpu.js";
@@ -114,8 +115,6 @@ export type ChatEvent =
   | { type: "photos_request"; id: string; count: number; since_days?: number };
 
 const MAX_TOOL_ROUNDS = 8;
-/** Tokens kept free for the reply and for tool results inside one turn. */
-const REPLY_RESERVE = 6000;
 /** Images sent per request; older ones in the window are described as "[image]" only. */
 const MAX_IMAGES_SENT = 3;
 /** No warm-up this soon after the model was last used: its cache most likely still holds the shared start. */
@@ -166,9 +165,17 @@ export class Gateway {
   /** Which modules are on (Settings, Modules): tools and guide lines of a module that is off are left out. */
   moduleOn: ModuleCheck = () => true;
   private names = () => ({ owner: this.owner(), pet: this.pet() });
+  /**
+   * The smallest context that holds the system prompt, the tools, a reply and some history (history.ts contextFloor),
+   * counted once from every tool this hub can offer whatever the modules: a num_ctx that changed with the modules would
+   * make Ollama load the model again.
+   */
+  private readonly ctxNeeded: number;
 
   constructor(private cfg: Config, private store: Store, readonly chatDb: DB) {
-    this.backends = personalBackends(buildBackends(cfg), () => this.names());
+    this.ctxNeeded = contextFloor(estimateTokens(JSON.stringify(toolSpecs(availableTools(cfg)))));
+    if (cfg.ollamaNumCtx > 0 && cfg.ollamaNumCtx < this.ctxNeeded) console.log(`[ai] EA_OLLAMA_NUM_CTX ${cfg.ollamaNumCtx} cannot hold the system prompt, the tools and a reply; using ${this.ctxNeeded}`);
+    this.backends = personalBackends(buildBackends(cfg, this.numCtx()), () => this.names());
     this.sessions = new Sessions(chatDb);
     const tidied = this.sessions.tidyCaptureThreads();
     if (tidied) console.log(`[ai] ${tidied} capture chats now show the capture instead of the filing prompt`);
@@ -178,6 +185,14 @@ export class Gateway {
 
   /** Give the assistant its tools: an in-process caller of the hub's own API (set by createApp). */
   setApi(api: ApiCall): void { this.api = api; }
+
+  /** The context the hub plans every request for and asks Ollama for: EA_OLLAMA_NUM_CTX, raised to the floor. */
+  numCtx(): number { return Math.max(this.cfg.ollamaNumCtx, this.ctxNeeded); }
+
+  /** For /status: EA_OLLAMA_NUM_CTX (0: automatic), the context used, and the floor it is raised to. */
+  contextWindow(): { configured: number; used: number; needed: number } {
+    return { configured: Math.max(0, this.cfg.ollamaNumCtx), used: this.numCtx(), needed: this.ctxNeeded };
+  }
 
   private toolsFor(mode: Mode, backend: Backend): boolean {
     return this.cfg.aiTools && !!this.api && !!backend.streamTools && mode !== "draft" && mode !== "classify";
@@ -191,9 +206,10 @@ export class Gateway {
     const usage: Usage = { prompt_tokens: 0, completion_tokens: 0 };
     const add = (u: Usage) => { usage.prompt_tokens = (usage.prompt_tokens ?? 0) + (u.prompt_tokens ?? 0); usage.completion_tokens = (usage.completion_tokens ?? 0) + (u.completion_tokens ?? 0); };
     let checked = false;
-    // A local model reads only its context: tool results that would push the request past it are cut to fit.
+    // A local model reads only its context: tool results that would push the request past it are cut to fit. The
+    // window of earlier turns left TOOL_RESULT_ROOM of this free for them.
     const specTokens = estimateTokens(JSON.stringify(specs));
-    const ctxLimit = (this.cfg.ollamaNumCtx > 0 ? this.cfg.ollamaNumCtx : 8192) - REPLY_RESERVE;
+    const ctxLimit = this.numCtx() - REPLY_RESERVE;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       if (!backend.cloud) fitToolResults(messages, specTokens, ctxLimit);
       const r = await backend.streamTools!(messages, specs, onToken);
@@ -242,7 +258,7 @@ export class Gateway {
 
   /** Build the backends again after the owner chose a model in setup (setup.ts changed the config). */
   rebuildBackends(): void {
-    this.backends = personalBackends(buildBackends(this.cfg), () => this.names());
+    this.backends = personalBackends(buildBackends(this.cfg, this.numCtx()), () => this.names());
   }
 
   /** What clients may offer. */
@@ -317,11 +333,13 @@ export class Gateway {
     for (const r of this.store.list({ kind: "rule" })) {
       const f = r.fields as { text: string; enforce: string; pattern?: string; flags?: string; replacement?: string; active?: boolean };
       if (f.active === false || !f.pattern || (f.enforce !== "filter" && f.enforce !== "both")) continue;
-      try {
-        out.push({ name: `rule:${f.text.slice(0, 60)}`, pattern: new RegExp(f.pattern, f.flags ?? "g"), replacement: f.replacement ?? "" });
-      } catch (e) {
-        console.error(`[ai] rule ${r.id} has an invalid pattern and is skipped`);
+      // Saves are checked (store.ts); this catches a pattern saved before that check, once per pattern.
+      const checked = knownPatternProblem(f.pattern, f.flags);
+      if (checked.problem) {
+        if (checked.first) console.error(`[ai] rule ${r.id} has a pattern that does not compile or is too slow, and is skipped`);
+        continue;
       }
+      out.push({ name: `rule:${f.text.slice(0, 60)}`, pattern: new RegExp(f.pattern, f.flags ?? "g"), replacement: f.replacement ?? "" });
     }
     return out;
   }
@@ -633,7 +651,10 @@ export class Gateway {
       let system = this.sharedSystem(memory, mode, tools, turnOn);
       if (clientSystem.length) system += `\n\n${clientSystem.join("\n\n")}`;
       const toolTokens = tools ? estimateTokens(JSON.stringify(toolSpecs(availableTools(this.cfg, undefined, turnOn)))) : 0;
-      const budget = Math.max(2000, (this.cfg.ollamaNumCtx > 0 ? this.cfg.ollamaNumCtx : 8192) - estimateTokens(system) - toolTokens - (summary ? estimateTokens(summary) : 0) - REPLY_RESERVE);
+      // The context note rides on the newest turn, and tool results need room inside the turn: both come off the
+      // window, or a full window left tool results no room and they were cut to 800 characters.
+      const noteTokens = estimateTokens(turnContext(memory, mode, new Date(), recentItems(history), req.session_id.startsWith("watch-") ? WATCH_NOTE : undefined));
+      const budget = Math.max(2000, this.numCtx() - estimateTokens(system) - toolTokens - (summary ? estimateTokens(summary) : 0) - noteTokens - REPLY_RESERVE - (tools ? TOOL_RESULT_ROOM : 0));
       // Counted as sent: an approved turn carries up to 6000 characters of command output (turnText).
       const plan = planWindow(history.map((m) => ({ ...m, content: this.turnText(m) })), summaryUpto, budget);
       if (plan.needsSummary) {

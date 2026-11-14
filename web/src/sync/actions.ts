@@ -46,21 +46,33 @@ function stripUndefined(f: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
+ * How long Save waits for the hub before it keeps the capture here instead. The client's own limit is 3 minutes: on a
+ * hung connection Save stayed grey that long, and the text was lost if Android closed the app meanwhile.
+ */
+export const CAPTURE_HUB_WAIT_MS = 8_000;
+
+/**
  * Save and sort a capture. Out of reach of the hub it is kept here with `sort: true`, and the hub sorts it (diary, then
  * the assistant files it) once it syncs, so nothing saved offline waits in Unsorted Info.
  */
-export async function capture(text: string, source: Source = SOURCE): Promise<CaptureResult> {
+export async function capture(text: string, source: Source = SOURCE, waitMs = CAPTURE_HUB_WAIT_MS): Promise<CaptureResult> {
   // One id for the capture whichever way it goes: a reply lost after the hub saved it left a second copy here, which
   // the hub then filed a second time.
   const id = uuid();
-  if (engine.client) {
+  // Sync already found the hub out of reach: kept here at once, without waiting on a request that cannot answer.
+  if (engine.client && engine.state.status !== "offline") {
+    // A hub that has not answered by then is treated as out of reach, exactly as a network error.
+    const wait = new AbortController();
+    const timer = setTimeout(() => wait.abort(), waitMs);
     try {
-      const res = await engine.client.capture(text, source, true, id);
+      const res = await engine.client.capture(text, source, true, id, wait.signal);
       const all = [res.capture, ...(res.created ?? [])];
       await engine.absorb(all);
       return { capture: res.capture, created: res.created ?? [], suggested_kind: res.suggested_kind, offline: false };
     } catch (e) {
       if (!isNetworkError(e)) throw e;
+    } finally {
+      clearTimeout(timer);
     }
   }
   const cls = classifyCapture(text);

@@ -12,7 +12,15 @@
     "core:default",
     "core:event:default",
     "notification:default",
-    "opener:allow-open-url",
+    "opener:allow-default-urls",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "webcal:*"
+        }
+      ]
+    },
     "deep-link:default",
     {
       "identifier": "fs:allow-exists",

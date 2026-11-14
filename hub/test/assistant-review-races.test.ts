@@ -52,7 +52,8 @@ test("X2 approved command output is not counted when the window is planned", asy
   try {
     const host = t.hub.ai.hosts.host("core");
     const msgs: any[] = [];
-    for (let i = 0; i < 12; i++) {
+    // 16 approved turns: their output alone is more than the context the hub uses (16384 is raised to its floor).
+    for (let i = 0; i < 16; i++) {
       const a = t.hub.ai.hosts.propose("x2", host, `journalctl -u svc${i} --vacuum-time=1d`, "trim", null);
       await t.hub.ai.hosts.approve(a.id);
       msgs.push({ role: "assistant", content: `Run this ${i}?`, approval: { action_id: a.id, host: "core", command: `journalctl -u svc${i} --vacuum-time=1d`, status: "done" } });
@@ -64,6 +65,6 @@ test("X2 approved command output is not counted when the window is planned", asy
       streamTools: async (m: any[], tools: unknown[]) => { sent = estimateTokens(m.map((x) => x.content).join("")) + estimateTokens(JSON.stringify(tools)); return { text: "ok", usage: {} }; } };
     setBackendOverride(b);
     await t.hub.ai.chat({ session_id: "x2", message: "what changed?", task_type: "general" } as any);
-    assert.ok(sent <= t.hub.cfg.ollamaNumCtx, "the window ignores the command output each approved turn carries");
+    assert.ok(sent <= t.hub.ai.contextWindow().used, "the window ignores the command output each approved turn carries");
   } finally { setBackendOverride(null); t.cleanup(); }
 });

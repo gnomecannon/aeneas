@@ -128,6 +128,8 @@ public struct PairingLinks: Decodable, Equatable, Sendable {
     /// "ABCD-EFGH". Nil from an older hub.
     public var code: String?
     public var expires_at: String?
+    /// How devices reach this hub: "direct", "tailscale" or "home". Nil from an older hub.
+    public var link: String?
 
     public var expires: Date? { ISO.date(expires_at) }
     /// True for an older hub's link, which holds the hub's shared key.

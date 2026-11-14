@@ -152,7 +152,7 @@ public enum TaskDue {
     /// Past due: a date alone only once its day is over, a date and time once that moment has passed.
     public static func isOverdue(_ due: String, now: Date = Date(), calendar: Calendar = .current) -> Bool {
         if isDateOnly(due) {
-            guard let day = LocalPlanner.date(due), let next = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: day)) else { return false }
+            guard let day = LocalPlanner.date(due, in: calendar), let next = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: day)) else { return false }
             return now >= next
         }
         guard let d = ISO.date(due) else { return false }
@@ -162,9 +162,9 @@ public enum TaskDue {
     /// "Today", "Nov 6" for a date alone; a time today, else a date and time, for a moment.
     public static func label(_ due: String, now: Date = Date(), calendar: Calendar = .current) -> String {
         if isDateOnly(due) {
-            guard let day = LocalPlanner.date(due) else { return due }
+            guard let day = LocalPlanner.date(due, in: calendar) else { return due }
             if calendar.isDate(day, inSameDayAs: now) { return "today" }
-            return day.formatted(.dateTime.month(.abbreviated).day())
+            return day.formatted(Date.FormatStyle(calendar: calendar, timeZone: calendar.timeZone).month(.abbreviated).day())
         }
         guard let d = ISO.date(due) else { return due }
         if calendar.isDate(d, inSameDayAs: now) { return d.formatted(date: .omitted, time: .shortened) }

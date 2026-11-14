@@ -46,11 +46,12 @@ test("sessions: the hub keeps the chat, so a second device continues it and ever
 });
 
 test("history: a chat longer than the context is summarized, and the system prompt always survives", async () => {
-  const t = makeHub({ ollamaNumCtx: 9000 });
+  const t = makeHub();
   const b = scripted([() => ({ text: "ok" })], "SUMMARY: Robin is fixing Samba on storage; smb.conf edits were tried.");
   setBackendOverride(b);
   try {
-    const long = "x".repeat(6000);
+    // Six turns of about 4,000 tokens: more than the context the hub uses (its floor) holds.
+    const long = "x".repeat(14000);
     for (let i = 0; i < 6; i++) {
       const res = await t.api("/ai/chat", { method: "POST", json: { session_id: "long", message: `step ${i} ${long}` } });
       assert.equal(res.status, 200);
@@ -68,7 +69,7 @@ test("history: a chat longer than the context is summarized, and the system prom
     assert.ok(!last.some((m) => m.content.startsWith("step 0 ")), "oldest turn no longer sent verbatim");
     assert.ok(last.some((m) => m.content.includes("[End of context]\n\nstep 5 ")), "newest turn sent, after the context note");
     const total = last.reduce((n, m) => n + m.content.length, 0) / 3.5;
-    assert.ok(total < 9000, `request fits the context (${Math.round(total)} tokens)`);
+    assert.ok(total < t.hub.ai.contextWindow().used, `request fits the context (${Math.round(total)} tokens)`);
     // Every turn is still stored in full.
     assert.equal(stored.messages.length, 12);
   } finally { setBackendOverride(null); t.cleanup(); }

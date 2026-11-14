@@ -30,7 +30,7 @@ export const isDeviceKey = (k: string | undefined | null): boolean => !!k && k.s
 /** POST /devices/pairing: a one-time code (10 minutes) and the links that carry it. */
 export interface PairingLinks { hub: string; code: string; expires_at: string; app: string; web: string; link?: LinkMethod | null; node?: string | null }
 export type LinkMethod = "direct" | "tailscale" | "home";
-export interface DirectStatus { state: "off" | "starting" | "online" | "error"; id?: string; relay?: string; relay_by?: string; error?: string; connected: number; direct: number }
+export interface DirectStatus { state: "off" | "starting" | "online" | "error"; id?: string; relay?: string; relay_by?: string; error?: string; /** After a failed start: when the hub tries again. */ retry_at?: string; connected: number; direct: number }
 export interface LinkView { method: LinkMethod | null; options: Record<LinkMethod, { available: boolean; how?: string }>; direct: DirectStatus }
 /** GET /hub-update: what the hub runs, what is newer (after a check) and how the last update went (hub/src/update.ts). */
 export interface HubUpdateRun { state: "starting" | "checking" | "installing" | "restarting" | "rolling_back" | "done" | "up_to_date" | "rolled_back" | "failed"; message: string; from: string | null; to: string | null; at: string }
@@ -816,9 +816,12 @@ export class HubClient {
     return this.req<Entity>("GET", `/entities/${encodeURIComponent(id)}`);
   }
 
-  /** `id` is the capture's own id: sent again after a lost reply, the hub answers with the capture it already has. */
-  capture(text: string, source: string, auto: boolean, id?: string) {
-    return this.req<{ capture: Entity; suggested_kind: string; created?: Entity[] }>("POST", "/capture", { text, source, auto, ...(id ? { id } : {}) });
+  /**
+   * `id` is the capture's own id: sent again after a lost reply, the hub answers with the capture it already has.
+   * `signal` ends the wait early (Save keeps the capture on the device instead).
+   */
+  capture(text: string, source: string, auto: boolean, id?: string, signal?: AbortSignal) {
+    return this.req<{ capture: Entity; suggested_kind: string; created?: Entity[] }>("POST", "/capture", { text, source, auto, ...(id ? { id } : {}) }, signal);
   }
 
   /** Ask the hub to load the start every chat shares into the model's cache, so the first reply does not wait for it. */

@@ -28,4 +28,4 @@ Pull requests have a checkbox for this. A contribution without it ticked is not 
   `cd apple/Packages/EACore && swift test`.
 - New dependencies must pass `npm run license-check`.
 - Every new module is a module people can switch off, and asks only for the permissions it needs.
-- Nothing leaves the user's own devices unless they turned it on, and logs never hold personal text or secrets.
+- Nothing leaves the user's own devices unless they turned it on or chose it at setup (how devices reach the hub), and logs never hold personal text or secrets.

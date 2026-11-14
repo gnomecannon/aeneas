@@ -318,6 +318,22 @@ const LOG_TYPES = { weight: ["weigh", "weighed", "body weight"], bp: ["blood pre
 /** The owner asks to update the hub itself ("update the hub", "install the update", "upgrade yourself"); a question does not count. */
 const UPDATE_ASK = /\b(update|upgrade)\b[^.?!]{0,40}\b(hub|yourself|server|aeneas|software|version)\b|\b(hub|yourself|server|aeneas)\b[^.?!]{0,40}\b(update|upgrade)\b|\binstall (it|the update|that|the new version)\b|^\s*(update|upgrade)( (it|now))?[\s.!]*$/i;
 
+/**
+ * The owner asks to add, change or remove a standing rule: "add a rule: never use dashes", "make it a rule", "new
+ * rule: metric units", "delete the dash rule", "turn that rule off", "from now on, no emoji".
+ */
+const RULE_ASK = /\b(add|make|create|set|save|new|write|change|edit|update|reword|fix|remove|delete|drop|forget|disable|enable|turn|switch|pause|stop|deactivate|activate)\b[^.?!]{0,40}\brules?\b|\brules?\b[^.?!]{0,40}\b(remove|delete|drop|forget|change|edit|update|reword|disable|enable|off)\b|\brules?:|\b(from now on|going forward)\b/i;
+
+/**
+ * Whether the owner's latest message asks for a change to their standing rules, as update_hub checks for an update:
+ * a sentence that asks for it (a question counts only as a request, "can you add a rule...?", not "should I add a
+ * rule?"), or a plain yes to one the assistant offered.
+ */
+export function ruleChangeAsked(lastUser: string): boolean {
+  if (AFFIRMATION.test(lastUser)) return true;
+  return lastUser.split(/(?<=[.!?\n])/).some((s) => RULE_ASK.test(s) && (!/\?\s*$/.test(s) || /^\s*(please|can you|could you|would you|will you)\b/i.test(s)));
+}
+
 /** The owner's message says something worked or how a host is set up: the cue that a fix note is due. */
 /** Settled: a statement (not a question) with a cue, and no "still not working" or "hasn't worked". */
 const settled = (msg: string) => SETTLED.test(msg) && !/\?\s*$/.test(msg.trim()) && !/(\bnot|n't|\bnever|\bstill)[^.!?]{0,20}\bwork/i.test(msg);
@@ -1358,6 +1374,18 @@ function deletedTarget(name: string, args: Record<string, unknown>, ctx: ToolCon
   return null;
 }
 
+/**
+ * A write that adds, changes or deletes one of the owner's standing rules, when their latest message did not ask for
+ * that. Rules marked prompt ride in every system prompt and filter patterns run on every reply, so a web page, wiki
+ * page, mail or invite that steers the model must not be able to plant one: only the owner changes them.
+ */
+function ruleWrite(name: string, args: Record<string, unknown>, ctx: ToolContext): string | null {
+  const isRule = (name === "create_item" && str(args.kind)?.toLowerCase() === "rule")
+    || ["id", "task_id", "item_id", "event_id"].some((k) => typeof args[k] === "string" && ctx.store.get(args[k] as string)?.kind === "rule");
+  if (!isRule || ruleChangeAsked(ctx.lastUser)) return null;
+  return "{{owner}}'s latest message does not ask to add, change or remove a standing rule, and only {{owner}} changes those. Nothing was saved; say what rule you would make or change and ask them";
+}
+
 function cloudWorkWrite(args: Record<string, unknown>, ctx: ToolContext): string | null {
   if (args.work === true || args.space === "work") return "work items are made and changed only by the local model; ask again with the cloud off";
   for (const k of ["id", "task_id", "item_id", "event_id"]) {
@@ -1374,7 +1402,7 @@ export async function runTool(api: ApiCall, call: ToolCall, ctx: ToolContext, to
   if (typeof args === "string") { try { args = JSON.parse(args); } catch { args = {}; } }
   try {
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
-    const refused = t.writes ? deletedTarget(t.name, a, ctx) ?? (ctx.cloud ? cloudWorkWrite(a, ctx) : null) : null;
+    const refused = t.writes ? deletedTarget(t.name, a, ctx) ?? ruleWrite(t.name, a, ctx) ?? (ctx.cloud ? cloudWorkWrite(a, ctx) : null) : null;
     if (refused) return { text: JSON.stringify({ error: refused }), ok: false, writes: false };
     const raw = await t.run(api, a, ctx);
     const out = ctx.cloud ? withoutWork(raw) : raw;

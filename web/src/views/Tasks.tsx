@@ -7,6 +7,7 @@ import { fmtDateTime, fromLocalInput, HOUR, toLocalInput } from "../lib/time";
 import { useEscape } from "../lib/keys";
 import { CsvButton } from "../components/CsvButton";
 import { LinkedItem } from "../components/LinkedItem";
+import { DraftInput, DraftTextarea } from "../components/DraftField";
 import { snoozeReminder } from "../sync/actions";
 
 const STATUSES = ["doing", "next", "inbox", "scheduled", "parked"] as const;
@@ -250,7 +251,7 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
           </div>
         )}
         <div className="body">
-          <input className="inline-edit t" value={f.title} onChange={(e) => updateEntity(t, { title: e.target.value })} aria-label="Title" />
+          <DraftInput item={t} field="title" className="inline-edit t" aria-label="Title" />
           <div className="meta">
             {alert && (
               <span className={alertLate ? "error" : ""} title={f.snoozed_until ? `snoozed from ${fmtDateTime(f.remind_at)}` : "reminder"}>
@@ -276,7 +277,7 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
           </div>
           {isOpen && (
             <div className="col" style={{ marginTop: 8 }}>
-              <textarea rows={3} placeholder="Notes" value={f.notes ?? ""} onChange={(e) => updateEntity(t, { notes: e.target.value })} aria-label="Notes" />
+              <DraftTextarea item={t} field="notes" rows={3} placeholder="Notes" aria-label="Notes" />
               <div className="row">
                 <div className="grow">
                   <label htmlFor={`st-${t.id}`}>Status</label>

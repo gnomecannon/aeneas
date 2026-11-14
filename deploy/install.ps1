@@ -331,9 +331,105 @@ if ($j.arguments) {
 
     # ---- 2. the app, its packages and the web app ----
     Hold 'hub'
+    # While npm ci installs new packages (it deletes node_modules first), the ones this copy had (each node_modules
+    # folder) and its web app wait in app\.update-backup: when the install fails, the hub goes back to the version it had
+    # with them, which runs without the network. deploy\windows\update.ps1 does the same with the same folder, and each
+    # handles a backup the other left when it was stopped.
+    $Backup = Join-Path $App '.update-backup'
+    # Removes a folder with all in it. cmd's rmdir removes the links npm makes for workspaces (junctions) without going
+    # into the folders they point to, which Remove-Item in Windows PowerShell 5.1 does not promise. The path reaches cmd
+    # in a variable, inside quotes, so a & or a % in a folder name stays part of the name.
+    function Remove-Tree([string]$path) {
+      if (Test-Path -LiteralPath $path) {
+        $env:EA_REMOVE = $path
+        try { Start-Process -FilePath $env:ComSpec -ArgumentList '/d /c rmdir /s /q "%EA_REMOVE%"' -NoNewWindow -Wait } catch { }
+        Remove-Item -ErrorAction SilentlyContinue Env:\EA_REMOVE
+      }
+      return (-not (Test-Path -LiteralPath $path))
+    }
+    # Every node_modules folder under $base (the root's and the workspaces', never one inside another), then web\dist,
+    # as paths under $base.
+    function Package-Parts([string]$base) {
+      $found = New-Object 'System.Collections.Generic.List[string]'
+      $todo = New-Object 'System.Collections.Generic.List[string]'
+      $todo.Add('')
+      for ($i = 0; $i -lt $todo.Count; $i++) {
+        $rel = $todo[$i]
+        $dir = if ($rel) { Join-Path $base $rel } else { $base }
+        $subs = @()
+        try { $subs = (New-Object IO.DirectoryInfo $dir).GetDirectories() } catch { }
+        foreach ($d in $subs) {
+          $r = if ($rel) { "$rel\$($d.Name)" } else { $d.Name }
+          if ($d.Name -eq 'node_modules') { $found.Add($r) }
+          elseif ($d.Name -ne '.git' -and $d.Name -ne '.update-backup' -and ([int]$d.Attributes -band 1024) -eq 0) { $todo.Add($r) }
+        }
+      }
+      if (Test-Path -LiteralPath (Join-Path $base 'web\dist')) { $found.Add('web\dist') }
+      return $found.ToArray()
+    }
+    # The backup holds the packages of this commit.
+    function Backup-Fits([string]$commit) {
+      $f = Join-Path $Backup '.commit'
+      try { return [bool]($commit -and (Test-Path -LiteralPath $f) -and ([IO.File]::ReadAllText($f).Trim() -eq $commit)) } catch { return $false }
+    }
+    # Before npm ci, with the hub stopped: each node_modules folder and web\dist move into the backup (a rename on the
+    # same disk), with the commit they belong to. When one cannot be moved, what was moved goes back and the install
+    # goes on without a backup, as it did before.
+    function Set-Aside([string]$commit) {
+      if (Backup-Fits $commit) { return }  # left by a stopped update and not put back: it already holds these packages
+      if (-not (Remove-Tree $Backup) -or -not (Test-Path -LiteralPath (Join-Path $App 'node_modules'))) { return }
+      try {
+        $null = [IO.Directory]::CreateDirectory($Backup)
+        [IO.File]::WriteAllText((Join-Path $Backup '.commit'), $commit, $Utf8)
+        foreach ($p in @(Package-Parts $App)) {
+          $to = Join-Path $Backup $p
+          $null = [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($to))
+          [IO.Directory]::Move((Join-Path $App $p), $to)
+        }
+        [IO.File]::WriteAllText((Join-Path $Backup '.complete'), '', $Utf8)
+      } catch {
+        Note "The packages could not be set aside, so this install has no backup: $($_.Exception.Message)"
+        $null = Put-Back
+      }
+    }
+    # The parts set aside go back. From a whole backup, whatever a failed install left goes first (every node_modules
+    # folder, and web\dist when the backup has one); from one a crash cut short (no .complete), only the places it
+    # emptied are filled. The backup goes once all is back; when something could not be moved it stays, for the next run.
+    function Put-Back {
+      if (-not (Test-Path -LiteralPath $Backup)) { return $true }
+      $saved = @(Package-Parts $Backup)
+      $whole = Test-Path -LiteralPath (Join-Path $Backup '.complete')
+      if ($whole -and -not (Test-Path -LiteralPath (Join-Path $Backup '.cleared'))) {
+        foreach ($p in @(Package-Parts $App)) {
+          if ($p -eq 'web\dist' -and $saved -notcontains 'web\dist') { continue }
+          if (-not (Remove-Tree (Join-Path $App $p))) { Note "$p could not be removed, so nothing was put back"; return $false }
+        }
+        try { [IO.File]::WriteAllText((Join-Path $Backup '.cleared'), '', $Utf8) } catch { }
+      }
+      $ok = $true
+      foreach ($p in $saved) {
+        $to = Join-Path $App $p
+        # Taken: a whole backup cannot go back there; from one a crash cut short, the app kept its own.
+        if (Test-Path -LiteralPath $to) { if ($whole) { $ok = $false }; continue }
+        try {
+          $null = [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($to))
+          [IO.Directory]::Move((Join-Path $Backup $p), $to)
+        } catch { Note "$p could not be put back: $($_.Exception.Message)"; $ok = $false }
+      }
+      if ($ok) { $null = Remove-Tree $Backup }
+      return $ok
+    }
+    # After a web app build that did not work: the web app it had, when one was set aside.
+    function Put-Back-Web([string]$commit) {
+      $saved = Join-Path $Backup 'web\dist'
+      if ((Backup-Fits $commit) -and (Test-Path -LiteralPath $saved) -and (Remove-Tree (Join-Path $App 'web\dist'))) {
+        try { [IO.Directory]::Move($saved, (Join-Path $App 'web\dist')) } catch { Note "The web app it had could not be put back: $($_.Exception.Message)" }
+      }
+    }
     # The app keeps the repository's line endings (core.autocrlf=false for this checkout only): Git for Windows turns
     # them into CRLF by default, and npm turns a command's script (one starting with #!) back to LF when it installs
     # it, which then reads as a file changed by hand and stops every update.
+    $from = ''
     if (Test-Path (Join-Path $App '.git')) {
       Say "Updating $App"
       if ((X $git -C $App config --get core.autocrlf) -ne 'false') {
@@ -342,19 +438,46 @@ if ($j.arguments) {
         X $git -C $App diff --quiet --ignore-cr-at-eol
         if ($LASTEXITCODE -eq 0) { X $git -C $App reset -q --hard HEAD }
       }
-      X $git -C $App fetch -q --depth 1 origin $Ref; if ($LASTEXITCODE) { Fail 'git could not fetch the app; run this again later' }
-      X $git -C $App checkout -q $Ref; X $git -C $App merge -q --ff-only "origin/$Ref"; if ($LASTEXITCODE) { Fail "the app in $App has changes of its own; it was left as it is" }
+      $from = [string](X $git -C $App rev-parse HEAD)
+      # A backup that a stopped update left (Windows restarted during it): put back while the code is still on the
+      # commit it belongs to, else of no more use.
+      if (Test-Path -LiteralPath $Backup) {
+        if (Backup-Fits $from) { if (-not (Put-Back)) { Note 'Not everything a stopped update set aside could be put back' } }
+        else { $null = Remove-Tree $Backup }
+      }
+      # Without --depth: in this shallow clone, a fetch with --depth 1 brings the newest commit without its parents, and
+      # git then refuses to merge it (unrelated histories), here and in every update after.
+      X $git -C $App fetch -q origin $Ref; if ($LASTEXITCODE) { Fail 'git could not fetch the app; run this again later' }
+      X $git -C $App checkout -q $Ref
+      X $git -C $App merge -q --ff-only "origin/$Ref"; $merged = -not $LASTEXITCODE
+      # A copy that took such a fetch before (this installer made those) is mended by fetching its whole history once.
+      if (-not $merged -and (X $git -C $App rev-parse --is-shallow-repository) -eq 'true') {
+        Say 'Fetching the whole history of the app once, so this copy links up with the newest version'
+        X $git -C $App fetch -q --unshallow origin $Ref; if ($LASTEXITCODE) { Fail 'git could not fetch the app; run this again later' }
+        X $git -C $App merge -q --ff-only "origin/$Ref"; $merged = -not $LASTEXITCODE
+      }
+      if (-not $merged) { Fail "the app in $App has changes of its own; it was left as it is" }
     } else {
       Say "Downloading the app into $App"
       X $git clone -q -c core.autocrlf=false --depth 1 --branch $Ref $RepoUrl $App; if ($LASTEXITCODE) { Fail 'git could not download the app; run this again later' }
     }
     Say 'Installing packages (a minute or two the first time)'
+    if ($from) { Set-Aside $from }
+    $kept = [bool]$from -and (Backup-Fits $from)
     Push-Location $App
     try {
       X npm.cmd ci --no-audit --no-fund --loglevel=error | Out-Null
-      if ($LASTEXITCODE) { Fail 'npm could not install the packages; see the lines above' }
+      if ($LASTEXITCODE) {
+        if ($kept) {
+          # Back to the version this copy had, with its packages: the hub runs it again without the network.
+          if ([string](X $git -C $App rev-parse HEAD) -ne $from) { X $git -C $App reset -q --hard $from }
+          if (Put-Back) { Say 'The hub stays on the version it had, with the packages it had' }
+        }
+        Fail 'npm could not install the packages; see the lines above'
+      }
       X npm.cmd --workspace web run build 2>&1 | Out-Null
-      if ($LASTEXITCODE) { Say 'The web app did not build; the hub still runs' }
+      if ($LASTEXITCODE) { Say 'The web app did not build; the hub still runs'; Put-Back-Web $from }
+      $null = Remove-Tree $Backup
     } finally { Pop-Location }
 
     # ---- 3. settings ----

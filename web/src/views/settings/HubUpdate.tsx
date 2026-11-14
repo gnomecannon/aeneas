@@ -3,6 +3,7 @@ import type { HubUpdateInfo, HubUpdateRun } from "../../sync/api";
 import { engine } from "../../sync/engine";
 import { fmtDateTime } from "../../lib/time";
 import { errorText } from "./common";
+import { useHubReady } from "../../sync/hooks";
 
 const RUNNING: HubUpdateRun["state"][] = ["starting", "checking", "installing", "restarting", "rolling_back"];
 const STATE_WORDS: Record<HubUpdateRun["state"], string> = {
@@ -31,6 +32,7 @@ export function HubUpdateCard() {
   const [unreachable, setUnreachable] = useState(false);
   const since = useRef(0);
 
+  const ready = useHubReady();
   useEffect(() => {
     engine.client?.hubUpdate().then(
       (i) => {
@@ -39,7 +41,7 @@ export function HubUpdateCard() {
       },
       (e) => setError(errorText(e)),
     );
-  }, []);
+  }, [ready]);
 
   useEffect(() => {
     if (!watching) return;

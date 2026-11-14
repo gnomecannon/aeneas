@@ -78,6 +78,11 @@ export interface Config {
    * Ollama was already there (it keeps them where it was set up to). Only shown, with its free space, never written.
    */
   modelsDir: string;
+  /**
+   * EA_OLLAMA_NUM_CTX: the context window, in tokens, asked of Ollama. Empty or 0 (the default): automatic, the
+   * smallest that holds the system prompt, every tool, a reply and some history (ai/history.ts contextFloor). A
+   * smaller value is raised to that, since Ollama silently drops the start of a longer request; a larger one is kept.
+   */
   ollamaNumCtx: number;
   /**
    * Ollama keep_alive sent with every chat so the model stays loaded between messages. 5 minutes: the GPU's memory
@@ -268,7 +273,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     // No model is assumed: the Welcome page picks one that fits this machine (ai.json), or EA_OLLAMA_MODEL names it.
     ollamaModel: env.EA_OLLAMA_MODEL || "",
     modelsDir: (env.EA_MODELS_DIR || "").trim(),
-    ollamaNumCtx: int(env.EA_OLLAMA_NUM_CTX, 8192),
+    ollamaNumCtx: int(env.EA_OLLAMA_NUM_CTX, 0),
     ollamaKeepAlive: env.EA_OLLAMA_KEEP_ALIVE || "5m",
     ollamaThink: (env.EA_OLLAMA_THINK || "").trim().toLowerCase(),
     ollamaFallbackUrl: (env.EA_OLLAMA_FALLBACK_URL || "").replace(/\/+$/, ""),

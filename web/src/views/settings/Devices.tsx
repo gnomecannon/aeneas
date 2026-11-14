@@ -1,9 +1,11 @@
+import { DIRECT_LINK_MIN_APP } from "./Link";
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import type { DeviceRow, PairingLinks } from "../../sync/api";
 import { engine } from "../../sync/engine";
 import { fmtDateTime } from "../../lib/time";
 import { errorText } from "./common";
+import { useHubReady } from "../../sync/hooks";
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -52,7 +54,7 @@ export function PairDevice({ defaultName = "iPhone" }: { defaultName?: string })
           <div className="col small">
             <div style={{ fontFamily: "ui-monospace, monospace", fontSize: "2rem", letterSpacing: "0.12em" }} aria-label="Pairing code">{links.code}</div>
             <div>Works once, for {remaining} more. {links.link === "direct"
-              ? "On the new device, scan the QR code with the camera. With Direct link the code alone isn't enough: the QR code or link carries this hub's key. On a computer, copy the app link and paste it into Aeneas's hub address field."
+              ? `On the new device, scan the QR code with the camera. With Direct link the code alone isn't enough: the QR code or link carries this hub's key. On a computer, copy the app link and paste it into Aeneas's hub address field. It needs Aeneas ${DIRECT_LINK_MIN_APP} or newer there: if scanning does nothing, update the app first.`
               : `On the new device, scan the QR code with the camera, or open Aeneas and type the code with the hub address ${links.hub}.`}</div>
             <a href={links.app}>Open in the app on this Mac</a>
             <button type="button" className="ghost small" onClick={() => void navigator.clipboard.writeText(links.app).then(() => setMsg({ ok: true, text: "App link copied. Paste it into Aeneas on the new device. It works once, for 10 minutes." }))}>Copy the app link</button>
@@ -73,7 +75,8 @@ export function DevicesList() {
   const [msg, setMsg] = useState<Msg>(null);
   const [busy, setBusy] = useState("");
   const load = () => void engine.client?.devices().then((r) => setList(r.devices)).catch((e) => setMsg({ ok: false, text: errorText(e) }));
-  useEffect(load, []);
+  const ready = useHubReady();
+  useEffect(load, [ready]);
   const remove = async (d: DeviceRow) => {
     const what = d.current ? "Remove this device? It signs out and needs a new pairing code to come back." : `Remove ${d.name}? Its key stops working at once; it needs a new pairing code to come back.`;
     if (!window.confirm(what)) return;

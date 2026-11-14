@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Entity } from "@everythingapp/shared";
 import { useEntities, useEntity } from "../sync/hooks";
-import { createEntity, updateEntity, softDelete } from "../sync/edits";
+import { createEntity, softDelete } from "../sync/edits";
 import { engine } from "../sync/engine";
 import type { Related } from "../sync/api";
 import { go } from "../lib/router";
+import { useDraftSave } from "../lib/useDraftSave";
 import { fmtDateTime } from "../lib/time";
 import { Markdown } from "../components/Markdown";
 import { saveBlob } from "../lib/download";
@@ -224,30 +225,33 @@ function localRelated(note: Entity, notes: Entity[]): RelatedGroups {
   return { links, backlinks, similar };
 }
 
+/** A note's fields as the editor holds them. */
+const noteDraft = (f: Record<string, unknown>): NoteF => ({ ...(f as NoteF), tags: (f as NoteF).tags ?? [], body: (f as NoteF).body ?? "" });
+
 function Editor({ id, notes }: { id: string; notes: Entity[] }) {
   const note = useEntity(id);
-  const [draft, setDraft] = useState<NoteF | null>(null);
-  const [saved, setSaved] = useState(true);
   const [related, setRelated] = useState<RelatedGroups | null>(null);
   const [relatedSrc, setRelatedSrc] = useState<"hub" | "local">("local");
   const [err, setErr] = useState("");
   // Notes open formatted; Edit (or a double-click) shows the text.
   const [editing, setEditing] = useState(false);
   const [newTag, setNewTag] = useState("");
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastId = useRef<string>("");
+  const refreshRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  // Edits save together a second after the last keystroke, and at once on leaving the note or the app.
+  const { draft, edit, saved } = useDraftSave(note, {
+    toDraft: noteDraft,
+    // The hub derives links on write; give the outbox a moment to flush, then refresh.
+    onSaved: () => setTimeout(() => void refreshRef.current(), 400),
+  });
 
+  // A different note opens formatted, or straight into the editor when it is empty.
   useEffect(() => {
-    if (!note) return;
-    if (lastId.current !== id || saved) {
-      // A different note opens formatted, or straight into the editor when it is empty.
-      if (lastId.current !== id) setEditing(!String((note.fields as NoteF).body ?? "").trim());
-      lastId.current = id;
-      setDraft({ ...(note.fields as NoteF), tags: (note.fields as NoteF).tags ?? [], body: (note.fields as NoteF).body ?? "" });
-      setSaved(true);
-    }
+    if (!note || lastId.current === note.id) return;
+    lastId.current = note.id;
+    setEditing(!String((note.fields as NoteF).body ?? "").trim());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note?.id, note?.updated_at]);
+  }, [note?.id]);
 
   // Related comes from the hub (links, backlinks, similar), or from the local links when it is out of reach.
   const refresh = useCallback(
@@ -268,31 +272,11 @@ function Editor({ id, notes }: { id: string; notes: Entity[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [note?.id, note?.updated_at, notes.length],
   );
+  refreshRef.current = refresh;
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const edit = (patch: Partial<NoteF>) => {
-    if (!draft || !note) return;
-    const next = { ...draft, ...patch };
-    setDraft(next);
-    setSaved(false);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      const fields: Record<string, unknown> = {};
-      for (const k of Object.keys(patch) as Array<keyof NoteF>) fields[k] = next[k];
-      void updateEntity(note, fields).then(async () => {
-        setSaved(true);
-        // The hub derives links on write; give the outbox a moment to flush, then refresh.
-        setTimeout(() => void refresh(), 400);
-      });
-    }, 1000);
-  };
-
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
 
   if (!note || !draft) return <div className="empty">Note not found.</div>;
 

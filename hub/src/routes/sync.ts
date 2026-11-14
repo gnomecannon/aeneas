@@ -44,10 +44,12 @@ export function syncRoutes() {
         assertWorkAllowed(hub, patch.space ?? hub.store.get(patch.id)?.space);
         // A device's own copy of a capture the hub already has (its reply to POST /capture was lost after the hub
         // saved and filed it) brings nothing new: its processed false, being newer, put a filed capture back in
-        // Unsorted Info, where a tap on File it filed it twice. Only fields the hub's copy lacks (a photo) go in.
+        // Unsorted Info, where a tap on File it filed it twice. Only fields the hub's copy never had (a photo) go in: a
+        // field the hub cleared on purpose (the photo of a work: capture, moved out of the personal space) has a stamp
+        // and stays cleared.
         const had = patch.kind === "capture" && patch.create ? hub.store.get(patch.id) : null;
         if (had && !had.deleted_at) {
-          const missing = Object.fromEntries(Object.entries(patch.fields).filter(([k]) => had.fields[k] === undefined && !["processed", "sort", "suggested_kind", "filing", "filed"].includes(k)));
+          const missing = Object.fromEntries(Object.entries(patch.fields).filter(([k]) => had.fields[k] === undefined && had.field_ts[k] === undefined && !["processed", "sort", "suggested_kind", "filing", "filed"].includes(k)));
           if (!Object.keys(missing).length) { applied.push({ id: patch.id, seq: hub.store.seq() }); continue; }
           const res = hub.store.apply({ ...patch, create: false, fields: missing });
           applied.push({ id: patch.id, seq: res.seq });

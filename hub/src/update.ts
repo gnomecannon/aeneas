@@ -111,7 +111,14 @@ export async function updateInfo(hub: Hub, fetch = false): Promise<UpdateCheck> 
     out.checked_at = lastCheck.at;
     out.latest = lastCheck.latest;
     if (head && lastCheck.latest !== head) {
-      const ahead = await git(["merge-base", "--is-ancestor", head, lastCheck.latest]).then(() => true, () => false);
+      const isAncestor = (latest: string) => git(["merge-base", "--is-ancestor", head, latest]).then(() => true, () => false);
+      let ahead = await isAncestor(lastCheck.latest);
+      // A clone an older Windows installer left shallow at a newer commit (a fetch with --depth 1) has no history joining
+      // the two, so it reads as rewritten. On a check, fetch its history once and look again, as the update scripts do.
+      if (!ahead && fetch && (await git(["rev-parse", "--is-shallow-repository"]).catch(() => "")) === "true") {
+        await git(["fetch", "--quiet", "--unshallow", "origin", branch], 120_000).catch((e) => console.error(`[update] full fetch failed: ${errCode(e)}`));
+        ahead = await isAncestor(lastCheck.latest);
+      }
       if (ahead) {
         out.behind = Number(await git(["rev-list", "--count", `${head}..${lastCheck.latest}`]).catch(() => "0")) || 0;
         const log = await git(["log", "-n", "15", "--format=%h%x1f%s%x1f%cI", `${head}..${lastCheck.latest}`]).catch(() => "");

@@ -115,8 +115,11 @@ test("hub update: check lists what is new, the assistant installs only when aske
   }
 });
 
-/** Runs deploy/update.sh from the clone with stand-ins for npm, the service manager and curl. */
-function runScript(g: ReturnType<typeof installed>, opts: { npmFails?: boolean; healthFailsAfter?: string } = {}) {
+/**
+ * Runs deploy/update.sh from the clone with stand-ins for npm, the service manager and curl. `npm` and `curl` replace
+ * the body of those stand-ins (bash, run in the clone).
+ */
+function runScript(g: ReturnType<typeof installed>, opts: { npmFails?: boolean; healthFailsAfter?: string; npm?: string; curl?: string } = {}) {
   const home = path.join(g.root, "home");
   const bin = path.join(g.root, "bin");
   fs.mkdirSync(path.join(home, ".config/everythingapp"), { recursive: true });
@@ -126,11 +129,11 @@ function runScript(g: ReturnType<typeof installed>, opts: { npmFails?: boolean; 
   fs.writeFileSync(calls, "");
   const stub = (name: string, body: string) => { fs.writeFileSync(path.join(bin, name), `#!/bin/bash\necho "${name} $*" >> "${calls}"\n${body}\n`, { mode: 0o755 }); };
   // npm ci fails while the clone is on the version named in FAIL_AT (the new one), when asked to.
-  stub("npm", opts.npmFails ? `[ "$1" = ci ] && [ "$(git -C "${g.app}" rev-parse HEAD)" != "$(cat "${g.root}/from")" ] && exit 1; exit 0` : "exit 0");
+  stub("npm", opts.npm ?? (opts.npmFails ? `[ "$1" = ci ] && [ "$(git -C "${g.app}" rev-parse HEAD)" != "$(cat "${g.root}/from")" ] && exit 1; exit 0` : "exit 0"));
   stub("systemctl", "exit 0");
   stub("launchctl", "exit 0");
   // The hub answers, except on the commit named in healthFailsAfter (the new version does not start).
-  stub("curl", opts.healthFailsAfter ? `[ "$(git -C "${g.app}" rev-parse HEAD)" = "${opts.healthFailsAfter}" ] && exit 7; exit 0` : "exit 0");
+  stub("curl", opts.curl ?? (opts.healthFailsAfter ? `[ "$(git -C "${g.app}" rev-parse HEAD)" = "${opts.healthFailsAfter}" ] && exit 7; exit 0` : "exit 0"));
   stub("sleep", "exit 0");
   fs.writeFileSync(path.join(g.root, "from"), git(g.app, "rev-parse", "HEAD"));
   const script = path.join(g.app, "deploy/update.sh");
@@ -203,7 +206,134 @@ test("update.sh and the check work on a shallow clone, as the installer makes", 
     const r = await runScript(g);
     assert.equal(r.status.state, "done", r.log);
     assert.equal(git(g.app, "rev-parse", "HEAD"), git(g.origin, "rev-parse", "HEAD"));
+    assert.equal(git(g.app, "rev-parse", "--is-shallow-repository"), "true", "a shallow clone whose history links up is not fetched in full");
   } finally { delete process.env.EA_UPDATE_APP_DIR; t.cleanup(); fs.rmSync(g.root, { recursive: true, force: true }); }
+});
+
+test("update.sh: a shallow clone that a fetch with --depth 1 broke is fetched in full once, and the update goes through", { skip: BASH_UPDATER }, async () => {
+  const g = installed(true);
+  try {
+    const from = git(g.app, "rev-parse", "HEAD");
+    const second = g.commit("Second version");
+    // What deploy/install.ps1 did to an installed hub: the newest commit came without its parents, so git cannot link
+    // it to the one the hub runs, and reads it as a rewritten branch. Later fetches do not mend it.
+    git(g.app, "fetch", "-q", "--depth", "1", "origin", "main");
+    assert.throws(() => git(g.app, "merge-base", "--is-ancestor", from, second));
+    g.commit("Third version", "c.txt");
+    const r = await runScript(g);
+    assert.equal(r.status.state, "done", r.log);
+    assert.match(r.log, /does not link up: fetching all of it/);
+    assert.equal(git(g.app, "rev-parse", "HEAD"), git(g.origin, "rev-parse", "HEAD"));
+    assert.equal(git(g.app, "rev-parse", "--is-shallow-repository"), "false");
+  } finally { fs.rmSync(g.root, { recursive: true, force: true }); }
+});
+
+test("hub update check: a shallow clone that a fetch with --depth 1 broke is fetched in full once and offers the update", async () => {
+  const g = installed(true);
+  const t = makeHub();
+  process.env.EA_UPDATE_APP_DIR = g.app;
+  try {
+    const from = git(g.app, "rev-parse", "HEAD");
+    const second = g.commit("Second version");
+    git(g.app, "fetch", "-q", "--depth", "1", "origin", "main");
+    assert.throws(() => git(g.app, "merge-base", "--is-ancestor", from, second));
+    g.commit("Third version", "c.txt");
+    const info = await (await t.api("/hub-update/check", { method: "POST" })).json() as any;
+    assert.equal(info.reason, undefined, JSON.stringify(info));
+    assert.equal(info.behind, 2);
+    assert.equal(info.can_update, true);
+    assert.equal(git(g.app, "rev-parse", "--is-shallow-repository"), "false");
+  } finally { delete process.env.EA_UPDATE_APP_DIR; t.cleanup(); fs.rmSync(g.root, { recursive: true, force: true }); }
+});
+
+/** The installed version's packages (at the root and in a workspace) and built web app, each file holding `version`. */
+const PARTS = ["node_modules/.installed", "node_modules/dep/index.js", "hub/node_modules/own/index.js", "web/dist/index.html"];
+function installParts(app: string, version: string) {
+  for (const f of PARTS) { fs.mkdirSync(path.dirname(path.join(app, f)), { recursive: true }); fs.writeFileSync(path.join(app, f), version); }
+}
+const readIn = (app: string, f: string) => fs.readFileSync(path.join(app, f), "utf8").trim();
+
+test("update.sh: npm ci that fails after deleting node_modules goes back to the packages and web app it had without npm, and the hub comes back", { skip: BASH_UPDATER }, async () => {
+  const g = installed();
+  const app = g.app;
+  try {
+    const from = git(app, "rev-parse", "HEAD");
+    installParts(app, from);
+    // The hub answers only with its packages in place.
+    const curl = `[ -f "${app}/node_modules/.installed" ] || exit 7; exit 0`;
+    g.commit("Packages that do not install");
+    // As the real npm ci: node_modules goes first, then the network fails halfway through.
+    let r = await runScript(g, { curl, npm: `if [ "$1" = ci ]; then rm -rf "${app}/node_modules" "${app}/hub/node_modules"; mkdir -p "${app}/node_modules/half" "${app}/web/node_modules/half"; exit 1; fi; exit 0` });
+    assert.equal(r.status.state, "rolled_back", r.log);
+    assert.match(r.status.message, /packages did not install/);
+    assert.equal(git(app, "rev-parse", "HEAD"), from);
+    for (const f of PARTS) assert.equal(readIn(app, f), from, f);
+    assert.ok(!fs.existsSync(path.join(app, "node_modules/half")) && !fs.existsSync(path.join(app, "web/node_modules")), "what the failed install left is gone");
+    assert.equal(r.calls.match(/^npm /gm)?.length, 1, "npm ran once, the npm ci that failed: going back needed none");
+    assert.match(r.calls, process.platform === "darwin" ? /launchctl kickstart -k/ : /systemctl --user restart everythingapp-hub/);
+    assert.ok(!fs.existsSync(path.join(app, ".update-backup")), "the backup is gone");
+
+    // New packages that install, on which the hub does not start: the old ones go back, again without npm.
+    g.commit("Does not start");
+    const npmInstalls = (build: string) => `if [ "$1" = ci ]; then rm -rf "${app}/node_modules" "${app}/hub/node_modules"; mkdir -p "${app}/node_modules"; git -C "${app}" rev-parse HEAD > "${app}/node_modules/.installed"; fi
+if [ "$1" = --workspace ]; then rm -rf "${app}/web/dist"; ${build}; fi
+exit 0`;
+    r = await runScript(g, { npm: npmInstalls(`mkdir -p "${app}/web/dist"; echo new > "${app}/web/dist/index.html"`), curl: `[ "$(cat "${app}/node_modules/.installed")" = "${from}" ] || exit 7; exit 0` });
+    assert.equal(r.status.state, "rolled_back", r.log);
+    assert.match(r.status.message, /did not start/);
+    assert.equal(git(app, "rev-parse", "HEAD"), from);
+    for (const f of PARTS) assert.equal(readIn(app, f), from, f);
+    assert.equal(r.calls.match(/^npm /gm)?.length, 2, "npm ci and the build of the new version; none to go back");
+    assert.ok(!fs.existsSync(path.join(app, ".update-backup")));
+
+    // The update goes through but its web app does not build: the hub keeps the web app it had, and the backup goes.
+    const good = g.commit("Works");
+    r = await runScript(g, { curl, npm: npmInstalls("exit 1") });
+    assert.equal(r.status.state, "done", r.log);
+    assert.equal(git(app, "rev-parse", "HEAD"), good);
+    assert.equal(readIn(app, "node_modules/.installed"), good);
+    assert.equal(readIn(app, "web/dist/index.html"), from, "the web app it had");
+    assert.ok(!fs.existsSync(path.join(app, ".update-backup")));
+  } finally { fs.rmSync(g.root, { recursive: true, force: true }); }
+});
+
+test("update.sh: a backup a stopped update left is put back while the code is on its commit, and removed when it is not", { skip: BASH_UPDATER }, async () => {
+  const g = installed();
+  const app = g.app;
+  const backup = path.join(app, ".update-backup");
+  const leave = (commit: string, whole: boolean, parts: string[]) => {
+    fs.mkdirSync(backup, { recursive: true });
+    for (const p of parts) { fs.mkdirSync(path.dirname(path.join(backup, p)), { recursive: true }); fs.renameSync(path.join(app, p), path.join(backup, p)); }
+    fs.writeFileSync(path.join(backup, ".commit"), `${commit}\n`);
+    if (whole) fs.writeFileSync(path.join(backup, ".complete"), "");
+  };
+  try {
+    const from = git(app, "rev-parse", "HEAD");
+    installParts(app, from);
+    // Stopped while going back: the packages wait in the backup, and half an install is where they were.
+    leave(from, true, ["node_modules", "hub/node_modules"]);
+    fs.mkdirSync(path.join(app, "node_modules/half"), { recursive: true });
+    let r = await runScript(g);
+    assert.equal(r.status.state, "up_to_date", r.log);
+    for (const f of PARTS) assert.equal(readIn(app, f), from, f);
+    assert.ok(!fs.existsSync(path.join(app, "node_modules/half")));
+    assert.ok(!fs.existsSync(backup));
+
+    // Stopped while setting aside (no .complete): only the places it emptied are filled; the rest stays as it is.
+    leave(from, false, ["hub/node_modules"]);
+    r = await runScript(g);
+    assert.equal(r.status.state, "up_to_date", r.log);
+    for (const f of PARTS) assert.equal(readIn(app, f), from, f);
+    assert.ok(!fs.existsSync(backup));
+
+    // The backup of another commit: no use to this code, so it goes and the packages here stay.
+    fs.mkdirSync(path.join(backup, "node_modules/old"), { recursive: true });
+    fs.writeFileSync(path.join(backup, ".commit"), `${"0".repeat(40)}\n`);
+    r = await runScript(g);
+    assert.equal(r.status.state, "up_to_date", r.log);
+    assert.ok(!fs.existsSync(backup));
+    for (const f of PARTS) assert.equal(readIn(app, f), from, f);
+  } finally { fs.rmSync(g.root, { recursive: true, force: true }); }
 });
 
 test("another person's hub on a shared machine follows the owner's updates and offers none of its own", async () => {

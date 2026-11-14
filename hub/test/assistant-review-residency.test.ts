@@ -82,7 +82,8 @@ test("R5 condensing a long chat on a cloud model sends private fact values unred
   setBackendOverride(b);
   try {
     t.hub.store.create("fact", { category: "identity", key: "home_address", value: "4417 Elmwood Lane", private: true });
-    const filler = "x ".repeat(4000);
+    // Longer than the context the hub uses (at least its floor, whatever EA_OLLAMA_NUM_CTX says), so a summary is made.
+    const filler = "x ".repeat(12000);
     const hist = [
       { role: "user", content: `My address is 4417 Elmwood Lane, can you note the delivery? ${filler}` },
       { role: "assistant", content: `Noted. ${filler}` },
@@ -93,6 +94,7 @@ test("R5 condensing a long chat on a cloud model sends private fact values unred
     const r = await t.api("/ai/chat", { method: "POST", json: { session_id: "long-1", message: "what next?", task_type: "general", allow_cloud: true } });
     const summaryCalls = b.chats.map((m: Msg[]) => m.map((x) => x.content).join("\n"));
     const main = b.seen.map((m: Msg[]) => m.map((x) => x.content).join("\n"));
+    assert.ok(summaryCalls.length >= 1, "no summary call was made, so this case checks nothing");
     assert.ok(!summaryCalls.some((s: string) => s.includes("4417 Elmwood Lane")), "private fact value sent to the cloud in the summary call");
   } finally { setBackendOverride(null); t.cleanup(); }
 });

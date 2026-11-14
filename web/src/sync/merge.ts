@@ -1,8 +1,17 @@
 import type { Entity, Patch } from "@everythingapp/shared";
 import type { OutboxItem } from "./db";
 
+/** A capture's sorting and filing, which the hub keeps as it has them when a device's own copy arrives (hub/src/routes/sync.ts). */
+const CAPTURE_HUB_FIELDS = new Set(["processed", "sort", "suggested_kind", "filing", "filed"]);
+
 /** Apply a patch to a local entity using per-field last-writer-wins. */
 export function applyPatchLocal(local: Entity | undefined, patch: Patch): Entity {
+  // This device's own copy of a capture the hub already has (its answer came too late, so Save kept one here with the
+  // same id) brings nothing new, as on the hub. Its newer processed false and sort true would show a filed capture in
+  // Unsorted Info here, where File it would file it twice, and the hub writes no change to put it right.
+  if (local && !local.deleted_at && patch.create && patch.kind === "capture") {
+    patch = { ...patch, fields: Object.fromEntries(Object.entries(patch.fields).filter(([k]) => local.fields[k] === undefined && !CAPTURE_HUB_FIELDS.has(k))) };
+  }
   const base: Entity = local ?? {
     id: patch.id,
     kind: patch.kind,

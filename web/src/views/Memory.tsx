@@ -5,6 +5,7 @@ import { createEntity, updateEntity, softDelete } from "../sync/edits";
 import { engine } from "../sync/engine";
 import type { LedgerF } from "../lib/memory";
 import { fmtDateTime } from "../lib/time";
+import { DraftInput } from "../components/DraftField";
 
 type FactF = { category: string; key: string; value: string; source?: string; confidence?: number; private?: boolean };
 type RuleF = { text: string; enforce: string; pattern?: string; active: boolean };
@@ -186,8 +187,8 @@ export function Memory() {
                 const x = f.fields as FactF;
                 return (
                   <div key={f.id} className="kv">
-                    <input className="inline-edit mono" value={x.key} onChange={(e) => updateEntity(f, { key: e.target.value })} aria-label="Key" />
-                    <input className="inline-edit" value={x.value} onChange={(e) => updateEntity(f, { value: e.target.value })} aria-label="Value" />
+                    <DraftInput item={f} field="key" className="inline-edit mono" aria-label="Key" />
+                    <DraftInput item={f} field="value" className="inline-edit" aria-label="Value" />
                     <div className="row" style={{ flexWrap: "nowrap" }}>
                       <label className="small" style={{ margin: 0, whiteSpace: "nowrap" }}>
                         <input type="checkbox" checked={!!x.private} onChange={(e) => updateEntity(f, { private: e.target.checked })} /> private
@@ -230,7 +231,7 @@ export function Memory() {
               <div key={r.id} className="item">
                 <input type="checkbox" checked={x.active !== false} onChange={(e) => updateEntity(r, { active: e.target.checked })} title="active" aria-label="Active" style={{ marginTop: 8 }} />
                 <div className="body">
-                  <input className="inline-edit" value={x.text} onChange={(e) => updateEntity(r, { text: e.target.value })} aria-label="Rule text" />
+                  <DraftInput item={r} field="text" className="inline-edit" aria-label="Rule text" />
                   <div className="meta">
                     <select value={x.enforce} onChange={(e) => updateEntity(r, { enforce: e.target.value })} className="inline-edit" style={{ width: "auto" }} aria-label="Enforce">
                       <option value="prompt">prompt</option>

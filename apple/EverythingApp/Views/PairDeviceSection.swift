@@ -38,6 +38,10 @@ struct PairDeviceSection: View {
                             .frame(maxWidth: .infinity)
                     }
                 }
+                if links.link == "direct" {
+                    Text("Direct link needs Aeneas 1.0.3 or newer on the new device. If scanning does nothing, update the app there first.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if links.carriesSharedKey {
                     Text("Your hub is older and this code holds its shared key, which lasts. Show it only to your own devices, and update the hub.")
                         .font(.caption).foregroundStyle(.orange)

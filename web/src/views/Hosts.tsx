@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Entity } from "@everythingapp/shared";
 import { useEntities, useEntity } from "../sync/hooks";
-import { createEntity, updateEntity, softDelete } from "../sync/edits";
+import { createEntity, softDelete } from "../sync/edits";
 import { engine } from "../sync/engine";
 import { copyText } from "../sync/memory";
 import { deriveHosts, type HostSummary, type RunbookCommand, type RunbookF, type SnippetF } from "../lib/memory";
 import { Markdown } from "../components/Markdown";
 import { go } from "../lib/router";
+import { useDraftSave } from "../lib/useDraftSave";
 import { fmtDateTime, relative } from "../lib/time";
 import { JournalEntry, JournalForm, byAtDesc } from "./Journal";
 
@@ -260,48 +261,18 @@ function RunbookView({ rb, onEdit, focus }: { rb: Entity; onEdit: () => void; fo
 
 type RunbookDraft = { title: string; body: string; commands: RunbookCommand[] };
 
-/** The same plain textarea editor as Notes: edits save a second after the last keystroke. */
+const runbookDraft = (raw: Record<string, unknown>): RunbookDraft => {
+  const f = raw as RunbookF;
+  return { title: f.title, body: f.body ?? "", commands: f.commands ?? [] };
+};
+
+/**
+ * The same plain textarea editor as Notes: edits save together a second after the last keystroke, and at once on Done,
+ * on closing the editor (another machine, another screen) or when the app is hidden.
+ */
 function RunbookEditor({ id, onClose }: { id: string; onClose: () => void }) {
   const rb = useEntity(id);
-  const [draft, setDraft] = useState<RunbookDraft | null>(null);
-  const [saved, setSaved] = useState(true);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Every field changed since the last save, with its newest value: a title typed and then the body within a second both save. */
-  const pending = useRef<Partial<RunbookDraft>>({});
-  const rbRef = useRef(rb);
-  rbRef.current = rb;
-
-  useEffect(() => {
-    if (rb && !draft) {
-      const f = rb.fields as RunbookF;
-      setDraft({ title: f.title, body: f.body ?? "", commands: (f.commands ?? []).map((c) => ({ ...c })) });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rb?.id]);
-
-  /** Save what is pending now (the timer, Done, or the editor closing). */
-  const flush = useCallback(() => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = null;
-    const fields = pending.current;
-    pending.current = {};
-    const cur = rbRef.current;
-    if (!cur || !Object.keys(fields).length) return Promise.resolve();
-    return updateEntity(cur, fields as Record<string, unknown>).then(() => setSaved(true));
-  }, []);
-
-  // Closing the editor (another machine, another screen) saves the last edit instead of dropping it.
-  useEffect(() => () => void flush(), [flush]);
-
-  const edit = (patch: Partial<RunbookDraft>) => {
-    if (!draft || !rb) return;
-    const next = { ...draft, ...patch };
-    setDraft(next);
-    setSaved(false);
-    pending.current = { ...pending.current, ...patch };
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void flush(), 1000);
-  };
+  const { draft, edit, flush, saved } = useDraftSave(rb, { toDraft: runbookDraft });
 
   const setCmd = (i: number, patch: Partial<RunbookCommand>) => {
     if (!draft) return;

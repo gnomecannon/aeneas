@@ -6,7 +6,7 @@ The same comparison is in the app, under Settings, How devices reach this hub, â
 
 | | Direct link (iroh) | Tailscale | Home Wi-Fi only |
 |---|---|---|---|
-| **Setting up a phone or computer** | Scan the QR code. | Sign in to Tailscale with the same account as the hub (in the Tailscale app, or inside Aeneas on iPhone, iPad and Mac), then scan the QR code. | Scan the QR code while on your home network. |
+| **Setting up a phone or computer** | Scan the QR code (Aeneas 1.0.3 or newer). | Sign in to Tailscale with the same account as the hub (in the Tailscale app, or inside Aeneas on iPhone, iPad and Mac), then scan the QR code. | Scan the QR code while on your home network. |
 | **Works away from home** | Yes. | Yes. | No. |
 | **Account needed** | None. | A Tailscale account (Google, Apple, Microsoft or GitHub sign-in). | None. |
 | **Can anyone read your data on the way?** | No. Encrypted end to end between your device and the hub. | No. Encrypted end to end between your devices (WireGuard). | No. Encrypted with the hub's own certificate. |

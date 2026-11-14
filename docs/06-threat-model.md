@@ -9,7 +9,7 @@ Anything else that is missing is listed under "Known gaps". The standard is rule
 
 ## The system
 
-One hub (Node and SQLite) runs on a machine the owner controls. Devices talk only to it: the iPhone, iPad and Mac apps, the Watch (through the iPhone), the web app in a browser or on the home screen, and the Windows app. Devices reach the hub over Tailscale, or over the home network in LAN mode. The hub can copy backups to a second machine the owner controls, talk to model servers (local by default, a cloud model only when allowed) and read services the owner signs in to.
+One hub (Node and SQLite) runs on a machine the owner controls. Devices talk only to it: the iPhone, iPad and Mac apps, the Watch (through the iPhone), the web app in a browser or on the home screen, and the Windows app. Devices reach the hub in one of three ways chosen at install: Direct link (iroh, the default), Tailscale, or the home network in LAN mode. The hub can copy backups to a second machine the owner controls, talk to model servers (local by default, a cloud model only when allowed) and read services the owner signs in to.
 
 ## Assets
 
@@ -29,6 +29,7 @@ One hub (Node and SQLite) runs on a machine the owner controls. Devices talk onl
 
 | Control | State | What it does |
 |---|---|---|
+| Direct link (iroh) | Built | Each device connects to the hub's key from the pairing QR code, encrypted end to end (QUIC with TLS 1.3 keyed to that key), and accepts no other key, so a relay cannot stand in for the hub. When no direct path exists, n0's relay passes the encrypted traffic; it sees IP addresses, keys and timing, not content. Requests over it count as a remote device and need that device's own key (`hub/src/link.ts`). If n0's relays stop, Direct link stops until the hub moves to another relay (`EA_LINK_RELAYS`) |
 | Tailscale (WireGuard) | Built | Devices reach the hub through an encrypted tunnel. The hub listens on `127.0.0.1` and Tailscale Serve gives it HTTPS with a certificate for its `*.ts.net` name |
 | HTTPS off Tailscale | Built | In LAN mode the installer makes a self-signed certificate and the hub serves HTTPS; plain HTTP is answered only on 127.0.0.1 (`hub/src/tls.ts`). Pairing links carry the certificate's SHA-256 (`fp=`) so a device accepts that certificate and no other |
 | A key per device | Built | Each device gets its own key through a pairing code that works once and expires in 10 minutes (`hub/src/devicekeys.ts`). The hub keeps only each key's SHA-256. No link or QR code holds a lasting secret, and any device can be removed on its own. The hub's main key (`EA_TOKEN`) stays in hub.env for the hub's own scripts; a device that still holds it trades it for its own key on its next sync |

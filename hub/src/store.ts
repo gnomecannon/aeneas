@@ -5,6 +5,7 @@ import { FTS_TABLE, type DB } from "./db.js";
 import type { Bus } from "./bus.js";
 import { WorkKey } from "./workkey.js";
 import { errCode } from "./logsafe.js";
+import { patternProblem } from "./ai/rule-guard.js";
 
 export class StoreError extends Error {
   /** `extra` keys are merged into the JSON error body next to `error` and `detail` (the planner's `conflict`). */
@@ -236,6 +237,11 @@ export class Store {
         deleted_at = typeof deletedIn === "string" ? deletedIn : null;
         fieldTs.deleted_at = patch.ts;
         changed.push("deleted_at");
+      }
+      // A rule's pattern runs on every reply: one that does not compile, is too long or backtracks without end is refused.
+      if (patch.kind === "rule" && (changed.includes("pattern") || changed.includes("flags"))) {
+        const bad = patternProblem(fields.pattern, fields.flags);
+        if (bad) throw new StoreError(422, bad);
       }
 
       // created_at keeps the client's offline timestamp when it is earlier than the hub clock; updated_at is hub time.

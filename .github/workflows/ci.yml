@@ -23,4 +23,5 @@ jobs:
       # Release rule 5: every npm package and Rust crate under an allowed open-source license (cargo is on the runner).
       - run: node --test tools/license-check/check.test.mjs
       - run: npm run license-check
-      - run: node --test tools/public-release/scan.test.mjs
+      # The public copy has no tools/public-release (it is on the private list), so the scanner's tests run only here.
+      - run: test ! -f tools/public-release/scan.test.mjs || node --test tools/public-release/scan.test.mjs

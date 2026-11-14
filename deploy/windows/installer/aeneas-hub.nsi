@@ -219,7 +219,7 @@ FunctionEnd
 !macroend
 
 Function InfoDirect
-  !insertmacro InfoBox "Direct link$\r$\n$\r$\nYour devices connect straight to this hub, encrypted end to end, using iroh, open source networking software from the company n0. If a direct path is blocked, traffic passes through a relay that can't read it or pretend to be your hub. Relays are run by n0, free, with no uptime promise. No account: the QR code is the only key, and only devices that scanned it can connect."
+  !insertmacro InfoBox "Direct link$\r$\n$\r$\nYour devices connect straight to this hub, encrypted end to end, using iroh, open source networking software from the company n0. If a direct path is blocked, traffic passes through a relay that can't read it or pretend to be your hub. Relays are run by n0, free, with no uptime promise. No account: the QR code is the only key, and only devices that scanned it can connect. It needs Aeneas 1.0.3 or newer on each phone and computer."
 FunctionEnd
 
 Function InfoTailscale

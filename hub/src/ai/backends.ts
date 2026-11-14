@@ -468,14 +468,18 @@ export function fakeBackend(): Backend {
 
 export interface BackendSet { ollama: Backend | null; ollamaFallback?: Backend | null; anthropic: Backend | null; adapter: Backend | null; openai?: Backend | null }
 
-export function buildBackends(cfg: Config): BackendSet {
+/**
+ * `numCtx` is the context asked of Ollama and the adapter: the assistant passes its own (Gateway.numCtx, the configured
+ * EA_OLLAMA_NUM_CTX raised to what the system prompt and tools need); the configured value alone is for tests and scripts.
+ */
+export function buildBackends(cfg: Config, numCtx = cfg.ollamaNumCtx): BackendSet {
   if (cfg.aiFake) { const f = fakeBackend(); return { ollama: f, anthropic: { ...f, name: "anthropic" }, adapter: { ...f, name: "adapter" } }; }
   return {
     // No model chosen yet (a new hub before the Welcome page): no local backend, rather than requests Ollama refuses.
-    ollama: cfg.ollamaUrl && cfg.ollamaModel ? ollamaLike("ollama", cfg.ollamaUrl, cfg.ollamaModel, cfg.aiTimeoutMs, cfg.ollamaNumCtx, cfg.ollamaKeepAlive, cfg.ollamaThink) : null,
-    ollamaFallback: cfg.ollamaFallbackUrl && (cfg.ollamaFallbackModel || cfg.ollamaModel) ? ollamaLike("ollama", cfg.ollamaFallbackUrl, cfg.ollamaFallbackModel || cfg.ollamaModel, cfg.aiTimeoutMs, cfg.ollamaNumCtx, cfg.ollamaKeepAlive, cfg.ollamaFallbackThink) : null,
+    ollama: cfg.ollamaUrl && cfg.ollamaModel ? ollamaLike("ollama", cfg.ollamaUrl, cfg.ollamaModel, cfg.aiTimeoutMs, numCtx, cfg.ollamaKeepAlive, cfg.ollamaThink) : null,
+    ollamaFallback: cfg.ollamaFallbackUrl && (cfg.ollamaFallbackModel || cfg.ollamaModel) ? ollamaLike("ollama", cfg.ollamaFallbackUrl, cfg.ollamaFallbackModel || cfg.ollamaModel, cfg.aiTimeoutMs, numCtx, cfg.ollamaKeepAlive, cfg.ollamaFallbackThink) : null,
     anthropic: cfg.anthropicApiKey ? anthropic(cfg.anthropicApiKey, cfg.anthropicModel, cfg.aiTimeoutMs) : null,
-    adapter: cfg.adapterUrl ? ollamaLike("adapter", cfg.adapterUrl, cfg.adapterModel || cfg.ollamaModel, cfg.aiTimeoutMs, cfg.ollamaNumCtx, cfg.ollamaKeepAlive) : null,
+    adapter: cfg.adapterUrl ? ollamaLike("adapter", cfg.adapterUrl, cfg.adapterModel || cfg.ollamaModel, cfg.aiTimeoutMs, numCtx, cfg.ollamaKeepAlive) : null,
     openai: cfg.openaiUrl && cfg.openaiModel ? openaiCompatible(cfg.openaiUrl, cfg.openaiKey, cfg.openaiModel, cfg.aiTimeoutMs) : null,
   };
 }

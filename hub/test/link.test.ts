@@ -130,3 +130,24 @@ test("link: an answer is all there for a client that reads it late (no reset aft
     t.cleanup();
   }
 });
+
+test("Direct link: a start that fails for a passing reason is tried again until it works", async () => {
+  const t = makeHub();
+  let calls = 0;
+  const link = new DirectLink(t.hub.cfg, t.app.fetch, async () => {
+    calls++;
+    if (calls === 1) throw new Error("no relay answered in 30 seconds (is this computer online?)");
+    return import("@number0/iroh");
+  }, { noRelay: true, retryMs: [50] });
+  try {
+    const first = await link.start();
+    assert.equal(first.state, "error");
+    assert.ok(first.retry_at, "says when it tries again");
+    for (let i = 0; i < 100 && link.status().state !== "online"; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(link.status().state, "online");
+    assert.equal(calls, 2);
+  } finally {
+    await link.stop();
+    t.cleanup();
+  }
+});

@@ -404,7 +404,7 @@ all_v4() {
 LINK_DOC="docs/connections.md in the app's folder, or https://github.com/gnomecannon/aeneas/blob/main/docs/connections.md"
 link_info() {
   case "$1" in
-    1) note "Direct link: your devices connect straight to this hub, encrypted end to end, using iroh, open source networking software from the company n0. If a direct path is blocked, traffic passes through a relay that can't read it or pretend to be your hub. Relays are run by n0, free, with no uptime promise. No account: the QR code is the only key, and only devices that scanned it can connect." ;;
+    1) note "Direct link: your devices connect straight to this hub, encrypted end to end, using iroh, open source networking software from the company n0. If a direct path is blocked, traffic passes through a relay that can't read it or pretend to be your hub. Relays are run by n0, free, with no uptime promise. No account: the QR code is the only key, and only devices that scanned it can connect. It needs Aeneas 1.0.3 or newer on each phone and computer." ;;
     2) note "Tailscale: builds a private network of your devices. It's mature and widely audited. You need an account (Google, Apple, Microsoft or GitHub). Tailscale keeps a list of your devices and when they're online, and its server decides which devices belong to your network. Devices sign in again every 180 days unless you turn that off. Choose this if you already use Tailscale or want the hub to reach your other machines." ;;
     3) note "Home Wi-Fi only: devices connect over your own network using the hub's own certificate, which the QR code lets them check. Nothing leaves your home. Away from home, the apps can't reach the hub." ;;
   esac

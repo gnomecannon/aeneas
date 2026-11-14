@@ -37,6 +37,16 @@ public enum LocalPlanner {
     public static func dateString(_ d: Date) -> String { dayFormatter.string(from: d) }
     public static func date(_ s: String) -> Date? { dayFormatter.date(from: s) }
 
+    /// `yyyy-MM-dd` as the start of that day in `calendar`'s time zone, for code that is handed a calendar
+    /// (TaskDue): parsing in the device's zone and comparing in another put a date-only deadline on the wrong day.
+    public static func date(_ s: String, in calendar: Calendar) -> Date? {
+        let p = s.split(separator: "-")
+        guard p.count == 3, p[0].count == 4, let y = Int(p[0]), let m = Int(p[1]), let d = Int(p[2]) else { return nil }
+        guard let date = calendar.date(from: DateComponents(year: y, month: m, day: d)),
+              calendar.component(.month, from: date) == m, calendar.component(.day, from: date) == d else { return nil }
+        return date
+    }
+
     /// `HH:MM` to minutes after midnight; `24:00` is 1440.
     public static func minutes(_ hhmm: String) -> Int? {
         let p = hhmm.split(separator: ":")

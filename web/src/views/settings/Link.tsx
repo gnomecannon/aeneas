@@ -2,18 +2,22 @@ import { useEffect, useState } from "react";
 import type { LinkMethod, LinkView } from "../../sync/api";
 import { engine } from "../../sync/engine";
 import { errorText } from "./common";
+import { useHubReady } from "../../sync/hooks";
 
 /**
  * How devices reach the hub: Direct link (iroh), Tailscale or the home network only. Each choice names every outside
  * party it involves on the screen itself; the ⓘ opens a short note in place and links to the full comparison.
  */
+/** The first app version on every platform that can use the Direct link (older apps cannot read its QR code). */
+export const DIRECT_LINK_MIN_APP = "1.0.3";
+
 export const LINK_CHOICES: { method: LinkMethod; title: string; tag?: string; line: string; info: string }[] = [
   {
     method: "direct",
     title: "Direct link",
     tag: "recommended, uses iroh",
     line: "Scan a QR code and you're done. No account. Works at home and away.",
-    info: "Your devices connect straight to this hub, encrypted end to end, using iroh, open source networking software from the company n0. If a direct path is blocked, traffic passes through a relay that can't read it or pretend to be your hub. Relays are run by n0, free, with no uptime promise. No account: the QR code is the only key, and only devices that scanned it can connect.",
+    info: `Your devices connect straight to this hub, encrypted end to end, using iroh, open source networking software from the company n0. If a direct path is blocked, traffic passes through a relay that can't read it or pretend to be your hub. Relays are run by n0, free, with no uptime promise. No account: the QR code is the only key, and only devices that scanned it can connect. It needs Aeneas ${DIRECT_LINK_MIN_APP} or newer on each phone and computer.`,
   },
   {
     method: "tailscale",
@@ -58,11 +62,14 @@ export function LinkChoice({ onChanged }: { onChanged?: (v: LinkView) => void })
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const load = () => void engine.client?.link().then(setView).catch((e) => setMsg({ ok: false, text: errorText(e) }));
-  useEffect(load, []);
-  // While the Direct link starts, ask again until it settles.
+  const ready = useHubReady();
+  useEffect(load, [ready]);
+  // While the Direct link starts, ask again until it settles; after a failed start, ask again once the hub has retried.
   useEffect(() => {
-    if (view?.direct.state !== "starting") return;
-    const t = setTimeout(load, 1500);
+    const d = view?.direct;
+    const wait = d?.state === "starting" ? 1500 : d?.state === "error" && d.retry_at ? Math.max(1500, Date.parse(d.retry_at) - Date.now() + 1500) : 0;
+    if (!wait) return;
+    const t = setTimeout(load, Math.min(wait, 5 * 60_000));
     return () => clearTimeout(t);
   }, [view]);
   const pick = async (m: LinkMethod) => {
@@ -83,7 +90,7 @@ export function LinkChoice({ onChanged }: { onChanged?: (v: LinkView) => void })
         <div className="small" aria-live="polite">
           {d.state === "starting" && <span className="muted">Starting the Direct link.</span>}
           {d.state === "online" && <span className="ok">Direct link is on. Relay: {d.relay_by ?? d.relay}. {d.connected ? `${d.connected} device${d.connected === 1 ? "" : "s"} connected, ${d.direct} directly.` : "No device connected right now."}</span>}
-          {d.state === "error" && <span className="error">Direct link didn't start: {d.error}</span>}
+          {d.state === "error" && <span className="error">Direct link didn't start: {d.error}{d.retry_at ? ` Trying again at ${new Date(d.retry_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.` : ""}</span>}
         </div>
       )}
       {msg && <div className={msg.ok ? "ok small" : "error small"}>{msg.text}</div>}

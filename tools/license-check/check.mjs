@@ -22,7 +22,32 @@ export const ALLOWED = new Set([
   "Zlib", "BSL-1.0", "Python-2.0", "MPL-2.0", "Unicode-3.0", "Unicode-DFS-2016", "Apache-2.0 WITH LLVM-exception",
   // Data, not code: the browser support tables (caniuse-lite) the web build reads.
   "CC-BY-4.0",
+  // Data, not code: the list of root certificates (webpki-roots) that Direct link's relay client (iroh) trusts.
+  "CDLA-Permissive-2.0",
 ]);
+
+/**
+ * The Swift packages the Apple apps may use, each looked at by a person (release rule 5) with its license: any other
+ * remote package fails the check. iroh-ffi is Direct link on iPhone, iPad and Mac (EALink).
+ */
+export const APPROVED_SWIFT = new Map([
+  ["https://github.com/n0-computer/iroh-ffi", "MIT OR Apache-2.0"],
+]);
+
+/** What is wrong with one Package.resolved: a remote pin that is not approved, or an approved one whose license is not allowed. */
+export function swiftPinProblems(text, file) {
+  let pins = [];
+  try { pins = JSON.parse(text).pins ?? []; } catch { return [`${file} cannot be read`]; }
+  const out = [];
+  for (const p of pins) {
+    const loc = String(p.location ?? "").replace(/\.git$/, "").replace(/\/$/, "");
+    if (!/^https?:/.test(loc)) continue;
+    const license = APPROVED_SWIFT.get(loc);
+    if (license === undefined) out.push(`${file} pins ${loc}, which is not an approved Swift package`);
+    else if (!allowed(license)) out.push(`${file} pins ${loc} under ${license}, which is not allowed`);
+  }
+  return out;
+}
 
 /** Whether an SPDX expression is satisfiable from ALLOWED. Handles OR, AND, WITH, parentheses and the old "/" form. */
 export function allowed(expr) {
@@ -58,7 +83,7 @@ function rustCrates() {
   return meta.packages.filter((p) => !own.has(p.id)).map((p) => ({ name: p.name, version: p.version, license: p.license ?? (p.license_file ? `file:${p.license_file}` : "") }));
 }
 
-/** The Apple apps use no third-party Swift packages: any remote package in the project or a Package.resolved fails. */
+/** The Apple apps use only approved Swift packages: a remote package in the project, or an unapproved pin, fails. */
 function applePackages() {
   const problems = [];
   const yml = fs.readFileSync(path.join(ROOT, "apple/project.yml"), "utf8");
@@ -68,7 +93,7 @@ function applePackages() {
       if (e.name === ".build" || e.name === "build" || e.name.startsWith(".")) continue;
       const f = path.join(d, e.name);
       if (e.isDirectory()) walk(f);
-      else if (e.name === "Package.resolved" && /"location"\s*:\s*"https?:/.test(fs.readFileSync(f, "utf8"))) problems.push(`${path.relative(ROOT, f)} pins a remote Swift package`);
+      else if (e.name === "Package.resolved") problems.push(...swiftPinProblems(fs.readFileSync(f, "utf8"), path.relative(ROOT, f)));
     }
   };
   walk(path.join(ROOT, "apple"));
@@ -93,7 +118,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     if (crates) failures += report("rust", crates);
   }
   const apple = applePackages();
-  console.log(`apple: ${apple.length ? apple.join("; ") : "no third-party Swift packages"}`);
+  console.log(`apple: ${apple.length ? apple.join("; ") : `only approved Swift packages (${[...APPROVED_SWIFT.keys()].map((u) => u.split("/").pop()).join(", ")})`}`);
   failures += apple.length;
   if (failures) { console.log(`\n${failures} problem(s): a person looks at each before it ships (release rule 5).`); process.exit(1); }
   console.log("\nevery third-party package is under an allowed open-source license");

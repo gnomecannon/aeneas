@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { engine } from "../../sync/engine";
 import type { HubMachine } from "../../sync/api";
 import { errorText } from "./common";
+import { useHubReady } from "../../sync/hooks";
 
 const label = (d: number) => (d === 0 ? "Forever" : d === 365 ? "1 year" : `${d} days`);
 
@@ -56,9 +57,10 @@ export function MachinesSettings() {
   const [ssh, setSsh] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
+  const ready = useHubReady();
   useEffect(() => {
     engine.client?.machines().then((r) => { setList(r.machines); setSsh(r.ssh_config); }, (e) => setErr(errorText(e)));
-  }, []);
+  }, [ready]);
   const save = (next: HubMachine[]) => {
     setErr("");
     engine.client?.setMachines(next).then((r) => setList(r.machines), (e) => setErr(errorText(e)));

@@ -49,3 +49,16 @@ test("P17 ICS: a title with a carriage return leaves a bare CR in the feed", () 
     assert.ok(!line.includes("\r"));
   } finally { t.cleanup(); }
 });
+
+test("P15b a late copy from a device cannot put back a photo the hub removed from a work capture", async () => {
+  const t = makeHub();
+  try {
+    const cap = t.hub.store.create("capture", { text: "work: whiteboard from the planning meeting", source: "iphone", processed: false, attachments: [{ mime: "image/png", bytes_b64: "iVBORw0KGgo=", name: "board.png" }] });
+    // What the filer does with a work: capture: the photo leaves the personal space (capture-filer.ts).
+    t.hub.store.patch(cap.id, { text: "work: moved to the work space", sort: false, attachments: null });
+    const ts = new Date(Date.now() + 5).toISOString();
+    const push = await (await t.api("/sync/push", { method: "POST", json: { device_id: "iphone-1", patches: [{ id: cap.id, kind: "capture", ts, create: true, fields: { text: "work: whiteboard from the planning meeting", source: "iphone", processed: false, sort: true, attachments: [{ mime: "image/png", bytes_b64: "iVBORw0KGgo=", name: "board.png" }] } }] } })).json() as { applied: unknown[] };
+    assert.equal(push.applied.length, 1);
+    assert.equal(t.hub.store.get(cap.id)!.fields.attachments, undefined, "the removed photo must stay removed");
+  } finally { t.cleanup(); }
+});

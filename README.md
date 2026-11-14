@@ -11,13 +11,16 @@ which existing installs depend on.
 
 - Your data stays on your hub and your own devices. There is no server of ours, no account with us, no telemetry.
 - Each device has its own key, from a pairing code that works once for 10 minutes; any device can be removed.
-- Devices reach the hub over Tailscale (WireGuard, end to end), or over HTTPS on your home network with a pinned
-  certificate. Backups and every copy sent to another machine are encrypted with a key only you hold.
+- Devices reach the hub the way you choose at install: Direct link (iroh, end to end), Tailscale (WireGuard, end to
+  end), or HTTPS on your home network with a pinned certificate. Backups and every copy sent to another machine are
+  encrypted with a key only you hold.
 - The assistant runs on a model on your own machine. A cloud model is an option you turn on, and work items never
   go to it. Web lookups are off until you turn them on; then searches go through a search server on your hub to a
   short list of engines it names (DuckDuckGo, Brave, Mwmbl, Wikipedia), optionally through Tor.
-- A new install sends nothing to any company. Where a feature you turn on needs one (a browser's dictation, a cloud
-  model, a sign-in), it says which company and what goes before it starts. Every outside address is listed in
+- A new install sends nothing to any company except what the way devices connect needs: with Direct link, the
+  installer's default, n0's relay sees the hub's and devices' addresses and when they connect, never content (Home
+  Wi-Fi only involves no company). Where a feature you turn on needs a company (a browser's dictation, a cloud model,
+  a sign-in), it says which one and what goes before it starts. Every outside address is listed in
   `docs/privacy-network.md`.
 - Every module is something you switch on; each says what it reads, and your devices ask only for the permissions of
   the modules you chose.
@@ -57,7 +60,8 @@ About 15 minutes in all, plus the model download (about 1.5 GB on a computer wit
    pairing code for your other devices. About 5 minutes plus the download.
 3. Install Aeneas on your iPhone, iPad or Mac, or open the web app in a browser. (To look around before you
    have a hub, the Apple apps offer "Try it with sample data": a made-up month, kept on the device.) On Android,
-   install the APK from the Releases page (or from F-Droid once it is listed).
+   install the APK from the Releases page (or from F-Droid once it is listed). Direct link needs Aeneas 1.0.3 or
+   newer on each device.
 4. On the Welcome page, press Make a pairing code and scan the QR code with the phone's camera (on a Mac, open the
    link). Each device gets its own key, and scanning lets it check the hub's certificate.
 

@@ -5,7 +5,7 @@ import { HubClient, normalizeHubUrl } from "../sync/api";
 import { directState, isDirect, parseDirect, relayOwner } from "../sync/direct";
 import { db, META, setMeta, type RejectedEdit } from "../sync/db";
 import { engine } from "../sync/engine";
-import { useMeta, useSyncState } from "../sync/hooks";
+import { useHubReady, useMeta, useSyncState } from "../sync/hooks";
 import { CAPTURE_SHORTCUTS, autostartEnabled, getCaptureShortcut, getWidget, isAndroid, isTauri, isWindowsApp, notificationsAllowed, notify, onWidgetChanged, setAutostart, setCaptureShortcut, setWidget, setupFilePath } from "../tauri/bridge";
 import { applySetupFile, type SetupFileResult } from "../tauri/setupFile";
 import { checkForUpdate, manifestCheck, promptInstall, shellVersion, subscribePwa, type PwaState } from "../pwa";
@@ -87,6 +87,7 @@ function SettingsHome() {
   const { list: modules } = useModules();
   const people = usePeopleSummary();
 
+  const ready = useHubReady();
   useEffect(() => {
     engine.client?.workSpace().then(
       (w) => setWork(w.enabled ? `On, ${w.events} events and ${w.tasks} tasks` : "Off"),
@@ -95,7 +96,7 @@ function SettingsHome() {
     if (!isWindowsApp) return;
     void getWidget().then(setWidgetState);
     void autostartEnabled().then(setAuto);
-  }, []);
+  }, [ready]);
 
   const connection = hubUrl ? `${hostOf(hubUrl)}, ${sync.status}${sync.outbox ? `, ${sync.outbox} queued` : ""}` : "Not set up";
   const windows = [widget ? "Now widget open" : "", auto ? "starts on login" : ""].filter(Boolean).join(", ") || "Now widget, start on login, setup file";
@@ -362,8 +363,9 @@ function WorkSpace() {
   const [st, setSt] = useState<{ enabled: boolean; events: number; tasks: number } | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const ready = useHubReady();
   const load = () => engine.client?.workSpace().then(setSt, (e) => setMsg(errorText(e)));
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [ready]);
   const set = async (on: boolean) => {
     if (!engine.client) return;
     if (!on && !confirm("Turn off and erase the work space? Every work event and work task is erased from the hub and every device, and the work calendar stops importing.")) return;
@@ -571,12 +573,13 @@ function About() {
     void shellVersion().then(setShell);
     void manifestCheck().then(setManifest);
   }, [pwa?.registered]);
+  const ready = useHubReady();
   useEffect(() => {
     engine.client?.health().then(
       (h) => setHubVersion(h.version ?? "unknown"),
       () => setHubVersion("not reachable"),
     );
-  }, []);
+  }, [ready]);
 
   const install = async () => {
     const r = await promptInstall();

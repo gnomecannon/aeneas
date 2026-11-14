@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { Entity } from "@everythingapp/shared";
 import { engine } from "../sync/engine";
 import { HubError } from "../sync/api";
 import { useEntities, useEntity } from "../sync/hooks";
 import { createEntity, updateEntity, softDelete } from "../sync/edits";
 import { go } from "../lib/router";
+import { useDraftSave } from "../lib/useDraftSave";
 import { fmtDateTime } from "../lib/time";
 import { MUSIC_TYPES, musicMeta, parseMusicQuick, type MusicF, type MusicStatus, type MusicType, type ProjectF } from "../lib/creative";
 import { HumRecorder, HumResult } from "../components/Hum";
@@ -200,60 +201,38 @@ function MusicProjects({ ideas }: { ideas: Entity[] }) {
 
 type Draft = { title: string; type: MusicType; body: string; key: string; bpm: string; time_sig: string; tuning: string; tags: string; project_id: string; audio_ref: string };
 
-/** The body autosaves a second after the last keystroke, like notes. Status is one press. */
+/** An idea's fields as the page's boxes hold them: text, the tags joined. */
+const ideaDraft = (raw: Record<string, unknown>): Draft => {
+  const f = raw as MusicF;
+  return { title: f.title ?? "", type: f.type ?? "riff", body: f.body ?? "", key: f.key ?? "", bpm: f.bpm != null ? String(f.bpm) : "", time_sig: f.time_sig ?? "", tuning: f.tuning ?? "", tags: (f.tags ?? []).join(", "), project_id: f.project_id ?? "", audio_ref: f.audio_ref ?? "" };
+};
+
+/** The stored fields for edited boxes: a number, a list, null for an emptied box; an emptied title keeps the old one. */
+function ideaFields(d: Partial<Draft>, e: Entity): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(d) as Array<keyof Draft>) {
+    const v = d[k] ?? "";
+    if (k === "bpm") out.bpm = v.trim() && Number.isFinite(Number(v)) ? Number(v) : null;
+    else if (k === "tags") out.tags = v.split(",").map((s) => s.trim()).filter(Boolean);
+    else if (k === "title") out.title = v.trim() || (e.fields as MusicF).title;
+    else if (k === "type" || k === "body") out[k] = v;
+    else out[k] = v.trim() || null;
+  }
+  return out;
+}
+
+/**
+ * The body and details save together a second after the last keystroke, like notes, and at once on leaving. Status is
+ * one press. A hum's title, key and tempo come from the hub when it has listened: they show unless that box has an edit.
+ */
 function IdeaPage({ id }: { id: string }) {
   const e = useEntity(id);
   // Music ideas belong to music projects (the current one stays listed even if it is not one).
   const projects = useEntities("project", (p) => p.fields.status !== "done" && ((p.fields as ProjectF).area === "music" || p.id === (e?.fields as MusicF | undefined)?.project_id));
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [saved, setSaved] = useState(true);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (e && !draft) {
-      const f = e.fields as MusicF;
-      setDraft({ title: f.title ?? "", type: f.type ?? "riff", body: f.body ?? "", key: f.key ?? "", bpm: f.bpm != null ? String(f.bpm) : "", time_sig: f.time_sig ?? "", tuning: f.tuning ?? "", tags: (f.tags ?? []).join(", "), project_id: f.project_id ?? "", audio_ref: f.audio_ref ?? "" });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [e?.id]);
-
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-
-  // A hum's title, key and tempo come from the hub when it has listened: show them unless something is being typed.
-  const humState = (e?.fields as MusicF | undefined)?.midi?.state;
-  useEffect(() => {
-    if (!e || !draft || !saved) return;
-    const f = e.fields as MusicF;
-    setDraft({ ...draft, title: f.title ?? "", key: f.key ?? "", bpm: f.bpm != null ? String(f.bpm) : "", tags: (f.tags ?? []).join(", ") });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [humState]);
+  const { draft, edit, saved } = useDraftSave(e, { toDraft: ideaDraft, toFields: ideaFields });
 
   if (!e || !draft) return <div className="empty">Idea not found.</div>;
   const f = e.fields as MusicF;
-
-  const toFields = (d: Draft, keys: Array<keyof Draft>): Record<string, unknown> => {
-    const out: Record<string, unknown> = {};
-    for (const k of keys) {
-      if (k === "bpm") out.bpm = d.bpm.trim() && Number.isFinite(Number(d.bpm)) ? Number(d.bpm) : null;
-      else if (k === "tags") out.tags = d.tags.split(",").map((s) => s.trim()).filter(Boolean);
-      else if (k === "title") out.title = d.title.trim() || f.title;
-      else if (k === "type" || k === "body") out[k] = d[k];
-      else out[k] = d[k].trim() || null;
-    }
-    return out;
-  };
-
-  const edit = (patch: Partial<Draft>) => {
-    const next = { ...draft, ...patch };
-    setDraft(next);
-    setSaved(false);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      void updateEntity(e, toFields(next, Object.keys(patch) as Array<keyof Draft>)).then(() => setSaved(true));
-    }, 1000);
-  };
 
   const field = (k: keyof Draft, label: string, extra: Record<string, unknown> = {}) => (
     <div>

@@ -1,7 +1,7 @@
 # Privacy policy
 
 Aeneas (the iPhone, iPad, Apple Watch, Mac, Windows and web apps, and the hub) is made by gnomecannon. This
-policy covers all of them. Last changed 2026-11-06.
+policy covers all of them. Last changed 2026-11-13.
 
 ## The short version
 
@@ -15,14 +15,22 @@ crash reports sent to us. Your data goes only between your own devices and the h
 - **On your devices.** Each app keeps a copy so it works offline. Removing a device from the hub wipes that copy the
   next time it connects. The Apple apps keep their copy out of iCloud Backup, Spotlight and the lock screen unless you
   turn those on in Settings, Privacy.
-- **Between them.** Devices reach the hub over your own Tailscale network (WireGuard, end to end) or over HTTPS on
-  your home network with a certificate the app checks. Each device has its own key, and any device can be removed.
+- **Between them.** Devices reach the hub in the way you choose when you install it: Direct link (iroh, encrypted
+  end to end), your own Tailscale network (WireGuard, end to end), or HTTPS on your home network with a certificate
+  the app checks. Each device has its own key, and any device can be removed.
 
 We, the makers, cannot see any of it: we have no copy, no access and no way to get one.
 
 ## When something leaves your devices
 
-Only when you turn on a feature that needs it, and the app says which company and what goes before it starts:
+Only when you choose a way to connect or turn on a feature that needs it, and the installer or the app says which
+company and what goes before it starts:
+
+- **How your devices reach the hub.** With Direct link, the installer's default, a relay run by n0 (the makers of
+  iroh) passes the encrypted traffic when your device and the hub cannot reach each other directly. It sees the
+  hub's and your devices' IP addresses and keys, and when they connect, never what they send. With Tailscale,
+  Tailscale keeps your account, your device list and when each device is online. Home Wi-Fi only involves no
+  company, and works only at home.
 
 - **The assistant** runs on a model on your own computer. Choosing a cloud model instead (with your own key from that
   company) sends your chats to that company; work items never go to it.

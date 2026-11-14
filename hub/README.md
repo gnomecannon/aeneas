@@ -39,7 +39,7 @@ All variables are read from `hub/.env` (a small built-in loader; existing proces
 | `EA_BACKUP_KEY_FILE` | next to `EA_WORK_KEY_FILE` (`backup.key`) | The age key every copy that leaves `hub.sqlite` is encrypted to. Made on first start, mode 600, in no backup. Its recovery key belongs in the password manager |
 | `EA_OLLAMA_URL` | empty | Local model server. Empty disables the local backend. On a host without MagicDNS this must be the tailnet IP, not the hostname |
 | `EA_OLLAMA_MODEL` | `qwen3-coder:30b` | Model name for Ollama |
-| `EA_OLLAMA_NUM_CTX` | `8192` | Context window requested from Ollama (its default 2048 truncates the memory prompt) |
+| `EA_OLLAMA_NUM_CTX` | automatic | Context window asked of Ollama. Empty: the smallest that holds the system prompt, every tool, a reply and some history (32768 with today's tools; `GET /status` shows it under `ai.context`). A smaller value is raised to that, since Ollama silently drops the start of a longer request; a larger one is kept |
 | `EA_OLLAMA_KEEP_ALIVE` | `2h` | `keep_alive` sent with every Ollama (and adapter) chat so the model stays loaded. Ollama unloads after 5 minutes by default, which made the first call after idle take about 30 s |
 | `EA_ANTHROPIC_API_KEY` | empty | Cloud key. Used only when a request allows cloud |
 | `EA_ANTHROPIC_MODEL` | `claude-sonnet-5-5` | Cloud model |
