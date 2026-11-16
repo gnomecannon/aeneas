@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { nowIso } from "@everythingapp/shared";
 import type { Hub } from "../hub.js";
 import { StoreError } from "../store.js";
+import type { FetchedMail, MailSource } from "./mail-sources.js";
+import { bodyText } from "./mail-text.js";
 import { fetchWithTimeout } from "./util.js";
 
 /**
@@ -246,3 +248,48 @@ export async function disconnectGoogle(hub: Hub, email: string) {
   hub.connections.update((c) => { c.google = (c.google ?? []).filter((x) => x.email !== email); });
   return hub.connections.view().google;
 }
+
+/** The text of a Gmail message: its parts, base64url in Gmail's JSON, walked and handed to bodyText. */
+export function mailText(payload: any): string {
+  const plain: string[] = [];
+  const html: string[] = [];
+  const walk = (p: any) => {
+    if (!p) return;
+    const data = p.body?.data;
+    if (typeof data === "string" && !p.filename) {
+      const text = Buffer.from(data, "base64url").toString("utf8");
+      if (p.mimeType === "text/plain") plain.push(text);
+      else if (p.mimeType === "text/html") html.push(text);
+    }
+    for (const c of p.parts ?? []) walk(c);
+  };
+  walk(payload);
+  return bodyText(plain, html);
+}
+
+const header = (payload: any, name: string): string => String((payload?.headers ?? []).find((h: any) => String(h.name).toLowerCase() === name)?.value ?? "");
+
+/** Gmail as a mail source: the mailboxes signed in with Google, listed with Gmail's search, read through its API. */
+export const gmailSource: MailSource = {
+  kind: "gmail",
+  accounts: (hub) => (hub.connections.get().google ?? []).map((a) => a.email),
+  list: (hub, account) => listMail(hub, account),
+  async read(hub, account, id): Promise<FetchedMail | null> {
+    let msg: any;
+    try {
+      msg = await gmailGet(hub, account, `/messages/${encodeURIComponent(id)}?format=full`);
+    } catch (e) {
+      if (e instanceof StoreError && e.status === 404) return null;
+      throw e;
+    }
+    return {
+      at: new Date(Number(msg.internalDate) || Date.now()),
+      from: header(msg.payload, "from"),
+      subject: header(msg.payload, "subject"),
+      text: mailText(msg.payload),
+    };
+  },
+  // Opens the message in Gmail on the web, signed in as the mailbox it came from.
+  link: ({ account, id }) => `https://mail.google.com/mail/?authuser=${encodeURIComponent(account)}#all/${id}`,
+  isOwnLink: (url) => url.startsWith("https://mail.google.com/"),
+};

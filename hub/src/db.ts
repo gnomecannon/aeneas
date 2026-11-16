@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS checks (
 CREATE INDEX IF NOT EXISTS checks_monitor_at ON checks(monitor_id, at);
 CREATE INDEX IF NOT EXISTS checks_at ON checks(at);
 
--- Mail the Gmail link listed for the filer: the message id, when it arrived and what was filed. Never the mail itself.
+-- Mail a linked mailbox listed for the filer (any mail source): the message id, when it arrived and what was filed. Never the mail itself.
 CREATE TABLE IF NOT EXISTS mail (
   n INTEGER PRIMARY KEY AUTOINCREMENT,
   account TEXT NOT NULL,

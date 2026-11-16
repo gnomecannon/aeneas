@@ -6,13 +6,17 @@ import { StoreError } from "./store.js";
 import { diaryDay } from "./diary.js";
 import { localDateOf } from "./planner.js";
 import { petPlanTitle } from "./pets.js";
-import { gmailGet, listMail } from "./imports/gmail.js";
+import { isLinked, isMailLink, mailAccounts, sourceOf } from "./imports/mail-sources.js";
 import { norm, stableId } from "./imports/util.js";
 import { gpuBusyNow } from "./gpu.js";
 import { errCode } from "./logsafe.js";
 
+// The text helpers live with the sources now; they are still reachable from here, where they always were.
+export { mailText } from "./imports/gmail.js";
+export { htmlToText } from "./imports/mail-text.js";
+
 /**
- * Mail that files itself: each message the Gmail link lists is read once by the local model (never a cloud one) and
+ * Mail that files itself: each message a linked mailbox lists is read once by the local model (never a cloud one) and
  * becomes records, with nothing for the owner to enter. A charge or notice for something that renews keeps a renewal
  * (subscription, domain, insurance) at its next date; an order of gear, parts, tools or materials goes to inventory;
  * a vet visit, a vaccine due and a vet appointment go to the pet. Cancellations and refunds take back what they undo.
@@ -64,45 +68,8 @@ export const MAIL_SYSTEM = [
   "pet: the pet's name. what: for vet types, what was done or is due in a few words (\"Annual exam and rabies vaccine\"). date: for vet_visit the visit day YYYY-MM-DD; for vet_appointment the start YYYY-MM-DDTHH:MM local time.",
 ].join("\n");
 
-/** The text of a message: its plain-text part, or its HTML part as text. Invisible padding and markup go. */
-export function mailText(payload: any): string {
-  const plain: string[] = [];
-  const html: string[] = [];
-  const walk = (p: any) => {
-    if (!p) return;
-    const data = p.body?.data;
-    if (typeof data === "string" && !p.filename) {
-      const text = Buffer.from(data, "base64url").toString("utf8");
-      if (p.mimeType === "text/plain") plain.push(text);
-      else if (p.mimeType === "text/html") html.push(text);
-    }
-    for (const c of p.parts ?? []) walk(c);
-  };
-  walk(payload);
-  const raw = plain.join("\n").trim().length > 200 ? plain.join("\n") : html.length ? htmlToText(html.join("\n")) : plain.join("\n");
-  return raw.replace(/[​-‏­͏⁠﻿ ]/g, (c) => (c === " " ? " " : ""))
-    .split("\n").map((l) => l.replace(/[ \t]+/g, " ").trim()).filter(Boolean).join("\n");
-}
-
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " ", zwnj: "", zwj: "", shy: "", copy: "©", reg: "®", trade: "™", mdash: "-", ndash: "-", hellip: "...", rsquo: "'", lsquo: "'", rdquo: "\"", ldquo: "\"", bull: "*", middot: "*", euro: "€", pound: "£" };
-
-export function htmlToText(html: string): string {
-  return html
-    .replace(/<(head|style|script|title)\b[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|li|h[1-6]|table|section|article)>/gi, "\n")
-    .replace(/<\/t[dh]>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
-    .replace(/&([a-z]+);/gi, (m, n) => ENTITIES[n.toLowerCase()] ?? m);
-}
-
 /** Mail worth the model's time: it names money, a renewal, an expiry, a trial, a cancellation, an order or a vet. */
 export const SIGNAL = /([$€£]\s?\d|\b\d[\d,]*\.\d{2}\s?(usd|eur|gbp)\b|\brenew|\bexpir|\btrial\b|\bcancel|\bvet(erinar\w*)?\b|\bvaccin|\banimal hospital\b|\bappointment\b)/i;
-
-const header = (payload: any, name: string): string => String((payload?.headers ?? []).find((h: any) => String(h.name).toLowerCase() === name)?.value ?? "");
 
 export function mailPrompt(m: MailMeta, text: string): string {
   return [`Mailbox: ${m.account}`, `From: ${m.from}`, `Subject: ${m.subject}`, `Received: ${m.at.toString()}`, "", text.slice(0, MAX_TEXT)].join("\n");
@@ -127,7 +94,6 @@ export function parseRead(raw: string | null): MailRead | null {
 const text = (v: unknown, max = 120): string => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
 const day = (v: unknown): string | null => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.slice(0, 10)) && !Number.isNaN(Date.parse(v.slice(0, 10))) ? v.slice(0, 10) : null);
 const money = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) && v > 0 && v < 100000 ? Math.round(v * 100) / 100 : undefined);
-const gmailLink = (m: MailMeta) => `https://mail.google.com/mail/?authuser=${encodeURIComponent(m.account)}#all/${m.id}`;
 
 /** True when no mail newer than `at` was applied to `key`; the newest mail about a thing wins. */
 function newest(hub: Hub, key: string, at: Date): boolean {
@@ -188,7 +154,9 @@ export function serviceKey(service: string): string {
   return norm(base).split(" ").filter((w) => !/^(monthly|annual|annually|yearly|month|year|plan|subscription|membership|renewal|auto)$/.test(w)).join(" ") || norm(service);
 }
 
-const madeByMail = (w: Entity) => String(w.fields.url ?? "").startsWith("https://mail.google.com/");
+const madeByMail = (w: Entity) => isMailLink(String(w.fields.url ?? ""));
+/** The link that opens a message in its own mail app, made by its source. */
+const mailLink = (m: MailMeta) => sourceOf(m.account)?.link(m) ?? "";
 
 function fileRenewal(hub: Hub, r: MailRead, m: MailMeta, now: Date): Filed[] {
   const service = text(r.service) || text(r.vendor);
@@ -241,7 +209,7 @@ function fileRenewal(hub: Hub, r: MailRead, m: MailMeta, now: Date): Filed[] {
     // The owner's own setting wins on a watch they made. A mail that does not say changes only an unset one made by mail,
     // so a later vague notice never turns an earlier "renew now" into autopay.
     if (said !== undefined ? f.autopay !== said && (madeByMail(existing) || f.autopay === undefined) : madeByMail(existing) && f.autopay === undefined) patch.autopay = autopay;
-    if (madeByMail(existing) && f.url !== gmailLink(m)) patch.url = gmailLink(m);
+    if (madeByMail(existing) && f.url !== mailLink(m)) patch.url = mailLink(m);
     // The shorter name of the same renewal reads better ("Notely", not "Notely - Notes & Lists"); a name the owner
     // gave it ("Netflix (shared with Jamie)") stays: only a title the mail wrote is changed.
     const mailWrote = typeof f.mail_title === "string" ? f.mail_title === f.title : true;
@@ -253,7 +221,7 @@ function fileRenewal(hub: Hub, r: MailRead, m: MailMeta, now: Date): Filed[] {
   hub.store.create("watch", {
     title, category, due: next.due, lead_days: LEAD[category] ?? 7, ...(next.repeat ? { repeat: next.repeat } : {}), ...(cost !== undefined ? { cost } : {}),
     autopay,
-    url: gmailLink(m), notes: `From ${text(r.vendor) || m.from} mail to ${m.account}, ${diaryDay(m.at)}.`, mail_title: title,
+    url: mailLink(m), notes: `From ${text(r.vendor) || m.from} mail to ${m.account}, ${diaryDay(m.at)}.`, mail_title: title,
   }, "personal", id);
   return [{ kind: "watch", id, title, action: "created" }];
 }
@@ -383,15 +351,12 @@ const mailboxWait = new Map<string, number>();
 /** Read one queued message and file it. Returns the new state of its row. */
 export async function fileMessage(hub: Hub, account: string, id: string, now: Date = new Date()): Promise<{ state: string; filed: Filed[] }> {
   const set = hub.db.prepare("UPDATE mail SET state = ?, at = COALESCE(?, at), attempts = attempts + ?, result = ? WHERE account = ? AND id = ?");
-  let msg: any;
-  try {
-    msg = await gmailGet(hub, account, `/messages/${encodeURIComponent(id)}?format=full`);
-  } catch (e) {
-    if (e instanceof StoreError && e.status === 404) { set.run("skipped", null, 0, JSON.stringify({ why: "gone" }), account, id); return { state: "skipped", filed: [] }; }
-    throw e;
-  }
-  const m: MailMeta = { account, id, at: new Date(Number(msg.internalDate) || Date.now()), from: header(msg.payload, "from"), subject: header(msg.payload, "subject") };
-  const body = mailText(msg.payload);
+  const source = sourceOf(account);
+  if (!source) throw new StoreError(404, "no mail source reads this mailbox");
+  const mail = await source.read(hub, account, id);
+  if (!mail) { set.run("skipped", null, 0, JSON.stringify({ why: "gone" }), account, id); return { state: "skipped", filed: [] }; }
+  const m: MailMeta = { account, id, at: mail.at, from: mail.from, subject: mail.subject };
+  const body = mail.text;
   if (!SIGNAL.test(`${m.subject}\n${body}`)) { set.run("skipped", m.at.toISOString(), 0, JSON.stringify({ why: "no signal" }), account, id); return { state: "skipped", filed: [] }; }
   const { text: raw, stopped } = await hub.ai.backgroundJson(`mail:${account}`, MAIL_SYSTEM, mailPrompt(m, body));
   // A chat started: the message stays queued, with no attempt counted.
@@ -457,15 +422,15 @@ export function mailTimeReached(times: string[], since: Date, now: Date): boolea
 }
 
 /**
- * The background job: every 15 minutes each linked mailbox is listed for new likely mail (Gmail only, no model). The
+ * The background job: every 15 minutes each linked mailbox is listed for new likely mail (by its mail source, no model). The
  * model reads the waiting mail at the set times (EA_MAIL_TIMES, four a day) only while no game is on the GPU,
  * checked before every message so a game that starts stops it; a read that finds the GPU busy keeps checking for
  * three hours. Read now reads at once. With EA_BACKGROUND_AI=auto it reads whenever mail waits. One message at a
  * time, newest first, only while no chat is using the model.
  */
 /** How a log line names a linked mailbox: its place in Settings ("mailbox 2"), never the address. */
-export function mailboxLabel(hub: Hub, email: string): string {
-  const i = (hub.connections.get().google ?? []).findIndex((a) => a.email === email);
+export function mailboxLabel(hub: Hub, account: string): string {
+  const i = mailAccounts(hub).findIndex((a) => a.account === account);
   return i >= 0 ? `mailbox ${i + 1}` : "a mailbox no longer linked";
 }
 
@@ -477,10 +442,10 @@ export function startMailJob(hub: Hub): () => void {
     lastList = Date.now();
     // Mail receipts switched off (Settings, Modules): no mailbox is listed.
     if (!hub.modules.on("mail")) return;
-    for (const a of hub.connections.get().google ?? []) {
-      await listMail(hub, a.email).then(
-        (r) => { if (r.queued) console.log(`[mail] ${mailboxLabel(hub, a.email)}: ${r.queued} new to read`); },
-        (e) => console.error(`[mail] ${mailboxLabel(hub, a.email)}: ${errCode(e)}`),
+    for (const { source, account } of mailAccounts(hub)) {
+      await source.list(hub, account).then(
+        (r) => { if (r.queued) console.log(`[mail] ${mailboxLabel(hub, account)}: ${r.queued} new to read`); },
+        (e) => console.error(`[mail] ${mailboxLabel(hub, account)}: ${errCode(e)}`),
       );
     }
   };
@@ -511,12 +476,12 @@ export function startMailJob(hub: Hub): () => void {
           scheduled.started = true;
         }
         if (!next || !mailReading(hub) || !hub.ai.quiet(QUIET_MS)) { await sleep(next && mailReading(hub) ? 15_000 : 60_000); continue; }
-        if (!hub.connections.get().google?.some((a) => a.email === next.account)) { hub.db.prepare("DELETE FROM mail WHERE account = ?").run(next.account); continue; }
+        if (!isLinked(hub, next.account)) { hub.db.prepare("DELETE FROM mail WHERE account = ?").run(next.account); continue; }
         let r: Awaited<ReturnType<typeof fileMessage>>;
         try { r = await fileMessage(hub, next.account, next.id); }
         catch (e) {
           if (e instanceof ModelAway) throw e;
-          // This mailbox could not be read (its sign-in revoked, Google refusing): the others go on meanwhile.
+          // This mailbox could not be read (its sign-in revoked, the provider refusing): the others go on meanwhile.
           mailboxWait.set(next.account, Date.now() + 30 * 60_000);
           console.error(`[mail] ${mailboxLabel(hub, next.account)}: ${errCode(e)}; trying it again in 30 minutes`);
           continue;
@@ -534,10 +499,10 @@ export function startMailJob(hub: Hub): () => void {
   return () => { stopped = true; clearTimeout(first); };
 }
 
-/** Read every mailbox now (Settings, Connections, Gmail, "Read now"): new mail is queued, and the waiting mail is read. */
+/** Read every mailbox now (Settings, Connections, "Read now"): new mail is queued, and the waiting mail is read. */
 export async function readMailNow(hub: Hub) {
   const out: Record<string, { listed: number; queued: number } | { error: string }> = {};
-  for (const a of hub.connections.get().google ?? []) out[a.email] = await listMail(hub, a.email).catch((e) => ({ error: (e as Error).message }));
+  for (const { source, account } of mailAccounts(hub)) out[account] = await source.list(hub, account).catch((e) => ({ error: (e as Error).message }));
   readRequested = true;
   return out;
 }
