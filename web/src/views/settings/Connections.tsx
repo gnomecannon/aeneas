@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { engine } from "../../sync/engine";
-import type { AtlassianConnection, AtlassianSpace, Connections as ConnectionsView, GmailAccount, GoogleConnection, KeePassEntry, PasswordManagerProvider, PasswordManagerStatus, PasswordManagerView } from "../../sync/api";
+import type { AtlassianConnection, AtlassianSpace, Connections as ConnectionsView, GmailAccount, GoogleConnection, ICloudConnection, KeePassEntry, PasswordManagerProvider, PasswordManagerStatus, PasswordManagerView } from "../../sync/api";
 import { spacesChanged } from "../../lib/wiki";
 import { fmtDateTime } from "../../lib/time";
 import { META } from "../../sync/db";
@@ -14,8 +14,8 @@ type Msg = { ok: boolean; text: string } | null;
 
 /** One line for the Settings list: which accounts are linked. */
 export function connectionsSummary(c: ConnectionsView | null): string {
-  if (!c) return "Gmail, Steam, Letterboxd, Confluence, Apple Health";
-  const on = [c.google?.accounts.length && "Gmail", c.steam.connected && "Steam", c.letterboxd.connected && "Letterboxd", c.atlassian?.connected && "Confluence", c.health.last_import && "Apple Health"].filter(Boolean);
+  if (!c) return "Gmail, iCloud Mail, Steam, Letterboxd, Confluence, Apple Health";
+  const on = [c.google?.accounts.length && "Gmail", c.icloud?.accounts.length && "iCloud Mail", c.steam.connected && "Steam", c.letterboxd.connected && "Letterboxd", c.atlassian?.connected && "Confluence", c.health.last_import && "Apple Health"].filter(Boolean);
   return on.length ? on.join(", ") : "None linked yet";
 }
 
@@ -403,6 +403,60 @@ function Gmail({ c, reload }: { c: GoogleConnection; reload: () => void }) {
   );
 }
 
+/** iCloud Mail, read-only: each mailbox linked with an app-specific password made at account.apple.com. */
+function ICloudMail({ c, reading, reload }: { c: ICloudConnection; reading: boolean; reload: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<Msg>(null);
+  const client = engine.client;
+  const waiting = c.accounts.reduce((t, a) => t + a.to_read, 0);
+  const run = async (f: () => Promise<string>) => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      setMsg({ ok: true, text: await f() });
+    } catch (e) {
+      setMsg({ ok: false, text: errorText(e) });
+    } finally {
+      reload();
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card col">
+      <h2>iCloud Mail</h2>
+      {c.accounts.map((a) => (
+        <div key={a.email} className="col" style={{ gap: 2 }}>
+          <div>
+            <strong>{a.email}</strong>
+          </div>
+          <div className="small">{mailLine(a)}</div>
+          <div className="muted small">Last checked {when(a.last_sync)}; it checks every 15 minutes.</div>
+          {a.last_error && <div className="error small">{a.last_error}</div>}
+          <div>
+            <button type="button" className="ghost danger" disabled={busy || !client} onClick={() => confirm(`Unlink ${a.email}? Its password is deleted from the hub, and what was filed from its mail stays.`) && void run(async () => (await client!.disconnectICloud(a.email)).message)}>
+              Unlink
+            </button>
+          </div>
+        </div>
+      ))}
+      {c.accounts.length > 0 && (
+        <>
+          <div className="muted small">
+            Receipts, renewal notices and vet mail fill in renewals and pets, read at the same times as Gmail. The hub only reads: folders are opened read-only and nothing is marked read, moved or deleted, and Junk, Trash, Drafts and Sent are skipped. The model on your hub reads it, and the mail itself is never kept.
+          </div>
+          <div className="row">
+            <button type="button" disabled={busy || !client || reading} onClick={() => void run(async () => { await client!.icloudReadNow(); return "Reading the waiting mail now. It stops for any chat."; })}>
+              {reading ? "Reading" : `Read now${waiting ? ` (${waiting} waiting)` : ""}`}
+            </button>
+          </div>
+        </>
+      )}
+      <OwnKeyGuide service="icloud" onDone={reload} />
+      <Status msg={msg} />
+    </section>
+  );
+}
+
 function Health({ c }: { c: ConnectionsView["health"] }) {
   return (
     <section className="card col">
@@ -765,6 +819,7 @@ export function ConnectionsPage() {
       {c && (
         <>
           {on("mail") && c.google && <Gmail c={c.google} reload={reload} />}
+          {on("mail") && c.icloud && <ICloudMail c={c.icloud} reading={!!c.google?.reading} reload={reload} />}
           {on("games") && <Steam c={c.steam} reload={reload} />}
           {on("films") && <Letterboxd c={c.letterboxd} reload={reload} />}
           {on("wiki") && c.atlassian && <Confluence c={c.atlassian} reload={reload} />}

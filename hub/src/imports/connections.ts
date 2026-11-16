@@ -2,20 +2,22 @@ import fs from "node:fs";
 import path from "node:path";
 import type { AtlassianConn } from "./confluence.js";
 import type { GoogleAccount } from "./gmail.js";
+import type { ICloudAccount } from "./icloud.js";
 import type { PasswordManagerConn } from "../secrets.js";
 import type { SecretBox } from "../secretbox.js";
 
 /**
  * Linked accounts, kept in `<data>/connections.json` (readable by the hub's user only), sealed with the hub's
  * sign-ins key (secretbox.ts) when the store is given one; an older hub's plain file is read and sealed on the next write. The hub's Steam key never
- * leaves the hub: the view says only whether there is one. Atlassian and Google tokens and the hub's app secrets likewise.
+ * leaves the hub: the view says only whether there is one. Atlassian and Google tokens and the hub's app secrets likewise,
+ * and iCloud Mail's app-specific passwords: the view lists the mailboxes, never a password.
  */
 
 /** `api_key` only on a link made before Sign in through Steam; the hub's key now lives in `steam_key`. */
 export interface SteamConn { api_key?: string; steam_id: string; persona?: string; profile_url?: string; last_sync?: string; last_error?: string; games?: number }
 export interface LetterboxdConn { username?: string; last_sync?: string; last_error?: string; films?: number }
 export interface HealthConn { last_import?: string; samples?: number; total?: number }
-export interface Connections { steam_key?: string; steam?: SteamConn; letterboxd?: LetterboxdConn; health?: HealthConn; atlassian_app?: { client_id: string; client_secret: string }; atlassian?: AtlassianConn; google_app?: { client_id: string; client_secret: string }; google?: GoogleAccount[]; password_manager?: PasswordManagerConn; keepass?: { password: string; created_at: string } }
+export interface Connections { steam_key?: string; steam?: SteamConn; letterboxd?: LetterboxdConn; health?: HealthConn; atlassian_app?: { client_id: string; client_secret: string }; atlassian?: AtlassianConn; google_app?: { client_id: string; client_secret: string }; google?: GoogleAccount[]; icloud?: ICloudAccount[]; password_manager?: PasswordManagerConn; keepass?: { password: string; created_at: string } }
 
 export class ConnectionStore {
   constructor(private file: string, private box?: SecretBox) {}
@@ -95,6 +97,10 @@ export class ConnectionStore {
       google: {
         app: !!((process.env.EA_GOOGLE_CLIENT_ID && process.env.EA_GOOGLE_CLIENT_SECRET) || c.google_app?.client_id),
         accounts: (c.google ?? []).map((a) => ({ email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null })),
+      },
+      // Each field named on its own, so the password can never ride along.
+      icloud: {
+        accounts: (c.icloud ?? []).map((a) => ({ email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null })),
       },
     };
   }

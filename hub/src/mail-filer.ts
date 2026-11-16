@@ -31,7 +31,7 @@ const MAX_ATTEMPTS = 3;
 const MAX_TEXT = 6000;
 const DAY_MS = 24 * 3600_000;
 
-export interface MailMeta { account: string; id: string; at: Date; from: string; subject: string }
+export interface MailMeta { account: string; id: string; at: Date; from: string; subject: string; message_id?: string }
 export interface MailRead {
   type: "charge" | "renewal_notice" | "cancelled" | "order" | "order_cancelled" | "vet_visit" | "vet_due" | "vet_appointment" | "none";
   vendor?: string | null;
@@ -355,7 +355,7 @@ export async function fileMessage(hub: Hub, account: string, id: string, now: Da
   if (!source) throw new StoreError(404, "no mail source reads this mailbox");
   const mail = await source.read(hub, account, id);
   if (!mail) { set.run("skipped", null, 0, JSON.stringify({ why: "gone" }), account, id); return { state: "skipped", filed: [] }; }
-  const m: MailMeta = { account, id, at: mail.at, from: mail.from, subject: mail.subject };
+  const m: MailMeta = { account, id, at: mail.at, from: mail.from, subject: mail.subject, message_id: mail.message_id };
   const body = mail.text;
   if (!SIGNAL.test(`${m.subject}\n${body}`)) { set.run("skipped", m.at.toISOString(), 0, JSON.stringify({ why: "no signal" }), account, id); return { state: "skipped", filed: [] }; }
   const { text: raw, stopped } = await hub.ai.backgroundJson(`mail:${account}`, MAIL_SYSTEM, mailPrompt(m, body));

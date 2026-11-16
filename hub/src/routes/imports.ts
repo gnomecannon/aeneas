@@ -9,6 +9,7 @@ import { listImports, stopImport, textImport, uploadImport } from "../imports/bu
 import { atlassianReturn, atlassianSignIn, atlassianSpaces, disconnectAtlassian, setAtlassianApp, setAtlassianSpaces, syncConfluence } from "../imports/confluence.js";
 import { applicationsList, filmsLibrary, gamesLibrary } from "../imports/library.js";
 import { checkGoogleApp, disconnectGoogle, googleReturn, googleSignIn, listMail, mailCounts, setGoogleApp } from "../imports/gmail.js";
+import { icloudSource, linkICloud, unlinkICloud } from "../imports/icloud.js";
 import { guideFor, parseGuideService } from "../guides.js";
 import { hubAddress } from "../setup.js";
 import { mailboxLabel, mailReading, mailSchedule, readMailNow } from "../mail-filer.js";
@@ -16,7 +17,7 @@ import { importKeepass, installPasswordManager, keepass, keepassEntries, linkPas
 import { KEEPASS_FILE } from "../keepass.js";
 import { errCode } from "../logsafe.js";
 
-/** Linked accounts (Steam, Letterboxd, Atlassian, Gmail), Apple Health samples, and ranked lists. */
+/** Linked accounts (Steam, Letterboxd, Atlassian, Gmail, iCloud Mail), Apple Health samples, and ranked lists. */
 export function importRoutes() {
   const r = new Hono<{ Variables: { hub: Hub } }>();
 
@@ -70,6 +71,14 @@ export function importRoutes() {
   });
   r.post("/connections/google/sync", async (c) => c.json(await readMailNow(c.get("hub"))));
   r.delete("/connections/google/:email", async (c) => c.json(await disconnectGoogle(c.get("hub"), decodeURIComponent(c.req.param("email")).toLowerCase())));
+
+  // iCloud Mail (icloud.ts): an app-specific password, checked with iCloud once and kept sealed; never returned.
+  r.put("/connections/icloud", async (c) => {
+    const hub = c.get("hub");
+    return c.json(await linkICloud(hub, await readJsonObject(c), (account) => { void icloudSource.list(hub, account).catch((e) => console.error(`[mail] ${mailboxLabel(hub, account)}: ${errCode(e)}`)); }));
+  });
+  r.post("/connections/icloud/sync", async (c) => c.json(await readMailNow(c.get("hub"))));
+  r.delete("/connections/icloud/:email", (c) => c.json(unlinkICloud(c.get("hub"), decodeURIComponent(c.req.param("email")).toLowerCase())));
 
   // Password manager (secrets.ts): which one and where its CLI runs, sign-in, and the items the assistant may use.
   r.get("/connections/password-manager", (c) => c.json(passwordManagerView(c.get("hub"))));
@@ -137,5 +146,10 @@ export function startImportJob(hub: Hub, everyMs = 3600_000): () => void {
 /** `GET /connections`: every service, with what each linked mailbox's mail came to. */
 export function connectionsView(hub: Hub) {
   const v = hub.connections.view();
-  return { ...v, google: { ...v.google, reading: mailReading(hub), ...mailSchedule(hub), accounts: v.google.accounts.map((a) => ({ ...a, ...mailCounts(hub, a.email) })) }, password_manager: passwordManagerView(hub) };
+  return {
+    ...v,
+    google: { ...v.google, reading: mailReading(hub), ...mailSchedule(hub), accounts: v.google.accounts.map((a) => ({ ...a, ...mailCounts(hub, a.email) })) },
+    icloud: { accounts: v.icloud.accounts.map((a) => ({ ...a, ...mailCounts(hub, `icloud:${a.email}`) })) },
+    password_manager: passwordManagerView(hub),
+  };
 }

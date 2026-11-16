@@ -4,18 +4,19 @@ import { GMAIL_SCOPE } from "./imports/gmail.js";
 
 /**
  * Guided setup for the services that need the person's own key or app (release rule 3, Phase 3 of
- * docs/05-public-release.md): Gmail (their own Google app), Confluence (their own Atlassian app) and Steam playtime
- * (their own Steam Web API key). There is no server of the project's in between, so each person makes their own.
+ * docs/05-public-release.md): Gmail (their own Google app), Confluence (their own Atlassian app), Steam playtime
+ * (their own Steam Web API key) and iCloud Mail (an app-specific password, since Apple has no sign-in for mail). There is
+ * no server of the project's in between, so each person makes their own.
  *
  * One guide per service, written here once so the web and Apple apps show the same steps: one step at a time, with
  * the exact values to copy filled in for this hub (its return address, the permissions), a link to the service's own
  * page, and at the end the fields to fill and a check that says in plain words what is wrong. The values typed go
- * to the hub's own routes (`PUT /connections/google/app`, `/connections/atlassian/app`, `/connections/steam/key`),
+ * to the hub's own routes (`PUT /connections/google/app`, `/connections/atlassian/app`, `/connections/steam/key`, `/connections/icloud`),
  * are kept on the hub only and are never shown again.
  */
 
-export type GuideService = "google" | "atlassian" | "steam";
-export const GUIDE_SERVICES: GuideService[] = ["google", "atlassian", "steam"];
+export type GuideService = "google" | "atlassian" | "steam" | "icloud";
+export const GUIDE_SERVICES: GuideService[] = ["google", "atlassian", "steam", "icloud"];
 
 export interface GuideStep {
   title: string;
@@ -71,6 +72,21 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
       ],
     };
   }
+  if (service === "icloud") {
+    // Apple has no sign-in for mail, so this is the person's own password for one app, not a sign-in: the guide says
+    // what it can do and how to end it, and the hub checks it with iCloud when it is saved.
+    return {
+      service, title: "An app-specific password, for iCloud Mail", minutes: "5", done: view.icloud.accounts.length > 0,
+      after: "The hub signs in to iCloud Mail once to check the password, then reads your receipts, renewals and vet mail in the background. Add another iCloud mailbox by running this guide again.",
+      warning: null,
+      steps: [
+        { title: "What this is", text: "Apple has no way for an app to sign in to iCloud Mail for you, so you make a password just for Aeneas. It works only for mail, cannot change your Apple Account, and you can revoke it at any time. Aeneas only reads with it: it never sends, moves, deletes or marks mail as read. It is kept on your hub only and never shown again." },
+        { title: "Turn on two-factor authentication", text: "App-specific passwords need two-factor authentication on your Apple Account. Most accounts have it already: on an iPhone, Settings, your name, Sign-In and Security shows it." },
+        { title: "Make an app-specific password", text: "Sign in at account.apple.com, open Sign-In and Security, then App-Specific Passwords, and press the plus button. Name it Aeneas. Apple shows the password once: copy it.", copy: [{ label: "Name", value: "Aeneas" }], link: { label: "account.apple.com", url: "https://account.apple.com/" } },
+        { title: "Paste it here", text: "Your iCloud Mail address and the password Apple showed. The hub checks them with iCloud now. Your Apple Account password is never asked for and would not work here.", fields: [{ id: "email", label: "iCloud Mail address", secret: false, placeholder: "you@icloud.com" }, { id: "password", label: "App-specific password", secret: true, placeholder: "abcd-efgh-ijkl-mnop" }], save: { method: "PUT", path: "/connections/icloud" } },
+      ],
+    };
+  }
   if (service === "atlassian") {
     const ret = `${address}/connections/atlassian/return`;
     return {
@@ -101,6 +117,6 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
 }
 
 export function parseGuideService(s: string): GuideService {
-  if (!(GUIDE_SERVICES as string[]).includes(s)) throw new StoreError(404, "no guide for that: google, atlassian or steam");
+  if (!(GUIDE_SERVICES as string[]).includes(s)) throw new StoreError(404, "no guide for that: google, atlassian, steam or icloud");
   return s as GuideService;
 }

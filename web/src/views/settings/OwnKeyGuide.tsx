@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
-import type { OwnKeyGuide as Guide } from "../../sync/api";
+import type { OwnKeyGuide as Guide, OwnKeyService } from "../../sync/api";
 import { engine } from "../../sync/engine";
 import { errorText } from "./common";
 
 type Msg = { ok: boolean; text: string } | null;
 
 /**
- * A service that needs the person's own key or app (Gmail, Confluence, Steam playtime): the hub's guide for it, one
+ * A service that needs the person's own key or app (Gmail, Confluence, Steam playtime, iCloud Mail): the hub's guide for it, one
  * step at a time, with this hub's own values to copy, a link to the service's page, and at the end the fields to
  * paste, saved to the hub and checked. Shown folded, as a different level of setup, until someone opens it.
  */
-export function OwnKeyGuide({ service, onDone }: { service: "google" | "atlassian" | "steam"; onDone: () => void }) {
+const MADE = { google: "Google app", atlassian: "Atlassian app", steam: "Steam key", icloud: "app-specific password" } satisfies Record<OwnKeyService, string>;
+
+export function OwnKeyGuide({ service, onDone }: { service: OwnKeyService; onDone: () => void }) {
   const client = engine.client;
   const [guide, setGuide] = useState<Guide | null>(null);
   const [open, setOpen] = useState(false);
@@ -25,7 +27,7 @@ export function OwnKeyGuide({ service, onDone }: { service: "google" | "atlassia
   if (!open) {
     return (
       <div className="col">
-        <div className="muted small"><strong>Advanced setup.</strong> This needs your own {service === "google" ? "Google app" : service === "atlassian" ? "Atlassian app" : "Steam key"}, made once by you on the service's own site; there is no server of ours in between. A guide takes you through it.</div>
+        <div className="muted small"><strong>Advanced setup.</strong> This needs your own {MADE[service]}, made once by you on the service's own site; there is no server of ours in between. A guide takes you through it.</div>
         <div><button type="button" className="primary" onClick={() => setOpen(true)}>Set it up with the guide</button></div>
       </div>
     );

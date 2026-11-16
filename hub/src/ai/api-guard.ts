@@ -18,7 +18,7 @@ const NO_READ = [
 
 /** Paths a tool may change: syncing a linked account now. Every other write under these prefixes is the owner's. */
 const OWNER_WRITES = ["/connections", "/space", "/modules", "/setup", "/profile", "/imports", "/devices", "/prefs/feel", "/sync", "/hubs"];
-const TOOL_WRITES = /^\/connections\/(steam|letterboxd|atlassian|google)\/sync$/;
+const TOOL_WRITES = /^\/connections\/(steam|letterboxd|atlassian|google|icloud)\/sync$/;
 
 /**
  * Why a tool call is refused, or null when it may go ahead. The path must be a plain hub path: no `.` or `..`

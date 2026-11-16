@@ -414,7 +414,7 @@ extension HubClient {
 
     /// The guide's last step: its fields to the route the hub named, which may only be its own setup routes.
     public func ownKeySave(path: String, values: [String: String]) async throws {
-        guard ["/connections/google/app", "/connections/atlassian/app", "/connections/steam/key"].contains(path) else { throw HubError.http(status: 422, message: "not a setup route") }
+        guard ["/connections/google/app", "/connections/atlassian/app", "/connections/steam/key", "/connections/icloud"].contains(path) else { throw HubError.http(status: 422, message: "not a setup route") }
         _ = try await post(String(path.dropFirst()), values, as: JSONValue.self, method: "PUT")
     }
 

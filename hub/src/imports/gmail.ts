@@ -23,7 +23,7 @@ const SIGNIN_TTL_MS = 10 * 60_000;
 /** The first read goes back this far, so a yearly renewal (a domain, insurance) is seen once. */
 export const BACKFILL_DAYS = 400;
 /** Each later read starts this long before the last one, so mail that arrived late is not missed. */
-const OVERLAP_MS = 2 * 24 * 3600_000;
+export const OVERLAP_MS = 2 * 24 * 3600_000;
 const pending = new Map<string, { at: number; client: string; redirect: string }>();
 
 /**

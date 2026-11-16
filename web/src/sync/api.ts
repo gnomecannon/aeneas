@@ -50,6 +50,13 @@ export interface HubRequest {
 }
 /** GET /devices. */
 export interface DeviceRow { id: string; name: string; platform: string; last_seen: string | null; paired_at: string | null; own_key: boolean; current: boolean }
+/** The services with a guided setup (hub/src/guides.ts). */
+export type OwnKeyService = "google" | "atlassian" | "steam" | "icloud";
+/**
+ * The only routes a guide's fields are ever sent to, whatever path a guide names: a hub (or anything posing as one)
+ * cannot have a key or password typed into a guide sent anywhere else.
+ */
+export const OWN_KEY_SAVE = /^\/connections\/(google\/app|atlassian\/app|steam\/key|icloud)$/;
 /** GET /connections/guides/:service: making the person's own key or app, step by step, filled in for this hub. */
 export interface OwnKeyGuide {
   service: "google" | "atlassian" | "steam"; title: string; minutes: string; done: boolean; after: string; warning: string | null;
@@ -131,6 +138,8 @@ export interface Connections {
   atlassian?: AtlassianConnection;
   /** Gmail, read-only, one entry per linked mailbox. `app`: the hub has its own Google app; sign-in works only then. Absent on older hubs. */
   google?: GoogleConnection;
+  /** iCloud Mail, read-only, one entry per mailbox linked with an app-specific password (never sent back). Absent on older hubs. */
+  icloud?: ICloudConnection;
   /** LastPass or 1Password through its CLI, for secrets in the assistant's commands. Absent on older hubs. */
   password_manager?: PasswordManagerView;
 }
@@ -171,6 +180,11 @@ export interface GoogleConnection {
   /** Local times the waiting mail is read when no game is on the GPU, and why a read is waiting, if it is. */
   times?: string[];
   waiting_for_gpu?: string | null;
+  accounts: GmailAccount[];
+}
+
+/** iCloud Mail mailboxes: the same counts as Gmail's. Reading state and times are Gmail's (`google`), shared by both. */
+export interface ICloudConnection {
   accounts: GmailAccount[];
 }
 
@@ -551,6 +565,14 @@ export class HubClient {
   disconnectGoogle(email: string) {
     return this.req<unknown>("DELETE", `/connections/google/${encodeURIComponent(email)}`);
   }
+  /** List every linked mailbox now, from the iCloud Mail panel (the same as readMailNow). */
+  icloudReadNow() {
+    return this.req<Record<string, { listed: number; queued: number } | { error: string }>>("POST", "/connections/icloud/sync", {});
+  }
+  /** Unlink an iCloud mailbox: the hub deletes its password; `message` says to revoke it at account.apple.com. */
+  disconnectICloud(email: string) {
+    return this.req<ICloudConnection & { message: string }>("DELETE", `/connections/icloud/${encodeURIComponent(email)}`);
+  }
 
   /** The machines the hub runs commands on. */
   aiHosts() {
@@ -677,12 +699,12 @@ export class HubClient {
   setupModelAuto(model?: string) {
     return this.req<{ pull?: PullState | null; ai?: SetupAi; note?: string }>("POST", "/setup/model/auto", model ? { model } : {});
   }
-  ownKeyGuide(service: "google" | "atlassian" | "steam") {
+  ownKeyGuide(service: OwnKeyService) {
     return this.req<OwnKeyGuide>("GET", `/connections/guides/${service}`);
   }
   /** The guide's last step: its fields, to the route the hub named (only its own /connections routes). */
   ownKeySave(path: string, body: Record<string, string>) {
-    if (!/^\/connections\/(google\/app|atlassian\/app|steam\/key)$/.test(path)) throw new Error("not a setup route");
+    if (!OWN_KEY_SAVE.test(path)) throw new Error("not a setup route");
     return this.req<unknown>("PUT", path, body);
   }
   ownKeyTest(path: string) {
