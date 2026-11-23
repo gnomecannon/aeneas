@@ -33,16 +33,19 @@ struct SnippetsView: View {
         }
     }
 
-    var body: some View {
+    /// What is filtered by, with the way back to everything.
+    private var filterLine: some View {
+        HStack {
+            Text("Showing \([hostFilter, tagFilter.map { "#\($0)" }].compactMap { $0 }.joined(separator: ", "))").font(.subheadline)
+            Spacer()
+            Button("Show all") { hostFilter = nil; tagFilter = nil }.buttonStyle(.borderless)
+        }
+    }
+
+    private var list: some View {
         List {
             if hostFilter != nil || tagFilter != nil {
-                SwiftUI.Section {
-                    HStack {
-                        Text("Showing \([hostFilter, tagFilter.map { "#\($0)" }].compactMap { $0 }.joined(separator: ", "))").font(.subheadline)
-                        Spacer()
-                        Button("Show all") { hostFilter = nil; tagFilter = nil }.buttonStyle(.borderless)
-                    }
-                }
+                SwiftUI.Section { filterLine }
             }
             ForEach(groups, id: \.os) { g in
                 SwiftUI.Section(header: Text("\(SnippetText.osLabel(g.os)) (\(g.items.count))").font(.headline)) {
@@ -52,6 +55,32 @@ struct SnippetsView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// A wide Mac window: each system's snippets one group under the other as before, each a grid of cards, as many
+    /// across as fit, in the list's order. A click opens the snippet; Delete is in the right-click menu, as on a row.
+    private var cards: some View {
+        WidePage {
+            if hostFilter != nil || tagFilter != nil { filterLine }
+            ForEach(groups, id: \.os) { g in
+                WideSection("\(SnippetText.osLabel(g.os)) (\(g.items.count))") {
+                    CardGrid {
+                        ForEach(g.items) { e in
+                            NavigationLink { SnippetDetailView(id: e.id) } label: { SnippetRow(snippet: e).gridCard() }
+                                .buttonStyle(.plain)
+                                .deleteSwipe(e.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        // The rows are swiped to delete a snippet, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide { cards } else { list }
         }
         .searchable(text: $query, prompt: "Search title, body, host, tag")
         .navigationTitle("Snippets")

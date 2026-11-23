@@ -29,76 +29,47 @@ struct CaptureView: View {
 
     private var suggestion: SuggestedKind { Classifier.classify(text).kind }
 
+    /// What was captured today on any device, newest first: a wide window lists it beside the box.
+    private var capturedToday: [Entity] {
+        let start = Calendar.current.startOfDay(for: Date())
+        return engine.list(.capture)
+            .filter { (ISO.date($0.created_at) ?? .distantPast) >= start }
+            .sorted { $0.created_at > $1.created_at }
+    }
+
     var body: some View {
         // The form scrolls and the Save buttons stay pinned below it, so with the keyboard up nothing is pushed
         // off screen and Save sits just above the keyboard.
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                StatusBanner()
-                TextField("What is on your mind", text: $text, axis: .vertical)
-                    .font(.title2)
-                    .lineLimit(4...12)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($focused)
-                    .submitLabel(.return)
-
-                HStack {
-                    if !text.isEmpty {
-                        Text(suggestion == .none ? "Will be sorted later" : "Looks like a \(suggestion.rawValue)")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if let a = attachment {
-                        Label(a.name, systemImage: "photo").font(.subheadline).lineLimit(1)
-                        Button { attachment = nil; photoItem = nil } label: { Image(systemName: "xmark.circle") }.buttonStyle(.borderless)
-                            .accessibilityLabel("Remove photo")
-                    } else {
-                        PhotosPicker(selection: $photoItem, matching: .images) { Label("Photo", systemImage: "photo") }
-                            .buttonStyle(.bordered)
+        // A wide window: the box keeps a width of 760 points (it was stretched across the window) and what was
+        // captured today is listed beside it with where each capture went, as the web app does.
+        WideReader { wide in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    StatusBanner()
+                    // One arrangement for both widths, so the box keeps its words and its cursor when the window
+                    // is dragged across the width where the layout changes.
+                    let columns = wide ? AnyLayout(HStackLayout(alignment: .top, spacing: 22)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 14))
+                    columns {
+                        form.frame(maxWidth: wide ? 760 : .infinity, alignment: .leading)
+                        if wide { today }
                     }
                 }
-
-                HStack(alignment: .top, spacing: 10) {
-                    // Voice off (Settings, Modules): no microphone button for dictation.
-                    if model.isOn(.voice) { talk }
-                    if model.isOn(.music) { humButton }
-                }
-                if hum.recording {
-                    HumRecordingPanel(recorder: hum)
-                    Text(Hum.hint).font(.footnote).foregroundStyle(.secondary)
-                }
-                humStatus
-
-                if let e = dictation.error { Text(e).font(.footnote).foregroundStyle(.dangerText) }
-                if let n = dictation.notice { Text(n).font(.footnote).foregroundStyle(.warnText) }
-                if let m = message {
-                    if let id = lastCaptureId, m.hasPrefix("Filed:") {
-                        Button { model.open(itemId: id) } label: {
-                            Label(m, systemImage: "arrow.up.forward.square").font(.subheadline).multilineTextAlignment(.leading)
-                        }
-                        .buttonStyle(.borderless)
-                        // The chat that filed it: tell the assistant what it got wrong there.
-                        if let thread = engine.get(id)?.string("thread") {
-                            Button("Fix the filing", systemImage: "bubble.left.and.text.bubble.right") { model.openChat(thread) }
-                                .font(.subheadline).buttonStyle(.borderless)
-                        }
-                    } else {
-                        Text(m).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
             }
-            .padding()
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom) {
-            HStack(spacing: 10) {
-                BigButton(title: "Save", symbol: "wand.and.stars", prominent: true) { save() }
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom) {
+                HStack(spacing: 10) {
+                    BigButton(title: "Save", symbol: "wand.and.stars", prominent: true) { save() }
+                        .frame(maxWidth: wide ? 760 : .infinity)
+                    if wide { Spacer(minLength: 0) }
+                }
+                // While dictating, the words are not in the field yet: Save takes them too.
+                .disabled(saving || (text.trimmingCharacters(in: .whitespaces).isEmpty && !dictation.listening))
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
             }
-            // While dictating, the words are not in the field yet: Save takes them too.
-            .disabled(saving || (text.trimmingCharacters(in: .whitespaces).isEmpty && !dictation.listening))
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .background(.bar)
         }
         .navigationTitle("Capture")
         .onAppear { consumePrefill() }
@@ -118,6 +89,97 @@ struct CaptureView: View {
             // Leaving while dictating used to stop without placing the words, and the next start cleared them.
             if dictation.listening { dictation.stop(); placeTranscript() }
             hum.cancel()
+        }
+    }
+
+    /// Beside the box in a wide window: today's captures, newest first, each with its time and where it went. A
+    /// click opens the capture; the right-click menu opens the chat that filed it, to say what it got wrong.
+    private var today: some View {
+        let list = capturedToday
+        return WideSection(list.isEmpty ? "Captured today" : "Captured today, \(list.count)") {
+            VStack(alignment: .leading, spacing: 10) {
+                if list.isEmpty {
+                    Text("Nothing captured today yet. What you save shows here with where it was filed.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(list) { cap in
+                    Button { model.open(itemId: cap.id) } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(StyleGuard.dashes(cap.str("text"))).lineLimit(3).multilineTextAlignment(.leading)
+                            Text("\(dateLabel(cap.created_at))  ·  \(CaptureFiling.line(cap))")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        if let thread = cap.string("thread") {
+                            Button("Fix the filing", systemImage: "bubble.left.and.text.bubble.right") { model.openChat(thread) }
+                        }
+                    }
+                }
+            }
+            // As tall as its lines: a card otherwise fills the height the box gives the row.
+            .gridCard().fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 640, alignment: .leading)
+    }
+
+    /// The box, the photo and voice buttons, and what the last save said.
+    private var form: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TextField("What is on your mind", text: $text, axis: .vertical)
+                .font(.title2)
+                .lineLimit(4...12)
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .submitLabel(.return)
+
+            HStack {
+                if !text.isEmpty {
+                    Text(suggestion == .none ? "Will be sorted later" : "Looks like a \(suggestion.rawValue)")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if let a = attachment {
+                    Label(a.name, systemImage: "photo").font(.subheadline).lineLimit(1)
+                    Button { attachment = nil; photoItem = nil } label: { Image(systemName: "xmark.circle") }.buttonStyle(.borderless)
+                        .accessibilityLabel("Remove photo")
+                } else {
+                    PhotosPicker(selection: $photoItem, matching: .images) { Label("Photo", systemImage: "photo") }
+                        .buttonStyle(.bordered)
+                }
+            }
+
+            HStack(alignment: .top, spacing: 10) {
+                // Voice off (Settings, Modules): no microphone button for dictation.
+                if model.isOn(.voice) { talk }
+                if model.isOn(.music) { humButton }
+            }
+            if hum.recording {
+                HumRecordingPanel(recorder: hum)
+                Text(Hum.hint).font(.footnote).foregroundStyle(.secondary)
+            }
+            humStatus
+
+            if let e = dictation.error { Text(e).font(.footnote).foregroundStyle(.dangerText) }
+            if let n = dictation.notice { Text(n).font(.footnote).foregroundStyle(.warnText) }
+            if let m = message {
+                if let id = lastCaptureId, m.hasPrefix("Filed:") {
+                    Button { model.open(itemId: id) } label: {
+                        Label(m, systemImage: "arrow.up.forward.square").font(.subheadline).multilineTextAlignment(.leading)
+                    }
+                    .buttonStyle(.borderless)
+                    // The chat that filed it: tell the assistant what it got wrong there.
+                    if let thread = engine.get(id)?.string("thread") {
+                        Button("Fix the filing", systemImage: "bubble.left.and.text.bubble.right") { model.openChat(thread) }
+                            .font(.subheadline).buttonStyle(.borderless)
+                    }
+                } else {
+                    Text(m).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

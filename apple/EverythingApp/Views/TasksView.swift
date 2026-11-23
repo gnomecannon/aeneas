@@ -48,10 +48,10 @@ struct TasksView: View {
     private func openCount(_ match: (Entity) -> Bool) -> Int { engine.tasks.filter { $0.space == space && $0.str("status") != "done" && match($0) }.count }
 
     var body: some View {
-        List {
-            ForEach(order, id: \.self) { status in section(status) }
+        // Each column of the board is a list of its own, so swipes, drags and drops work in it as in the one list.
+        WideReader { wide in
+            if wide { board } else { list }
         }
-        .listStyle(.plain)
         .safeAreaInset(edge: .top, spacing: 0) { scopeBar }
         .onChange(of: spaceRaw) { _, _ in listFilter = "" }
         .navigationTitle("Tasks")
@@ -68,6 +68,55 @@ struct TasksView: View {
         .sheet(item: $parking) { t in ParkSheet(task: t) }
         .refreshable { await engine.sync() }
         .overlay { if !engine.tasks.contains(where: inScope) { EmptyState(text: listFilter.isEmpty ? "No tasks yet" : "Nothing in this list") } }
+    }
+
+    private var list: some View {
+        List {
+            ForEach(order, id: \.self) { status in section(status) }
+        }
+        .listStyle(.plain)
+    }
+
+    /// The narrowest a column of the board gets: 3 columns across a screen of 1040 points, 5 across a 1920 window.
+    private static let columnWidth: CGFloat = 320
+
+    /// Which statuses share a column of the board when `count` columns fit, in the list's order from left to right
+    /// and from top to bottom. Doing sits over Next (it holds a task or two), and with fewer columns the statuses
+    /// that wait (Unsorted, Parked, Done) are stacked first.
+    private static func boardColumns(_ count: Int) -> [[TaskStatus]] {
+        switch count {
+        case 5...: return [[.doing, .next], [.scheduled], [.inbox], [.parked], [.done]]
+        case 4: return [[.doing, .next], [.scheduled], [.inbox], [.parked, .done]]
+        case 3: return [[.doing, .next], [.scheduled, .inbox], [.parked, .done]]
+        default: return [[.doing, .next, .scheduled], [.inbox, .parked, .done]]
+        }
+    }
+
+    /// A wide window: the statuses side by side as a board, in as many columns as fit at 320 points each (3 across a
+    /// screen of 1040 points, 5 across a 1920 window). Which statuses share a column depends only on how many
+    /// columns fit (`boardColumns`), so a status never changes its neighbors when tasks come and go. A column whose
+    /// statuses hold nothing is left out and the others share its width. Each column scrolls by itself.
+    private var board: some View {
+        GeometryReader { geo in
+            let columns = Self.boardColumns(Int(geo.size.width / Self.columnWidth))
+                .filter { column in column.contains { status in engine.tasks(status: status).contains(where: inScope) } }
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(columns, id: \.self) { column in
+                    if column != columns.first { Divider() }
+                    List {
+                        ForEach(column, id: \.self) { status in section(status) }
+                    }
+                    .listStyle(.plain)
+                    #if os(iOS)
+                    // The same top margin for every column. Left to itself, the iPad starts a column that has one
+                    // on each side 22 points lower than the two outer ones (measured on a board of 3 columns:
+                    // the first heading at 22 points in the middle list, at 0 in the others).
+                    .contentMargins(.top, 0, for: .scrollContent)
+                    #endif
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
     }
 
     /// One status. Done is a drawer: one row while closed (it takes drops too), newest first when open.

@@ -23,29 +23,27 @@ struct QuizView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if loading {
-                    ProgressView("Loading tonight's quiz").frame(maxWidth: .infinity).padding(.top, 40)
-                } else if let id = quizId, let e = engine.get(id), let st = state {
-                    let items = Making.quiz(e).items ?? []
-                    header(e, st, items)
-                    if let s = shown {
-                        answerCard(s, st)
-                    } else if st.phase == .done {
-                        doneCard(st, items)
-                    } else if items.indices.contains(st.index) {
-                        questionCard(items[st.index], st)
+        // Tonight's quiz keeps its reading width of 720 points. On a wide screen with earlier quizzes to show it
+        // sits at the left and they are listed beside it; otherwise they are under it, in the middle of the screen,
+        // as before.
+        WideReader { wide in
+            ScrollView {
+                if wide && !loading && !past.isEmpty {
+                    HStack(alignment: .top, spacing: 22) {
+                        tonight.frame(maxWidth: 720, alignment: .leading)
+                        pastList.gridCard()
                     }
-                    if let err = error { MakingErrorLine(text: err) }
+                    .padding()
                 } else {
-                    noQuiz
+                    VStack(alignment: .leading, spacing: 18) {
+                        tonight
+                        if !loading && !past.isEmpty { pastList }
+                    }
+                    .padding()
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
-                if !loading && !past.isEmpty { pastList }
             }
-            .padding()
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity)
         }
         .navigationTitle("Recall quiz")
         .task { await load() }
@@ -53,6 +51,28 @@ struct QuizView: View {
     }
 
     // MARK: pieces
+
+    /// Tonight's quiz: where it stands and the question, the answer or the result; or that there is none yet.
+    private var tonight: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if loading {
+                ProgressView("Loading tonight's quiz").frame(maxWidth: .infinity).padding(.top, 40)
+            } else if let id = quizId, let e = engine.get(id), let st = state {
+                let items = Making.quiz(e).items ?? []
+                header(e, st, items)
+                if let s = shown {
+                    answerCard(s, st)
+                } else if st.phase == .done {
+                    doneCard(st, items)
+                } else if items.indices.contains(st.index) {
+                    questionCard(items[st.index], st)
+                }
+                if let err = error { MakingErrorLine(text: err) }
+            } else {
+                noQuiz
+            }
+        }
+    }
 
     private func header(_ e: Entity, _ st: Making.QuizState, _ items: [Making.QuizItem]) -> some View {
         let c = Making.quizCounts(st.results)

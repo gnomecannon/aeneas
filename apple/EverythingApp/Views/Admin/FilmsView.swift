@@ -54,26 +54,60 @@ struct FilmsView: View {
         }
     }
 
+    private var shelfPicker: some View {
+        Picker("List", selection: $list) { ForEach(Shelf.allCases) { Text($0.rawValue).tag($0) } }
+            .pickerStyle(.segmented)
+    }
+
+    private var orderPicker: some View {
+        Picker("Order", selection: $sort) { ForEach(FilmSort.allCases) { Text($0.rawValue).tag($0) } }
+            .pickerStyle(.segmented)
+    }
+
     var body: some View {
         let films = shown
         let all = engine.list(.film)
         let year = String(Calendar.current.component(.year, from: Date()))
-        List {
-            SwiftUI.Section {
-                Picker("List", selection: $list) { ForEach(Shelf.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented)
-                Picker("Order", selection: $sort) { ForEach(FilmSort.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented)
-            } footer: {
-                if all.isEmpty { Text("No films yet. Link Letterboxd in Settings, Connections, or tap + to add one.") }
-                else { Text("\(all.filter { $0.fields["watched"] != .bool(false) }.count) watched, \(all.filter { Self.watchedOn($0).contains { $0.hasPrefix(year) } }.count) this year.") }
-            }
-            SwiftUI.Section {
-                ForEach(films) { f in
-                    NavigationLink { FilmDetail(id: f.id) } label: { FilmRow(film: f) }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { deleting = f } label: { Label("Delete", systemImage: "trash") }
+        let count = all.isEmpty ? "No films yet. Link Letterboxd in Settings, Connections, or tap + to add one."
+            : "\(all.filter { $0.fields["watched"] != .bool(false) }.count) watched, \(all.filter { Self.watchedOn($0).contains { $0.hasPrefix(year) } }.count) this year."
+        // The rows are swiped to delete a film, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide {
+                // A wide Mac window: List and Order side by side at the top, then a card for each film, as many
+                // across as fit, in the chosen order. A click opens the film; Delete is in the right-click menu (on a
+                // narrow window it is a swipe).
+                WidePage {
+                    HStack(spacing: 22) {
+                        shelfPicker.fixedSize()
+                        orderPicker.fixedSize()
+                    }
+                    Text(count).font(.footnote).foregroundStyle(.secondary)
+                    CardGrid {
+                        ForEach(films) { f in
+                            NavigationLink { FilmDetail(id: f.id) } label: { FilmRow(film: f).gridCard() }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button(role: .destructive) { deleting = f } label: { Label("Delete", systemImage: "trash") }
+                                }
                         }
+                    }
+                }
+            } else {
+                List {
+                    SwiftUI.Section {
+                        shelfPicker
+                        orderPicker
+                    } footer: {
+                        Text(count)
+                    }
+                    SwiftUI.Section {
+                        ForEach(films) { f in
+                            NavigationLink { FilmDetail(id: f.id) } label: { FilmRow(film: f) }
+                                .swipeActions(edge: .trailing) {
+                                    Button(role: .destructive) { deleting = f } label: { Label("Delete", systemImage: "trash") }
+                                }
+                        }
+                    }
                 }
             }
         }
@@ -103,7 +137,7 @@ struct FilmRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
-                Text(StyleGuard.dashes(film.str("title"))) + Text(film.number("year").map { " (\(Int($0)))" } ?? "").foregroundStyle(.secondary)
+                Text(StyleGuard.dashes(film.str("title"))) + Text(verbatim: film.number("year").map { " (\(Int($0)))" } ?? "").foregroundStyle(.secondary)
                 Spacer()
                 if film.fields["liked"] == .bool(true) { Image(systemName: "heart.fill").foregroundStyle(.pink).accessibilityLabel("Liked") }
                 Text(FilmsView.stars(film.number("rating"))).foregroundStyle(.tint)

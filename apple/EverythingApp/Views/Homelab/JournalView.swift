@@ -32,16 +32,19 @@ struct JournalView: View {
     /// One per machine however its entries spell it ("NAS" and "nas"), as Machines lists them.
     private var hosts: [String] { Homelab.hostKeys(entries) }
 
-    var body: some View {
+    /// What is filtered by, with the way back to everything.
+    private var filterLine: some View {
+        HStack {
+            Text(filterSummary).font(.subheadline)
+            Spacer()
+            Button("Show all") { hostFilter = nil; riskFilter = nil }.buttonStyle(.borderless)
+        }
+    }
+
+    private var list: some View {
         List {
             if hostFilter != nil || riskFilter != nil {
-                SwiftUI.Section {
-                    HStack {
-                        Text(filterSummary).font(.subheadline)
-                        Spacer()
-                        Button("Show all") { hostFilter = nil; riskFilter = nil }.buttonStyle(.borderless)
-                    }
-                }
+                SwiftUI.Section { filterLine }
             }
             ForEach(days) { day in
                 SwiftUI.Section(header: Text(dayTitle(day.id)).font(.headline)) {
@@ -50,6 +53,31 @@ struct JournalView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// A wide Mac window: each day one under the other as before, its changes as cards, as many across as fit at 440
+    /// points each (2 across a screen of 1040 points, 3 across a 1920 window), which leaves a command its room,
+    /// newest first. A click edits the entry; Edit, Copy command and Delete are in the right-click menu, as on a row.
+    private var cards: some View {
+        WidePage {
+            if hostFilter != nil || riskFilter != nil { filterLine }
+            ForEach(days) { day in
+                WideSection(dayTitle(day.id)) {
+                    CardGrid(minWidth: 440) {
+                        ForEach(day.items) { e in
+                            JournalRow(entry: e, showHost: hostFilter == nil, onEdit: { editing = e }, card: true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        // The rows are swiped to delete an entry, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide { cards } else { list }
         }
         .navigationTitle("Change journal")
         .toolbar { ToolbarItem(placement: .automatic) { CSVExportButton(kind: .journal) } }
@@ -126,6 +154,8 @@ struct JournalRow: View {
     var entry: Entity
     var showHost = true
     var onEdit: () -> Void
+    /// A card in the wide window's grid instead of a list row: the same words on a card's fill, all of it clickable.
+    var card = false
     @State private var confirmDelete = false
 
     var body: some View {
@@ -162,7 +192,8 @@ struct JournalRow: View {
                 .controlSize(.small)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, card ? 0 : 4)
+        .gridCard(if: card)
         .contentShape(Rectangle())
         .onTapGesture { onEdit() }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {

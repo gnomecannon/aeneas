@@ -18,6 +18,9 @@ struct LogsView: View {
                 StatusBanner()
                 if let f = flash { Text(f).font(.subheadline).foregroundStyle(.secondary) }
 
+                // One under the other as before on a narrow screen; on a wide one the blocks go side by side, 2
+                // across from 1040 points and 3 across a 1920 window, each keeping its place (AdaptiveColumns).
+                AdaptiveColumns(spacing: 22) {
                 block("Weight") {
                     HStack {
                         TextField("162", text: $weight).numericKeyboard().textFieldStyle(.roundedBorder).font(.title2).frame(maxWidth: 160)
@@ -156,6 +159,7 @@ struct LogsView: View {
                     }
                     if engine.logs.isEmpty { Text("Nothing logged yet.").foregroundStyle(.secondary) }
                     else { NavigationLink("All entries") { AllLogsView() }.font(.callout) }
+                }
                 }
             }
             .padding()

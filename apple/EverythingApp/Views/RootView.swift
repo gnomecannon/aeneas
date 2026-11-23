@@ -284,6 +284,7 @@ struct LibraryStack: View {
 struct SplitRoot: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
+    @Environment(\.eaTheme) private var theme
     #if os(macOS)
     @Environment(\.openWindow) private var openWindow
     #endif
@@ -343,6 +344,14 @@ struct SplitRoot: View {
                         .accessibilityLabel("Settings")
                 }
                 .padding(10)
+                // In the sidebar's own color, not see-through: in a window shorter than the list, the row that
+                // scrolled under the status line showed through it ("Films" under "Online").
+                // Down to the sidebar's bottom edge: on the iPhone and iPad the strip under the status line (the
+                // space kept free for the home indicator) showed the next row too.
+                .background {
+                    Group { if let theme { theme.background } else { Rectangle().fill(.bar) } }
+                        .ignoresSafeArea(.container, edges: .bottom)
+                }
             }
         } detail: {
             NavigationStack {
@@ -360,6 +369,8 @@ struct SplitRoot: View {
                     }
                     #endif
             }
+            // The screens ask how wide this side is before they lay themselves out (WideLayout in UI.swift).
+            .givesWideHint()
         }
     }
 

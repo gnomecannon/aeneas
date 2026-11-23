@@ -10,6 +10,8 @@ struct NotesView: View {
     @State private var creating = false
     @State private var linked: String?
     @State private var allDiary = false
+    /// The note open beside the list in a wide window.
+    @State private var openNote: String?
     @AppStorage("notes.open") private var openRaw = ""
     /// Tags and links come from the model, which runs only when asked, so the GPU stays free for games.
     @State private var linking: HubClient.NoteLinking?
@@ -36,24 +38,29 @@ struct NotesView: View {
     }
 
     var body: some View {
-        let tree = NoteFolder.tree(filtered)
-        let ideas = NoteFolder.ideas(filtered)
-        List {
-            if !ideas.isEmpty {
-                DisclosureGroup(isExpanded: isOpen("ideas")) {
-                    ForEach(ideas, id: \.form) { g in
-                        DisclosureGroup(isExpanded: isOpen("ideas/\(g.form)")) {
-                            ForEach(g.notes) { n in NoteRow(note: n) }
-                        } label: { FolderLabel(name: g.label, count: g.notes.count) }
+        // A wide window: the folders stay a list, 340 points wide, and the note you click opens beside it instead of
+        // over it, so the rest of the window is the note. The list keeps its swipe, folders and search.
+        WideReader { wide in
+            if wide {
+                HStack(spacing: 0) {
+                    list
+                        .environment(\.noteOpener, NoteOpener(openId: openNote) { openNote = $0 })
+                        .frame(width: 340)
+                    Divider()
+                    Group {
+                        if let id = openNote, let n = engine.get(id), !n.isDeleted {
+                            // A new editor for each note: what it holds is that note's own text.
+                            NoteEditorView(noteId: id, besideList: true).id(id)
+                        } else {
+                            EmptyState(text: "Choose a note to open it here")
+                        }
                     }
-                } label: { FolderLabel(name: "Ideas", count: ideas.reduce(0) { $0 + $1.notes.count }, symbol: "lightbulb") }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                list
             }
-            ForEach(tree.children) { f in
-                FolderSection(folder: f, isOpen: isOpen, searching: !query.isEmpty, allDiary: $allDiary)
-            }
-            ForEach(tree.notes) { n in NoteRow(note: n) }
         }
-        .listStyle(.plain)
         .overlay { if filtered.isEmpty { EmptyState(text: query.isEmpty ? "No notes" : "No matches") } }
         .searchable(text: $query, prompt: "Search notes")
         .navigationTitle("Notes")
@@ -84,6 +91,35 @@ struct NotesView: View {
         }
         .sheet(isPresented: $creating) { NewNoteSheet() }
         .refreshable { await engine.sync() }
+        #if DEBUG
+        // `-EANoteOpen <words>` (DebugHooksMac): that note open beside the list, for screenshots of a wide window.
+        .task {
+            guard let words = UserDefaults.standard.string(forKey: "EANoteOpen")?.lowercased(), !words.isEmpty else { return }
+            try? await Task.sleep(for: .seconds(1))
+            openNote = engine.notes.first { $0.str("title").lowercased().contains(words) }?.id
+        }
+        #endif
+    }
+
+    private var list: some View {
+        let tree = NoteFolder.tree(filtered)
+        let ideas = NoteFolder.ideas(filtered)
+        return List {
+            if !ideas.isEmpty {
+                DisclosureGroup(isExpanded: isOpen("ideas")) {
+                    ForEach(ideas, id: \.form) { g in
+                        DisclosureGroup(isExpanded: isOpen("ideas/\(g.form)")) {
+                            ForEach(g.notes) { n in NoteRow(note: n) }
+                        } label: { FolderLabel(name: g.label, count: g.notes.count) }
+                    }
+                } label: { FolderLabel(name: "Ideas", count: ideas.reduce(0) { $0 + $1.notes.count }, symbol: "lightbulb") }
+            }
+            ForEach(tree.children) { f in
+                FolderSection(folder: f, isOpen: isOpen, searching: !query.isEmpty, allDiary: $allDiary)
+            }
+            ForEach(tree.notes) { n in NoteRow(note: n) }
+        }
+        .listStyle(.plain)
     }
 
     private func takeFocus() {
@@ -190,19 +226,50 @@ private struct FolderLabel: View {
     }
 }
 
+/// In a wide window: which note is open beside the list, and how a row opens one there.
+struct NoteOpener {
+    var openId: String?
+    var open: (String) -> Void
+}
+
+private struct NoteOpenerKey: EnvironmentKey { static let defaultValue: NoteOpener? = nil }
+
+extension EnvironmentValues {
+    /// Set on the notes list while it sits beside the open note; nil where a row opens its note over the list.
+    var noteOpener: NoteOpener? {
+        get { self[NoteOpenerKey.self] }
+        set { self[NoteOpenerKey.self] = newValue }
+    }
+}
+
 private struct NoteRow: View {
+    @Environment(\.noteOpener) private var opener
     let note: Entity
-    var body: some View {
-        // A destination link, not a value: the iPhone's Library stack only takes screens as values,
-        // so a note id pushed as a value was dropped and the row did nothing.
-        NavigationLink { NoteEditorView(noteId: note.id) } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(StyleGuard.dashes(note.str("title"))).font(.title3)
-                let tags = note.stringArray("tags")
-                if !tags.isEmpty { Text(tags.map { "#" + $0 }.joined(separator: " ")).font(.caption).foregroundStyle(.secondary) }
-            }
+
+    private var words: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(StyleGuard.dashes(note.str("title"))).font(.title3)
+            let tags = note.stringArray("tags")
+            if !tags.isEmpty { Text(tags.map { "#" + $0 }.joined(separator: " ")).font(.caption).foregroundStyle(.secondary) }
         }
-        .deleteSwipe(note.id)
+    }
+
+    var body: some View {
+        if let opener {
+            // Beside the open note: a click opens the note there, and the open one is marked.
+            Button { opener.open(note.id) } label: {
+                words.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .listRowBackground(opener.openId == note.id ? Color.secondary.opacity(0.18) : nil)
+            .accessibilityAddTraits(opener.openId == note.id ? .isSelected : [])
+            .deleteSwipe(note.id)
+        } else {
+            // A destination link, not a value: the iPhone's Library stack only takes screens as values,
+            // so a note id pushed as a value was dropped and the row did nothing.
+            NavigationLink { NoteEditorView(noteId: note.id) } label: { words }
+                .deleteSwipe(note.id)
+        }
     }
 }
 
@@ -242,6 +309,8 @@ struct NewNoteSheet: View {
 struct NoteEditorView: View {
     @EnvironmentObject var engine: SyncEngine
     var noteId: String
+    /// Open beside the notes list in a wide window, where the screen is still Notes.
+    var besideList = false
     @State private var title = ""
     @State private var tags = ""
     /// The tags as loaded: they are sent only when the owner changed them here, so tags the note linker added while the
@@ -263,22 +332,31 @@ struct NoteEditorView: View {
     @State private var showRelated = true
 
     var body: some View {
-        VStack(spacing: 8) {
-            TextField("Title", text: $title).font(.title.bold()).textFieldStyle(.plain)
-            HStack {
-                TextField("tags, comma separated", text: $tags).textFieldStyle(.plain).font(.subheadline)
-                Spacer()
-                Text(savedAt.map { "Saved \($0.shortTime)" } ?? (dirty ? "Editing" : "")).font(.caption).foregroundStyle(.secondary)
+        // On a wide editor (1040 points or more, as beside the notes list in a 1920 window) what is related sits in a
+        // column 320 points wide beside the text, always open; narrower, or with nothing related, it is under the
+        // text as before.
+        WideReader { isWide in
+            let wide = isWide && relatedLoaded && !related.isEmpty
+            HStack(alignment: .top, spacing: 16) {
+                VStack(spacing: 8) {
+                    TextField("Title", text: $title).font(.title.bold()).textFieldStyle(.plain)
+                    HStack {
+                        TextField("tags, comma separated", text: $tags).textFieldStyle(.plain).font(.subheadline)
+                        Spacer()
+                        Text(savedAt.map { "Saved \($0.shortTime)" } ?? (dirty ? "Editing" : "")).font(.caption).foregroundStyle(.secondary)
+                    }
+                    TextField("Path", text: $path).textFieldStyle(.plain).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    Divider()
+                    TextEditor(text: $body_)
+                        .font(.body.monospaced())
+                        .scrollContentBackground(.hidden)
+                    if !wide { relatedSection }
+                }
+                if wide { relatedColumn.frame(width: 320) }
             }
-            TextField("Path", text: $path).textFieldStyle(.plain).font(.caption.monospaced()).foregroundStyle(.secondary)
-            Divider()
-            TextEditor(text: $body_)
-                .font(.body.monospaced())
-                .scrollContentBackground(.hidden)
-            relatedSection
         }
         .padding()
-        .navigationTitle("Note")
+        .navigationTitle(besideList ? "Notes" : "Note")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -311,6 +389,19 @@ struct NoteEditorView: View {
         }
     }
 
+    /// Beside the text on a wide editor: the same links, backlinks and similar notes, on a card as tall as they are.
+    private var relatedColumn: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Related (\(related.links.count + related.backlinks.count + related.similar.count))").font(.headline).foregroundStyle(.secondary)
+                relatedGroup("Links", related.links)
+                relatedGroup("Backlinks", related.backlinks)
+                relatedGroup("Similar", related.similar)
+            }
+            .gridCard()
+        }
+    }
+
     @ViewBuilder
     private func relatedGroup(_ name: String, _ items: [RelatedNote]) -> some View {
         if !items.isEmpty {
@@ -331,6 +422,18 @@ struct NoteEditorView: View {
     }
 
     private func loadRelated() async {
+        #if DEBUG
+        // `-EANoteRelatedSample YES` (DebugHooksMac): four other notes stand in as related, for a screenshot of the
+        // editor on a copy whose hub cannot be reached.
+        if UserDefaults.standard.bool(forKey: "EANoteRelatedSample") {
+            let others = engine.notes.filter { $0.id != noteId }.prefix(4).map { n in
+                #"{"id":"\#(n.id)","title":"\#(n.str("title").replacingOccurrences(of: "\"", with: "'"))","why":"shares words"}"#
+            }
+            if let r = try? JSONCoding.decode(RelatedResponse.self, from: #"{"links":[],"backlinks":[],"similar":[\#(others.joined(separator: ","))]}"#) { related = r }
+            relatedLoaded = true
+            return
+        }
+        #endif
         guard let c = engine.client else { relatedLoaded = true; return }
         if let r = try? await c.related(noteId: noteId) { related = r }
         relatedLoaded = true

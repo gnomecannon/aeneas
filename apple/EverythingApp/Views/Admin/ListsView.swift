@@ -18,6 +18,28 @@ struct ListsView: View {
     private var archived: [Entity] { sorted(all.filter { !AdminChecklist.isTemplate($0) && AdminChecklist.isArchived($0) }) }
 
     var body: some View {
+        // The rows are swiped to archive a list, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide { cards } else { list }
+        }
+        .navigationTitle("Lists")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { newTitle = ""; naming = true } label: { Label("New list", systemImage: "plus") }
+            }
+        }
+        .alert("New list", isPresented: $naming) {
+            TextField("Title", text: $newTitle)
+            Button("Create") { create() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("A blank list to tick off. To pack for a trip, use a template instead.")
+        }
+        .navigationDestination(item: $openId) { id in AdminListDetail(id: id) }
+        .refreshable { await engine.sync() }
+    }
+
+    private var list: some View {
         List {
             if model.isOn(.jobs) {
                 SwiftUI.Section {
@@ -84,21 +106,91 @@ struct ListsView: View {
                 }
             }
         }
-        .navigationTitle("Lists")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { newTitle = ""; naming = true } label: { Label("New list", systemImage: "plus") }
+    }
+
+    private func archive(_ e: Entity, _ archived: Bool) {
+        Task { _ = await engine.update(e.id, fields: ["archived": .bool(archived)]) }
+    }
+
+    /// A wide Mac window: the same sections one under the other, each a grid of cards, as many across as fit, in the
+    /// list's order. A click opens the list; Archive and Unarchive are in the right-click menu (on a narrow window
+    /// Unarchive is a swipe only).
+    private var cards: some View {
+        WidePage {
+            if model.isOn(.jobs) {
+                CardGrid {
+                    NavigationLink { CareerView() } label: {
+                        let apps = engine.list(.application)
+                        let open = apps.filter { !AdminStage.closed.map(\.rawValue).contains($0.str("stage")) }.count
+                        HStack {
+                            Label("Job applications", systemImage: "briefcase")
+                            Spacer(minLength: 8)
+                            Text(apps.isEmpty ? "None yet" : "\(open) open of \(apps.count)").foregroundStyle(.secondary)
+                        }
+                        .gridCard()
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            WideSection("Open lists") {
+                if open.isEmpty {
+                    Text(templates.isEmpty ? "No open lists. Tap + to start one." : "No open lists. Tap Use on a template below, or tap + for a blank list.")
+                        .foregroundStyle(.secondary)
+                }
+                CardGrid {
+                    ForEach(open) { e in
+                        NavigationLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e).gridCard() }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button { archive(e, true) } label: { Label("Archive", systemImage: "archivebox") }
+                            }
+                    }
+                }
+            }
+            if !templates.isEmpty {
+                WideSection("Start from a template") {
+                    CardGrid {
+                        ForEach(templates) { t in
+                            HStack(spacing: 12) {
+                                NavigationLink { AdminListDetail(id: t.id) } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(StyleGuard.dashes(t.str("title"))).font(.body)
+                                        Text(itemsLabel(AdminChecklist.items(t).count)).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                Button {
+                                    use(t)
+                                } label: {
+                                    if usingTemplate == t.id { ProgressView().controlSize(.small) } else { Text("Use") }
+                                }
+                                .buttonStyle(.themedProminent)
+                                .disabled(usingTemplate != nil)
+                                .accessibilityLabel("Use \(t.str("title"))")
+                            }
+                            .gridCard()
+                        }
+                    }
+                    Text("Use makes a fresh copy with nothing ticked. The template stays as it is.").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            if !archived.isEmpty {
+                DisclosureGroup("Archived, \(archived.count)", isExpanded: $showArchived) {
+                    CardGrid {
+                        ForEach(archived) { e in
+                            NavigationLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e).gridCard() }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button { archive(e, false) } label: { Label("Unarchive", systemImage: "tray.and.arrow.up") }
+                                }
+                        }
+                    }
+                    .padding(.top, 8)
+                }
             }
         }
-        .alert("New list", isPresented: $naming) {
-            TextField("Title", text: $newTitle)
-            Button("Create") { create() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("A blank list to tick off. To pack for a trip, use a template instead.")
-        }
-        .navigationDestination(item: $openId) { id in AdminListDetail(id: id) }
-        .refreshable { await engine.sync() }
     }
 
     private func itemsLabel(_ n: Int) -> String { "\(n) item\(n == 1 ? "" : "s")" }

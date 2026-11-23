@@ -7,18 +7,40 @@ import EACore
 struct HealthDataView: View {
     @EnvironmentObject var engine: SyncEngine
 
+    private static let footer = "Readings typed in the app and readings from Apple Health, kept the same both ways (Settings, Connections). Swipe an entry to delete it. To log something, use Logs."
+
     var body: some View {
+        WideReader { wide in
+            if wide { cards } else { list }
+        }
+        .navigationTitle("Health")
+        .refreshable { await engine.sync() }
+    }
+
+    private var list: some View {
         List {
             SwiftUI.Section {
                 ForEach(HealthMetric.allCases) { m in
                     NavigationLink { HealthMetricView(metric: m) } label: { row(m) }
                 }
             } footer: {
-                Text("Readings typed in the app and readings from Apple Health, kept the same both ways (Settings, Connections). Swipe an entry to delete it. To log something, use Logs.")
+                Text(Self.footer)
             }
         }
-        .navigationTitle("Health")
-        .refreshable { await engine.sync() }
+    }
+
+    /// A wide window: a card for each measure, as many across as fit (5 across a 1920 window, so the 8 measures
+    /// make 2 rows), in the list's order. A click opens the measure, as a row does.
+    private var cards: some View {
+        WidePage {
+            CardGrid {
+                ForEach(HealthMetric.allCases) { m in
+                    NavigationLink { HealthMetricView(metric: m) } label: { row(m).gridCard() }
+                        .buttonStyle(.plain)
+                }
+            }
+            Text(Self.footer).font(.footnote).foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder private func row(_ m: HealthMetric) -> some View {
@@ -126,6 +148,8 @@ enum HealthMetric: String, CaseIterable, Identifiable {
         case .steps: return "\(Int(p.value).formatted()) steps"
         default:
             let v = p.value == p.value.rounded() ? "\(Int(p.value))" : String(format: "%.1f", p.value)
+            // One cup is "1 cup".
+            let unit = self == .caffeine && p.value == 1 ? "cup" : unit
             return unit.isEmpty ? v : "\(v) \(unit)"
         }
     }
@@ -199,7 +223,9 @@ struct HealthMetricView: View {
         let cutoff = range.days.map { Date().addingTimeInterval(-Double($0) * 86400) } ?? .distantPast
         let shown = all.filter { $0.at >= cutoff }
         let chart = metric.sumsByDay ? dailyTotals(shown) : shown
-        List {
+        // A wide window: the range and the chart on the left, the entries in a list 420 points wide on the right, so
+        // the chart is beside the readings it draws (SplitList).
+        SplitList(secondWidth: 420) {
             SwiftUI.Section {
                 Picker("Range", selection: $range) { ForEach(Range.allCases) { Text($0.rawValue).tag($0) } }
                     .pickerStyle(.segmented)
@@ -219,6 +245,7 @@ struct HealthMetricView: View {
                     Text(shown.isEmpty ? "Nothing in this range." : "\(shown.count) in this range.").foregroundStyle(.secondary)
                 }
             }
+        } second: {
             SwiftUI.Section("Entries, \(shown.count)") {
                 ForEach(shown.reversed()) { p in
                     entryRow(p)

@@ -295,7 +295,8 @@ function Editor({ id, notes }: { id: string; notes: Entity[] }) {
   );
 
   return (
-    <div className="col">
+    <div className="note-editor">
+    <div className="col note-main">
       <input value={draft.title} onChange={(e) => edit({ title: e.target.value })} placeholder="Title" aria-label="Title" style={{ fontSize: 18, fontWeight: 600 }} />
       <div className="row wrap" aria-label="Tags">
         <div className="chips">
@@ -351,7 +352,8 @@ function Editor({ id, notes }: { id: string; notes: Entity[] }) {
         <label htmlFor="note-path">File path in the notes folder</label>
         <input id="note-path" value={draft.path} onChange={(e) => edit({ path: e.target.value })} className="mono" />
       </details>
-      <div className="card">
+    </div>
+      <aside className="card note-related" aria-label="Related">
         <div className="row between">
           <h3 style={{ margin: 0 }}>Related</h3>
           <span className="muted small">{relatedSrc}</span>
@@ -364,7 +366,7 @@ function Editor({ id, notes }: { id: string; notes: Entity[] }) {
             {group("Similar", related.similar)}
           </div>
         )}
-      </div>
+      </aside>
     </div>
   );
 }

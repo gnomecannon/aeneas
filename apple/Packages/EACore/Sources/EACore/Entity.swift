@@ -37,6 +37,11 @@ public enum PlanRuleType: String, Codable, CaseIterable, Sendable {
         self = PlanRuleType(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .info
     }
 }
+public extension PlanRuleType {
+    /// A commitment or a blackout holds its time. A preference weighs a slot and an info rule (a custody week) is a
+    /// note on the day: neither takes free time or stops a block. The hub's rule ("take no time and weigh no slot").
+    var takesTime: Bool { self == .commitment || self == .blackout }
+}
 public enum Weekday: String, Codable, CaseIterable, Sendable { case mon, tue, wed, thu, fri, sat, sun }
 public enum SuggestedKind: String, Codable, CaseIterable, Sendable { case task, note, reminder, log, fact, none }
 

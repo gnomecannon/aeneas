@@ -684,6 +684,11 @@ final class AppModel: ObservableObject {
                 return
             }
             Task { setupError = await connect(link) }
+        #if DEBUG && os(macOS)
+        case "debug":
+            // everythingapp://debug/<command>: a Debug build does to its own window what a hand would (DebugHooksMac).
+            DebugHooksMac.command(url)
+        #endif
         case "now":
             section = .now
         case "today":

@@ -17,7 +17,7 @@ struct ProceduresView: View {
             .sorted { (Making.procedure($0).done_at ?? $0.updated_at) > (Making.procedure($1).done_at ?? $1.updated_at) }
     }
 
-    var body: some View {
+    private var list: some View {
         List {
             if !open.isEmpty {
                 SwiftUI.Section("In progress") {
@@ -39,6 +39,40 @@ struct ProceduresView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// One procedure as a card of the wide window's grid: a click runs it, Delete is in the right-click menu.
+    private func card(_ e: Entity) -> some View {
+        NavigationLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e).gridCard() }
+            .buttonStyle(.plain)
+            .deleteSwipe(e.id)
+    }
+
+    /// A wide Mac window: the procedures in progress as a grid of cards, as many across as fit, newest change first,
+    /// then the finished ones the same way under their heading, which still opens and closes them.
+    private var cards: some View {
+        WidePage {
+            if !open.isEmpty {
+                WideSection("In progress") {
+                    CardGrid { ForEach(open) { e in card(e) } }
+                }
+            }
+            if !finished.isEmpty {
+                DisclosureGroup(isExpanded: $showFinished) {
+                    CardGrid { ForEach(finished) { e in card(e) } }
+                        .padding(.top, 8)
+                } label: {
+                    Text("Finished (\(finished.count))").font(.headline)
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        // The rows are swiped to delete a procedure, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide { cards } else { list }
         }
         .overlay {
             if all.isEmpty {
@@ -313,26 +347,48 @@ struct ProcedureRunnerView: View {
         let f = Making.procedure(e)
         let steps = f.steps ?? []
         let p = Making.progress(f)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header(f, p)
-                if p.done {
-                    finishedCard(f, p)
-                } else if steps.indices.contains(p.current) {
-                    stepCard(steps[p.current], p)
-                    if p.current + 1 < steps.count {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Up next").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                            Text(StyleGuard.dashes(steps[p.current + 1].text)).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+        // The step keeps its reading width of 720 points. On a wide screen it sits at the left and every step is
+        // listed beside it, always open, so the rest of the window is the procedure's outline; on a narrow one the
+        // steps fold away under the step, in the middle of the screen, as before.
+        WideReader { wide in
+            ScrollView {
+                if wide && !steps.isEmpty {
+                    HStack(alignment: .top, spacing: 22) {
+                        now(f, steps, p).frame(maxWidth: 720, alignment: .leading)
+                        WideSection("All \(Making.plural(steps.count, "step"))") {
+                            stepRows(steps, p).gridCard()
                         }
                     }
+                    .padding()
+                } else {
+                    VStack(alignment: .leading, spacing: 18) {
+                        now(f, steps, p)
+                        if !steps.isEmpty { allSteps(steps, p) }
+                    }
+                    .padding()
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
-                if let err = error { MakingErrorLine(text: err) }
-                if !steps.isEmpty { allSteps(steps, p) }
             }
-            .padding()
-            .frame(maxWidth: 720, alignment: .leading)
-            .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// Where the procedure stands and the step to do now (or that it is finished), with what comes next.
+    private func now(_ f: Making.ProcedureData, _ steps: [Making.Step], _ p: Making.Progress) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header(f, p)
+            if p.done {
+                finishedCard(f, p)
+            } else if steps.indices.contains(p.current) {
+                stepCard(steps[p.current], p)
+                if p.current + 1 < steps.count {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Up next").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Text(StyleGuard.dashes(steps[p.current + 1].text)).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+            }
+            if let err = error { MakingErrorLine(text: err) }
         }
     }
 
@@ -410,28 +466,32 @@ struct ProcedureRunnerView: View {
 
     private func allSteps(_ steps: [Making.Step], _ p: Making.Progress) -> some View {
         DisclosureGroup(isExpanded: $showSteps) {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
-                    let isDone = !(s.done_at ?? "").isEmpty
-                    let isCurrent = !p.done && i == p.current
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Image(systemName: isDone ? "checkmark.circle.fill" : isCurrent ? "arrow.right.circle.fill" : "circle")
-                            .foregroundStyle(isDone ? AnyShapeStyle(.okText) : isCurrent ? AnyShapeStyle(Color.blue) : AnyShapeStyle(.secondary))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(i + 1). \(StyleGuard.dashes(s.text))")
-                                .fontWeight(isCurrent ? .semibold : .regular)
-                                .foregroundStyle(isDone || isCurrent ? .primary : .secondary)
-                            if let c = s.command, !c.isEmpty { Text(c).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2) }
-                        }
-                        Spacer(minLength: 0)
-                        Text(isDone ? "Done" : isCurrent ? "Now" : "").font(.caption).foregroundStyle(.secondary)
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-            }
-            .padding(.top, 6)
+            stepRows(steps, p).padding(.top, 6)
         } label: {
             Text("All \(Making.plural(steps.count, "step"))").font(.headline)
+        }
+    }
+
+    /// Every step in order: done, the one to do now, or still to come.
+    private func stepRows(_ steps: [Making.Step], _ p: Making.Progress) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(steps.enumerated()), id: \.offset) { i, s in
+                let isDone = !(s.done_at ?? "").isEmpty
+                let isCurrent = !p.done && i == p.current
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: isDone ? "checkmark.circle.fill" : isCurrent ? "arrow.right.circle.fill" : "circle")
+                        .foregroundStyle(isDone ? AnyShapeStyle(.okText) : isCurrent ? AnyShapeStyle(Color.blue) : AnyShapeStyle(.secondary))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(i + 1). \(StyleGuard.dashes(s.text))")
+                            .fontWeight(isCurrent ? .semibold : .regular)
+                            .foregroundStyle(isDone || isCurrent ? .primary : .secondary)
+                        if let c = s.command, !c.isEmpty { Text(c).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(2) }
+                    }
+                    Spacer(minLength: 0)
+                    Text(isDone ? "Done" : isCurrent ? "Now" : "").font(.caption).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
         }
     }
 

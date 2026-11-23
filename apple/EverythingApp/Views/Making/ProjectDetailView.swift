@@ -67,7 +67,10 @@ struct ProjectDetailView: View {
         let procedures = engine.list(.procedure).filter { $0.str("project_id") == projectId }.sorted { $0.updated_at > $1.updated_at }
         let music = engine.list(.music_idea).filter { $0.str("project_id") == projectId }.sorted { $0.updated_at > $1.updated_at }
 
-        return List {
+        // A wide window: where the project stands on the left (status, where I left off, what Codex and the repo
+        // did, when it is done), and what it is made of on the right (tasks, plan, parts, procedures, music, notes),
+        // each a list of its own (SplitList).
+        return SplitList {
             SwiftUI.Section {
                 Picker("Status", selection: Binding(get: { f.status ?? "active" }, set: { s in Task { _ = await engine.update(projectId, fields: ["status": .string(s)]) } })) {
                     Text("Active").tag("active")
@@ -83,6 +86,7 @@ struct ProjectDetailView: View {
             resumeSection(f)
             if let a = p.fields["activity"]?.objectValue { activitySection(a, at: p.string("activity_at")) }
             dodSection(f)
+        } second: {
             tasksSection(tasks)
             planSection(plan, name: name)
             partsSection(rows, tasks: tasks)

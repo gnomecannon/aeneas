@@ -50,7 +50,12 @@ struct EverythingAppApp: App {
         // (they used to front a window that no longer existed); the Dock icon and links open one as before.
         WindowGroup(id: MainWindow.id) {
             root
+                // A link (a widget, a shortcut, Spotlight, another app) goes to the main window that is open. Without
+                // this, macOS opened one more main window for every link, and the screens in all of them changed.
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
+        // With no main window open, a link opens one here.
+        .handlesExternalEvents(matching: ["*"])
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await model.start(); await FeelController.shared.refresh() } }
         }
@@ -72,6 +77,7 @@ struct EverythingAppApp: App {
             NavigationStack {
                 sectionView(shown).navigationDestination(for: Section.self) { sectionView($0) }
             }
+            .givesWideHint()
             .navigationTitle(shown.title)
             .overlay { FeelOverlay() }
             .themedRoot()
@@ -80,6 +86,8 @@ struct EverythingAppApp: App {
         }
         .defaultSize(width: 560, height: 720)
         .commandsRemoved()
+        // A link never opens one of these: they open from the sidebar or the toolbar only.
+        .handlesExternalEvents(matching: [])
 
         // The menu bar shows the symbol; the title is what VoiceOver says for it.
         MenuBarExtra("Aeneas", systemImage: "circle.inset.filled") {

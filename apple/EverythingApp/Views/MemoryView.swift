@@ -39,74 +39,10 @@ struct MemoryView: View {
     }
 
     var body: some View {
-        List {
-            if searching && factsByCategory.isEmpty && shownRules.isEmpty {
-                Text("Nothing in memory matches \u{201C}\(query)\u{201D}.").foregroundStyle(.secondary)
-            }
-            ForEach(factsByCategory, id: \.0) { cat, facts in
-                // A search shows every category it finds something in, folded or not.
-                let open = searching || !folded.contains(cat.rawValue)
-                SwiftUI.Section(isExpanded: Binding(get: { open }, set: { _ in if !searching { toggle(cat) } })) {
-                    ForEach(facts) { f in
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack {
-                                Text(f.str("key")).font(.subheadline.weight(.semibold))
-                                if f.bool("private") == true { Image(systemName: "lock").font(.caption) }
-                                Spacer()
-                                if let c = f.number("confidence") { Text(String(format: "%.0f%%", c * 100)).font(.caption).foregroundStyle(.secondary) }
-                            }
-                            Text(StyleGuard.dashes(f.str("value"))).font(.body)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture { editingFact = f }
-                        .swipeActions { Button("Delete", role: .destructive) { Task { await engine.softDelete(f.id) } } }
-                        .contextMenu {
-                            Button("Edit") { editingFact = f }
-                            Button("Delete", role: .destructive) { Task { await engine.softDelete(f.id) } }
-                        }
-                    }
-                } header: {
-                    Button { toggle(cat) } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold)).frame(width: 12)
-                            Text(cat.rawValue.capitalized).font(.headline)
-                            Text("\(facts.count)").font(.subheadline).foregroundStyle(.secondary)
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(searching)
-                    .accessibilityLabel("\(cat.rawValue.capitalized), \(facts.count) facts, \(open ? "open" : "folded")")
-                }
-            }
-            if !searching || !shownRules.isEmpty {
-            SwiftUI.Section(header: Text("Rules").font(.headline)) {
-                ForEach(shownRules) { r in
-                    HStack(spacing: 12) {
-                        Toggle("", isOn: Binding(get: { r.bool("active") ?? true }, set: { v in Task { _ = await engine.update(r.id, fields: ["active": .bool(v)]) } })).labelsHidden()
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(StyleGuard.dashes(r.str("text"))).font(.body)
-                            HStack(spacing: 8) {
-                                Text(r.str("enforce"))
-                                if let p = r.string("pattern"), !p.isEmpty { Text("/\(p)/\(r.str("flags", "g"))").font(.caption.monospaced()) }
-                            }
-                            .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { editingRule = r }
-                    .contextMenu {
-                        Button("Edit") { editingRule = r }
-                        Button("Delete", role: .destructive) { Task { await engine.softDelete(r.id) } }
-                    }
-                }
-                if engine.rules.isEmpty { Text("No rules").foregroundStyle(.secondary) }
-            }
-            }
+        // The facts are swiped to delete them, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide { cards } else { list }
         }
-        .listStyle(.plain)
         .navigationTitle("Memory")
         .searchable(text: $query, prompt: "Search facts and rules")
         .toolbar {
@@ -119,6 +55,126 @@ struct MemoryView: View {
         .sheet(item: $editingRule) { RuleEditView(rule: $0) }
         .sheet(isPresented: $newRule) { RuleEditView(rule: nil) }
         .refreshable { await engine.sync() }
+    }
+}
+
+extension MemoryView {
+    private var nothingFound: some View {
+        Text("Nothing in memory matches \u{201C}\(query)\u{201D}.").foregroundStyle(.secondary)
+    }
+
+    /// One fact's words: its key, a lock when it is private, how sure the hub is, and what it says.
+    private func factWords(_ f: Entity) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(f.str("key")).font(.subheadline.weight(.semibold))
+                if f.bool("private") == true { Image(systemName: "lock").font(.caption) }
+                Spacer()
+                if let c = f.number("confidence") { Text(String(format: "%.0f%%", c * 100)).font(.caption).foregroundStyle(.secondary) }
+            }
+            Text(StyleGuard.dashes(f.str("value"))).font(.body)
+        }
+    }
+
+    /// A fact as a list row or, on a wide Mac window, as a card: a click edits it, the right-click menu edits or
+    /// deletes it. (The swipe to delete is the list row's own, added there.)
+    private func fact(_ f: Entity, card: Bool) -> some View {
+        factWords(f)
+            .gridCard(if: card)
+            .contentShape(Rectangle())
+            .onTapGesture { editingFact = f }
+            .contextMenu {
+                Button("Edit") { editingFact = f }
+                Button("Delete", role: .destructive) { Task { await engine.softDelete(f.id) } }
+            }
+    }
+
+    /// The heading of one category: its name and how many facts, and a click folds or opens it.
+    private func heading(_ cat: FactCategory, count: Int, open: Bool) -> some View {
+        Button { toggle(cat) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold)).frame(width: 12)
+                Text(cat.rawValue.capitalized).font(.headline)
+                Text("\(count)").font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(searching)
+        .accessibilityLabel("\(cat.rawValue.capitalized), \(count) facts, \(open ? "open" : "folded")")
+    }
+
+    /// A rule as a list row or a card: its switch, what it says and how it is enforced.
+    private func rule(_ r: Entity, card: Bool) -> some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(get: { r.bool("active") ?? true }, set: { v in Task { _ = await engine.update(r.id, fields: ["active": .bool(v)]) } })).labelsHidden()
+            VStack(alignment: .leading, spacing: 3) {
+                Text(StyleGuard.dashes(r.str("text"))).font(.body)
+                HStack(spacing: 8) {
+                    Text(r.str("enforce"))
+                    if let p = r.string("pattern"), !p.isEmpty { Text("/\(p)/\(r.str("flags", "g"))").font(.caption.monospaced()) }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .gridCard(if: card)
+        .contentShape(Rectangle())
+        .onTapGesture { editingRule = r }
+        .contextMenu {
+            Button("Edit") { editingRule = r }
+            Button("Delete", role: .destructive) { Task { await engine.softDelete(r.id) } }
+        }
+    }
+
+    private var list: some View {
+        List {
+            if searching && factsByCategory.isEmpty && shownRules.isEmpty { nothingFound }
+            ForEach(factsByCategory, id: \.0) { cat, facts in
+                // A search shows every category it finds something in, folded or not.
+                let open = searching || !folded.contains(cat.rawValue)
+                SwiftUI.Section(isExpanded: Binding(get: { open }, set: { _ in if !searching { toggle(cat) } })) {
+                    ForEach(facts) { f in
+                        fact(f, card: false)
+                            .swipeActions { Button("Delete", role: .destructive) { Task { await engine.softDelete(f.id) } } }
+                    }
+                } header: {
+                    heading(cat, count: facts.count, open: open)
+                }
+            }
+            if !searching || !shownRules.isEmpty {
+            SwiftUI.Section(header: Text("Rules").font(.headline)) {
+                ForEach(shownRules) { r in rule(r, card: false) }
+                if engine.rules.isEmpty { Text("No rules").foregroundStyle(.secondary) }
+            }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    /// A wide Mac window: each category one under the other with its heading as before, its facts as cards, as many
+    /// across as fit, in the list's order; then the rules the same way. A folded category shows its heading only.
+    private var cards: some View {
+        WidePage {
+            if searching && factsByCategory.isEmpty && shownRules.isEmpty { nothingFound }
+            ForEach(factsByCategory, id: \.0) { cat, facts in
+                let open = searching || !folded.contains(cat.rawValue)
+                WideSection {
+                    heading(cat, count: facts.count, open: open)
+                } content: {
+                    if open {
+                        CardGrid { ForEach(facts) { f in fact(f, card: true) } }
+                    }
+                }
+            }
+            if !searching || !shownRules.isEmpty {
+                WideSection("Rules") {
+                    CardGrid { ForEach(shownRules) { r in rule(r, card: true) } }
+                    if engine.rules.isEmpty { Text("No rules").foregroundStyle(.secondary) }
+                }
+            }
+        }
     }
 }
 

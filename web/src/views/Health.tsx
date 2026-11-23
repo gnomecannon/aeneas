@@ -114,58 +114,61 @@ export function Health() {
             {stat("Activity 7d", `${Math.round(s.activity_hours_7d * 10) / 10} h`)}
           </div>
 
-          <div className="card" style={{ marginTop: 12 }}>
-            <h3>Meds today</h3>
-            {!meds.length && <div className="muted small">No meds expected. Add a fact health:medications on the hub.</div>}
-            <div className="chips" role="group" aria-label="Meds today">
-              {meds.map((m) => (
-                <button key={m.name} type="button" className={`chip ${m.taken ? "on" : ""}`} aria-pressed={m.taken} disabled={busy === m.name} onClick={() => void logMed(m.name)} title={m.taken ? "taken, tap to log again" : "tap to log taken"}>
-                  {m.name}
-                  {m.extra ? " (extra)" : ""}
-                </button>
-              ))}
+          {/* Side by side on a wide window: each used to be stretched across it with one line inside. */}
+          <div className="cols" style={{ marginTop: 12 }}>
+            <div className="card">
+              <h3>Meds today</h3>
+              {!meds.length && <div className="muted small">No meds expected. Add a fact health:medications on the hub.</div>}
+              <div className="chips" role="group" aria-label="Meds today">
+                {meds.map((m) => (
+                  <button key={m.name} type="button" className={`chip ${m.taken ? "on" : ""}`} aria-pressed={m.taken} disabled={busy === m.name} onClick={() => void logMed(m.name)} title={m.taken ? "taken, tap to log again" : "tap to log taken"}>
+                    {m.name}
+                    {m.extra ? " (extra)" : ""}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="card" style={{ marginTop: 12 }}>
-            <div className="row between">
-              <h3 style={{ margin: 0 }}>Next injection</h3>
-              <button className="small ghost" onClick={() => { if (!name && s?.next_injection) setName(s.next_injection.name); setSetting((v) => !v); }} aria-expanded={setting}>
-                {setting ? "Close" : "Set day"}
-              </button>
-            </div>
-            <div style={{ marginTop: 6 }}>
-              {s.next_injection ? (
-                <>
-                  <span className="big">{fmtDateTime(s.next_injection.at)}</span> <span className="muted small">{s.next_injection.name}, {relative(s.next_injection.at)}</span>
-                </>
-              ) : (
-                <span className="muted">No injection day set.</span>
+            <div className="card">
+              <div className="row between">
+                <h3 style={{ margin: 0 }}>Next injection</h3>
+                <button className="small ghost" onClick={() => { if (!name && s?.next_injection) setName(s.next_injection.name); setSetting((v) => !v); }} aria-expanded={setting}>
+                  {setting ? "Close" : "Set day"}
+                </button>
+              </div>
+              <div style={{ marginTop: 6 }}>
+                {s.next_injection ? (
+                  <>
+                    <span className="big">{fmtDateTime(s.next_injection.at)}</span> <span className="muted small">{s.next_injection.name}, {relative(s.next_injection.at)}</span>
+                  </>
+                ) : (
+                  <span className="muted">No injection day set.</span>
+                )}
+              </div>
+              {setting && (
+                <form
+                  className="row"
+                  style={{ marginTop: 8 }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void saveInjection();
+                  }}
+                >
+                  <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Injection name" style={{ width: 120 }} />
+                  <select value={weekday} onChange={(e) => setWeekday(e.target.value as Weekday)} aria-label="Weekday">
+                    {WEEKDAYS.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                  <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Time" />
+                  <button type="submit" className="small primary" disabled={busy === "injection" || !name.trim()}>
+                    Save
+                  </button>
+                </form>
               )}
             </div>
-            {setting && (
-              <form
-                className="row"
-                style={{ marginTop: 8 }}
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void saveInjection();
-                }}
-              >
-                <input value={name} onChange={(e) => setName(e.target.value)} aria-label="Injection name" style={{ width: 120 }} />
-                <select value={weekday} onChange={(e) => setWeekday(e.target.value as Weekday)} aria-label="Weekday">
-                  {WEEKDAYS.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-                <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Time" />
-                <button type="submit" className="small primary" disabled={busy === "injection" || !name.trim()}>
-                  Save
-                </button>
-              </form>
-            )}
           </div>
         </>
       )}

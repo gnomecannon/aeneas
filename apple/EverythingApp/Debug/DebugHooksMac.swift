@@ -16,17 +16,52 @@ import EACore
 ///   -EAThisMacTest YES         Settings, Machines (with This Mac) in a window of its own; prints the window number.
 ///                              With -EAThisMacSignIn YES its Add machine for this Mac shows, filled in, without
 ///                              opening System Settings, and with -EAScrollTo thisMac This Mac is at the top
-///   -EAMachine <name>          that machine's page in a window of its own; prints the window number
+///   -EAMachine <name>          that machine's page in a window of its own (760x900, or the size -EAWindowSize
+///                              gives); prints the window number
+///   -EAItemWindow <words>      the own screen of the first person, project, list, film, snippet or note whose name
+///                              has the words (or of the item with that id), in a window of its own (its size from
+///                              -EAWindowSize); prints the window number
+///   -EAHealthMetric <name>     that Health measure (weight, sleep, caffeine...) in a window of its own (its size
+///                              from -EAWindowSize); prints the window number
 ///   -EAAppTheme <id>           use that app theme (classic, midnight, paper, ...); -EAAppearance light or dark for Classic
 ///   -EAThemeEditor YES         with -EASection settings -EASettingsPage appColors, the theme editor opens on the theme in use
 ///   -EAOpenItem <id>           an item's sheet opens, as a link to it does
 ///   -EAPrintWindows YES        prints the number of every window of the app (sheets too) once the screen has loaded
-///   -EASettingsWindow <page>   a Settings page (theme, appColors, calendarColors...) in a window of its own
+///   -EASettingsWindow <page>   a Settings page (theme, appColors, calendarColors...) in a window of its own (640x860,
+///                              or the size -EAWindowSize gives)
+///   -EAWideLayouts NO          every screen keeps its narrow layout however wide the window is (WideLayout in
+///                              UI.swift), to compare a wide window with and without the wide layouts
+///   -EAWideFrom <points>       the width a screen is wide from, instead of 1040 (also on the iPhone and iPad)
+///   -EANoteOpen <words>        on Notes in a wide window, the first note whose title has the words opens beside the
+///                              list (NotesView); with -EANoteRelatedSample YES four other notes stand in as its
+///                              related notes, which otherwise come from the hub
+///   -EASearchFor <words>       Search runs for those words when it opens (SearchView), to see what it finds
+///   -EAChatSample YES          the Assistant shows three made-up chats with the first one open (ChatStore), on a
+///                              copy whose hub has none; nothing is kept or sent
+///   -EAQuizTest YES            puts a made-up recall quiz for today and two earlier ones on this copy when it has
+///                              none (as if the hub had sent them: nothing goes to the hub)
+///   -EAProcedureTest YES       puts a made-up procedure of four steps on this copy when it has none (as if the hub
+///                              had sent it: nothing goes to the hub); with -EAProcedureRun YES it also opens, to
+///                              run, in a window of its own (its size from -EAWindowSize) and prints the window number
+/// And one from the environment, so a pairing code is never in the process list:
+///   EA_SETUP_LINK=<setup link> pairs this copy with that link (everythingapp://setup?hub=...&code=...) without asking,
+///                              as Setup does with a first link, and prints "setup link: paired" or what went wrong.
+///                              For a test copy and a throwaway hub: moving to another hub wipes this copy's data.
+/// And two links, for a test copy that is running (`open -g -a <the test copy> <link>`), so a screen can be tested
+/// from a shell with no control of the Mac: the copy does to its own main window what a hand would.
+///   everythingapp://debug/click?x=<points>&y=<points>   a click at that point, counted from the window's top left
+///                                                       corner as in a screenshot at 1x
+///   everythingapp://debug/size?w=<points>&h=<points>    the window takes that size, its top left corner staying put
 /// Screenshots are then taken from outside (screencapture -o -l <window id>), which needs Screen Recording.
 @MainActor
 enum DebugHooksMac {
     static func applyLaunchArguments(_ model: AppModel) async {
         let d = UserDefaults.standard
+        if let raw = ProcessInfo.processInfo.environment["EA_SETUP_LINK"], let url = URL(string: raw), let link = SetupLink.parse(url) {
+            let wrong = await model.connect(link)
+            print("setup link: \(wrong ?? "paired")")
+            fflush(stdout)
+        }
         if d.bool(forKey: "EASample"), !model.isConfigured { await model.startSample() }
         var theme: [String: JSONValue] = [:]
         if let t = d.string(forKey: "EAAppTheme"), !t.isEmpty { theme["app_theme"] = .string(t) }
@@ -64,8 +99,11 @@ enum DebugHooksMac {
         if d.bool(forKey: "EAThisMacTest") {
             Task { await screenWindow(model, title: "Machines", size: NSSize(width: 640, height: 900)) { NavigationStack { MachinesSettingsPage() } } }
         }
+        if d.bool(forKey: "EAProcedureTest") { Task { await procedureSelfTest(model) } }
+        if d.bool(forKey: "EAQuizTest") { Task { await quizSelfTest(model) } }
         if let page = d.string(forKey: "EASettingsWindow").flatMap(SettingsPage.init(rawValue:)) {
-            Task { await screenWindow(model, title: "Settings", size: NSSize(width: 640, height: 860)) { NavigationStack { page.view } } }
+            let size = d.string(forKey: "EAWindowSize").flatMap(parse) ?? NSSize(width: 640, height: 860)
+            Task { await screenWindow(model, title: "Settings", size: size) { NavigationStack { page.view } } }
         }
         if let name = d.string(forKey: "EAMachine"), !name.isEmpty {
             Task {
@@ -73,8 +111,23 @@ enum DebugHooksMac {
                 try? await Task.sleep(for: .seconds(2))
                 await OpsBoardFeed.shared.load(model.engine)
                 await ReadingsFeed.shared.load(model.engine)
-                await screenWindow(model, title: name, size: NSSize(width: 760, height: 900)) { NavigationStack { HostDetailView(host: name) } }
+                let size = d.string(forKey: "EAWindowSize").flatMap(parse) ?? NSSize(width: 760, height: 900)
+                await screenWindow(model, title: name, size: size) { NavigationStack { HostDetailView(host: name) } }
             }
+        }
+        if let words = d.string(forKey: "EAItemWindow")?.lowercased(), !words.isEmpty {
+            let size = d.string(forKey: "EAWindowSize").flatMap(parse) ?? NSSize(width: 760, height: 900)
+            Task {
+                // Once the store is read: the sample's ids differ from one recording to the next, names do not.
+                try? await Task.sleep(for: .seconds(2))
+                let kinds: [Kind] = [.person, .project, .checklist, .film, .snippet, .note]
+                let id = kinds.flatMap { model.engine.list($0) }.first { $0.displayTitle.lowercased().contains(words) }?.id ?? words
+                await screenWindow(model, title: "Item", size: size) { NavigationStack { ItemView(id: id) } }
+            }
+        }
+        if let metric = d.string(forKey: "EAHealthMetric").flatMap(HealthMetric.init(rawValue:)) {
+            let size = d.string(forKey: "EAWindowSize").flatMap(parse) ?? NSSize(width: 760, height: 900)
+            Task { await screenWindow(model, title: metric.title, size: size) { NavigationStack { HealthMetricView(metric: metric) } } }
         }
         guard let size = d.string(forKey: "EAWindowSize").flatMap(parse) else { return }
         try? await Task.sleep(for: .seconds(1))
@@ -83,10 +136,44 @@ enum DebugHooksMac {
         window.center()
     }
 
+    /// `everythingapp://debug/click?x=&y=` and `everythingapp://debug/size?w=&h=`: see the list at the top. The click
+    /// is a mouse press and release handed to the window itself, so it needs no permission and moves no pointer; what
+    /// it reaches is whatever is drawn at that point. Each prints one line on standard output.
+    static func command(_ url: URL) {
+        func say(_ s: String) { print("debug: " + s); fflush(stdout) }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func number(_ name: String) -> Double? { items.first { $0.name == name }?.value.flatMap(Double.init) }
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) else { say("no window"); return }
+        switch url.pathComponents.dropFirst().first {
+        case "click":
+            guard let x = number("x"), let y = number("y") else { say("click needs x and y"); return }
+            // A window counts from its bottom left corner.
+            let at = NSPoint(x: x, y: window.frame.height - y)
+            func send(_ type: NSEvent.EventType) {
+                guard let e = NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else { return }
+                window.sendEvent(e)
+            }
+            send(.leftMouseDown)
+            // The release in a later turn of the run loop, as a hand's is.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                send(.leftMouseUp)
+                say("clicked \(Int(x)),\(Int(y))")
+            }
+        case "size":
+            guard let w = number("w"), let h = number("h") else { say("size needs w and h"); return }
+            let f = window.frame
+            window.setFrame(NSRect(x: f.minX, y: f.maxY - h, width: w, height: h), display: true)
+            say("size \(Int(window.frame.width))x\(Int(window.frame.height))")
+        default:
+            say("unknown command")
+        }
+    }
+
     /// `-EAMenuTest YES` (with `-EASample YES` on a copy that is not set up): the window commands checked from inside
     /// the app, one line each on standard output, so run the binary from a shell. When it says "ready for reopen",
     /// send what a Dock click sends (`open -b <bundle id>`); at "ready for link", open `everythingapp://week` with
-    /// `open -b <bundle id>`.
+    /// `open -b <bundle id>`; at "ready for second link", open `everythingapp://section/tasks` the same way.
     static func menuSelfTest(_ model: AppModel) async {
         func say(_ s: String) { print("menu test: " + s); fflush(stdout) }
         func mains() -> [NSWindow] {
@@ -158,6 +245,11 @@ enum DebugHooksMac {
         say("ready for link")
         let linked = await wait(30) { !mains().isEmpty && model.section == .week }
         say((linked ? "PASS" : "FAIL") + " the link opened the main window on Week (\(mains().count) open, section \(model.section.rawValue))")
+        // A link while the main window is open: the same window shows it. Each link used to open one more.
+        say("ready for second link")
+        let shown = await wait(30) { model.section == .tasks }
+        try? await Task.sleep(for: .seconds(2))
+        say((shown && mains().count == 1 ? "PASS" : "FAIL") + " a link with the window open kept one window (\(mains().count) open, section \(model.section.rawValue))")
         // Settings… again with the window open: the same window, not a second one.
         if let app, let i = app.items.firstIndex(where: { $0.title.hasPrefix("Settings") }) {
             app.performActionForItem(at: i)
@@ -273,6 +365,60 @@ enum DebugHooksMac {
         say("window \(w.windowNumber)")
         try? await Task.sleep(for: .seconds(2))
         say("done")
+    }
+
+    /// `-EAProcedureTest YES`: a procedure to look at on a copy that has none (the sample has none). It is put in
+    /// the local copy as an item from the hub is, under an id of its own, so nothing is queued for the hub. With
+    /// `-EAProcedureRun YES` the procedure opens to run in a window of its own.
+    static func procedureSelfTest(_ model: AppModel) async {
+        try? await Task.sleep(for: .seconds(2))
+        let engine = model.engine
+        var id = engine.list(.procedure).first?.id
+        if id == nil {
+            let text = """
+            1. Snapshot the dataset before touching it
+            ```
+            zfs snapshot tank/scratch@pre-move
+            ```
+            2. Copy the snapshot to the new pool and wait for it to finish
+            ```
+            zfs send tank/scratch@pre-move | zfs receive backup/scratch
+            ```
+            3. Check that both sides list the same snapshot with `zfs list -t snapshot -r backup/scratch`
+            4. Point the nightly job at the new pool and run it once by hand
+            """
+            let steps = Making.stepsFromText(text, host: "nas01")
+            let made = Entity(id: "0f9e8d7c-6b5a-4321-8fed-00000000c001", kind: .procedure, fields: [
+                "title": "Move scratch to the backup pool", "steps": (try? JSONCoding.value(steps)) ?? .array([]), "current": 0
+            ])
+            await engine.absorb(made)
+            id = made.id
+        }
+        guard let id, UserDefaults.standard.bool(forKey: "EAProcedureRun") else { return }
+        let size = UserDefaults.standard.string(forKey: "EAWindowSize").flatMap(parse) ?? NSSize(width: 1100, height: 760)
+        await screenWindow(model, title: "Procedure", size: size) { NavigationStack { ProcedureRunnerView(procedureId: id) } }
+    }
+
+    /// `-EAQuizTest YES`: a recall quiz for today and two earlier ones on a copy that has none, put in the local
+    /// copy as items from the hub are, under ids of their own, so nothing is queued for the hub.
+    static func quizSelfTest(_ model: AppModel) async {
+        try? await Task.sleep(for: .seconds(2))
+        guard model.engine.list(.quiz).isEmpty else { return }
+        func items(_ answered: [QuizResult?]) -> JSONValue {
+            let all = [
+                Making.QuizItem(q: "Which disk goes into the NAS first, and why one at a time?", a: "Any one of the four. A resilver is when a second disk is most likely to fail.", hint: "Think about what RAIDZ2 survives.", topic: "Homelab"),
+                Making.QuizItem(q: "What did the last scrub say about how long a resilver takes?", a: "About 19 hours for the same data, so 20 to 26 hours a disk.", hint: "It read every block once.", topic: "Homelab"),
+                Making.QuizItem(q: "What has Jamie been wanting to try?", a: "A pottery class.", hint: "It is made of clay.", topic: "People")
+            ]
+            let marked = zip(all, answered).map { item, r in var i = item; i.result = r; return i }
+            return (try? JSONCoding.value(marked)) ?? .array([])
+        }
+        let day = { (back: Int) in Making.localDay(Date().addingTimeInterval(-86400 * Double(back))) }
+        await model.engine.absorb([
+            Entity(id: "0f9e8d7c-6b5a-4321-8fed-00000000d001", kind: .quiz, fields: ["date": .string(day(0)), "items": items([nil, nil, nil])]),
+            Entity(id: "0f9e8d7c-6b5a-4321-8fed-00000000d002", kind: .quiz, fields: ["date": .string(day(1)), "items": items([.right, .right, .revealed])]),
+            Entity(id: "0f9e8d7c-6b5a-4321-8fed-00000000d003", kind: .quiz, fields: ["date": .string(day(2)), "items": items([.right, .wrong, .right])])
+        ])
     }
 
     /// One screen in a window of its own, with its toolbar on the window as in the app, for a screenshot: prints the

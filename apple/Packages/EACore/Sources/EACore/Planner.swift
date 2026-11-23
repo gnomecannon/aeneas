@@ -129,7 +129,7 @@ public enum LocalPlanner {
         }
         var busy: [(Date, Date)] = []
         for b in blocks { if let s = ISO.date(b.start), let e = ISO.date(b.end) { busy.append((s, e)) } }
-        for c in commitments where c.type != .preference { if let s = ISO.date(c.start), let e = ISO.date(c.end) { busy.append((s, e)) } }
+        for c in commitments where c.type.takesTime { if let s = ISO.date(c.start), let e = ISO.date(c.end) { busy.append((s, e)) } }
         for ev in events where ev.kind == .event && !ev.isDeleted && !(ev.bool("all_day") ?? false) {
             if let s = ev.date("start"), let e = ev.date("end") { busy.append((s, e)) }
         }
@@ -292,7 +292,7 @@ extension SyncEngine {
         for b in day.blocks where b.task_id != taskId {
             if let s = ISO.date(b.start), let e = ISO.date(b.end), s < end, e > start { return PlannerConflict(kind: "block", title: b.title, start: b.start, end: b.end, task_id: b.task_id) }
         }
-        for c in day.commitments where c.type != .preference {
+        for c in day.commitments where c.type.takesTime {
             if let s = ISO.date(c.start), let e = ISO.date(c.end), s < end, e > start { return PlannerConflict(kind: c.type.rawValue, title: c.title, start: c.start, end: c.end, rule_id: c.rule_id) }
         }
         for ev in day.events where !(ev.bool("all_day") ?? false) {

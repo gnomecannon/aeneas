@@ -183,7 +183,7 @@ export function Memory() {
               </button>
             </h3>
             {open && (
-            <div className="col" style={{ marginTop: 8 }}>
+            <div className="fact-rows" style={{ marginTop: 8 }}>
               {items.map((f) => {
                 const x = f.fields as FactF;
                 return (

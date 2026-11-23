@@ -27,6 +27,7 @@ import {
   parseLocalDate,
   reminderOnDate,
   spanOf,
+  takesTime,
   watchesDueSoon,
   type Block,
   type Conflict,
@@ -57,7 +58,7 @@ export async function localConflict(taskId: string, span: Span): Promise<Conflic
   for (const e of events) if (e.fields.all_day !== true) busy.push({ kind: "event", title: String(e.fields.title ?? ""), ...spanOf(e) });
   // Times are compared as moments: an event can keep its offset while blocks and rules are in UTC.
   for (let d = parseLocalDate(localDate(new Date(span.start))); d.getTime() < Date.parse(span.end); d = addDays(d, 1))
-    for (const c of commitmentsFor(rules, d)) if (c.type !== "preference") busy.push({ kind: c.type === "blackout" ? "blackout" : "commitment", title: c.title, start: c.start, end: c.end });
+    for (const c of commitmentsFor(rules, d)) if (takesTime(c)) busy.push({ kind: c.type === "blackout" ? "blackout" : "commitment", title: c.title, start: c.start, end: c.end });
   return findConflict(span, busy.sort(byStart));
 }
 
@@ -128,7 +129,7 @@ function dayFrom(date: Date, tasks: Entity[], events: Entity[], rules: Entity[],
   const rems = reminders.filter((r) => reminderOnDate(r, date)).sort((a, b) => ((taskAlertAt(a.fields) ?? "") < (taskAlertAt(b.fields) ?? "") ? -1 : 1));
   const ds = localDate(date);
   const watches_due = watches.filter((w) => w.fields.due && localDate(parseDue(String(w.fields.due))) === ds);
-  const busy: Span[] = [...blocks, ...evs.filter((e) => e.fields.all_day !== true).map(spanOf), ...commitments.filter((c) => c.type !== "preference")];
+  const busy: Span[] = [...blocks, ...evs.filter((e) => e.fields.all_day !== true).map(spanOf), ...commitments.filter(takesTime)];
   return { date: ds, blocks, events: evs, commitments, reminders: rems, watches_due, free_slots: freeSlots(date, busy, minHours) };
 }
 

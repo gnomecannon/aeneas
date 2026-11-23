@@ -21,6 +21,7 @@ import type { Entity } from "@everythingapp/shared";
 import { currentLedger } from "../lib/ledger";
 import { chatsGone } from "../lib/chats";
 import { ASSISTANT_DRAFT_KEY } from "../lib/reference";
+import { useMediaQuery } from "../lib/useMediaQuery";
 
 type ChatMeta = { reply: string; model: string; backend: string; redactions: number; rules_applied: string[]; procedure_id?: string; mode?: string; actions?: { tool: string; ok: boolean; writes: boolean }[]; pending_action?: PendingAction; images?: string[] };
 
@@ -349,6 +350,8 @@ function Working({ status, since }: { status: string; since: number }) {
 }
 
 export function Assistant({ id }: { id?: string }) {
+  // From this width the chats are a list beside the open one (styles.css `.assistant.with-chats`).
+  const wide = useMediaQuery("(min-width: 1300px)");
   const loaded = useLiveQuery(() => db.sessions.orderBy("updated_at").reverse().toArray(), []);
   const sessions = loaded ?? [];
   const session = sessions.find((s) => s.id === id);
@@ -577,12 +580,29 @@ export function Assistant({ id }: { id?: string }) {
   const ledger = ledgerEntity?.fields as LedgerF | undefined;
   const showLedger = !!ledgerEntity || session?.task_type === "troubleshoot";
 
+  const talks = sessions.filter((s) => !s.id.startsWith("capture-"));
+  const filings = sessions.filter((s) => s.id.startsWith("capture-"));
+
   return (
-    <div className={showLedger ? "split" : ""} style={{ gridTemplateColumns: showLedger ? "1fr 260px" : undefined }}>
-      <div>
+    <div className={`assistant${wide ? " with-chats" : ""}${showLedger ? " with-ledger" : ""}`}>
+      {/* A wide window keeps the chats in sight beside the one that is open, instead of behind a menu. */}
+      {wide && (
+        <nav className="chats-side" aria-label="Chats">
+          <button className="small" onClick={() => void create()} disabled={busy}>New chat</button>
+          {talks.map((s) => (
+            <a key={s.id} href={`#/assistant/${s.id}`} className={s.id === id ? "on" : ""} aria-current={s.id === id ? "page" : undefined} title={s.title}>{s.title}</a>
+          ))}
+          {filings.length > 0 && <h3>Captures</h3>}
+          {filings.map((s) => (
+            <a key={s.id} href={`#/assistant/${s.id}`} className={s.id === id ? "on" : ""} aria-current={s.id === id ? "page" : undefined} title={s.title}>{s.title.replace(/^Capture: /, "")}</a>
+          ))}
+          {!sessions.length && <span className="muted small">No chats yet.</span>}
+        </nav>
+      )}
+      <div className="chat-main">
         <div className="row between" style={{ marginBottom: 10 }}>
           <div className="row">
-            <select value={id ?? ""} onChange={(e) => go(`/assistant/${e.target.value}`)} style={{ width: "auto", maxWidth: 260 }} aria-label="Chat">
+            <select value={id ?? ""} onChange={(e) => go(`/assistant/${e.target.value}`)} style={{ width: "auto", maxWidth: 260 }} aria-label="Chat" hidden={wide}>
               {!session && <option value="">no chat</option>}
               {/* Conversations first; each capture's filing chat under its own heading, so they do not crowd them out. */}
               {sessions.filter((s) => !s.id.startsWith("capture-")).map((s) => (
@@ -600,9 +620,11 @@ export function Assistant({ id }: { id?: string }) {
                 </optgroup>
               )}
             </select>
-            <button className="small" onClick={() => void create()} disabled={busy}>
-              New chat
-            </button>
+            {!wide && (
+              <button className="small" onClick={() => void create()} disabled={busy}>
+                New chat
+              </button>
+            )}
             {/* Erasing every chat sits two menus deep and asks again, well away from erasing the open one. */}
             {sessions.length > 0 && (
               <Dropdown label="All chats">

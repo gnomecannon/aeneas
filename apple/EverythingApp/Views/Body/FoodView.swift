@@ -26,9 +26,11 @@ struct FoodView: View {
 
     var body: some View {
         let opts = options
-        List {
+        // A wide window: the pick on the left, the options it picks from on the right, each a list of its own
+        // (SplitList).
+        SplitList {
             SwiftUI.Section { pickCard } header: { Text("What to eat") }
-
+        } second: {
             SwiftUI.Section {
                 if opts.isEmpty {
                     Text("No food options yet. Tap + to add the places and meals you like, then Pick for me.")

@@ -14,10 +14,15 @@ struct WikiView: View {
     @State private var hits: [WikiSearchHit] = []
     @State private var searched = ""
     @State private var opened: WikiOpen?
+    /// Whether the pages are beside the open page just now (a wide window with a wiki to show), as the layout last
+    /// said: a page then opens beside the list, not over it.
+    @State private var beside = false
 
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
-    var body: some View {
+    /// The pages by project and source, or what a search found. `marks` is the list beside the open page in a wide
+    /// window: the page open there is marked.
+    private func pageList(marks: Bool) -> some View {
         List {
             if let problem { Text(problem).font(.callout).foregroundStyle(.dangerText) }
             if searching {
@@ -30,11 +35,55 @@ struct WikiView: View {
                             ForEach(sp.pages) { p in
                                 Button { opened = WikiOpen(id: p.id, title: p.title) } label: { WikiPageRow(page: p) }
                                     .buttonStyle(.plain)
+                                    .listRowBackground(marks && opened?.id == p.id ? Color.secondary.opacity(0.18) : nil)
+                                    .accessibilityAddTraits(marks && opened?.id == p.id ? .isSelected : [])
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    var body: some View {
+        // A wide window with a wiki to show: the pages stay a list, 360 points wide, and the page you click opens
+        // beside it instead of over it, so the rest of the window is the page (its text still at most 900 points
+        // wide). A link from that page to another wiki page opens it in the same place. The list keeps its search.
+        // On a narrow one, and while there is no wiki yet, it is the one list as before, and a page opens over it.
+        WideReader { wide in
+            // Side by side also while the pages are still being read. The one list is for a hub with no wiki, and
+            // for no wiki to show at all (no hub, or a hub that cannot be read and no earlier copy): the list then
+            // holds only the sentence that says so.
+            let twoPanes = wide && index?.sources.isEmpty != true && !(index == nil && problem != nil)
+            Group {
+                if twoPanes {
+                    HStack(spacing: 0) {
+                        pageList(marks: true).frame(width: 360)
+                        Divider()
+                        // A ZStack, not a Group: with nothing in it (the pages are still being read) a Group is no
+                        // view at all, so the frame below stretched nothing, the row was only as wide as the list,
+                        // and the list stood in the middle of the window with the system's background beside it.
+                        ZStack {
+                            if let page = opened {
+                                // A new reader for each page: what it holds is that page's own text.
+                                WikiPageView(id: page.id, title: page.title, onOpen: { opened = $0 }).id(page.id)
+                            } else if index != nil {
+                                EmptyState(text: "Choose a page to read it here")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                } else {
+                    pageList(marks: false)
+                }
+            }
+            .onChange(of: twoPanes, initial: true) { _, now in beside = now }
+        }
+        // One page is open at a time, wherever it shows. Over the list only while the pages are not beside it: a
+        // page asked for by a link before the screen knew its width opened over the list, and when the layout
+        // became two panes a moment later it was closed and forgotten. Now it stays open and moves beside the list.
+        .navigationDestination(item: Binding(get: { beside ? nil : opened }, set: { if !beside { opened = $0 } })) {
+            WikiPageView(id: $0.id, title: $0.title)
         }
         .overlay {
             if !searching, let index, index.sources.isEmpty {
@@ -45,7 +94,6 @@ struct WikiView: View {
         }
         .searchable(text: $query, prompt: "Search the wiki")
         .navigationTitle("Wiki")
-        .navigationDestination(item: $opened) { WikiPageView(id: $0.id, title: $0.title) }
         .task(id: query) { await search() }
         .task { await load() }
         .refreshable { await load() }
@@ -187,6 +235,9 @@ struct WikiPageView: View {
     var id: String
     /// Known from the list, so the bar has a title before the page arrives.
     var title = ""
+    /// Set while the page is open beside the wiki's list in a wide window: a link to another wiki page is handed
+    /// back to open in the same place, and the screen is still the Wiki.
+    var onOpen: ((WikiOpen) -> Void)? = nil
     @State private var page: WikiPage?
     @State private var blocks: [WikiBlock] = []
     @State private var problem: String?
@@ -210,7 +261,7 @@ struct WikiPageView: View {
             .frame(maxWidth: .infinity)
         }
         .environment(\.openURL, OpenURLAction { open($0) })
-        .navigationTitle(page?.title ?? (title.isEmpty ? "Page" : title))
+        .navigationTitle(onOpen != nil ? "Wiki" : page?.title ?? (title.isEmpty ? "Page" : title))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -240,7 +291,11 @@ struct WikiPageView: View {
 
     /// Wiki links stay in the wiki, saved files open in a sheet, anchors and bare paths do nothing, the rest leave.
     private func open(_ url: URL) -> OpenURLAction.Result {
-        if let id = WikiLink.pageId(url) { next = WikiOpen(id: id, title: WikiCache.title(of: id) ?? ""); return .handled }
+        if let id = WikiLink.pageId(url) {
+            let to = WikiOpen(id: id, title: WikiCache.title(of: id) ?? "")
+            if let onOpen { onOpen(to) } else { next = to }
+            return .handled
+        }
         if url.scheme == nil {
             if WikiLink.isMedia(url.relativeString) { media = WikiOpen(id: url.relativeString) }
             return .handled

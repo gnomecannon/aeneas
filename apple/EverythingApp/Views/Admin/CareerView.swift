@@ -19,9 +19,15 @@ struct CareerView: View {
 
     private var apps: [Entity] { engine.list(.application) }
 
-    var body: some View {
-        let apps = self.apps
-        let closed = AdminStage.closed.flatMap { AdminBoard.column(apps, $0) }
+    /// The closed stages that hold something, with how many: "rejected 2, withdrawn 1".
+    private func closedLine(_ apps: [Entity]) -> String {
+        "Closed: " + AdminStage.closed.compactMap { s in
+            let n = AdminBoard.column(apps, s).count
+            return n > 0 ? "\(s.rawValue) \(n)" : nil
+        }.joined(separator: ", ")
+    }
+
+    private func list(_ apps: [Entity], closed: [Entity]) -> some View {
         List {
             if let f = AdminBoard.followUps(apps).first {
                 SwiftUI.Section("Next follow-up") {
@@ -49,13 +55,80 @@ struct CareerView: View {
                     DisclosureGroup(isExpanded: $showClosed) {
                         ForEach(closed) { a in row(a) }
                     } label: {
-                        Text("Closed: " + AdminStage.closed.compactMap { s in
-                            let n = AdminBoard.column(apps, s).count
-                            return n > 0 ? "\(s.rawValue) \(n)" : nil
-                        }.joined(separator: ", "))
+                        Text(closedLine(apps))
                     }
                 }
             }
+        }
+    }
+
+    /// An application as a card of the wide window's grid: a click opens it, the right-click menu moves it to
+    /// another stage or deletes it.
+    private func card(_ a: Entity) -> some View {
+        NavigationLink { AdminApplicationDetail(id: a.id) } label: { AdminApplicationRow(app: a).gridCard() }
+            .buttonStyle(.plain)
+            .contextMenu { menu(a) }
+    }
+
+    /// A wide Mac window: the next follow-up on a card at the top, then the five open stages side by side as a
+    /// pipeline, each a column of cards under its name and count, in as many columns as fit at 300 points each (3
+    /// across a screen of 1040 points, all 5 across a 1920 window; with fewer, the later stages go under the first
+    /// ones). Every stage keeps its column whether or not it holds anything, so nothing changes place when an
+    /// application moves on. The closed ones are under their line, which still opens and closes them. Moving an
+    /// application to another stage and Delete are in the right-click menu (on a narrow window they are swipes
+    /// too).
+    private func cards(_ apps: [Entity], closed: [Entity]) -> some View {
+        WidePage {
+            if let f = AdminBoard.followUps(apps).first {
+                WideSection("Next follow-up") {
+                    CardGrid(minWidth: 400) {
+                        NavigationLink { AdminApplicationDetail(id: f.id) } label: { followUpRow(f).gridCard() }
+                            .buttonStyle(.plain)
+                    }
+                }
+            }
+            AdaptiveColumns(minWidth: 300, maxColumns: AdminStage.active.count, spacing: WideLayout.gap) {
+                ForEach(AdminStage.active) { stage in
+                    let items = AdminBoard.column(apps, stage)
+                    WideSection {
+                        HStack(spacing: 8) {
+                            Label(stage.title, systemImage: stage.symbol).foregroundStyle(stage.tone.text(else: stage.color))
+                            Text("\(items.count)").monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        // One height for every stage's name: their symbols differ, and the cards under them
+                        // would start a point or two apart.
+                        .frame(height: 22)
+                    } content: {
+                        if items.isEmpty {
+                            Text("None").font(.callout).foregroundStyle(.secondary)
+                        } else {
+                            VStack(spacing: WideLayout.gap) {
+                                // As tall as its words: a card otherwise shares out the column's height.
+                                ForEach(items) { a in card(a).fixedSize(horizontal: false, vertical: true) }
+                            }
+                        }
+                    }
+                    // Room under a column when the stages are in more than one row.
+                    .padding(.bottom, 10)
+                }
+            }
+            if !closed.isEmpty {
+                DisclosureGroup(isExpanded: $showClosed) {
+                    CardGrid(minWidth: 360) { ForEach(closed) { a in card(a) } }
+                        .padding(.top, 8)
+                } label: {
+                    Text(closedLine(apps)).font(.headline)
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        let apps = self.apps
+        let closed = AdminStage.closed.flatMap { AdminBoard.column(apps, $0) }
+        // The rows are swiped to move or delete an application, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide { cards(apps, closed: closed) } else { list(apps, closed: closed) }
         }
         .overlay {
             if apps.isEmpty {
@@ -117,14 +190,18 @@ struct CareerView: View {
                     Button { setStage(a, .rejected) } label: { Label("Rejected", systemImage: AdminStage.rejected.symbol) }.tint(.red)
                 }
             }
-            .contextMenu {
-                Menu("Move to") {
-                    ForEach(AdminStage.allCases) { s in
-                        Button { setStage(a, s) } label: { Label(s.title, systemImage: s.symbol) }.disabled(s == stage)
-                    }
-                }
-                Button(role: .destructive) { deleting = a } label: { Label("Delete", systemImage: "trash") }
+            .contextMenu { menu(a) }
+    }
+
+    /// The right-click menu of an application: another stage for it, or Delete.
+    @ViewBuilder private func menu(_ a: Entity) -> some View {
+        let stage = AdminStage.of(a)
+        Menu("Move to") {
+            ForEach(AdminStage.allCases) { s in
+                Button { setStage(a, s) } label: { Label(s.title, systemImage: s.symbol) }.disabled(s == stage)
             }
+        }
+        Button(role: .destructive) { deleting = a } label: { Label("Delete", systemImage: "trash") }
     }
 
     private func setStage(_ a: Entity, _ s: AdminStage) {

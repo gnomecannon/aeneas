@@ -270,7 +270,7 @@ function RecentActivity({ things, monitors }: { things: Thing[]; monitors: OpsMo
     return historyItems({ journal, incidents, runbooks, hostOf });
   }, [journal, incidents, runbooks, things, monitors]);
   return (
-    <section className="card" style={{ marginTop: 20 }}>
+    <section className="card activity" style={{ marginTop: 20 }}>
       <div className="row between">
         <h2 style={{ margin: 0 }}>Recent activity</h2>
         <span className="row small">

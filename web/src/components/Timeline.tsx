@@ -1,4 +1,4 @@
-import type { TimelineItem } from "../lib/planner";
+import { wholeDay, type TimelineItem } from "../lib/planner";
 import { fmtTime } from "../lib/time";
 import { linkFor } from "../lib/links";
 import { useFeel } from "../feel/store";
@@ -12,6 +12,9 @@ import { eventColorStyle } from "../lib/eventColor";
 export function Timeline({ items, onSchedule, onUnschedule, scheduleLabel = "Schedule here" }: { items: TimelineItem[]; onSchedule?: (start: string, hours: number) => void; onUnschedule?: (taskId: string) => void; scheduleLabel?: string }) {
   const feel = useFeel();
   if (!items.length) return <div className="muted small">Nothing planned.</div>;
+  // Only a day that holds now has a past: on another day (Week on a phone) nothing is marked as over.
+  const nowAt = items.find((it) => it.kind === "now")?.start;
+  const past = (end: string) => (nowAt && Date.parse(end) <= Date.parse(nowAt) ? " past" : "");
   return (
     <div className="timeline">
       {items.map((it) => {
@@ -25,7 +28,7 @@ export function Timeline({ items, onSchedule, onUnschedule, scheduleLabel = "Sch
             );
           case "reminder":
             return (
-              <div key={it.key} className="tl-item reminder">
+              <div key={it.key} className={`tl-item reminder${past(it.start)}`}>
                 <span className="time">{fmtTime(it.start)}</span>
                 <span>
                   <span className="dot" aria-hidden="true" /> <a href={linkFor("reminder", it.id)}>{it.title}</a>
@@ -34,7 +37,7 @@ export function Timeline({ items, onSchedule, onUnschedule, scheduleLabel = "Sch
             );
           case "block":
             return (
-              <div key={it.key} className={`tl-item block ${it.status}`}>
+              <div key={it.key} className={`tl-item block ${it.status}${past(it.end)}`}>
                 <span className="time">
                   {fmtTime(it.start)}
                   <br />
@@ -57,11 +60,16 @@ export function Timeline({ items, onSchedule, onUnschedule, scheduleLabel = "Sch
             );
           case "commitment":
             return (
-              <div key={it.key} className={`tl-item ${it.type}`}>
+              <div key={it.key} className={`tl-item ${it.type}${past(it.end)}`}>
                 <span className="time">
-                  {fmtTime(it.start)}
-                  <br />
-                  {fmtTime(it.end)}
+                  {/* A rule for the whole day (a custody week) read "12:00 AM 12:00 AM". */}
+                  {wholeDay(it) ? "All day" : (
+                    <>
+                      {fmtTime(it.start)}
+                      <br />
+                      {fmtTime(it.end)}
+                    </>
+                  )}
                 </span>
                 <span className="body">
                   <span className="t">{it.title}</span>
@@ -71,7 +79,7 @@ export function Timeline({ items, onSchedule, onUnschedule, scheduleLabel = "Sch
             );
           case "event":
             return (
-              <div key={it.key} className="tl-item event" style={it.fields ? eventColorStyle(it.fields, feel.calendars) : undefined}>
+              <div key={it.key} className={`tl-item event${it.all_day ? "" : past(it.end)}`} style={it.fields ? eventColorStyle(it.fields, feel.calendars) : undefined}>
                 <span className="time">
                   {it.all_day ? "All day" : (
                     <>

@@ -110,6 +110,23 @@ final class ScreensReviewTests: XCTestCase {
         XCTAssertEqual(engine.get(w.id)!.str("due"), first)
     }
 
+    // An info rule (a custody week) is a note on the day: the hub gives it no time, and Plan rules says "nothing is
+    // blocked". With the hub out of reach the whole day read as taken: no free time, and a block was refused.
+    func testOfflineInfoRuleTakesNoTime() async throws {
+        let engine = try makeEngine()
+        let cal = Calendar.current
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date()))!
+        let clear = engine.localDay(tomorrow).free_slots
+        XCTAssertFalse(clear.isEmpty)
+        _ = await engine.create(kind: .plan_rule, fields: ["title": "Pepper weeks", "type": "info", "days": .array(Weekday.allCases.map { .string($0.rawValue) }), "start": "00:00", "end": "24:00"])
+        let day = engine.localDay(tomorrow)
+        XCTAssertEqual(day.commitments.map(\.title), ["Pepper weeks"], "it is still shown")
+        XCTAssertEqual(day.free_slots, clear)
+        let t = await engine.createTask(title: "Read", status: .next)!
+        _ = try await engine.schedule(taskId: t.id, start: LocalPlanner.time(on: tomorrow, hhmm: "14:00")!, hours: 1)
+        XCTAssertEqual(engine.get(t.id)?.str("status"), "scheduled")
+    }
+
     // Offline unschedule made a doing task next; the hub keeps doing (and done).
     func testOfflineUnscheduleKeepsDoingTask() async throws {
         let engine = try makeEngine()

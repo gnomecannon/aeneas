@@ -15,81 +15,8 @@ struct SettingsView: View {
     @ObservedObject private var helpers = HelpersStore.shared
 
     var body: some View {
-        List {
-            // First, for someone helped by family: it is the page they may be told to open.
-            if let summary = helpers.view?.summary {
-                SwiftUI.Section {
-                    NavigationLink { HelpersSettingsView() } label: {
-                        SettingsRow(title: "People who help you", symbol: "person.2.wave.2", summary: summary)
-                    }
-                }
-                .themedRow()
-            }
-            SwiftUI.Section {
-                NavigationLink { ThemeSettingsView() } label: {
-                    SettingsRow(title: "Theme", symbol: "paintpalette", summary: themeSummary)
-                }
-                NavigationLink { ConnectionSettingsView() } label: {
-                    SettingsRow(title: "Connection", symbol: "network", summary: connectionSummary,
-                                warning: !engine.rejectedEdits.isEmpty || engine.lastError != nil)
-                }
-                NavigationLink { ConnectionsSettingsView() } label: {
-                    SettingsRow(title: "Connections", symbol: "link", summary: connectionsSummary)
-                }
-                NavigationLink { ImportSettingsView() } label: {
-                    SettingsRow(title: "Bring your data in", symbol: "tray.and.arrow.down", summary: "ChatGPT, Google Takeout, Obsidian and other notes, text")
-                }
-                NavigationLink { ModulesSettingsView() } label: {
-                    SettingsRow(title: "Modules", symbol: "square.grid.3x3.square", summary: modulesSummary)
-                }
-                if model.isOn(.homelab) {
-                    NavigationLink { MachinesSettingsPage() } label: {
-                        SettingsRow(title: "Machines", symbol: "desktopcomputer", summary: machinesSummary)
-                    }
-                }
-                if let machinePeople {
-                    NavigationLink { MachinePeopleView() } label: {
-                        SettingsRow(title: "People on this machine", symbol: "person.2.badge.plus", summary: machinePeople)
-                    }
-                }
-                NavigationLink { PrivacySettingsView() } label: {
-                    SettingsRow(title: "Privacy on this device", symbol: "hand.raised", summary: PrivacySettingsView.summary)
-                }
-                NavigationLink { NotificationSettingsView(status: $notifStatus) } label: {
-                    SettingsRow(title: "Notifications", symbol: "bell.badge", summary: notificationsSummary)
-                }
-                if model.isOn(.contacts) {
-                    NavigationLink { PeopleSettingsView() } label: {
-                        SettingsRow(title: "People", symbol: "person.2", summary: UserDefaults.standard.bool(forKey: ContactsSync.enabledKey) ? "Syncing Apple Contacts" : "Contacts sync off")
-                    }
-                }
-                if model.isOn(.images) {
-                    NavigationLink { ImageSettingsView() } label: {
-                        SettingsRow(title: "Images", symbol: "photo.on.rectangle", summary: ImageSettingsView.summary)
-                    }
-                }
-                if model.isOn(.reference) {
-                    NavigationLink { ReferenceSettingsView() } label: {
-                        ReferenceSettingsRow()
-                    }
-                }
-            }
-            .themedRow()
-            SwiftUI.Section {
-                NavigationLink { CalendarWorkSettingsView() } label: {
-                    SettingsRow(title: "Calendar and work", symbol: "briefcase", summary: calendarSummary)
-                }
-                NavigationLink(value: Section.planRules) {
-                    SettingsRow(title: "Planner", symbol: "calendar.badge.clock", summary: plannerSummary)
-                }
-            }
-            .themedRow()
-            SwiftUI.Section {
-                NavigationLink { AboutSettingsView() } label: {
-                    SettingsRow(title: "About", symbol: "info.circle", summary: "\(model.platform.rawValue), version \(Self.version)")
-                }
-            }
-            .themedRow()
+        WideReader { wide in
+            if wide { cards } else { list }
         }
         .formStyle(.grouped)
         .themedScreen()
@@ -111,6 +38,107 @@ struct SettingsView: View {
     }
 
     static var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?" }
+
+    private var list: some View {
+        List {
+            // First, for someone helped by family: it is the page they may be told to open.
+            if let summary = helpers.view?.summary {
+                SwiftUI.Section { helpersLink(summary, card: false) }
+                    .themedRow()
+            }
+            SwiftUI.Section { mainLinks(card: false) }
+                .themedRow()
+            SwiftUI.Section { planLinks(card: false) }
+                .themedRow()
+            SwiftUI.Section { aboutLink(card: false) }
+                .themedRow()
+        }
+    }
+
+    /// A wide window: the same groups one under the other, each a grid of cards, as many across as fit (3 across a
+    /// screen of 1040 points, 5 across a 1920 window), in the list's order. A card opens its screen as a row does.
+    private var cards: some View {
+        WidePage {
+            if let summary = helpers.view?.summary {
+                CardGrid { helpersLink(summary, card: true) }
+            }
+            CardGrid { mainLinks(card: true) }
+            CardGrid { planLinks(card: true) }
+            CardGrid { aboutLink(card: true) }
+        }
+    }
+
+    @ViewBuilder private func helpersLink(_ summary: String, card: Bool) -> some View {
+        SettingsAreaLink(card: card) { HelpersSettingsView() } label: {
+            SettingsRow(title: "People who help you", symbol: "person.2.wave.2", summary: summary)
+        }
+    }
+
+    @ViewBuilder private func mainLinks(card: Bool) -> some View {
+        SettingsAreaLink(card: card) { ThemeSettingsView() } label: {
+            SettingsRow(title: "Theme", symbol: "paintpalette", summary: themeSummary)
+        }
+        SettingsAreaLink(card: card) { ConnectionSettingsView() } label: {
+            SettingsRow(title: "Connection", symbol: "network", summary: connectionSummary,
+                        warning: !engine.rejectedEdits.isEmpty || engine.lastError != nil)
+        }
+        SettingsAreaLink(card: card) { ConnectionsSettingsView() } label: {
+            SettingsRow(title: "Connections", symbol: "link", summary: connectionsSummary)
+        }
+        SettingsAreaLink(card: card) { ImportSettingsView() } label: {
+            SettingsRow(title: "Bring your data in", symbol: "tray.and.arrow.down", summary: "ChatGPT, Google Takeout, Obsidian and other notes, text")
+        }
+        SettingsAreaLink(card: card) { ModulesSettingsView() } label: {
+            SettingsRow(title: "Modules", symbol: "square.grid.3x3.square", summary: modulesSummary)
+        }
+        if model.isOn(.homelab) {
+            SettingsAreaLink(card: card) { MachinesSettingsPage() } label: {
+                SettingsRow(title: "Machines", symbol: "desktopcomputer", summary: machinesSummary)
+            }
+        }
+        if let machinePeople {
+            SettingsAreaLink(card: card) { MachinePeopleView() } label: {
+                SettingsRow(title: "People on this machine", symbol: "person.2.badge.plus", summary: machinePeople)
+            }
+        }
+        SettingsAreaLink(card: card) { PrivacySettingsView() } label: {
+            SettingsRow(title: "Privacy on this device", symbol: "hand.raised", summary: PrivacySettingsView.summary)
+        }
+        SettingsAreaLink(card: card) { NotificationSettingsView(status: $notifStatus) } label: {
+            SettingsRow(title: "Notifications", symbol: "bell.badge", summary: notificationsSummary)
+        }
+        if model.isOn(.contacts) {
+            SettingsAreaLink(card: card) { PeopleSettingsView() } label: {
+                SettingsRow(title: "People", symbol: "person.2", summary: UserDefaults.standard.bool(forKey: ContactsSync.enabledKey) ? "Syncing Apple Contacts" : "Contacts sync off")
+            }
+        }
+        if model.isOn(.images) {
+            SettingsAreaLink(card: card) { ImageSettingsView() } label: {
+                SettingsRow(title: "Images", symbol: "photo.on.rectangle", summary: ImageSettingsView.summary)
+            }
+        }
+        if model.isOn(.reference) {
+            SettingsAreaLink(card: card) { ReferenceSettingsView() } label: {
+                ReferenceSettingsRow()
+            }
+        }
+    }
+
+    @ViewBuilder private func planLinks(card: Bool) -> some View {
+        SettingsAreaLink(card: card) { CalendarWorkSettingsView() } label: {
+            SettingsRow(title: "Calendar and work", symbol: "briefcase", summary: calendarSummary)
+        }
+        NavigationLink(value: Section.planRules) {
+            SettingsRow(title: "Planner", symbol: "calendar.badge.clock", summary: plannerSummary).gridCard(if: card)
+        }
+        .settingsLinkStyle(card: card)
+    }
+
+    @ViewBuilder private func aboutLink(card: Bool) -> some View {
+        SettingsAreaLink(card: card) { AboutSettingsView() } label: {
+            SettingsRow(title: "About", symbol: "info.circle", summary: "\(model.platform.rawValue), version \(Self.version)")
+        }
+    }
 
     private var themeSummary: String {
         let s = feel.settings
@@ -201,6 +229,25 @@ enum SettingsPage: String, Hashable, Identifiable {
         case .reference: ReferenceSettingsView()
         case .helpers: HelpersSettingsView()
         }
+    }
+}
+
+/// One area of Settings, opening its screen: a row of the list, or a card in the wide window's grid.
+struct SettingsAreaLink<Destination: View, Label: View>: View {
+    var card: Bool
+    @ViewBuilder var destination: () -> Destination
+    @ViewBuilder var label: () -> Label
+
+    var body: some View {
+        NavigationLink(destination: destination) { label().gridCard(if: card) }
+            .settingsLinkStyle(card: card)
+    }
+}
+
+extension View {
+    /// A link drawn as a card has no button look of its own; a list row keeps the list's.
+    @ViewBuilder func settingsLinkStyle(card: Bool) -> some View {
+        if card { buttonStyle(.plain) } else { self }
     }
 }
 

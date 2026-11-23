@@ -15,24 +15,50 @@ struct PeopleView: View {
     }
 
     var body: some View {
-        List {
-            ForEach(shown) { p in
-                NavigationLink { PersonDetailView(personId: p.id) } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(p.str("name")).font(.body)
-                        let sub = [p.str("relationship"), p.str("organization")].filter { !$0.isEmpty }.joined(separator: ", ")
-                        if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary) }
-                    }
-                }
-                .deleteSwipe(p.id, label: "Remove")
-            }
+        // The rows are swiped to remove someone, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide { cards } else { list }
         }
-        .listStyle(.plain)
         .overlay { if shown.isEmpty { EmptyState(text: query.isEmpty ? "No people yet. Turn on Sync Apple Contacts in Settings, People." : "No matches") } }
         .searchable(text: $query, prompt: "Search people")
         .navigationTitle("People")
         .toolbar { ToolbarItem(placement: .primaryAction) { Button { adding = true } label: { Label("Add", systemImage: "plus") } } }
         .sheet(isPresented: $adding) { PersonEditView(personId: nil) }
+    }
+}
+
+extension PeopleView {
+    /// One name with how you know them under it: a row of the list, and a card's words.
+    private func name(_ p: Entity) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(p.str("name")).font(.body)
+            let sub = [p.str("relationship"), p.str("organization")].filter { !$0.isEmpty }.joined(separator: ", ")
+            if !sub.isEmpty { Text(sub).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    private var list: some View {
+        List {
+            ForEach(shown) { p in
+                NavigationLink { PersonDetailView(personId: p.id) } label: { name(p) }
+                    .deleteSwipe(p.id, label: "Remove")
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    /// A wide Mac window: a card for each person, as many across as fit, in the list's order. A click opens the
+    /// person; Remove is in the right-click menu, as on a row.
+    private var cards: some View {
+        WidePage {
+            CardGrid {
+                ForEach(shown) { p in
+                    NavigationLink { PersonDetailView(personId: p.id) } label: { name(p).gridCard() }
+                        .buttonStyle(.plain)
+                        .deleteSwipe(p.id, label: "Remove")
+                }
+            }
+        }
     }
 }
 
@@ -54,7 +80,9 @@ struct PersonDetailView: View {
     }
 
     var body: some View {
-        List {
+        // A wide window: who they are and how to reach them on the left, what you have told the app about them and
+        // what is related on the right, each a list of its own (SplitList).
+        SplitList {
             if let p = person {
                 SwiftUI.Section {
                     VStack(alignment: .leading, spacing: 4) {
@@ -90,6 +118,11 @@ struct PersonDetailView: View {
                         }
                     }
                 }
+            } else {
+                Text("This person was removed.").foregroundStyle(.secondary)
+            }
+        } second: {
+            if let p = person {
                 SwiftUI.Section {
                     if known.isEmpty {
                         Text("Tell the assistant or capture things about \(p.str("given_name").isEmpty ? p.str("name") : p.str("given_name")) and they show here.").font(.callout).foregroundStyle(.secondary)
@@ -99,8 +132,6 @@ struct PersonDetailView: View {
                     }
                 } header: { Text("What you've told me") }
                 RelatedSection(id: personId, excludingWhy: ["About them"])
-            } else {
-                Text("This person was removed.").foregroundStyle(.secondary)
             }
         }
         .navigationTitle(person?.str("given_name").isEmpty == false ? person!.str("given_name") : "Person")

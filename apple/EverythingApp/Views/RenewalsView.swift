@@ -38,19 +38,9 @@ struct RenewalsView: View {
     }
 
     var body: some View {
-        List {
-            if let line = totalsLine {
-                Text(line).font(.footnote).foregroundStyle(.secondary).listRowSeparator(.hidden)
-            }
-            ForEach(groups) { g in
-                SwiftUI.Section(header: Text(g.title).font(.headline)) {
-                    ForEach(g.items) { w in
-                        WatchRow(watch: w, onEdit: { editing = w })
-                    }
-                }
-            }
+        WideReader { wide in
+            if wide { cards } else { list }
         }
-        .listStyle(.plain)
         .overlay { if engine.watches.isEmpty { EmptyState(text: "No renewals yet.\nAdd certificates, subscriptions, prescriptions, warranties and domains to stay ahead of them.") } }
         .navigationTitle("Renewals")
         .toolbar { ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Label("New", systemImage: "plus") } } }
@@ -64,12 +54,51 @@ struct RenewalsView: View {
         guard let c = engine.client, let t = try? await c.renewalTotals() else { return }
         totals = t
     }
+
+    private var list: some View {
+        List {
+            if let line = totalsLine {
+                Text(line).font(.footnote).foregroundStyle(.secondary).listRowSeparator(.hidden)
+            }
+            ForEach(groups) { g in
+                SwiftUI.Section(header: Text(g.title).font(.headline)) {
+                    ForEach(g.items) { w in
+                        WatchRow(watch: w, onEdit: { editing = w })
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    /// A wide window: Overdue, Next 30 days and Later one under the other as before, each a grid of cards, as many
+    /// across as fit at 400 points each (2 across a screen of 1040 points, 4 across a 1920 window), which leaves
+    /// the date and the Renewed button their room. A card is a row's own words and button, with the same click and
+    /// right-click menu.
+    private var cards: some View {
+        WidePage {
+            if let line = totalsLine {
+                Text(line).font(.footnote).foregroundStyle(.secondary)
+            }
+            ForEach(groups) { g in
+                WideSection(g.title) {
+                    CardGrid(minWidth: 400) {
+                        ForEach(g.items) { w in
+                            WatchRow(watch: w, onEdit: { editing = w }, card: true)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 struct WatchRow: View {
     @EnvironmentObject var engine: SyncEngine
     var watch: Entity
     var onEdit: () -> Void
+    /// A card in the wide window's grid instead of a list row: the same words on a card's fill, all of it clickable.
+    var card = false
 
     private var probeStatus: (text: String, ok: Bool?)? {
         guard let f = watch.decoded(WatchFields.self), let url = f.probe_url, !url.isEmpty else { return nil }
@@ -116,7 +145,8 @@ struct WatchRow: View {
                 Button("Renewed") { Task { await engine.renewWatch(watch.id) } }.buttonStyle(.themedProminent).fixedSize()
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, card ? 0 : 4)
+        .gridCard(if: card)
         .contentShape(Rectangle())
         .onTapGesture { onEdit() }
         .contextMenu {

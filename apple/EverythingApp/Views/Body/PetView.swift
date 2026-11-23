@@ -64,7 +64,9 @@ struct PetView: View {
         let due = all.filter { e in e.date("next_due").map { $0 >= today } ?? false }
             .sorted { ($0.date("next_due") ?? .distantFuture) < ($1.date("next_due") ?? .distantFuture) }
 
-        List {
+        // A wide window: logging and custody on the left, what is due and what happened on the right, each a list of
+        // its own (SplitList).
+        SplitList {
             SwiftUI.Section {
                 quickRow(all)
                 if let f = flash {
@@ -73,7 +75,7 @@ struct PetView: View {
             } header: { Text("Log now") }
 
             SwiftUI.Section { CustodyCard() } header: { Text("Custody") }
-
+        } second: {
             let planned = plans
             if !due.isEmpty || !planned.isEmpty {
                 SwiftUI.Section {

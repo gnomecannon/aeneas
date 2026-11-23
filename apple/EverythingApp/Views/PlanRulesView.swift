@@ -8,12 +8,27 @@ struct PlanRulesView: View {
     @State private var creating = false
 
     var body: some View {
-        List {
-            ForEach(engine.planRules) { r in
-                PlanRuleRow(rule: r, onEdit: { editing = r })
+        // A wide window: a card for each rule, as many across as fit at 380 points each (2 across a screen of 1040
+        // points, 4 across a 1920 window), in the list's order. A click edits the rule and its switch stays on the
+        // card; Edit and Delete are in the right-click menu, as on a row.
+        WideReader { wide in
+            if wide {
+                WidePage {
+                    CardGrid(minWidth: 380) {
+                        ForEach(engine.planRules) { r in
+                            PlanRuleRow(rule: r, onEdit: { editing = r }, card: true)
+                        }
+                    }
+                }
+            } else {
+                List {
+                    ForEach(engine.planRules) { r in
+                        PlanRuleRow(rule: r, onEdit: { editing = r })
+                    }
+                }
+                .listStyle(.plain)
             }
         }
-        .listStyle(.plain)
         .overlay { if engine.planRules.isEmpty { EmptyState(text: "No plan rules.\nAdd work hours, custody weeks and quiet evenings so the planner never schedules over them.") } }
         .navigationTitle("Plan rules")
         .toolbar { ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Label("New", systemImage: "plus") } } }
@@ -26,6 +41,8 @@ struct PlanRuleRow: View {
     @EnvironmentObject var engine: SyncEngine
     var rule: Entity
     var onEdit: () -> Void
+    /// A card in the wide window's grid instead of a list row: the same words and switch on a card's fill.
+    var card = false
 
     var body: some View {
         let f = rule.decoded(PlanRuleFields.self)
@@ -48,6 +65,7 @@ struct PlanRuleRow: View {
             Toggle("Active", isOn: Binding(get: { f?.active ?? true }, set: { v in Task { await engine.update(rule.id, fields: ["active": .bool(v)]) } }))
                 .labelsHidden()
         }
+        .gridCard(if: card)
         .contentShape(Rectangle())
         .onTapGesture { onEdit() }
         .contextMenu {

@@ -8,25 +8,43 @@ struct ThemeSettingsView: View {
 
     private var s: FeelSettings { feel.settings }
 
+    private static let shared = "Shared with every device through the hub."
+
+    /// The four parts of the theme, each opening its screen: rows of the list, or cards in a wide window.
+    @ViewBuilder private func links(card: Bool) -> some View {
+        SettingsAreaLink(card: card) { AppColorsView() } label: {
+            SettingsRow(title: "App colors", symbol: "circle.lefthalf.filled", summary: appSummary)
+        }
+        SettingsAreaLink(card: card) { TapEffectsView() } label: {
+            SettingsRow(title: "Tap effects", symbol: "sparkles", summary: tapSummary)
+        }
+        SettingsAreaLink(card: card) { NoteSoundsView() } label: {
+            SettingsRow(title: "Note sounds", symbol: "music.note", summary: soundSummary, warning: FeelSynth.blocked)
+        }
+        SettingsAreaLink(card: card) { CalendarColorsView() } label: {
+            SettingsRow(title: "Calendar colors", symbol: "calendar", summary: CalendarColorsView.summary(s.calendars))
+        }
+    }
+
     var body: some View {
-        List {
-            SwiftUI.Section {
-                NavigationLink { AppColorsView() } label: {
-                    SettingsRow(title: "App colors", symbol: "circle.lefthalf.filled", summary: appSummary)
+        // A wide window: the four parts as cards side by side, as Settings itself shows its areas; the rows used to
+        // be stretched across the window.
+        WideReader { wide in
+            if wide {
+                WidePage {
+                    CardGrid { links(card: true) }
+                    Text(Self.shared).font(.footnote).foregroundStyle(.secondary)
                 }
-                NavigationLink { TapEffectsView() } label: {
-                    SettingsRow(title: "Tap effects", symbol: "sparkles", summary: tapSummary)
+            } else {
+                List {
+                    SwiftUI.Section {
+                        links(card: false)
+                    } footer: {
+                        Text(Self.shared)
+                    }
+                    .themedRow()
                 }
-                NavigationLink { NoteSoundsView() } label: {
-                    SettingsRow(title: "Note sounds", symbol: "music.note", summary: soundSummary, warning: FeelSynth.blocked)
-                }
-                NavigationLink { CalendarColorsView() } label: {
-                    SettingsRow(title: "Calendar colors", symbol: "calendar", summary: CalendarColorsView.summary(s.calendars))
-                }
-            } footer: {
-                Text("Shared with every device through the hub.")
             }
-            .themedRow()
         }
         .formStyle(.grouped)
         .themedScreen()

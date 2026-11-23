@@ -2,10 +2,10 @@ import SwiftUI
 import Combine
 import EACore
 
-/// Today: digest lines, the Now card, a time-ordered timeline with a current-time marker,
-/// renewals due soon, and free slots that take a task with one tap. Swiping left and right moves to the next and
-/// previous day, as in a calendar app: another day shows its plan (timeline, renewals due, free slots), and Today
-/// brings it back.
+/// Today: the day as a status board (`TodayBoardView`): what is on now, the day as one strip, what needs you, the
+/// schedule, things to do, today so far and what is coming. Swiping left and right moves to the next and previous
+/// day, as in a calendar app: another day shows its plan (timeline, renewals due, free slots that take a task with
+/// one tap), and Today brings it back.
 struct TodayView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -30,20 +30,7 @@ struct TodayView: View {
                 if dayOffset != 0 {
                     otherDayView
                 } else if let t = today {
-                    digest(t)
-                    NowCard()
-                    peopleSection(t)
-                    // Meds are Health logs, follow-ups are job applications, renewals their own module: each shows only while on.
-                    if model.isOn(.health) { medsSection(TodayExtras.regularMeds(engine.logs(type: .med, days: 9))) }
-                    if model.isOn(.jobs) { followUpsSection(TodayExtras.followUpsDue(engine.list(.application))) }
-                    TimelineList(blocks: t.blocks, commitments: t.commitments, events: engine.localDay(Date()).events, reminders: t.reminders_due, freeSlots: t.free_slots, day: Date(), onSchedule: { scheduling = $0 })
-                        .id("timeline")
-                    if model.isOn(.renewals) { watchesSection(t.watches_due_soon) }
-                    diarySection()
-                    if !fromHub {
-                        Text("Planned on this device. The hub's plan replaces it when it is reachable.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+                    TodayBoardView(today: t, fromHub: fromHub, onSchedule: { scheduling = $0 })
                 } else {
                     ProgressView().frame(maxWidth: .infinity).padding()
                 }
@@ -52,10 +39,11 @@ struct TodayView: View {
         }
         .task(id: today != nil) {
             #if DEBUG
-            // `-EAScrollTo timeline` (DebugHooks): the day's timeline at the top, for screenshots.
-            guard today != nil, UserDefaults.standard.string(forKey: "EAScrollTo") == "timeline" else { return }
+            // `-EAScrollTo timeline` (DebugHooks): that card at the top, for screenshots: needs, timeline (the
+            // Schedule), todo, sofar or coming.
+            guard today != nil, let card = UserDefaults.standard.string(forKey: "EAScrollTo"), ["needs", "timeline", "todo", "sofar", "coming"].contains(card) else { return }
             try? await Task.sleep(nanoseconds: 800_000_000)
-            proxy.scrollTo("timeline", anchor: .top)
+            proxy.scrollTo(card, anchor: .top)
             #endif
         }
         }
@@ -151,208 +139,15 @@ struct TodayView: View {
             if !Task.isCancelled { await reload() }
         }
     }
-
-    /// The digest without its "Now" sentence, bare date and People line: the Now card, the title and the People
-    /// section already show those (the People line is for the morning notification).
-    static func digestBody(_ digest: String) -> [String] {
-        digest.split(separator: "\n").map(String.init)
-            .map { $0.replacingOccurrences(of: #"\s*(Now: [^.]*(\.|$)|Nothing queued\.?)"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("People:") && $0.range(of: #"^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2}\.?$"#, options: .regularExpression) == nil }
-    }
-
-    @ViewBuilder
-    private func digest(_ t: PlannerToday) -> some View {
-        let lines = Self.digestBody(StyleGuard.dashes(t.digest))
-        if !lines.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line).font(.body).foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(.tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
-        }
-    }
-
-    /// People today: who today's plans name, with what the owner told the app about them, then birthdays,
-    /// anniversaries and other dates from their cards in the next two weeks. Each opens the person.
-    @ViewBuilder
-    private func peopleSection(_ t: PlannerToday) -> some View {
-        let people = engine.list(.person)
-        let plans = TodayExtras.plansToday(events: engine.localDay(Date()).events, reminders: t.reminders_due,
-                                           tasks: engine.list(.task).filter { $0.str("status") == "doing" || !$0.str("due").isEmpty })
-        let seeing = people.isEmpty ? [] : TodayExtras.peopleInPlans(people: people, facts: engine.list(.fact), plans: plans)
-        let dates = TodayExtras.datesSoon(people)
-        if !seeing.isEmpty || !dates.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("People").font(.headline).foregroundStyle(.secondary)
-                ForEach(seeing) { p in
-                    Button { model.open(itemId: p.id) } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                Text(p.name).font(.body.bold())
-                                Text(StyleGuard.dashes(p.plans.map { $0.title + ($0.at.map { ", " + $0.formatted(date: .omitted, time: .shortened) } ?? "") }.joined(separator: "; ")))
-                                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                            }
-                            ForEach(p.notes, id: \.self) { n in
-                                Text(StyleGuard.dashes(n)).font(.subheadline).lineLimit(2)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                }
-                if !dates.isEmpty {
-                    FlowLayout(spacing: 8) {
-                        ForEach(Array(dates.prefix(5).enumerated()), id: \.offset) { _, d in
-                            Button { model.open(itemId: d.id) } label: {
-                                Label(TodayExtras.phrase(d), systemImage: d.label == "birthday" ? (d.days == 0 ? "gift.fill" : "gift") : d.label == "anniversary" ? "heart" : "calendar")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Meds taken on two or more days this past week: one tap logs one as taken now; taken ones show the time.
-    @ViewBuilder
-    private func medsSection(_ meds: [TodayExtras.Med]) -> some View {
-        if !meds.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Meds").font(.headline).foregroundStyle(.secondary)
-                FlowLayout(spacing: 8) {
-                    ForEach(meds, id: \.name) { m in
-                        if let at = m.takenAt {
-                            Label("\(m.name) \(at.formatted(date: .omitted, time: .shortened))", systemImage: "checkmark.circle.fill")
-                                .font(.subheadline).foregroundStyle(.secondary)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(Color.secondary.opacity(0.08), in: Capsule())
-                        } else {
-                            Button {
-                                Task { _ = await engine.log(type: .med, value: .string(m.name)) }
-                            } label: { Label("Took \(m.name)", systemImage: "pills") }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Job applications with a next step due today or earlier.
-    @ViewBuilder
-    private func followUpsSection(_ apps: [Entity]) -> some View {
-        if !apps.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Follow up").font(.headline).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("All") { model.section = .career }.buttonStyle(.borderless)
-                }
-                ForEach(apps.prefix(3)) { a in
-                    Button { model.open(itemId: a.id) } label: {
-                        HStack {
-                            Text(StyleGuard.dashes(a.str("company") + (a.str("next_step").isEmpty ? "" : ": " + a.str("next_step")))).lineLimit(1)
-                            Spacer()
-                            if let d = a.date("next_at") {
-                                Text(d < Date() && !Calendar.current.isDateInToday(d) ? "late" : d.formatted(date: .omitted, time: .shortened))
-                                    .font(.subheadline).foregroundStyle(d < Date() ? AnyShapeStyle(.dangerText) : AnyShapeStyle(.secondary))
-                            }
-                        }
-                        .padding(10)
-                        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    /// Today's diary note (every capture, timestamped) and its lines, oldest first.
-    /// Before 4 AM it is still the day before, as on the hub: late night captures go to that day's note.
-    static func diary(_ notes: [Entity], now: Date = Date()) -> (note: Entity, lines: [(time: String, text: String)])? {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        let day = Calendar.current.component(.hour, from: now) < 4 ? Calendar.current.date(byAdding: .day, value: -1, to: now) ?? now : now
-        let path = "Diary/\(f.string(from: day)).md".lowercased()
-        guard let n = notes.first(where: { $0.str("path").lowercased() == path && !$0.isDeleted }) else { return nil }
-        let lines = n.str("body").split(separator: "\n").compactMap { raw -> (String, String)? in
-            let l = raw.trimmingCharacters(in: .whitespaces)
-            guard l.hasPrefix("- "), l.count > 8 else { return nil }
-            let rest = l.dropFirst(2)
-            let time = String(rest.prefix(5))
-            guard time.range(of: #"^\d{2}:\d{2}$"#, options: .regularExpression) != nil else { return nil }
-            return (time, String(rest.dropFirst(6)))
-        }
-        return (n, lines)
-    }
-
-    /// "Today so far": what the owner captured today, the latest few, with the whole day one tap away.
-    @ViewBuilder
-    private func diarySection() -> some View {
-        if let d = Self.diary(engine.list(.note)), !d.lines.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Today so far").font(.headline).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(d.lines.count > 6 ? "All \(d.lines.count)" : "Open") { model.open(itemId: d.note.id) }.buttonStyle(.borderless)
-                }
-                ForEach(Array(d.lines.suffix(6).enumerated()), id: \.offset) { _, l in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(Self.clock(l.time)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                        Text(StyleGuard.dashes(l.text)).lineLimit(2)
-                    }
-                }
-            }
-            .padding(12)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-        }
-    }
-
-    /// "17:05" in the device's clock style.
-    static func clock(_ hhmm: String) -> String {
-        let p = hhmm.split(separator: ":").compactMap { Int($0) }
-        guard p.count == 2, let d = Calendar.current.date(bySettingHour: p[0], minute: p[1], second: 0, of: Date()) else { return hhmm }
-        return d.formatted(date: .omitted, time: .shortened)
-    }
-
-    @ViewBuilder
-    private func watchesSection(_ watches: [Entity]) -> some View {
-        if !watches.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Renewals due soon").font(.headline).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("All") { model.section = .renewals }.buttonStyle(.borderless)
-                }
-                ForEach(watches.prefix(5)) { w in
-                    HStack {
-                        Text(StyleGuard.dashes(w.str("title"))).lineLimit(1)
-                        Spacer()
-                        // Autopay renews by itself: shown, not urgent.
-                        if w.bool("autopay") == true {
-                            Text("Autopay, \(daysLeftLabel(w.date("due")))").font(.subheadline).foregroundStyle(.secondary)
-                        } else {
-                            Text(daysLeftLabel(w.date("due"))).font(.subheadline).foregroundStyle(daysLeftColor(w.date("due")))
-                        }
-                    }
-                    .padding(10)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                }
-            }
-        }
-    }
 }
 
-/// Compact Now card used on Today. Done, Skip, and Start block when it is not running.
+/// The task being done (or the first one in Next) as a compact card on Today: Done, Skip, and Start block when it is
+/// not running. Nothing when no task is doing or next: Today's To do lists the open tasks itself. `inCard` is the
+/// card inside To do, a little tighter.
 struct NowCard: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
+    var inCard = false
 
     var body: some View {
         if let task = engine.nowTask {
@@ -375,31 +170,38 @@ struct NowCard: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
-                HStack(spacing: 8) {
-                    Button { Task { await engine.markDone(task.id) } } label: { Label("Done", systemImage: "checkmark").frame(maxWidth: .infinity) }
-                        .buttonStyle(.themedProminent)
-                    Button { Task { await engine.skip(task.id) } } label: { Label("Skip", systemImage: "forward").frame(maxWidth: .infinity) }
-                        .buttonStyle(.bordered)
-                    if f?.status != .doing {
-                        Button { Task { await engine.startBlock(task.id, hours: 3) } } label: { Label("Start 3 h", systemImage: "timer").frame(maxWidth: .infinity) }
-                            .buttonStyle(.bordered)
-                    }
+                // With their symbols where they fit on one line each; words alone on a narrow card, where "Start 3 h"
+                // with its symbol broke in two.
+                ViewThatFits(in: .horizontal) {
+                    buttons(task, starts: f?.status != .doing, symbols: true)
+                    buttons(task, starts: f?.status != .doing, symbols: false)
                 }
-                .controlSize(.large)
+                .controlSize(inCard ? .regular : .large)
             }
-            .padding(16)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
-        } else {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Nothing is next").font(.title3.weight(.semibold))
-                    Text("Capture something, or move a task to Next.").font(.subheadline).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Capture") { model.section = .capture }.buttonStyle(.themedProminent)
+            .padding(inCard ? 12 : 16)
+            .background(Color.secondary.opacity(inCard ? 0.10 : 0.08), in: RoundedRectangle(cornerRadius: inCard ? 12 : 16))
+        }
+    }
+
+    /// Done, Skip and, for a task not started, Start 3 h: three buttons of one width, each on one line.
+    private func buttons(_ task: Entity, starts: Bool, symbols: Bool) -> some View {
+        func label(_ title: String, _ symbol: String) -> some View {
+            Group {
+                if symbols { Label(title, systemImage: symbol) } else { Text(title) }
             }
-            .padding(16)
-            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+            .lineLimit(1)
+            .fixedSize()
+            .frame(maxWidth: .infinity)
+        }
+        return HStack(spacing: 8) {
+            Button { Task { await engine.markDone(task.id) } } label: { label("Done", "checkmark") }
+                .buttonStyle(.themedProminent)
+            Button { Task { await engine.skip(task.id) } } label: { label("Skip", "forward") }
+                .buttonStyle(.bordered)
+            if starts {
+                Button { Task { await engine.startBlock(task.id, hours: 3) } } label: { label("Start 3 h", "timer") }
+                    .buttonStyle(.bordered)
+            }
         }
     }
 }
@@ -463,6 +265,9 @@ struct TimelineList: View {
     var reminders: [Entity]
     var freeSlots: [FreeSlot]
     var day: Date
+    /// How wide the column of times is: 96 points fits a phone, where a time with both ends takes two lines; a wider
+    /// list gives it 132, so every time is one line.
+    var timeWidth: CGFloat = 96
     var onSchedule: (FreeSlot) -> Void
 
     var body: some View {
@@ -498,7 +303,8 @@ struct TimelineList: View {
                 Button("Done") { Task { await engine.markDone(b.task_id) } }
             }
         case .commitment(let c):
-            timelineRow(time: timeRange(c.start, c.end), title: c.title, subtitle: c.type.rawValue.capitalized, color: AnyShapeStyle(c.type == .blackout ? Color.gray : (c.type == .preference ? Color.green : Color.secondary)), dim: (ISO.date(c.end) ?? .distantFuture) < now) { EmptyView() }
+            // A rule for the whole day (a custody week) read "12:00 AM to 12:00 AM".
+            timelineRow(time: TodayBoard.wholeDay(c) ? "All day" : timeRange(c.start, c.end), title: c.title, subtitle: c.type.rawValue.capitalized, color: AnyShapeStyle(c.type == .blackout ? Color.gray : (c.type == .preference ? Color.green : Color.secondary)), dim: (ISO.date(c.end) ?? .distantFuture) < now) { EmptyView() }
         case .event(let e):
             // In its calendar's color (Theme, Calendar colors), else the theme's accent: a tint under the words and a
             // solid bar, so the words read on any theme.
@@ -512,7 +318,7 @@ struct TimelineList: View {
                 Button("Done") { Task { await engine.ack(r.id) } }
             }
         case .free(let f):
-            let time = Text(timeRange(f.start, f.end)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 96, alignment: .leading)
+            let time = Text(timeRange(f.start, f.end)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: timeWidth, alignment: .leading)
             let free = Text("Free, \(f.hours.formatted()) h").font(.body.weight(.medium))
             let schedule = Button { onSchedule(f) } label: { Label("Schedule here", systemImage: "plus") }
                 .buttonStyle(.bordered)
@@ -536,7 +342,7 @@ struct TimelineList: View {
         // Something already over is quieter: its color fades and its title takes the secondary color. The words are
         // not faded further: a whole row at 55% left its gray time and subtitle at about 2.5:1 on every theme.
         HStack(spacing: 12) {
-            Text(time).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 96, alignment: .leading)
+            Text(time).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: timeWidth, alignment: .leading)
             RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 4).opacity(dim ? 0.5 : 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(StyleGuard.dashes(title)).font(.body.weight(.medium)).lineLimit(2)

@@ -1,65 +1,144 @@
 import { plainError } from "../lib/errors";
-import { useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { datePhrase, datesSoon, peopleInPlans, plansToday } from "@everythingapp/shared";
 import { useHubPoll } from "../sync/useHubPoll";
-import { localToday, scheduleTask, unscheduleTask, conflictMessage } from "../sync/planner";
-import { useEntities } from "../sync/hooks";
+import { usePoll } from "../lib/usePoll";
+import { localToday, scheduleTask, unscheduleTask, conflictMessage, renewWatch } from "../sync/planner";
+import { useEntities, useEntity } from "../sync/hooks";
 import { db } from "../sync/db";
-import { daysLeft, fmtDaysLeft, timeline, parseLocalDate, daySpan, overlaps, spanOf, type PlannerToday } from "../lib/planner";
+import { timeline, parseLocalDate, daySpan, overlaps, spanOf, fmtDue, wholeDay, type PlannerToday, type TimelineItem } from "../lib/planner";
 import { fmtTime, relative } from "../lib/time";
-import { NowCard } from "./Now";
+import { NowCard, pickCurrent } from "./Now";
 import { useModules } from "../lib/modules";
 import { Timeline } from "../components/Timeline";
 import { TaskPicker } from "../components/TaskPicker";
-import { createEntity } from "../sync/edits";
-import { SOURCE } from "../sync/actions";
+import { DayRibbon } from "../components/DayRibbon";
+import { createEntity, updateEntity } from "../sync/edits";
+import { SOURCE, ackReminder, capture, completeTask, snoozeFor, type CaptureResult } from "../sync/actions";
 import { DIARY_DAY_START, diaryToday, followUpsDue, regularMeds } from "../lib/today";
+import { chargesSoon, dayRibbon, freeLine, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines, type Need, type TodaySection } from "../lib/todayBoard";
+import { dueReminders, hasReminder } from "../lib/reminders";
+import { needsALook, techLight } from "../lib/tech";
+import type { OpsData } from "../lib/ops";
+import type { SensorRow } from "../sync/api";
+import { AckControl, ProposeFix } from "./Ops";
 import { useLocalDate } from "../lib/useLocalDate";
-import { datePhrase, datesSoon, peopleInPlans, plansToday } from "@everythingapp/shared";
+
+/** How many rows a card shows before it links to the rest. */
+const TODO_SHOWN = 6;
+const SOFAR_SHOWN = 10;
+
+/** The time now, read again every half minute and when the window shows: the Now line counts minutes. */
+function useNow(everyMs = 30_000): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const id = setInterval(tick, everyMs);
+    const onShow = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onShow);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onShow); };
+  }, [everyMs]);
+  return now;
+}
+
+/** An element's own width, kept current as the window is resized; measured before the first paint. */
+function useWidth<T extends HTMLElement>(): [RefObject<T>, number] {
+  const ref = useRef<T>(null);
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setWidth(el.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => setWidth(Math.round(entries[0].contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, width];
+}
 
 /**
- * The day on one screen: the digest as plain lines, the Now card, then the timeline with the current
- * time marker, reminders at their times, a short renewals strip and free slots with Schedule here.
- * From GET /planner/today, refreshed every 60 s while visible and on change events; the local copy
- * supplies the same shape when the hub is unreachable.
+ * The day as a status board, in the order its owner asked every report to take: at the top what is on now and how
+ * long it has left, with the day drawn as one strip; then what needs you (actions only, numbered, each with its
+ * button), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
+ * that needs nothing from you. One column on a phone, up to five across a wide window (lib/todayBoard.ts).
+ * The plan is GET /planner/today, refreshed every 60 s while visible and on change events; the local copy supplies
+ * the same shape when the hub is unreachable.
  */
 export function Today() {
   const poll = useHubPoll<PlannerToday>((c) => c.plannerToday(), localToday, []);
   const { on } = useModules();
   const t = poll.data;
+  const now = useNow();
   // What today holds is worked out again when the day changes with the screen open, not only when the items do:
   // yesterday's meds showed as taken after midnight. The diary's day starts at 4 AM.
   const today = useLocalDate();
   const diaryDay = useLocalDate(DIARY_DAY_START);
   const events = useEntities("event");
   const apps = useEntities("application", (e) => !!e.fields.next_at);
-  const medLogs = useEntities("log", (e) => e.fields.type === "med");
-  const followUps = useMemo(() => followUpsDue(apps, new Date()), [apps, today]);
+  const allTasks = useEntities("task");
+  // Logs of the last nine days: today's numbers and words, and which meds are regular.
+  const logs = useEntities("log", (e) => Date.parse(String(e.fields.at ?? "")) > Date.now() - 9 * 86_400_000, [today]);
   const people = useEntities("person");
   const facts = useEntities("fact", (e) => !!e.fields.person_id || !!e.fields.person);
-  const tasks = useEntities("task", (e) => e.fields.status === "doing" || !!e.fields.due);
-  const dates = useMemo(() => datesSoon(people, new Date(), 14), [people, today]);
   const diaryNotes = useEntities("note", (e) => String(e.fields.path ?? "").startsWith("Diary/"));
   const diary = useMemo(() => diaryToday(diaryNotes, new Date()), [diaryNotes, diaryDay]);
-  const meds = useMemo(() => regularMeds(medLogs, new Date()), [medLogs, today]);
+  const followUps = useMemo(() => (on("jobs") ? followUpsDue(apps, new Date()) : []), [apps, today, on]);
+  const dates = useMemo(() => datesSoon(people, new Date(), 14), [people, today]);
+  const meds = useMemo(() => (on("health") ? regularMeds(logs, new Date()) : []), [logs, today, on]);
+
+  // Tech: the same list as the Overview's "needs a look", so the two never disagree.
+  const techOn = on("homelab"), sensorsOn = on("sensors");
+  const ops = usePoll<OpsData | null>((c) => (techOn ? c.ops() : Promise.resolve(null)), 60_000);
+  const sens = usePoll<SensorRow[]>((c) => (sensorsOn ? c.sensors() : Promise.resolve([])), 60_000);
+  const looks = useMemo(
+    () => needsALook(ops.data?.things ?? [], ops.data?.monitors ?? [], ops.data?.incidents_open ?? [], sens.data ?? [], ops.data?.hub_backup ?? []),
+    [ops.data, sens.data],
+  );
+  const light = (techOn && ops.data) || (sensorsOn && sens.data) ? techLight(looks, ops.data?.things ?? [], ops.data?.monitors ?? [], sens.data ?? []) : null;
+
   const [slot, setSlot] = useState<{ start: string; hours: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [force, setForce] = useState<{ taskId: string; start: string; hours: number } | null>(null);
+  const [rowErr, setRowErr] = useState<{ key: string; text: string } | null>(null);
+  // The capture box's words are kept here, not in its card: a card is drawn again when the window's width moves it
+  // to another column, and what was typed must not go with it.
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<CaptureResult | null>(null);
+  const [captureErr, setCaptureErr] = useState("");
+  const savedLive = useEntity(saved?.capture?.id);
 
-  const items = useMemo(() => {
-    if (!t) return [];
-    const date = parseLocalDate(t.date);
-    const d = daySpan(date);
-    const todayEvents = events.filter((e) => overlaps(spanOf(e), d));
-    return timeline({ blocks: t.blocks, commitments: t.commitments, events: todayEvents, reminders: t.reminders_due, free_slots: t.free_slots }, new Date());
-  }, [t, events]);
-
+  const todayEvents = useMemo(() => (t ? events.filter((e) => overlaps(spanOf(e), daySpan(parseLocalDate(t.date)))) : []), [t, events]);
+  const items = useMemo(
+    () => (t ? timeline({ blocks: t.blocks, commitments: t.commitments, events: todayEvents, reminders: t.reminders_due, free_slots: t.free_slots }, now) : []),
+    [t, todayEvents, now],
+  );
   const seeing = useMemo(() => {
     if (!t || !people.length) return [];
-    const now = new Date();
-    const todayEvents = events.filter((e) => overlaps(spanOf(e), daySpan(parseLocalDate(t.date))));
-    return peopleInPlans(people, facts, plansToday(todayEvents, t.reminders_due, tasks, now));
-  }, [t, people, facts, events, tasks]);
+    return peopleInPlans(people, facts, plansToday(todayEvents, t.reminders_due, allTasks.filter((x) => x.fields.status === "doing" || !!x.fields.due), new Date()));
+  }, [t, people, facts, todayEvents, allTasks]);
+
+  const due = useMemo(() => dueReminders(allTasks.filter(hasReminder), now), [allTasks, now]);
+  const needs = useMemo(
+    () => needsYou({ reminders: due, looks, watches: on("renewals") ? t?.watches_due_soon ?? [] : [], followUps, meds, unsorted: t?.captures_unprocessed ?? 0, now }),
+    [due, looks, t, followUps, meds, now, on],
+  );
+  const open = useMemo(() => openTasks(allTasks), [allTasks]);
+  const { current } = useMemo(() => pickCurrent(allTasks.filter((x) => x.fields.status === "doing" || x.fields.status === "next")), [allTasks]);
+  const rest = open.filter((x) => x.id !== current?.id);
+  const done = useMemo(() => soFar({ diary, tasks: allTasks, logs, now }), [diary, allTasks, logs, now]);
+  const numbers = useMemo(() => (on("health") ? todayNumbers(logs, now) : []), [logs, now, on]);
+  const charges = useMemo(() => (on("renewals") ? chargesSoon(t?.watches_due_soon ?? [], now) : []), [t, now, on]);
+  const tomorrow = useMemo(() => tomorrowLines(events, now), [events, now]);
+  const line = useMemo(() => nowLine(items, now), [items, now]);
+  const free = useMemo(() => freeLine(items, now), [items, now]);
+  const ribbon = useMemo(() => dayRibbon(items, now), [items, now]);
+  const allDay = todayEvents.filter((e) => e.fields.all_day === true);
+  // A rule for the whole day (a custody week) is named with them: it has no time to stand at in the list.
+  const dayRules = items.filter((it): it is Extract<TimelineItem, { kind: "commitment" }> => it.kind === "commitment" && wholeDay(it));
+  const left = items.filter((it) => (it.kind === "event" && !it.all_day) || it.kind === "block" || it.kind === "reminder").filter((it) => Date.parse("end" in it ? it.end : it.start) > now.getTime()).length;
 
   const schedule = async (taskId: string, start: string, hours: number, forced = false) => {
     setBusy(true);
@@ -94,150 +173,274 @@ export function Today() {
     setForce(null);
   }, []);
 
-  return (
-    <div className="today">
-      <div className="row between" style={{ marginBottom: 8 }}>
-        <h1 style={{ margin: 0 }}>Today</h1>
-        <span className="muted small">
-          {poll.source === "local" ? "local copy, hub unreachable" : poll.at ? `checked ${relative(poll.at.toISOString())}` : ""}
-          {poll.busy ? ", loading" : ""}
-        </span>
-      </div>
-      {!t && poll.error && <div className={poll.unavailable ? "muted small" : "error"}>{poll.unavailable ? "The planner is not available on this hub." : poll.error}</div>}
-      {t && digestBody(t.digest) && (
-        <pre className="digest" aria-label="Digest">
-          {digestBody(t.digest)}
-        </pre>
-      )}
-      <NowCard showNext={false} />
-      {on("renewals") && t && t.watches_due_soon.length > 0 && (
-        <div className="strip" aria-label="Renewals due soon">
-          <span className="muted">Renewals</span>
-          {t.watches_due_soon.slice(0, 3).map((w) => {
-            const d = daysLeft(String(w.fields.due));
-            return (
-              <a key={w.id} href={`#/renewals?focus=${w.id}`} className={d < 0 ? "error" : ""}>
-                {String(w.fields.title)} {w.fields.autopay === true ? `autopay ${fmtDaysLeft(d)}` : fmtDaysLeft(d)}
-              </a>
-            );
-          })}
-          <a href="#/renewals" className="small" style={{ marginLeft: "auto" }}>
-            all
-          </a>
-        </div>
-      )}
-      {seeing.length > 0 && (
-        <div className="card people-today" aria-label="People in today's plans">
-          <span className="muted">People today</span>
-          {seeing.map((p) => (
-            <a key={p.id} href={`#/people/${p.id}`} className="person-today">
-              <span>
-                <strong>{p.name}</strong> <span className="muted small">{p.plans.map((x) => `${x.title}${x.at ? `, ${fmtTime(x.at)}` : ""}`).join("; ")}</span>
-              </span>
-              {p.notes.map((n) => (
-                <span key={n} className="small">{n}</span>
-              ))}
-            </a>
-          ))}
-        </div>
-      )}
-      {dates.length > 0 && (
-        <div className="strip" aria-label="Dates coming up">
-          <span className="muted">Dates</span>
-          {dates.slice(0, 5).map((d) => (
-            <a key={`${d.id}:${d.label}:${d.date}`} href={`#/people/${d.id}`} className={d.days === 0 ? "primary" : ""}>{datePhrase(d)}</a>
-          ))}
-        </div>
-      )}
-      {on("health") && meds.length > 0 && (
-        <div className="strip" aria-label="Meds today">
-          <span className="muted">Meds</span>
-          {meds.map((m) =>
-            m.takenAt ? (
-              <span key={m.name} className="muted">
-                {m.name} {fmtTime(m.takenAt)}
-              </span>
-            ) : (
-              <button key={m.name} type="button" className="small" onClick={() => void createEntity("log", { type: "med", value: m.name, at: new Date().toISOString(), source: SOURCE })} title={`Log ${m.name} as taken now`}>
-                Took {m.name}
-              </button>
-            ),
-          )}
-        </div>
-      )}
-      {on("jobs") && followUps.length > 0 && (
-        <div className="strip" aria-label="Job follow-ups due">
-          <span className="muted">Follow up</span>
-          {followUps.slice(0, 3).map((a) => {
-            const late = Date.parse(String(a.fields.next_at)) < Date.now();
-            return (
-              <a key={a.id} href={`#/lists/jobs/${a.id}`} className={late ? "error" : ""}>
-                {String(a.fields.company)}
-                {a.fields.next_step ? `: ${String(a.fields.next_step)}` : ""}
-              </a>
-            );
-          })}
-          {followUps.length > 3 && (
-            <a href="#/lists/jobs" className="small" style={{ marginLeft: "auto" }}>
-              all {followUps.length}
-            </a>
-          )}
-        </div>
-      )}
-      {slot && (
-        <TaskPicker
-          title={`Schedule at ${fmtTime(slot.start)}, 3 h`}
-          onPick={(task) => void schedule(task.id, slot.start, slot.hours)}
-          onClose={closePicker}
-          busy={busy}
-          error={err}
-        />
-      )}
-      {force && slot && (
-        <div className="row" style={{ marginBottom: 8 }}>
-          <button className="small" onClick={() => void schedule(force.taskId, force.start, force.hours, true)} disabled={busy}>
-            Schedule anyway
+  /** Runs a row's button; what goes wrong is said under that row. */
+  const act = (key: string, fn: () => Promise<unknown>) => {
+    setRowErr(null);
+    void fn().then(() => poll.reload()).catch((e) => setRowErr({ key, text: plainError(e) }));
+  };
+
+  const saveCapture = async () => {
+    const text = draft.trim();
+    if (!text || saving) return;
+    setSaving(true);
+    setCaptureErr("");
+    try {
+      setSaved(await capture(text));
+      setDraft("");
+    } catch (e) {
+      setCaptureErr(plainError(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const needActions = (n: Need): ReactNode => {
+    switch (n.kind) {
+      case "reminder":
+        return (
+          <>
+            <button className="small primary" onClick={() => act(n.key, () => ackReminder(n.reminder.entity))} aria-label={`Done: ${n.title}`}>Done</button>
+            <button className="small" onClick={() => act(n.key, () => snoozeFor(n.reminder.entity, 10))} aria-label={`Snooze ${n.title} for 10 minutes`}>10 min</button>
+            <button className="small" onClick={() => act(n.key, () => snoozeFor(n.reminder.entity, 60))} aria-label={`Snooze ${n.title} for 1 hour`}>1 h</button>
+            <a className="small" href={`#/tasks?focus=${n.reminder.entity.id}`}>Open</a>
+          </>
+        );
+      case "tech":
+        return (
+          <>
+            {(n.look.monitorId || n.look.sensor) && <ProposeFix monitorId={n.look.monitorId} sensor={n.look.sensor} />}
+            {n.look.incident && <AckControl inc={n.look.incident} onChanged={async () => { await ops.reload(); }} />}
+            <a className="small" href={n.look.thing ? `#/hosts/${encodeURIComponent(n.look.thing)}` : "#/ops"}>Open</a>
+          </>
+        );
+      case "renewal":
+        return (
+          <>
+            <button className="small primary" onClick={() => act(n.key, () => renewWatch(n.watch))} aria-label={`Mark ${String(n.watch.fields.title)} renewed`}>Renewed</button>
+            <a className="small" href={`#/renewals?focus=${n.watch.id}`}>Open</a>
+          </>
+        );
+      case "followup":
+        return <a className="small" href={`#/lists/jobs/${n.app.id}`}>Open</a>;
+      case "med":
+        return (
+          <button className="small primary" onClick={() => act(n.key, () => createEntity("log", { type: "med", value: n.med, at: new Date().toISOString(), source: SOURCE }))} title={`Log ${n.med} as taken now`}>
+            Took {n.med}
           </button>
-        </div>
-      )}
-      {t && (
-        <>
-          <h3 style={{ marginTop: 4 }}>Timeline</h3>
-          <Timeline items={items} onSchedule={(start, hours) => setSlot({ start, hours })} onUnschedule={unschedule} />
-        </>
-      )}
-      {diary && diary.lines.length > 0 && (
-        <section aria-label="Today so far" style={{ marginTop: 12 }}>
-          <div className="row between">
-            <h3 style={{ margin: 0 }}>Today so far</h3>
-            <a href={`#/notes/${diary.id}`} className="small">{diary.lines.length > 6 ? `all ${diary.lines.length}` : "open"}</a>
+        );
+      case "unsorted":
+        return <a className="small" href="#/inbox">Sort them</a>;
+    }
+  };
+
+  const filing = String((savedLive ?? saved?.capture)?.fields.filing ?? "");
+  const sections: Record<TodaySection, ReactNode> = {
+    needs: (
+      <section className={`card tcard needs${needs.length ? " has" : ""}`} aria-label="Needs you">
+        <h2>Needs you {needs.length > 0 && <span className="count" aria-label={`${needs.length} waiting`}>{needs.length}</span>}</h2>
+        {needs.length === 0 ? (
+          <p className="today-clear"><span className="dot up" aria-hidden="true" /> Nothing needs you right now.</p>
+        ) : (
+          <ol className="need-list">
+            {needs.map((n, i) => (
+              <li key={n.key} className={`need ${n.kind}${(n.kind === "renewal" && n.overdue) || (n.kind === "followup" && n.late) ? " late" : ""}`}>
+                <span className="num" aria-hidden="true">{i + 1}</span>
+                <div className="need-body">
+                  <div className="need-title">{n.title}</div>
+                  {n.detail && <div className="need-detail">{n.detail}</div>}
+                  <div className="need-actions">{needActions(n)}</div>
+                  {rowErr?.key === n.key && <div className="error" role="alert">{rowErr.text}</div>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
+    ),
+    schedule: (
+      <section className="card tcard schedule" aria-label="Schedule">
+        <h2>Schedule {left > 0 && <span className="count quiet">{left} left</span>}</h2>
+        {(allDay.length > 0 || dayRules.length > 0) && (
+          <ul className="allday">
+            {allDay.map((e) => <li key={e.id}><span className="muted small">All day</span> {String(e.fields.title ?? "")}</li>)}
+            {dayRules.map((c) => <li key={c.key}><span className="muted small">All day</span> {c.title} <span className="muted small">{c.type}</span></li>)}
+          </ul>
+        )}
+        {slot && (
+          <TaskPicker title={`Schedule at ${fmtTime(slot.start)}, 3 h`} onPick={(task) => void schedule(task.id, slot.start, slot.hours)} onClose={closePicker} busy={busy} error={err} />
+        )}
+        {force && slot && (
+          <div className="row" style={{ marginBottom: 8 }}>
+            <button className="small" onClick={() => void schedule(force.taskId, force.start, force.hours, true)} disabled={busy}>Schedule anyway</button>
           </div>
-          <div className="list">
-            {diary.lines.slice(-6).map((l, i) => (
-              <div key={i} className="item">
-                <div className="body"><span className="muted" style={{ fontVariantNumeric: "tabular-nums", marginRight: 10 }}>{l.time}</span>{l.text}</div>
-              </div>
+        )}
+        {/* All-day plans are named above. Free time that has ended is not offered (a plan answered this morning still lists it). */}
+        {t && <Timeline items={items.filter((it) => !(it.kind === "event" && it.all_day) && !(it.kind === "commitment" && wholeDay(it)) && !(it.kind === "free" && Date.parse(it.end) <= now.getTime()))} onSchedule={(start, hours) => setSlot({ start, hours })} onUnschedule={unschedule} />}
+        {seeing.length > 0 && (
+          <div className="people-today" aria-label="People in today's plans">
+            <h3>People today</h3>
+            {seeing.map((p) => (
+              <a key={p.id} href={`#/people/${p.id}`} className="person-today">
+                <span>
+                  <strong>{p.name}</strong> <span className="muted small">{p.plans.map((x) => `${x.title}${x.at ? `, ${fmtTime(x.at)}` : ""}`).join("; ")}</span>
+                </span>
+                {p.notes.map((note) => <span key={note} className="small">{note}</span>)}
+              </a>
             ))}
           </div>
-        </section>
-      )}
-      {t && t.captures_unprocessed > 0 && (
-        <div className="strip" style={{ marginTop: 12 }}>
-          <a href="#/inbox">
-            <span className="badge">{t.captures_unprocessed}</span> waiting in Unsorted Info
-          </a>
+        )}
+      </section>
+    ),
+    todo: (
+      <section className="card tcard todo" aria-label="To do">
+        <h2>To do {open.length > 0 && <span className="count quiet">{open.length} open</span>}</h2>
+        <NowCard showNext={false} whenEmpty={null} />
+        {rest.length > 0 && (
+          <ul className="todo-list">
+            {rest.slice(0, TODO_SHOWN).map((task) => {
+              const title = String(task.fields.title ?? "");
+              return (
+                <li key={task.id} className="todo-row">
+                  <button type="button" className="todo-check" aria-label={`Done: ${title}`} title="Done" onClick={() => act(`todo:${task.id}`, () => completeTask(task))} />
+                  <a href={`#/tasks?focus=${task.id}`} className="todo-title">
+                    {title}
+                    {typeof task.fields.due === "string" && task.fields.due && <span className="muted small"> due {fmtDue(task.fields.due)}</span>}
+                  </a>
+                  <button type="button" className="small ghost" aria-label={`Start ${title}`} title="Make this the thing you are doing now" onClick={() => act(`todo:${task.id}`, () => updateEntity(task, { status: "doing" }))}>Start</button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {open.length === 0 && <p className="today-clear"><span className="dot up" aria-hidden="true" /> No open tasks.</p>}
+        {rest.length > TODO_SHOWN && <a href="#/tasks" className="small more">All {open.length} in Tasks</a>}
+        {rowErr?.key.startsWith("todo:") && <div className="error" role="alert">{rowErr.text}</div>}
+      </section>
+    ),
+    sofar: (
+      <section className="card tcard sofar" aria-label="Today so far">
+        <h2>Today so far {done.length > 0 && <span className="count quiet">{done.length}</span>}</h2>
+        <form className="quick-capture" onSubmit={(e) => { e.preventDefault(); void saveCapture(); }}>
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Capture a thought or what you did" title="It goes in today's diary and the assistant files it" aria-label="Capture" />
+          <button type="submit" className="small primary" disabled={saving || !draft.trim()}>{saving ? "Saving" : "Save"}</button>
+        </form>
+        {captureErr && <div className="error" role="alert">{captureErr}</div>}
+        {saved && (
+          <div className="small muted capture-said" role="status">
+            {filing === "pending" ? "Saved to your diary. Filing it now."
+              : filing === "done" && savedLive ? <>Filed: {String(savedLive.fields.filed ?? "Diary only")}{typeof savedLive.fields.thread === "string" && <> <a href={`#/assistant/${savedLive.fields.thread}`} title="Open the chat that filed this, to correct it">Fix</a></>}</>
+              : filing === "failed" ? "Saved to your diary. It will be filed when the assistant is back."
+              : saved.offline ? "Saved here. It is filed when the hub is back." : "Saved."}
+          </div>
+        )}
+        {numbers.length > 0 && (
+          <dl className="today-numbers" aria-label="Logged today">
+            {numbers.map((n) => <div key={n.type}><dt>{n.label}</dt><dd>{n.value}</dd></div>)}
+          </dl>
+        )}
+        {done.length > 0 ? (
+          <ol className="sofar-list">
+            {done.slice(-SOFAR_SHOWN).map((r) => (
+              <li key={r.key} className={`sofar-row ${r.kind}`}>
+                <span className="time">{r.time}</span>
+                <span className="text">{r.text}</span>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="muted small" style={{ margin: 0 }}>Nothing recorded yet today.</p>
+        )}
+        {diary && (done.length > SOFAR_SHOWN || diary.lines.length > 0) && (
+          <a href={`#/notes/${diary.id}`} className="small more">{done.length > SOFAR_SHOWN ? `All ${done.length}: open today's diary` : "Open today's diary"}</a>
+        )}
+      </section>
+    ),
+    coming: (
+      <section className="card tcard coming" aria-label="Coming up">
+        <h2>Coming up</h2>
+        {tomorrow.lines.length > 0 && (
+          <>
+            <h3>Tomorrow</h3>
+            <ul className="coming-list">
+              {tomorrow.lines.map((l) => <li key={l.key}><span className="when">{l.time}</span><span className="what">{l.title}</span></li>)}
+              {tomorrow.more > 0 && <li><span className="when" /><a href="#/week" className="small">{tomorrow.more} more</a></li>}
+            </ul>
+          </>
+        )}
+        {dates.length > 0 && (
+          <>
+            <h3>Dates</h3>
+            <ul className="coming-list">
+              {dates.slice(0, 5).map((d) => <li key={`${d.id}:${d.label}:${d.date}`}><a href={`#/people/${d.id}`} className="what">{datePhrase(d)}</a></li>)}
+            </ul>
+          </>
+        )}
+        {charges.length > 0 && (
+          <>
+            <h3>Charges on autopay</h3>
+            <ul className="coming-list">
+              {charges.slice(0, 5).map((c) => (
+                <li key={c.key}>
+                  <a href={`#/renewals?focus=${c.id}`} className="what">{c.title}</a>
+                  <span className="amount">{c.amount}</span>
+                  <span className="when right">{c.when}</span>
+                </li>
+              ))}
+              {charges.length > 5 && <li><a href="#/renewals" className="small">{charges.length - 5} more</a></li>}
+            </ul>
+          </>
+        )}
+        {tomorrow.lines.length === 0 && dates.length === 0 && charges.length === 0 && <p className="muted small" style={{ margin: 0 }}>Nothing coming up in the next two weeks.</p>}
+      </section>
+    ),
+  };
+
+  const [wrap, width] = useWidth<HTMLDivElement>();
+  const columns = todayColumns(width);
+  const dateWords = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+
+  return (
+    <div className="today" ref={wrap}>
+      <header className="today-head">
+        <div className="today-title">
+          <h1>Today</h1>
+          <span className="today-date">{dateWords}</span>
         </div>
+        <div className="today-meta">
+          {light && (
+            <a href="#/ops" className={`today-tech tone-${light.tone}`} title={light.detail || undefined}>
+              <span className={`dot ${light.tone === "ok" ? "up" : light.tone === "danger" ? "down" : "unknown"}`} aria-hidden="true" /> Tech: {light.label}
+            </a>
+          )}
+          <span className="muted small">
+            {poll.source === "local" ? "local copy, hub unreachable" : poll.at ? `checked ${relative(poll.at.toISOString())}` : ""}
+            {poll.busy ? ", loading" : ""}
+          </span>
+        </div>
+      </header>
+      {!t && poll.error && <div className={poll.unavailable ? "muted small" : "error"}>{poll.unavailable ? "The planner is not available on this hub." : poll.error}</div>}
+      {t && (
+        <>
+          <p className="today-now" role="status">
+            {line.kind === "during" ? (
+              <><strong>{line.title}</strong> until {fmtTime(line.until)} <span className="aside">{line.left} left</span></>
+            ) : line.kind === "next" ? (
+              <>Next: <strong>{line.title}</strong> at {fmtTime(line.at)} <span className="aside">in {line.wait}</span></>
+            ) : (
+              <>Nothing else is scheduled today.</>
+            )}
+          </p>
+          {free && <p className="today-free">{free}</p>}
+          <DayRibbon ribbon={ribbon} onFree={(start) => setSlot({ start, hours: 3 })} />
+        </>
       )}
+      <div className="today-cols" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}>
+        {columns.map((col, i) => (
+          <div key={i} className="today-col">
+            {col.map((s) => <Fragment key={s}>{sections[s]}</Fragment>)}
+          </div>
+        ))}
+      </div>
     </div>
   );
-}
-
-/** The digest without its "Now" line: the Now card right below already says what is queued. */
-export function digestBody(digest: string): string {
-  return digest
-    .split("\n")
-    .map((l) => l.replace(/\s*(Now: [^.]*(\.|$)|Nothing queued\.?)/, "").trim())
-    // The People line is for the morning notification; the People section below shows the same people and dates.
-    .filter((l) => l && !/^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2}\.?$/.test(l) && !l.startsWith("People:"))
-    .join("\n");
 }

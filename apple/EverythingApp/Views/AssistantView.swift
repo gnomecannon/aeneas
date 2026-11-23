@@ -43,6 +43,10 @@ final class ChatStore: ObservableObject {
     }
 
     func refresh(_ client: HubClient) async {
+        #if DEBUG
+        // -EAChatSample: the made-up chats stay on screen (a hub that answers used to replace them with its own).
+        if UserDefaults.standard.bool(forKey: "EAChatSample") { return }
+        #endif
         guard let list = try? await client.aiSessions() else { return }
         items = list
         save()
@@ -90,6 +94,34 @@ final class ChatStore: ObservableObject {
         if current?.session_id == id { current = nil }
         save()
     }
+
+    #if DEBUG
+    /// `-EAChatSample YES` (DebugHooksMac): three made-up chats with the first one open, for screenshots on a copy
+    /// whose hub has none. Nothing is written to disk and nothing is sent.
+    func debugSample() {
+        let now = ISO8601DateFormatter().string(from: Date())
+        let titles = ["Order to swap the NAS disks", "Gift ideas for Jamie", "Why the hub backup ran late"]
+        let list = titles.enumerated().map { i, t in
+            #"{"session_id":"debug-chat-\#(i)","title":"\#(t)","task_type":"auto","created_at":"\#(now)","last_at":"\#(now)","message_count":4,"preview":""}"#
+        }
+        if let made = try? JSONDecoder().decode([AISessionItem].self, from: Data("[\(list.joined(separator: ","))]".utf8)) { items = made }
+        current = AISession(session_id: "debug-chat-0", title: titles[0], task_type: "auto", created_at: now, last_at: now, messages: [
+            AIStoredMessage(role: .user, content: "I have four 4 TB drives in the NAS and four 12 TB ones on the desk. What order should I swap them in?"),
+            AIStoredMessage(role: .assistant, content: """
+            Swap one disk at a time and let the pool finish resilvering before you touch the next one. With RAIDZ2 the pool survives two missing disks, but a resilver is the moment a second disk is most likely to fail, so keeping it to one at a time leaves you a spare disk of safety for the whole job.
+
+            1. Copy everything to the 8 TB USB drive first, and check the copy opens.
+            2. Take the first 4 TB disk offline, pull it, put a 12 TB disk in its bay and start the replace.
+            3. Wait until the pool says it is healthy again, then read the new disk's SMART values.
+            4. Repeat for the other three disks. The extra space shows up after the last one.
+
+            The whole job is four resilvers, each about a day on disks this size. Nothing needs to stay switched off in between.
+            """),
+            AIStoredMessage(role: .user, content: "How long does one resilver take?"),
+            AIStoredMessage(role: .assistant, content: "On this pool about 20 to 26 hours each, going by the last scrub, which read the same data in 19 hours.")
+        ])
+    }
+    #endif
 }
 
 /// An image picked or taken for the next message, already shrunk to JPEG.
@@ -146,16 +178,34 @@ struct AssistantView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 10) {
-                header
-                messages
-                composer
-            }
-            .padding()
-            if showLedger, let id = sessionId {
-                Divider()
-                LedgerPanel(sessionId: id).frame(width: 280)
+        // A wide window: every chat in a column 300 points wide beside the conversation, so another chat is one
+        // click away. The conversation is then at most 980 points wide, as in the web app, and its turns at most
+        // 760 (a readable line), so a question and its answer stay close together instead of at the two edges of
+        // the window. On a narrow one the chats stay behind the Chats button, as before.
+        WideReader { wide in
+            HStack(spacing: 0) {
+                if wide {
+                    // Switching chats mid-reply would show the reply in the wrong chat, so the column waits too.
+                    ChatRows(store: store, currentId: sessionId,
+                             onOpen: { id in Task { await store.open(id, client: engine.client); syncPending() } },
+                             onErase: { erase($0) })
+                        .frame(width: 300)
+                        .disabled(busy)
+                    Divider()
+                }
+                VStack(spacing: 10) {
+                    header
+                    messages
+                    composer
+                }
+                .padding()
+                .environment(\.chatTurnWidth, wide ? 760 : nil)
+                .frame(maxWidth: wide ? 980 : .infinity)
+                if wide { Spacer(minLength: 0) }
+                if showLedger, let id = sessionId {
+                    Divider()
+                    LedgerPanel(sessionId: id).frame(width: 280)
+                }
             }
         }
         .navigationTitle(barTitle)
@@ -200,6 +250,9 @@ struct AssistantView: View {
                           onEraseAll: eraseAll)
         }
         .task {
+            #if DEBUG
+            if UserDefaults.standard.bool(forKey: "EAChatSample") { store.debugSample() }
+            #endif
             // The hub reads the shared start of every chat into the model's cache while the owner types.
             if let c = engine.client { Task { try? await c.warmAssistant() } }
             // Read only; the mic button asks on its first tap.
@@ -589,21 +642,18 @@ struct WorkingIndicator: View {
     }
 }
 
-/// Every chat, newest first. Erasing one is a swipe or a long press on its own row. Erasing all of them sits two
-/// menus deep under the ellipsis and asks again, so it is never one slip away from erasing a single chat.
-struct ChatListSheet: View {
+/// The chats as rows, newest first, conversations before each capture's filing chat. A click opens one; erasing one
+/// is a swipe or its right-click menu, and asks first. In the Chats sheet, and in a wide window the column beside the
+/// conversation.
+struct ChatRows: View {
     @ObservedObject var store: ChatStore
     var currentId: String?
     var onOpen: (String) -> Void
-    var onNew: () -> Void
     var onErase: (String) -> Void
-    var onEraseAll: () -> Void
-    @Environment(\.dismiss) private var dismiss
     @State private var eraseTarget: AISessionItem?
-    @State private var confirmAll = false
 
     private func chatRow(_ s: AISessionItem) -> some View {
-        Button { onOpen(s.session_id); dismiss() } label: { row(s) }
+        Button { onOpen(s.session_id) } label: { row(s) }
             .buttonStyle(.plain)
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 Button { eraseTarget = s } label: { Label("Erase", systemImage: "trash") }.tint(.red)
@@ -613,53 +663,20 @@ struct ChatListSheet: View {
             }
     }
 
-    /// "the 1 chat" or "all 5 chats".
-    private var count: String { store.items.count == 1 ? "the 1 chat" : "all \(store.items.count) chats" }
-
     var body: some View {
-        NavigationStack {
-            List {
-                if store.items.isEmpty { Text("No chats yet.").foregroundStyle(.secondary) }
-                // Conversations first; each capture's filing chat under its own heading, so they do not crowd them out.
-                ForEach(store.items.filter { !$0.session_id.hasPrefix("capture-") }) { s in chatRow(s) }
-                let captures = store.items.filter { $0.session_id.hasPrefix("capture-") }
-                if !captures.isEmpty {
-                    SwiftUI.Section("Captures") { ForEach(captures) { s in chatRow(s) } }
-                }
-            }
-            .navigationTitle("Chats")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { onNew(); dismiss() } label: { Label("New chat", systemImage: "square.and.pencil") }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Menu {
-                            Button(role: .destructive) { confirmAll = true } label: {
-                                Label("Erase \(count)", systemImage: "trash.slash")
-                            }
-                        } label: { Label("Erase all chats", systemImage: "trash.slash") }
-                    } label: { Label("More", systemImage: "ellipsis.circle") }
-                    .disabled(store.items.isEmpty)
-                }
-            }
-            .confirmationDialog("Erase this chat?", isPresented: Binding(get: { eraseTarget != nil }, set: { if !$0 { eraseTarget = nil } }),
-                                titleVisibility: .visible, presenting: eraseTarget) { s in
-                Button("Erase \u{201C}\(s.title)\u{201D}", role: .destructive) { onErase(s.session_id) }
-            } message: { _ in Text("It is erased on every device and cannot be undone.") }
-            .confirmationDialog("Erase \(count)?", isPresented: $confirmAll, titleVisibility: .visible) {
-                Button("Erase all chats", role: .destructive) { onEraseAll(); dismiss() }
-            } message: {
-                Text("Every chat on every device, with its images, command output and troubleshooting ledgers. Saved facts, fix notes and the change journal stay. It cannot be undone.")
+        List {
+            if store.items.isEmpty { Text("No chats yet.").foregroundStyle(.secondary) }
+            // Conversations first; each capture's filing chat under its own heading, so they do not crowd them out.
+            ForEach(store.items.filter { !$0.session_id.hasPrefix("capture-") }) { s in chatRow(s) }
+            let captures = store.items.filter { $0.session_id.hasPrefix("capture-") }
+            if !captures.isEmpty {
+                SwiftUI.Section("Captures") { ForEach(captures) { s in chatRow(s) } }
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 420, minHeight: 480)
-        #endif
+        .confirmationDialog("Erase this chat?", isPresented: Binding(get: { eraseTarget != nil }, set: { if !$0 { eraseTarget = nil } }),
+                            titleVisibility: .visible, presenting: eraseTarget) { s in
+            Button("Erase \u{201C}\(s.title)\u{201D}", role: .destructive) { onErase(s.session_id) }
+        } message: { _ in Text("It is erased on every device and cannot be undone.") }
     }
 
     private func row(_ s: AISessionItem) -> some View {
@@ -682,6 +699,67 @@ struct ChatListSheet: View {
     }
 }
 
+/// Every chat, newest first. Erasing one is a swipe or a long press on its own row. Erasing all of them sits two
+/// menus deep under the ellipsis and asks again, so it is never one slip away from erasing a single chat.
+struct ChatListSheet: View {
+    @ObservedObject var store: ChatStore
+    var currentId: String?
+    var onOpen: (String) -> Void
+    var onNew: () -> Void
+    var onErase: (String) -> Void
+    var onEraseAll: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmAll = false
+
+    /// "the 1 chat" or "all 5 chats".
+    private var count: String { store.items.count == 1 ? "the 1 chat" : "all \(store.items.count) chats" }
+
+    var body: some View {
+        NavigationStack {
+            ChatRows(store: store, currentId: currentId, onOpen: { onOpen($0); dismiss() }, onErase: onErase)
+            .navigationTitle("Chats")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { onNew(); dismiss() } label: { Label("New chat", systemImage: "square.and.pencil") }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Menu {
+                            Button(role: .destructive) { confirmAll = true } label: {
+                                Label("Erase \(count)", systemImage: "trash.slash")
+                            }
+                        } label: { Label("Erase all chats", systemImage: "trash.slash") }
+                    } label: { Label("More", systemImage: "ellipsis.circle") }
+                    .disabled(store.items.isEmpty)
+                }
+            }
+            .confirmationDialog("Erase \(count)?", isPresented: $confirmAll, titleVisibility: .visible) {
+                Button("Erase all chats", role: .destructive) { onEraseAll(); dismiss() }
+            } message: {
+                Text("Every chat on every device, with its images, command output and troubleshooting ledgers. Saved facts, fix notes and the change journal stay. It cannot be undone.")
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 420, minHeight: 480)
+        #endif
+    }
+}
+
+private struct ChatTurnWidthKey: EnvironmentKey { static let defaultValue: CGFloat? = nil }
+
+extension EnvironmentValues {
+    /// The widest a chat turn gets, set in a wide window so a long reply keeps a readable line; nil leaves a turn as
+    /// wide as the conversation.
+    var chatTurnWidth: CGFloat? {
+        get { self[ChatTurnWidthKey.self] }
+        set { self[ChatTurnWidthKey.self] = newValue }
+    }
+}
+
 /// One chat turn: text, attached images, the command it proposed or approved, and what changed.
 struct ChatBubble: View {
     var message: AIStoredMessage
@@ -689,6 +767,7 @@ struct ChatBubble: View {
     /// Set for stored replies: they get a button that reads them aloud.
     var speakId: String? = nil
     @ObservedObject private var speaker = ReplySpeaker.shared
+    @Environment(\.chatTurnWidth) private var turnWidth
 
     var body: some View {
         VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
@@ -729,6 +808,7 @@ struct ChatBubble: View {
                     .font(.caption).foregroundStyle(acts.allSatisfy(\.ok) ? StatusStyle.okText : StatusStyle.warnText)
             }
         }
+        .frame(maxWidth: turnWidth, alignment: message.role == .user ? .trailing : .leading)
         .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
     }
 }

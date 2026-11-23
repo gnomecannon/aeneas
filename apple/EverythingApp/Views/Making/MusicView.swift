@@ -1,6 +1,22 @@
 import SwiftUI
 import EACore
 
+/// What Music says with no ideas yet. The line to type in is above it on a narrow screen; in a wide window it is
+/// in the list beside this one, so the words name the box instead.
+private struct NoIdeasYet: View {
+    @Environment(\.listsSideBySide) private var beside
+    var body: some View {
+        Group {
+            if beside {
+                Text("No ideas yet. Type a line in Quick capture, for example Am F C G 6/8 112bpm, and press Save.")
+            } else {
+                Text("No ideas yet. Type a line above, for example Am F C G 6/8 112bpm, and press Save.")
+            }
+        }
+        .foregroundStyle(.secondary)
+    }
+}
+
 /// Hum Song: hum, sing, tap or beatbox and the hub writes it as MIDI, as a melody and as a rhythm; or one line in, one idea out. Music projects (projects
 /// with area music), then ideas grouped by type with a status filter. Cheat sheets and checklists are notes in Music/Reference.
 struct MusicView: View {
@@ -38,7 +54,9 @@ struct MusicView: View {
     }
 
     var body: some View {
-        List {
+        // A wide window: Hum Song, quick capture and the music projects on the left, the ideas by type on the right,
+        // each a list of its own (SplitList).
+        SplitList {
             if model.isOn(.music) { hum }
 
             SwiftUI.Section {
@@ -95,7 +113,7 @@ struct MusicView: View {
                 }
                 Button("Cancel", role: .cancel) { newProject = "" }
             }
-
+        } second: {
             if !all.isEmpty {
                 SwiftUI.Section {
                     Picker("Status", selection: $filter) {
@@ -118,10 +136,7 @@ struct MusicView: View {
                     }
                 }
             } else {
-                SwiftUI.Section {
-                    Text("No ideas yet. Type a line above, for example Am F C G 6/8 112bpm, and press Save.")
-                        .foregroundStyle(.secondary)
-                }
+                SwiftUI.Section { NoIdeasYet() }
             }
         }
         .navigationTitle("Music")

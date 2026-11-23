@@ -184,49 +184,95 @@ struct SearchView: View {
     @State private var chats: [ChatHit] = []
     @State private var searching = false
 
-    var body: some View {
-        List {
-            if query.trimmingCharacters(in: .whitespaces).isEmpty {
-                Text("Search tasks, notes, assistant chats, fix notes, projects and everything else.")
-                    .font(.callout).foregroundStyle(.secondary)
-            } else if hits.isEmpty && chats.isEmpty && !searching {
-                Text("Nothing found for \u{201C}\(query)\u{201D}.").foregroundStyle(.secondary)
+    /// What the screen says before a search, or when one found nothing.
+    @ViewBuilder private var hint: some View {
+        if query.trimmingCharacters(in: .whitespaces).isEmpty {
+            Text("Search tasks, notes, assistant chats, fix notes, projects and everything else.")
+                .font(.callout).foregroundStyle(.secondary)
+        } else if hits.isEmpty && chats.isEmpty && !searching {
+            Text("Nothing found for \u{201C}\(query)\u{201D}.").foregroundStyle(.secondary)
+        }
+    }
+
+    /// One thing found: its name, the screen it lives on, and the words around the match.
+    private func hitWords(_ h: SearchHit) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: Self.section(for: h.kind).symbol).foregroundStyle(.tint).font(.caption)
+                Text(h.title?.isEmpty == false ? h.title! : "Untitled").foregroundStyle(.primary).multilineTextAlignment(.leading)
             }
+            Text(Self.section(for: h.kind).title).font(.caption2).foregroundStyle(.tint)
+            if let s = h.snippet, !s.isEmpty { Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading) }
+        }
+    }
+
+    /// One chat found: its title, who said the words that matched, and when.
+    private func chatWords(_ c: ChatHit) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(.tint).font(.caption)
+                Text(StyleGuard.dashes(c.title)).foregroundStyle(.primary).multilineTextAlignment(.leading)
+            }
+            if !c.snippet.isEmpty {
+                Text((c.role == "assistant" ? "Assistant: " : c.role == "user" ? "You: " : "") + StyleGuard.dashes(c.snippet))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(3).multilineTextAlignment(.leading)
+            }
+            if let d = ISO.date(c.at ?? c.last_at) { Text(d.shortDateTime).font(.caption2).foregroundStyle(.secondary) }
+        }
+    }
+
+    private var list: some View {
+        List {
+            hint
             ForEach(hits) { h in
-                Button { open(h) } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Image(systemName: Self.section(for: h.kind).symbol).foregroundStyle(.tint).font(.caption)
-                            Text(h.title?.isEmpty == false ? h.title! : "Untitled").foregroundStyle(.primary)
-                        }
-                        Text(Self.section(for: h.kind).title).font(.caption2).foregroundStyle(.tint)
-                        if let s = h.snippet, !s.isEmpty { Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                    }
-                }
+                Button { open(h) } label: { hitWords(h) }
             }
             if !chats.isEmpty {
                 SwiftUI.Section("Assistant chats") {
                     ForEach(chats) { c in
-                        Button { model.openChat(c.session_id) } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(.tint).font(.caption)
-                                    Text(StyleGuard.dashes(c.title)).foregroundStyle(.primary)
-                                }
-                                if !c.snippet.isEmpty {
-                                    Text((c.role == "assistant" ? "Assistant: " : c.role == "user" ? "You: " : "") + StyleGuard.dashes(c.snippet))
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(3)
-                                }
-                                if let d = ISO.date(c.at ?? c.last_at) { Text(d.shortDateTime).font(.caption2).foregroundStyle(.secondary) }
-                            }
+                        Button { model.openChat(c.session_id) } label: { chatWords(c) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A wide window: what was found as cards, as many across as fit at 360 points each (2 across a screen of 1040
+    /// points, 4 across a 1920 window), best match first, left to right and then down; the chats found under them
+    /// the same way, at 440 points each. A card opens what a row opens.
+    private var cards: some View {
+        WidePage {
+            hint
+            CardGrid(minWidth: 360) {
+                ForEach(hits) { h in
+                    Button { open(h) } label: { hitWords(h).gridCard() }
+                        .buttonStyle(.plain)
+                }
+            }
+            if !chats.isEmpty {
+                WideSection("Assistant chats") {
+                    CardGrid(minWidth: 440) {
+                        ForEach(chats) { c in
+                            Button { model.openChat(c.session_id) } label: { chatWords(c).gridCard() }
+                                .buttonStyle(.plain)
                         }
                     }
                 }
             }
         }
+    }
+
+    var body: some View {
+        WideReader { wide in
+            if wide { cards } else { list }
+        }
         .navigationTitle("Search")
         .searchable(text: $query, prompt: "Search everything")
         .overlay { if searching && hits.isEmpty { ProgressView() } }
+        #if DEBUG
+        // `-EASearchFor <words>` (DebugHooksMac): the search runs for those words, for a screenshot of what it finds.
+        .onAppear { if query.isEmpty, let words = UserDefaults.standard.string(forKey: "EASearchFor") { query = words } }
+        #endif
         .task(id: query) {
             let q = query.trimmingCharacters(in: .whitespaces)
             guard !q.isEmpty else { hits = []; chats = []; return }

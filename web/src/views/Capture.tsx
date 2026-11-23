@@ -1,12 +1,15 @@
 import { plainError } from "../lib/errors";
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Entity } from "@everythingapp/shared";
 import { capture, type CaptureResult } from "../sync/actions";
 import { hideCurrentWindow, isTauri } from "../tauri/bridge";
 import { showKeyboardHints } from "../lib/keyboardHints";
 import { fmtDateTime } from "../lib/time";
 import { useDictation } from "../lib/useDictation";
-import { useEntity } from "../sync/hooks";
+import { useEntities, useEntity } from "../sync/hooks";
+import { DIARY_DAY_START, diaryToday } from "../lib/today";
+import { soFar } from "../lib/todayBoard";
+import { useLocalDate } from "../lib/useLocalDate";
 import { HumRecorder } from "../components/Hum";
 import { HumSongIcon } from "../components/HumSongIcon";
 import { useModules } from "../lib/modules";
@@ -53,6 +56,13 @@ export function Capture({ mini = false }: { mini?: boolean }) {
     ref.current?.focus();
   }, []);
 
+  // What was captured today so far (the diary's lines), shown beside the box: what is already down is in sight
+  // while the next thing is typed. The small capture window has no room for it.
+  const diaryDay = useLocalDate(DIARY_DAY_START);
+  const diaryNotes = useEntities("note", (e) => !mini && String(e.fields.path ?? "").startsWith("Diary/"), [mini]);
+  const diary = useMemo(() => (mini ? null : diaryToday(diaryNotes, new Date())), [diaryNotes, diaryDay, mini]);
+  const said = useMemo(() => soFar({ diary, tasks: [], logs: [], now: new Date() }), [diary]);
+
   // Every capture is sorted: written into the day's diary, then filed by the assistant. Nothing waits to be sorted by hand.
   const save = async () => {
     if (dictation.listening) dictation.stop();
@@ -85,6 +95,8 @@ export function Capture({ mini = false }: { mini?: boolean }) {
   return (
     <div>
       {!mini && <h1>Capture</h1>}
+      <div className={mini ? "" : "capture-cols"}>
+      <div>
       <textarea
         ref={ref}
         value={dictation.listening && dictation.interim ? `${text}${text ? " " : ""}${dictation.interim}` : text}
@@ -156,6 +168,25 @@ export function Capture({ mini = false }: { mini?: boolean }) {
           )}
         </div>
       )}
+      </div>
+      {!mini && (
+        <aside className="card capture-today" aria-label="Today so far">
+          <h2>Today so far {diary && <a href={`#/notes/${diary.id}`} className="small">Open today's diary</a>}</h2>
+          {said.length > 0 ? (
+            <ol className="sofar-list">
+              {said.map((r) => (
+                <li key={r.key} className="sofar-row">
+                  <span className="time">{r.time}</span>
+                  <span className="text">{r.text}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="muted small" style={{ margin: 0 }}>Nothing captured yet today.</p>
+          )}
+        </aside>
+      )}
+      </div>
     </div>
   );
 }

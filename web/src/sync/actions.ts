@@ -120,6 +120,21 @@ export async function snoozeReminder(r: Entity, until: string, reason?: string):
 }
 
 /**
+ * Snoozes a reminder for `minutes` from now. A reminder that asks why (friction "reason") asks first; backing out of
+ * that question snoozes nothing and returns false.
+ */
+export async function snoozeFor(r: Entity, minutes: number): Promise<boolean> {
+  let reason: string | undefined;
+  if (String(r.fields.friction ?? "none") !== "none") {
+    const said = window.prompt("Reason to snooze");
+    if (said === null) return false;
+    reason = said;
+  }
+  await snoozeReminder(r, new Date(Date.now() + minutes * 60_000).toISOString(), reason);
+  return true;
+}
+
+/**
  * Done on a task, the same from every screen (Now, Tasks, the Windows widget): a repeating task moves its reminder and
  * deadline on to the next time instead of finishing.
  */

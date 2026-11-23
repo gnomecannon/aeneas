@@ -49,75 +49,13 @@ struct GamesView: View {
         let fromSteam = all.filter { $0.number("steam_appid") != nil }
         let order = sort ?? (fromSteam.isEmpty ? .name : .playtime)
         let library = sorted(all, order)
-        let games = all
-        List {
-            SwiftUI.Section {
-                Picker("Order", selection: Binding(get: { order }, set: { sort = $0 })) {
-                    ForEach(GameSort.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                ForEach(library) { g in
-                    AdminGameRow(game: g)
-                        .contentShape(Rectangle())
-                        .onTapGesture { editing = g }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { deleting = g } label: { Label("Delete", systemImage: "trash") }
-                            Button { editing = g } label: { Label("Edit", systemImage: "pencil") }
-                        }
-                        .contextMenu {
-                            Button { editing = g } label: { Label("Edit", systemImage: "pencil") }
-                            Button(role: .destructive) { deleting = g } label: { Label("Delete", systemImage: "trash") }
-                        }
-                }
-                if all.isEmpty { Text("No games yet. Link Steam in Settings, Connections, or tap + to add one.").foregroundStyle(.secondary) }
-            } header: {
-                Text("Library, \(all.count)")
-            } footer: {
-                if !fromSteam.isEmpty {
-                    Text("\(fromSteam.count) from Steam, \(Int((fromSteam.reduce(0) { $0 + ($1.number("playtime_min") ?? 0) } / 60).rounded())) hours played. Steam is read every 6 hours.")
-                }
+        // The rows are swiped to edit or delete a game, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide {
+                cards(all: all, friends: friends, fromSteam: fromSteam, order: order, library: library)
+            } else {
+                list(all: all, friends: friends, fromSteam: fromSteam, order: order, library: library)
             }
-
-            SwiftUI.Section {
-                DisclosureGroup("Pick a game for a group", isExpanded: $showPicker) {
-                    FlowLayout(spacing: 8) {
-                        // A selected player who no longer owns any game had no chip, so they stayed in every pick
-                        // and could not be cleared. Their chip stays until they are tapped off.
-                        ForEach(friends + players.filter { !friends.contains($0) }.sorted(), id: \.self) { f in
-                            AdminToggleChip(text: f, on: players.contains(f)) {
-                                var now = players
-                                if now.contains(f) { now.remove(f) } else { now.insert(f) }
-                                chosenPlayers = now
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    Picker("Time", selection: $hours) {
-                        Text("Any").tag(Double?.none)
-                        ForEach([2.0, 4.0, 6.0], id: \.self) { h in Text("\(Int(h)) h").tag(Double?.some(h)) }
-                    }
-                    .pickerStyle(.segmented)
-                    Toggle("Co-op only", isOn: $coop)
-                    Button {
-                        ask(exclude: [])
-                    } label: {
-                        HStack {
-                            if busy && pick == nil { ProgressView().controlSize(.small) }
-                            Label("Pick a game", systemImage: "dice")
-                        }
-                        .font(.title3.weight(.semibold))
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.themedProminent)
-                    .disabled(busy || players.isEmpty || games.isEmpty)
-                    if let err = error { AdminMessage(tone: .error, text: err) }
-                    else if games.isEmpty { Text("Add a game below first, with who owns it.").foregroundStyle(.secondary) }
-                    else if players.isEmpty { Text("Tap at least one name.").foregroundStyle(.secondary) }
-                    Text("Picks a game every player owns that fits the group, least recently played first.").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-            if let p = pick { result(p) }
         }
         .searchable(text: $query, prompt: "Filter games")
         .navigationTitle("Games")
@@ -138,33 +76,149 @@ struct GamesView: View {
         .refreshable { await engine.sync() }
     }
 
+    private func steamLine(_ fromSteam: [Entity]) -> String {
+        "\(fromSteam.count) from Steam, \(Int((fromSteam.reduce(0) { $0 + ($1.number("playtime_min") ?? 0) } / 60).rounded())) hours played. Steam is read every 6 hours."
+    }
+
+    private func orderPicker(_ order: GameSort) -> some View {
+        Picker("Order", selection: Binding(get: { order }, set: { sort = $0 })) {
+            ForEach(GameSort.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    /// One game as a list row or a card: a click edits it, the right-click menu edits or deletes it.
+    private func game(_ g: Entity, card: Bool) -> some View {
+        AdminGameRow(game: g)
+            .gridCard(if: card)
+            .contentShape(Rectangle())
+            .onTapGesture { editing = g }
+            .contextMenu {
+                Button { editing = g } label: { Label("Edit", systemImage: "pencil") }
+                Button(role: .destructive) { deleting = g } label: { Label("Delete", systemImage: "trash") }
+            }
+    }
+
+    /// Who plays, how long, co-op or not, and the Pick button with what it says back.
+    @ViewBuilder
+    private func pickControls(friends: [String], games: [Entity]) -> some View {
+        FlowLayout(spacing: 8) {
+            // A selected player who no longer owns any game had no chip, so they stayed in every pick
+            // and could not be cleared. Their chip stays until they are tapped off.
+            ForEach(friends + players.filter { !friends.contains($0) }.sorted(), id: \.self) { f in
+                AdminToggleChip(text: f, on: players.contains(f)) {
+                    var now = players
+                    if now.contains(f) { now.remove(f) } else { now.insert(f) }
+                    chosenPlayers = now
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        Picker("Time", selection: $hours) {
+            Text("Any").tag(Double?.none)
+            ForEach([2.0, 4.0, 6.0], id: \.self) { h in Text("\(Int(h)) h").tag(Double?.some(h)) }
+        }
+        .pickerStyle(.segmented)
+        Toggle("Co-op only", isOn: $coop)
+        Button {
+            ask(exclude: [])
+        } label: {
+            HStack {
+                if busy && pick == nil { ProgressView().controlSize(.small) }
+                Label("Pick a game", systemImage: "dice")
+            }
+            .font(.title3.weight(.semibold))
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.themedProminent)
+        .disabled(busy || players.isEmpty || games.isEmpty)
+        if let err = error { AdminMessage(tone: .error, text: err) }
+        else if games.isEmpty { Text("Add a game below first, with who owns it.").foregroundStyle(.secondary) }
+        else if players.isEmpty { Text("Tap at least one name.").foregroundStyle(.secondary) }
+        Text("Picks a game every player owns that fits the group, least recently played first.").font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func list(all: [Entity], friends: [String], fromSteam: [Entity], order: GameSort, library: [Entity]) -> some View {
+        List {
+            SwiftUI.Section {
+                orderPicker(order)
+                ForEach(library) { g in
+                    game(g, card: false)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { deleting = g } label: { Label("Delete", systemImage: "trash") }
+                            Button { editing = g } label: { Label("Edit", systemImage: "pencil") }
+                        }
+                }
+                if all.isEmpty { Text("No games yet. Link Steam in Settings, Connections, or tap + to add one.").foregroundStyle(.secondary) }
+            } header: {
+                Text("Library, \(all.count)")
+            } footer: {
+                if !fromSteam.isEmpty { Text(steamLine(fromSteam)) }
+            }
+
+            SwiftUI.Section {
+                DisclosureGroup("Pick a game for a group", isExpanded: $showPicker) {
+                    pickControls(friends: friends, games: all)
+                }
+            }
+
+            if let p = pick { SwiftUI.Section("The pick") { result(p) } }
+        }
+    }
+
+    /// A wide Mac window: the library on the left as a grid of cards, as many across as fit, in the chosen order,
+    /// and beside it a column 380 points wide with Pick a game for a group, open, and the pick under it. On a narrow
+    /// window the picker is a row that opens, under the library.
+    private func cards(all: [Entity], friends: [String], fromSteam: [Entity], order: GameSort, library: [Entity]) -> some View {
+        WidePage {
+            HStack(alignment: .top, spacing: 22) {
+                WideSection("Library, \(all.count)") {
+                    orderPicker(order).labelsHidden().fixedSize()
+                    if all.isEmpty { Text("No games yet. Link Steam in Settings, Connections, or tap + to add one.").foregroundStyle(.secondary) }
+                    CardGrid { ForEach(library) { g in game(g, card: true) } }
+                    if !fromSteam.isEmpty { Text(steamLine(fromSteam)).font(.footnote).foregroundStyle(.secondary) }
+                }
+                VStack(alignment: .leading, spacing: 22) {
+                    WideSection("Pick a game for a group") {
+                        VStack(alignment: .leading, spacing: 10) { pickControls(friends: friends, games: all) }
+                            .gridCard()
+                    }
+                    if let p = pick {
+                        WideSection("The pick") {
+                            VStack(alignment: .leading, spacing: 10) { result(p) }.gridCard()
+                        }
+                    }
+                }
+                .frame(width: 380)
+            }
+        }
+    }
+
     @ViewBuilder
     private func result(_ p: GamePick) -> some View {
-        SwiftUI.Section("The pick") {
-            if let name = played {
-                Label("\(name) marked played.", systemImage: "checkmark.circle.fill").foregroundStyle(.okText).font(.title3)
-            } else if let g = p.pick {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(StyleGuard.dashes(g.str("name"))).font(.largeTitle.weight(.bold))
-                    if !p.why.isEmpty { Text(StyleGuard.dashes(p.why)).foregroundStyle(.secondary) }
-                    Text(AdminGames.players(g) + (g.number("session_hours").map { ", about \(JSONValue.number($0).displayString) h" } ?? ""))
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 4)
-                HStack(spacing: 12) {
-                    Button { markPlayed(g) } label: { Label("Played", systemImage: "checkmark").frame(maxWidth: .infinity) }
-                        .buttonStyle(.themedProminent)
-                    Button { ask(exclude: excluded + [g.id]) } label: { Label("Another", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity) }
-                        .buttonStyle(.bordered)
-                }
-                .controlSize(.large)
-                .disabled(busy)
-                if let ru = p.runner_up { Text("Runner-up: \(StyleGuard.dashes(ru.str("name")))").font(.caption).foregroundStyle(.secondary) }
-            } else {
-                Text(p.why.isEmpty ? "Nothing fits. Change the players or add a game below." : StyleGuard.dashes(p.why)).foregroundStyle(.secondary)
-                if !excluded.isEmpty {
-                    Button("Start over") { ask(exclude: []) }.disabled(busy)
-                }
+        if let name = played {
+            Label("\(name) marked played.", systemImage: "checkmark.circle.fill").foregroundStyle(.okText).font(.title3)
+        } else if let g = p.pick {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(StyleGuard.dashes(g.str("name"))).font(.largeTitle.weight(.bold))
+                if !p.why.isEmpty { Text(StyleGuard.dashes(p.why)).foregroundStyle(.secondary) }
+                Text(AdminGames.players(g) + (g.number("session_hours").map { ", about \(JSONValue.number($0).displayString) h" } ?? ""))
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+            HStack(spacing: 12) {
+                Button { markPlayed(g) } label: { Label("Played", systemImage: "checkmark").frame(maxWidth: .infinity) }
+                    .buttonStyle(.themedProminent)
+                Button { ask(exclude: excluded + [g.id]) } label: { Label("Another", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity) }
+                    .buttonStyle(.bordered)
+            }
+            .controlSize(.large)
+            .disabled(busy)
+            if let ru = p.runner_up { Text("Runner-up: \(StyleGuard.dashes(ru.str("name")))").font(.caption).foregroundStyle(.secondary) }
+        } else {
+            Text(p.why.isEmpty ? "Nothing fits. Change the players or add a game below." : StyleGuard.dashes(p.why)).foregroundStyle(.secondary)
+            if !excluded.isEmpty {
+                Button("Start over") { ask(exclude: []) }.disabled(busy)
             }
         }
     }

@@ -111,7 +111,7 @@ export function NotesMap() {
         </button>
       </div>
       {!graph.nodes.length && <div className="empty">No notes to map.</div>}
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", maxWidth: 900, height: "auto", display: "block", margin: "0 auto" }} role="img" aria-label="Notes map">
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", maxHeight: "calc(100vh - 110px)", display: "block", margin: "0 auto" }} role="img" aria-label="Notes map">
         {graph.edges.map((e, i) => {
           const a = pos.get(e.from);
           const b = pos.get(e.to);

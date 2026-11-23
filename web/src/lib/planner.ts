@@ -214,6 +214,23 @@ export function ruleSpan(rule: Pick<RuleLike, "start" | "end">, date: Date): Spa
   return { start: atMinutes(date, hhmmToMinutes(rule.start)).toISOString(), end: atMinutes(date, hhmmToMinutes(rule.end)).toISOString() };
 }
 
+/**
+ * A commitment or a blackout holds its time. A preference weighs a slot and an info rule (a custody week) is a note
+ * on the day: neither takes free time or stops a block. The hub's rule (planner.ts, "take no time and weigh no slot").
+ */
+export function takesTime(c: { type: RuleType }): boolean {
+  return c.type === "commitment" || c.type === "blackout";
+}
+
+/**
+ * A rule that lasts the whole day (a custody week runs midnight to midnight): like an all-day event it has no place
+ * in time, so it reads "All day" and is neither "on now" nor a bar on the day. 23 hours counts, the length of the day
+ * the clocks go forward.
+ */
+export function wholeDay(it: { start: string; end: string }): boolean {
+  return Date.parse(it.end) - Date.parse(it.start) >= 23 * HOUR;
+}
+
 /** The commitments, blackouts and preferences in force on one date, from plan_rule entities. */
 export function commitmentsFor(rules: Entity[], date: Date): Commitment[] {
   const out: Commitment[] = [];
@@ -391,7 +408,15 @@ export function timeline(day: { blocks: Block[]; commitments: Commitment[]; even
   for (const f of day.free_slots) items.push({ kind: "free", key: `f:${f.start}`, start: f.start, end: f.end, hours: f.hours });
   if (now) items.push({ kind: "now", key: "now", start: now.toISOString() });
   const rank: Record<TimelineItem["kind"], number> = { now: 0, reminder: 1, commitment: 2, event: 3, block: 4, free: 5 };
-  return items.sort((a, b) => byTime(a.start, b.start) || rank[a.kind] - rank[b.kind]);
+  // The free time now is in starts at the moment the hub answered, a little before this device's now: the marker
+  // goes above it all the same (it showed under "free, 6 h", as if that time had passed).
+  const t = now?.getTime() ?? NaN;
+  const holdsNow = (x: TimelineItem) => x.kind === "free" && Date.parse(x.start) <= t && t < Date.parse(x.end);
+  return items.sort((a, b) => {
+    if (a.kind === "now" && holdsNow(b)) return -1;
+    if (b.kind === "now" && holdsNow(a)) return 1;
+    return byTime(a.start, b.start) || rank[a.kind] - rank[b.kind];
+  });
 }
 
 // ---------- digest ----------
@@ -409,7 +434,7 @@ export function buildDigest(t: Omit<PlannerToday, "digest" | "next" | "date">, a
   const nowBlock = t.now ? (t.now.fields.block as { end: string } | undefined) : undefined;
   const nowNote = nowBlock && new Date(nowBlock.end) > at ? ` until ${fmtTime(nowBlock.end)}` : "";
   lines.push(`${fmtDayLabel(at)}. ${nowTitle ? `Now: ${nowTitle}${nowNote}.` : "Nothing queued."}`);
-  const fixed = t.commitments.filter((c) => c.type !== "preference" && c.type !== "info").length;
+  const fixed = t.commitments.filter(takesTime).length;
   const parts = [`${t.blocks.length} ${t.blocks.length === 1 ? "block" : "blocks"}`, `${fixed} fixed`, `${t.reminders_due.length} ${t.reminders_due.length === 1 ? "reminder" : "reminders"}`];
   const nextFree = t.free_slots.find((s) => new Date(s.end) > at);
   lines.push(`${parts.join(", ")}.${nextFree ? ` Free: ${Math.floor(nextFree.hours)} h at ${fmtTime(nextFree.start > at.toISOString() ? nextFree.start : at.toISOString())}.` : ""}`);

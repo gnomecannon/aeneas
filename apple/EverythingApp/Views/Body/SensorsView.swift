@@ -26,27 +26,49 @@ struct SensorsView: View {
         engine.list(.sensor).sorted { $0.str("name").localizedCaseInsensitiveCompare($1.str("name")) == .orderedAscending }
     }
 
+    private var noSensors: some View {
+        Text("No sensors yet. A sensor appears here when its first reading is posted to the hub. Open How to post readings below.")
+            .foregroundStyle(.secondary)
+    }
+
+    private func card(_ s: Entity) -> some View {
+        SensorCard(sensor: s, points: series[s.id], onSettings: { editing = s }, onExport: { Task { await export(s) } },
+                   onPropose: { Task { await propose(s) } }, proposing: proposing == s.id)
+    }
+
     var body: some View {
         let list = sensors
-        List {
-            SwiftUI.Section { summary(list) }
-
-            if list.isEmpty {
-                SwiftUI.Section {
-                    Text("No sensors yet. A sensor appears here when its first reading is posted to the hub. Open How to post readings below.")
-                        .foregroundStyle(.secondary)
+        // A wide window: how the sensors are doing across the top, then a card for each sensor with its reading and
+        // chart, as many across as fit at 400 points each (2 across a screen of 1040 points, 4 across a 1920
+        // window), by name; How to post readings under them, at most 760 points wide. On a narrow one each sensor is
+        // a section of the list, one under the other, as before.
+        WideReader { wide in
+            if wide {
+                WidePage {
+                    summary(list)
+                    if list.isEmpty { noSensors }
+                    CardGrid(minWidth: 400) {
+                        ForEach(list) { s in card(s).gridCard() }
+                    }
+                    DisclosureGroup("How to post readings", isExpanded: $showHowTo) { howTo }
+                        .frame(maxWidth: 760, alignment: .leading)
                 }
-            }
+            } else {
+                List {
+                    SwiftUI.Section { summary(list) }
 
-            ForEach(list) { s in
-                SwiftUI.Section {
-                    SensorCard(sensor: s, points: series[s.id], onSettings: { editing = s }, onExport: { Task { await export(s) } },
-                               onPropose: { Task { await propose(s) } }, proposing: proposing == s.id)
+                    if list.isEmpty {
+                        SwiftUI.Section { noSensors }
+                    }
+
+                    ForEach(list) { s in
+                        SwiftUI.Section { card(s) }
+                    }
+
+                    SwiftUI.Section {
+                        DisclosureGroup("How to post readings", isExpanded: $showHowTo) { howTo }
+                    }
                 }
-            }
-
-            SwiftUI.Section {
-                DisclosureGroup("How to post readings", isExpanded: $showHowTo) { howTo }
             }
         }
         .navigationTitle("Sensors")

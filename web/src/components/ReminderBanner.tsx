@@ -9,8 +9,12 @@ import { fmtDateTime } from "../lib/time";
 import { useEscape } from "../lib/keys";
 import { useAlerts } from "../lib/alerts";
 
-/** Tasks whose reminder time has passed, every 30 s from the local copy: a banner, and a Windows notification under Tauri. */
-export function ReminderBanner() {
+/**
+ * Tasks whose reminder time has passed, every 30 s from the local copy: a banner, and a Windows notification under Tauri.
+ * `quiet`: the screen shown lists due reminders itself with the same buttons (Today's Needs you), so the banner is not
+ * drawn there; the notification still goes out.
+ */
+export function ReminderBanner({ quiet = false }: { quiet?: boolean } = {}) {
   const reminders = useEntities("task", hasReminder);
   // Reminders switched off in Settings, Notifications: no banner and no notification here either (this banner is
   // made from the local copy, so the hub holding the alert back does not reach it).
@@ -44,7 +48,7 @@ export function ReminderBanner() {
       if (firstKey) setDismissed((d) => new Set([...d, firstKey]));
     }, [firstKey]),
   );
-  if (!visible.length) return null;
+  if (!visible.length || quiet) return null;
   const first = visible[0];
   const f = first.entity.fields as { title: string; friction: string };
 

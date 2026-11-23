@@ -98,7 +98,7 @@ export function Images() {
   const setWidth = (v: number) => { if (lock && w > 0) setH(Math.max(1, Math.round((h * v) / w))); setW(v); };
 
   return (
-    <div className="col">
+    <div className="col form-page">
       <h1>{ref ? "New image from a picture" : "Create image"}</h1>
       {ref && (
         <div className="row">

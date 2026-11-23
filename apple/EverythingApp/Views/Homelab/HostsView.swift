@@ -25,22 +25,48 @@ struct HostsView: View {
     private var typed: String { Homelab.trimmed(query).lowercased() }
     private var shown: [HostSummary] { typed.isEmpty ? hosts : hosts.filter { $0.host.lowercased().contains(typed) } }
 
-    var body: some View {
+    private var intro: some View {
+        Text("Every computer you run. Each keeps fix notes (what broke on it and the exact steps that fixed it), a log of changes and command snippets. The assistant writes the fix notes when you finish a troubleshooting chat, so next time the answer is already here.")
+            .font(.footnote).foregroundStyle(.secondary)
+    }
+
+    /// A name typed that no machine has yet: the way to start its page.
+    private var openTyped: some View {
+        Button { openHost = typed } label: { Label("Open \(typed)", systemImage: "plus.circle") }
+    }
+
+    private var list: some View {
         List {
             if typed.isEmpty {
-                SwiftUI.Section {
-                    Text("Every computer you run. Each keeps fix notes (what broke on it and the exact steps that fixed it), a log of changes and command snippets. The assistant writes the fix notes when you finish a troubleshooting chat, so next time the answer is already here.")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                SwiftUI.Section { intro }
             }
             if !typed.isEmpty, !hosts.contains(where: { $0.host.lowercased() == typed }) {
-                SwiftUI.Section {
-                    Button { openHost = typed } label: { Label("Open \(typed)", systemImage: "plus.circle") }
-                }
+                SwiftUI.Section { openTyped }
             }
             ForEach(shown) { h in
                 NavigationLink { HostDetailView(host: h.host) } label: { HostRow(summary: h) }
             }
+        }
+    }
+
+    /// A wide window: a card for each machine, as many across as fit at 360 points each (2 across a screen of 1040
+    /// points, 4 across a 1920 window), by name. A card opens the machine's page as its row does.
+    private var cards: some View {
+        WidePage {
+            if typed.isEmpty { intro }
+            if !typed.isEmpty, !hosts.contains(where: { $0.host.lowercased() == typed }) { openTyped }
+            CardGrid(minWidth: 360) {
+                ForEach(shown) { h in
+                    NavigationLink { HostDetailView(host: h.host) } label: { HostRow(summary: h).gridCard() }
+                        .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        WideReader { wide in
+            if wide { cards } else { list }
         }
         .searchable(text: $query, prompt: "Find or add a machine")
         .navigationTitle("Machines")
@@ -224,7 +250,9 @@ struct HostDetailView: View {
         let history = TechHistory.items(journal: journal, incidents: incidents, runbooks: engine.list(.runbook),
                                         hostOf: { ids.contains($0) ? key : nil }, host: key)
         let planned = TechHistory.plannedSteps(journal, host: key)
-        List {
+        // A wide window: how it is now on the left (what it is, its purpose, checks and readings), and on the right
+        // what happened and what is written down (history, fix notes, snippets), each a list of its own (SplitList).
+        SplitList {
             SwiftUI.Section {
                 VStack(alignment: .leading, spacing: 6) {
                     if me.kind == .machine { identity(me) }
@@ -277,7 +305,7 @@ struct HostDetailView: View {
                     Text("Now")
                 }
             }
-
+        } second: {
             historySection(history, planned: planned)
 
             SwiftUI.Section {

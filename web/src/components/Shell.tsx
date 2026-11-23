@@ -228,9 +228,6 @@ function RailLink({ item, active, inbox }: { item: Item; active: boolean; inbox:
   );
 }
 
-/** Screens that use the window's whole width instead of the usual reading column. */
-const WIDE_SCREENS = ["/mail"];
-
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const inbox = useInboxCount();
   const [q, setQ] = useState("");
@@ -315,8 +312,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           </div>
         )}
       </aside>
-      {/* Screens laid out in columns of their own (Mail's side list and its mail) use the whole window. */}
-      <main className={WIDE_SCREENS.includes(route.path) ? "main wide" : "main"} id="main">
+      {/* Every screen has the whole window beside the sidebar; each lays itself out for the width it gets. */}
+      <main className="main" id="main">
         <div className="topbar">
           {/* Phone: the screen names itself, so the bar offers the way back to Library instead of repeating the title. */}
           {back ? (

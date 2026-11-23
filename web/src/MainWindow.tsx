@@ -20,7 +20,7 @@ export function MainWindow({ route, view }: { route: Route; view: ReactNode }) {
     <Shell route={route}>
       <div className="banners">
         <HelperOfferBanner path={route.path} />
-        <ReminderBanner />
+        <ReminderBanner quiet={route.path === "/today"} />
         <ActivityBanner />
         <DiskBanner />
         <AppUpdateBanner />

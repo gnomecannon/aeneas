@@ -210,6 +210,13 @@ input, select, textarea {
   width: 100%;
   max-width: 100%;
 }
+/* On a wide window a box to type in is as wide as what is typed into it needs, not as wide as the window. The list
+   of kinds is inside :where() so it weighs nothing: written out plainly it outweighed every rule after it, and a date
+   box stayed 560 px wide, Today's capture box stopped short of its card, and Reference's search box of its column. */
+.main :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"])), .main select { max-width: 560px; }
+.main input[type="date"], .main input[type="datetime-local"], .main input[type="time"], .main input[type="month"] { max-width: 260px; }
+.main textarea { max-width: 920px; }
+.assistant textarea { max-width: none; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex]:focus-visible, [role="link"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
 /* A screen's title takes the focus on arrival so a screen reader says where you are (ScreenStart); it is not a control, so no ring. */
@@ -260,8 +267,10 @@ button.back.link { background: none; border: 0; color: var(--link); cursor: poin
 }
 .badge.muted { background: var(--surface-2); color: var(--muted); }
 
-.main { padding: 16px var(--gutter) 24px; max-width: 920px; width: 100%; min-width: 0; }
-.main.wide { max-width: none; }
+/* The screen's own area is the whole window beside the sidebar: no reading column held to 920 px with the rest of a
+   desktop window empty. What keeps lines readable is each screen's own layout (lists flow into columns, sections sit
+   side by side, long text keeps its measure), never a limit on the area. */
+.main { padding: 16px var(--gutter) 24px; width: 100%; min-width: 0; }
 
 .tabs { display: none; }
 
@@ -299,6 +308,26 @@ button.back.link { background: none; border: 0; color: var(--link); cursor: poin
 .error { color: var(--danger-text); font-size: 13px; }
 .ok { color: var(--ok-text); font-size: 13px; }
 
+/* Wide windows, single cards: a card that holds one decision or one question (Now, tonight's quiz, Pick for me)
+   keeps a width that reads; a page that is one form (Create image) stops where a text box stops, so its groups and
+   its button are not stretched across the window; Memory's facts flow into columns 760 px wide or more (2 across a
+   1920 px window), wide enough to show a sentence, each row keeping its key, its value and its buttons together; the Overview's recent activity is a list to read, under the cards. */
+.main .card.big { max-width: 760px; }
+.form-page { max-width: 920px; }
+.fact-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 760px), 1fr)); gap: 6px 28px; }
+.fact-rows .kv { max-width: 920px; }
+.card.activity { max-width: 920px; }
+/* Reference's search page is a column to read, as a search engine's results are: the box, what it found and what was
+   read lately keep 920 px on a wide window, the box as wide as that column. (The reader has its own 70 characters a
+   line.) Found by reading the code: the scan of every screen ran on a hub with no book, where only the empty card shows. */
+.ref { max-width: 920px; }
+.main .ref .ref-q { max-width: none; }
+/* Now on a wide window: the task's card at a width that reads, and beside it what is due, what waits and what is up
+   next (views/Now.tsx switches to this from 1100 px). */
+.now-cols { display: grid; grid-template-columns: minmax(0, 720px) minmax(0, 560px); gap: 22px; align-items: start; }
+.now-cols > aside > .card h2 { margin-top: 0; }
+/* Narrower than that the strips sit over the card, and end where the card ends. */
+.now-stack { max-width: 760px; }
 details > summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 0; list-style: none; }
 details > summary::before { content: "+ "; }
 details[open] > summary::before { content: "- "; }
@@ -310,7 +339,20 @@ details[open] > summary::before { content: "- "; }
 .tree details > .list { margin: 2px 0 8px 14px; }
 .tree .count { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 4px; }
 
-.list { display: flex; flex-direction: column; gap: 6px; }
+/* A list of items flows into as many columns as its own width holds: one on a phone or inside a narrow card, four or
+   five across a wide window. Rows keep their order, read left to right, then down. */
+.list { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 6px; }
+/* A list whose rows are sentences or forms, or are dragged into an order: one column, at a width that reads. */
+.list.rows { grid-template-columns: minmax(0, 1fr); max-width: 920px; }
+/* While a row is open for editing (it holds boxes to type in), rows keep their own heights: the open one grows
+   where it is and the ones beside it do not stretch into tall empty boxes. */
+.list:has(> .item textarea, > .item select, > .item input:not([type="checkbox"]):not([type="radio"])) { align-items: start; }
+/* A form of several fields (add a renewal, a project, a check) keeps a width its fields fill. */
+.main form.card { max-width: 760px; }
+/* Sections of a screen sit side by side when the window has room, each at least 420 px wide. */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 16px; align-items: start; }
+.cols > * { min-width: 0; }
+.cols > .card { margin-bottom: 0; }
 .item {
   display: flex; gap: 10px; align-items: flex-start;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -340,6 +382,10 @@ details[open] > summary::before { content: "- "; }
 .chip.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* On a wide window cards sit as many across as fit (four at 1920), not two stretched ones. */
+@media (min-width: 1500px) {
+  .grid2 { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+}
 .split { display: grid; grid-template-columns: 260px 1fr; gap: 16px; align-items: start; }
 .split .side { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
 
@@ -347,6 +393,26 @@ details[open] > summary::before { content: "- "; }
 .spark path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 .spark circle { fill: var(--accent); }
 
+/* The Assistant: the open chat in a column that reads (980 px at most), the troubleshooting ledger beside it when
+   there is one, and from 1300 px the list of chats on its other side. */
+.assistant { display: grid; grid-template-columns: minmax(0, 980px); gap: 16px; align-items: start; }
+.assistant.with-ledger { grid-template-columns: minmax(0, 980px) 260px; }
+.assistant .chat-main { min-width: 0; }
+.assistant > .side { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.chats-side { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.chats-side button { align-self: flex-start; margin-bottom: 8px; }
+.chats-side a { display: block; padding: 6px 8px; border-radius: var(--radius); color: var(--text); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chats-side a:hover { background: var(--surface-2); text-decoration: none; }
+.chats-side a.on { background: var(--surface-2); font-weight: 600; }
+.chats-side h3 { margin: 12px 8px 4px; font-size: 12px; }
+@media (min-width: 1300px) {
+  .assistant.with-chats { grid-template-columns: 280px minmax(0, 980px); }
+  .assistant.with-chats.with-ledger { grid-template-columns: 280px minmax(0, 980px) 300px; }
+}
+@media (max-width: 767px) {
+  .assistant.with-ledger { grid-template-columns: minmax(0, 1fr); }
+  .assistant > .side { position: static; max-height: none; }
+}
 .chat { display: flex; flex-direction: column; gap: 10px; min-height: 40vh; }
 .msg { padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); max-width: 100%; }
 .msg.user { background: var(--surface-2); margin-left: 10%; }
@@ -413,11 +479,6 @@ table.proof .narrow { display: none; }
   background-color: var(--surface-2);
   background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--border) 5px 7px);
 }
-.digest {
-  white-space: pre-line; font-family: var(--font); font-size: 15px; line-height: 1.5;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 10px 14px; margin: 0 0 12px; overflow-wrap: anywhere;
-}
 .picker { margin-bottom: 12px; }
 .picker .item.pick { width: 100%; text-align: left; min-height: 40px; }
 .picker .item.pick .body { display: flex; flex-direction: column; gap: 2px; }
@@ -440,9 +501,143 @@ table.proof .narrow { display: none; }
 .tl-item.reminder { padding: 4px 10px; font-size: 13px; background: transparent; border-color: transparent; }
 .tl-item.reminder .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); margin-right: 2px; }
 .tl-item.free { border-style: dashed; background: transparent; }
+/* Something already over is quieter, as on the Apple app's day. */
+.tl-item.past .t, .tl-item.past a { color: var(--text-2); }
+.tl-item.past.reminder .dot { background: var(--muted); }
 .tl-now { display: grid; grid-template-columns: 64px 1fr; gap: 10px; align-items: center; padding: 0 10px; color: var(--danger-text); }
 .tl-now .time { color: var(--danger-text); }
 .tl-now .line { height: 2px; background: var(--danger); border-radius: 1px; }
+
+/* ---------- Today: the day as a status board (views/Today.tsx) ---------- */
+.today-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; margin-bottom: 6px; }
+.today-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.today-title h1 { margin: 0; }
+.today-date { color: var(--text-2); }
+.today-meta { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; }
+.today-tech { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 2px 10px; background: var(--surface); }
+.today-tech:hover { text-decoration: none; border-color: var(--muted); }
+.today-tech.tone-danger { border-color: var(--danger); }
+/* The one sentence: what is on now, or what is next. The largest words on the screen. */
+.today-now { font-size: 26px; line-height: 1.25; font-weight: 400; margin: 2px 0 2px; overflow-wrap: anywhere; }
+.today-now strong { font-weight: 700; }
+.today-now .aside { font-size: 15px; color: var(--text-2); margin-left: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.today-free { margin: 0; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.ribbon { position: relative; margin: 12px 0 16px; }
+.ribbon-hours { position: relative; height: 16px; }
+.ribbon-label { position: absolute; top: 0; padding-left: 4px; font-size: 11px; line-height: 16px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ribbon-track { position: relative; height: calc(var(--lanes, 1) * 26px + 10px); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.ribbon-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.ribbon-seg {
+  position: absolute; top: calc(5px + var(--lane, 0) * 26px); height: 22px; min-height: 0; padding: 0 6px; border-radius: 4px;
+  font-size: 12px; line-height: 22px; color: var(--text); text-decoration: none; overflow: hidden; white-space: nowrap; z-index: 1;
+}
+.ribbon-seg > span { display: block; overflow: hidden; text-overflow: ellipsis; }
+.ribbon-seg:hover { text-decoration: none; }
+.ribbon-seg.event { background: color-mix(in srgb, var(--cal, var(--accent)) 26%, var(--surface)); border-left: 3px solid var(--cal, var(--accent)); }
+.ribbon-seg.block { background: color-mix(in srgb, var(--accent) 26%, var(--surface)); border-left: 3px solid var(--accent); }
+.ribbon-seg.block.doing { background: color-mix(in srgb, var(--ok) 26%, var(--surface)); border-left-color: var(--ok); }
+.ribbon-seg.commitment { color: var(--text-2); background-color: var(--surface-2); background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--border) 5px 7px); }
+/* Free time sits behind everything, the full height of the strip. */
+.ribbon-seg.free { top: 4px; bottom: 4px; height: auto; z-index: 0; background: transparent; border: 1px dashed var(--muted); color: var(--muted); text-align: left; font: inherit; font-size: 12px; display: flex; align-items: center; }
+button.ribbon-seg.free { cursor: pointer; }
+button.ribbon-seg.free:hover { border-color: var(--accent); color: var(--text); }
+.ribbon-dot { position: absolute; bottom: 3px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--warn); z-index: 2; }
+.ribbon-dot.past { background: var(--muted); }
+/* The part of the day that is over is shaded, so what is left stands out. */
+.ribbon-past { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--bg) 55%, transparent); z-index: 3; pointer-events: none; }
+.ribbon-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--danger); z-index: 4; pointer-events: none; }
+
+.today-cols { display: grid; gap: 14px; align-items: start; }
+.today-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.today .tcard { margin: 0; padding: 12px 14px 14px; }
+.today .tcard > h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); }
+.today .tcard h3 { margin: 12px 0 4px; font-size: 12px; }
+.today .tcard > h2 + h3 { margin-top: 0; }
+.today .count { background: var(--accent); color: var(--accent-text); border-radius: 10px; font-size: 12px; line-height: 18px; min-width: 18px; padding: 0 6px; text-align: center; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.today .count.quiet { background: transparent; color: var(--muted); padding: 0; font-weight: 400; text-transform: none; }
+.today .more { display: inline-block; margin-top: 8px; }
+.today-clear { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text-2); }
+/* Something is waiting: the card says so with the accent on its edge. */
+.today .needs.has { border-left: 3px solid var(--accent); }
+
+.need-list { list-style: none; margin: 0; padding: 0; }
+.need { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+.need:first-child { border-top: 0; padding-top: 0; }
+.need:last-child { padding-bottom: 0; }
+.need .num { width: 24px; height: 24px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
+.need.tech .num, .need.late .num { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.need-title { font-weight: 600; overflow-wrap: anywhere; }
+.need-detail { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.need.late .need-detail { color: var(--danger-text); }
+.need-actions { display: flex; gap: 6px 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.need-actions a.small { padding: 0 4px; }
+.need-actions .row { margin: 0 !important; }
+
+.today .allday { list-style: none; margin: 0 0 8px; padding: 0; }
+.today .allday li { padding: 2px 0; overflow-wrap: anywhere; }
+/* Inside the card the day's rows are lines, not boxes in a box. */
+.today .timeline { gap: 0; }
+.today .tl-item { border-width: 0 0 0 3px; border-color: transparent; border-radius: 0; background: transparent; padding: 7px 0 7px 8px; grid-template-columns: 62px minmax(0, 1fr); }
+.today .tl-item + .tl-item, .today .tl-now + .tl-item { box-shadow: 0 -1px 0 var(--border); }
+.today .tl-item.event { border-left-color: var(--cal, var(--accent)); }
+.today .tl-item.block { border-left-color: var(--accent); }
+.today .tl-item.block.doing { border-left-color: var(--ok); }
+.today .tl-item.commitment { background: transparent; }
+.today .tl-item.reminder { padding: 7px 0 7px 8px; font-size: inherit; }
+.today .tl-item.free { border-style: solid; color: var(--muted); }
+/* The accent is for what can be pressed to act: a reminder's name in the day's list reads as words, and opens it. */
+.today .tl-item a { color: inherit; }
+.today .tl-now { padding: 2px 0 2px 11px; grid-template-columns: 62px minmax(0, 1fr); }
+/* Times read the same in every card: the screen's own letters, digits of one width. */
+.today .tl-item .time, .today .tl-now .time { font-family: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.today .people-today { margin: 12px 0 0; padding: 0; gap: 8px; }
+.today .people-today h3 { margin: 0; }
+
+/* The task being done, inside the card: a card of its own one shade up. Its words keep their own sizes (a `.big`
+   inside a card is a large number elsewhere). */
+.today .todo .card.big { margin: 0 0 10px; padding: 12px; background: var(--surface-2); border-color: var(--border); font-size: inherit; font-weight: inherit; line-height: inherit; }
+.today .todo .card.big .title { font-size: 18px; }
+.today .todo .card.big .actions { margin-top: 8px; gap: 6px; }
+.todo-list { list-style: none; margin: 0; padding: 0; }
+.todo-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
+.todo-row:first-child { border-top: 0; padding-top: 0; }
+/* The round box that marks a task done: the button is what is pressed (44 px on a touch screen), the circle is drawn inside it. */
+.todo-check { flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; }
+.todo-check::before { content: ""; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--muted); box-sizing: border-box; }
+.todo-check:hover::before { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 30%, transparent); }
+@media (pointer: coarse) { .todo-check { width: 44px; height: 44px; } }
+.todo-title { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+.todo-title .muted { white-space: nowrap; }
+
+.quick-capture { display: flex; gap: 6px; margin-bottom: 8px; }
+.quick-capture input { flex: 1; min-width: 0; max-width: none; }
+.quick-capture button { flex: none; min-height: 34px; }
+.capture-said { margin: -2px 0 8px; }
+.today-numbers { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 10px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius); }
+.today-numbers > div { display: flex; flex-direction: column; }
+.today-numbers dt { font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.today-numbers dd { margin: 0; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sofar-list { list-style: none; margin: 0; padding: 0; }
+.sofar-row { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; padding: 4px 0; }
+.sofar-row .time { font-size: 12px; line-height: 21px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sofar-row .text { overflow-wrap: anywhere; }
+.sofar-row.done .text { color: var(--ok-text); }
+
+/* What is coming needs nothing from you: quiet words, no accent. */
+.coming-list { list-style: none; margin: 0; padding: 0; }
+.coming-list li { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; color: var(--text-2); }
+.coming-list .what { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+.coming-list a.what:hover { color: var(--link); }
+.coming-list .when { flex: none; min-width: 62px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.coming-list .when.right { min-width: 0; text-align: right; }
+.coming-list .amount { flex: none; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 767px) {
+  .today-now { font-size: 21px; }
+  .today-now .aside { display: block; margin: 2px 0 0; }
+  .ribbon { margin: 10px 0 12px; }
+}
 
 .week .wk-bar { margin-bottom: 10px; }
 .week .conflict { margin-bottom: 10px; padding: 6px 10px; border: 1px solid var(--danger); border-radius: var(--radius); background: var(--surface); }
@@ -583,6 +778,9 @@ ul.ledger-lines li .grow { overflow-wrap: anywhere; }
 
 /* Module 4: body, home and animals */
 .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+@media (min-width: 1500px) {
+  .grid3 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+}
 .stat .big, .card .big, .pet .big { font-size: 22px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
 .stat .spark { margin-top: 6px; }
 .spark line.bound { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 3 3; }
@@ -708,8 +906,9 @@ button.link.danger { color: var(--danger-text); }
   .ops-light .detail { font-size: 18.7px; }
 }
 .chip.static.tone-danger { border-color: var(--danger); color: var(--danger-text); }
-/* Banners stack in one sticky column so two at once never cover each other. */
-.banners { position: sticky; top: 8px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
+/* Banners stack in one sticky column so two at once never cover each other. The column keeps a width that reads: on
+   a wide window a banner ran across it all, its buttons 1,600 px from its words. */
+.banners { position: sticky; top: 8px; z-index: 50; display: flex; flex-direction: column; gap: 8px; max-width: 920px; }
 .banners:empty { display: none; }
 .banners .banner { position: static; margin-bottom: 0; }
 .banners:not(:empty) { margin-bottom: 12px; }
@@ -741,7 +940,8 @@ button.link.danger { color: var(--danger-text); }
 .library-row:hover { text-decoration: none; }
 .section-h { margin-top: 18px; }
 
-.ticks { display: flex; flex-direction: column; gap: 6px; }
+/* A checklist's items flow into columns like any list: a long one (a packing list) fits a wide window without scrolling. */
+.ticks { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 6px; }
 .tick {
   display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 8px 12px;
   text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); color: inherit; font-size: 16px;
@@ -812,6 +1012,25 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
 
 /* Notes: formatted reading view and tag chips with a remove button */
+/* A note: its words in a column that reads (920 px at most, the same reading and editing), and from 1300 px what is
+   related to it beside them instead of under them. */
+.note-editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px 16px; align-items: start; }
+.note-main { min-width: 0; max-width: 920px; }
+.note-related { margin: 0; }
+@media (min-width: 1300px) {
+  .note-editor { grid-template-columns: minmax(0, 920px) minmax(240px, 360px); }
+  .note-related { position: sticky; top: 16px; }
+  .note-related .grid2 { grid-template-columns: minmax(0, 1fr); }
+}
+/* Capture: the box, and beside it (under it on a phone) what was captured today so far. */
+.capture-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.capture-cols > * { min-width: 0; }
+.capture-today { margin: 0; }
+.capture-today h2 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); }
+.capture-today h2 a { text-transform: none; letter-spacing: 0; font-weight: 400; }
+@media (min-width: 1100px) {
+  .capture-cols { grid-template-columns: minmax(0, 920px) minmax(280px, 1fr); }
+}
 .note-read { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; min-height: 160px; background: var(--surface); cursor: text; }
 .chip-x { background: transparent; border: 0; padding: 0 0 0 6px; min-height: 0; color: var(--muted); cursor: pointer; font: inherit; }
 .chip-x:hover { color: var(--danger-text); }

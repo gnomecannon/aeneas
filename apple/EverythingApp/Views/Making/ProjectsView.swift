@@ -20,6 +20,41 @@ struct ProjectsView: View {
     }
 
     var body: some View {
+        // The rows are swiped to park or finish a project, so the cards are for the Mac only (WideReader).
+        WideReader(macOnly: true) { wide in
+            if wide { cards } else { list }
+        }
+        .overlay {
+            if projects.isEmpty {
+                ContentUnavailableView {
+                    Label("No projects yet", systemImage: "hammer")
+                } description: {
+                    Text("Tap New project, give it a name and one sentence for when it is done.")
+                } actions: {
+                    Button("New project") { creating = true }.buttonStyle(.themedProminent)
+                    NavigationLink("Open inventory") { InventoryView() }
+                }
+            }
+        }
+        .navigationTitle("Projects")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Label("New project", systemImage: "plus") } }
+        }
+        .sheet(isPresented: $creating) {
+            ProjectEditSheet(project: nil) { id in opened = ProjectRoute(id: id) }
+        }
+        .navigationDestination(item: $opened) { r in ProjectDetailView(projectId: r.id) }
+        .confirmationDialog("Delete \(deleting?.str("name") ?? "this project")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                if let p = deleting { Task { await engine.softDelete(p.id) } }
+                deleting = nil
+            }
+        } message: { Text("Its tasks, notes and procedures stay.") }
+        .refreshable { await engine.sync(); await loadSummaries() }
+        .task(id: projects.map(\.id).sorted().joined(separator: ",")) { await loadSummaries() }
+    }
+
+    private var list: some View {
         List {
             ForEach(Self.statuses, id: \.self) { s in
                 let list = items(s)
@@ -55,34 +90,51 @@ struct ProjectsView: View {
                 }
             }
         }
-        .overlay {
-            if projects.isEmpty {
-                ContentUnavailableView {
-                    Label("No projects yet", systemImage: "hammer")
-                } description: {
-                    Text("Tap New project, give it a name and one sentence for when it is done.")
-                } actions: {
-                    Button("New project") { creating = true }.buttonStyle(.themedProminent)
-                    NavigationLink("Open inventory") { InventoryView() }
+    }
+
+    /// A wide Mac window: Active, Parked and Done one under the other as before, each a grid of cards, as many
+    /// across as fit at 360 points each (2 across a screen of 1040 points, 4 across a 1920 window), newest change
+    /// first. A click opens the project; Make active, Park, Mark done and Delete are in the right-click menu. The
+    /// inventory is a card under them.
+    private var cards: some View {
+        WidePage {
+            ForEach(Self.statuses, id: \.self) { s in
+                let list = items(s)
+                if !list.isEmpty {
+                    WideSection("\(MakingBadge.project(s).text) \(list.count)") {
+                        CardGrid(minWidth: 360) {
+                            ForEach(list) { p in
+                                NavigationLink { ProjectDetailView(projectId: p.id) } label: {
+                                    ProjectRow(project: p, lastClose: lastClose[p.id]).gridCard()
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    statusButtons(p)
+                                    Divider()
+                                    Button("Delete", role: .destructive) { deleting = p }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !projects.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    CardGrid(minWidth: 360) {
+                        NavigationLink { InventoryView() } label: {
+                            HStack {
+                                Label("Inventory", systemImage: "shippingbox")
+                                Spacer(minLength: 8)
+                                Text(Making.plural(engine.list(.inventory).count, "item")).foregroundStyle(.secondary)
+                            }
+                            .gridCard()
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Text("Parts lists on projects are checked against the names here.").font(.footnote).foregroundStyle(.secondary)
                 }
             }
         }
-        .navigationTitle("Projects")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Label("New project", systemImage: "plus") } }
-        }
-        .sheet(isPresented: $creating) {
-            ProjectEditSheet(project: nil) { id in opened = ProjectRoute(id: id) }
-        }
-        .navigationDestination(item: $opened) { r in ProjectDetailView(projectId: r.id) }
-        .confirmationDialog("Delete \(deleting?.str("name") ?? "this project")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                if let p = deleting { Task { await engine.softDelete(p.id) } }
-                deleting = nil
-            }
-        } message: { Text("Its tasks, notes and procedures stay.") }
-        .refreshable { await engine.sync(); await loadSummaries() }
-        .task(id: projects.map(\.id).sorted().joined(separator: ",")) { await loadSummaries() }
     }
 
     @ViewBuilder

@@ -18,6 +18,47 @@ On a device that is already paired, open Settings, Connection, Pair another devi
 that works once, for 10 minutes. On the new device, install Aeneas, open it and scan the QR code or type the code
 and the hub's address. Reinstalling the app on a device means pairing it again the same way.
 
+## Today
+
+Today is the day as a status board, the same on every device. From the top:
+
+- **The line at the top** says what is on now and how long it has left ("Dentist cleaning until 4:00 PM, 46 min
+  left"), else what is next and how long until it, else that nothing else is scheduled. Under it is the free time
+  now or next. With Machines on, Tech's light sits beside it: green when all is good, and a press opens the Tech
+  Overview.
+- **The day strip** draws the day from 7 AM to 11 PM, wider when something is earlier or later: every event, block
+  of work and fixed hours at its time, reminders as dots, free time as a dashed outline, and a line at now. What has
+  passed is faded. Press free time to put a task there.
+- **Needs you** lists only what waits on you, numbered in the order to take it, each with its buttons: reminders
+  that have come due, machines and checks that need a look, renewals to renew, job follow-ups, a medicine not logged
+  today, and captures the assistant could not file. A charge on autopay is never listed there.
+- **Schedule** names the all-day things first (events, and a plan rule for the whole day), then the day in time
+  order with Schedule here on free time, then the people in today's plans with what you have noted about them.
+- **To do** shows the task you are doing, or the first one in Next, with its buttons, then your other open tasks:
+  the circle finishes one, Start makes it the task you are doing.
+- **Today so far** has a box to capture a thought or what you did, today's numbers when Health is on (weight, sleep,
+  steps, caffeine, mood), and the diary's lines, finished tasks and logs in the order they happened.
+- **Coming up** shows tomorrow's plans, birthdays and other dates in the next two weeks, and charges on autopay with
+  their amounts.
+
+The cards are in one column on a phone and in up to five across a wide window. On iPhone, iPad and Mac, swiping left
+or right shows another day's plan.
+
+## Now
+
+Now shows the one task you are doing, or the first one in Next, with Done, Park, Skip and Start block. When nothing
+is being done it lists your open tasks, each with Start. On a wide window, what is due today and what is up next sit
+beside the task.
+
+## Wide windows
+
+On a large window (a Mac, a browser on a computer, the Windows app, a large iPad on its side) the screens use the
+width instead of one column in the middle. Collections become grids of cards, and in the Apple apps Tasks is a board
+with its statuses side by side. Notes, the Wiki and the Assistant keep their list at the left with what you open
+beside it. In the Apple apps a page about one thing (a person, a machine, a project) shows two lists side by side.
+Text you read keeps a width that reads. On the Mac a card cannot be swiped: delete, archive, park and move are in
+its right-click menu. A narrow window, the iPhone and an iPad held upright keep their lists and swipes.
+
 ## Calendars
 
 There are two directions, and they are set up in different places.

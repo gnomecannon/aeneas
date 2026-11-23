@@ -1,6 +1,6 @@
 [package]
 name = "everythingapp"
-version = "1.0.12"
+version = "1.0.13"
 license = "AGPL-3.0-only"
 description = "Aeneas desktop wrapper"
 authors = ["gnomecannon"]

@@ -168,67 +168,9 @@ struct OpsView: View {
         let bySensor = Dictionary(sensors.map { ($0.str("name"), $0) }, uniquingKeysWith: { a, _ in a })
         let byName = Dictionary(things.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
         let looks = Tech.needsALook(things: things, monitors: monitors, incidents: openIncidents, sensors: sensors, hubBackup: board?.hub_backup ?? [])
-        List {
-            SwiftUI.Section {
-                TechLightRow(light: Tech.light(looks: looks, things: things, monitors: monitors, sensors: sensors),
-                             updated: feed.loadedAt ?? engine.lastSync, note: feed.note)
-                if board != nil && board?.things == nil {
-                    Text("This hub is older than this app, so these cards are worked out on this device. Update the hub in Settings, About.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-            if !looks.isEmpty {
-                SwiftUI.Section("Needs a look") {
-                    ForEach(looks) { l in
-                        let row = LookRow(look: l, thing: byName[l.thing], onAck: { acking = $0 })
-                        if l.thing.isEmpty {
-                            row.id(l.key)
-                        } else {
-                            NavigationLink { HostDetailView(host: l.thing) } label: { row }.id(l.key)
-                        }
-                    }
-                }
-            }
-
-            ForEach(groups(things)) { group in
-                SwiftUI.Section(group.title) {
-                    ForEach(group.things) { t in
-                        NavigationLink { HostDetailView(host: t.name) } label: {
-                            ThingRow(thing: t, status: Tech.status(of: t, monitors: byMonitor, sensors: bySensor, hubBackup: board?.hub_backup ?? []),
-                                     line: Tech.checksLine(t, monitors: byMonitor),
-                                     bars: t.kind == .place ? [] : Tech.machineBars(t, sensors: bySensor),
-                                     readings: t.kind == .place ? t.sensors.compactMap { bySensor[$0] } : [])
-                        }
-                    }
-                }
-            }
-
-            // A section of the list, not an overlay: the light and recent activity stay readable.
-            if things.isEmpty {
-                SwiftUI.Section {
-                    ContentUnavailableView {
-                        Label("Nothing watched yet", systemImage: "server.rack")
-                    } description: {
-                        Text("Add a machine the hub can reach, or a check for a machine or a web address by ping, port, web address, certificate or name lookup.")
-                    } actions: {
-                        Button("Add machine") { addingMachine = true }.buttonStyle(.themedProminent)
-                        Button("Add check") { creating = true }.buttonStyle(.bordered)
-                    }
-                }
-            }
-
-            SwiftUI.Section {
-                HistoryRows(items: activity(things, byMonitor), showHost: true, step: 8, onDelete: { deletingLine = $0 })
-                // The change journal and snippets are the Overview's own pages since 2026-11-19, no longer in the Library.
-                NavigationLink(value: Section.journal) { Text("All changes") }
-                NavigationLink(value: Section.snippets) { Text("All snippets") }
-                if model.isOn(.sensors) {
-                    NavigationLink(value: Section.sensors) { Text("Every sensor, and how a board posts readings") }
-                }
-            } header: {
-                Text("Recent activity")
-            }
+        let shown = Shown(monitors: monitors, sensors: sensors, things: things, byMonitor: byMonitor, bySensor: bySensor, byName: byName, looks: looks)
+        WideReader { wide in
+            if wide { cards(shown) } else { list(shown) }
         }
         .navigationTitle("Overview")
         .toolbar {
@@ -270,6 +212,149 @@ struct OpsView: View {
             while !Task.isCancelled {
                 await load(maxAge: 25)
                 try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    /// What the Overview shows, worked out once for the list and for the wide page.
+    private struct Shown {
+        var monitors: [Entity]
+        var sensors: [Entity]
+        var things: [TechThing]
+        var byMonitor: [String: Entity]
+        var bySensor: [String: Entity]
+        var byName: [String: TechThing]
+        var looks: [TechLook]
+    }
+
+    private var olderHubNote: some View {
+        Text("This hub is older than this app, so these cards are worked out on this device. Update the hub in Settings, About.")
+            .font(.caption).foregroundStyle(.secondary)
+    }
+
+    private func light(_ v: Shown) -> some View {
+        TechLightRow(light: Tech.light(looks: v.looks, things: v.things, monitors: v.monitors, sensors: v.sensors),
+                     updated: feed.loadedAt ?? engine.lastSync, note: feed.note)
+    }
+
+    private func thingRow(_ t: TechThing, _ v: Shown) -> some View {
+        ThingRow(thing: t, status: Tech.status(of: t, monitors: v.byMonitor, sensors: v.bySensor, hubBackup: board?.hub_backup ?? []),
+                 line: Tech.checksLine(t, monitors: v.byMonitor),
+                 bars: t.kind == .place ? [] : Tech.machineBars(t, sensors: v.bySensor),
+                 readings: t.kind == .place ? t.sensors.compactMap { v.bySensor[$0] } : [])
+    }
+
+    private var nothingWatched: some View {
+        ContentUnavailableView {
+            Label("Nothing watched yet", systemImage: "server.rack")
+        } description: {
+            Text("Add a machine the hub can reach, or a check for a machine or a web address by ping, port, web address, certificate or name lookup.")
+        } actions: {
+            Button("Add machine") { addingMachine = true }.buttonStyle(.themedProminent)
+            Button("Add check") { creating = true }.buttonStyle(.bordered)
+        }
+    }
+
+    /// The change journal and snippets are the Overview's own pages since 2026-11-19, no longer in the Library.
+    @ViewBuilder private var pageLinks: some View {
+        NavigationLink(value: Section.journal) { Text("All changes") }
+        NavigationLink(value: Section.snippets) { Text("All snippets") }
+        if model.isOn(.sensors) {
+            NavigationLink(value: Section.sensors) { Text("Every sensor, and how a board posts readings") }
+        }
+    }
+
+    private func list(_ v: Shown) -> some View {
+        List {
+            SwiftUI.Section {
+                light(v)
+                if board != nil && board?.things == nil { olderHubNote }
+            }
+
+            if !v.looks.isEmpty {
+                SwiftUI.Section("Needs a look") {
+                    ForEach(v.looks) { l in
+                        let row = LookRow(look: l, thing: v.byName[l.thing], onAck: { acking = $0 })
+                        if l.thing.isEmpty {
+                            row.id(l.key)
+                        } else {
+                            NavigationLink { HostDetailView(host: l.thing) } label: { row }.id(l.key)
+                        }
+                    }
+                }
+            }
+
+            ForEach(groups(v.things)) { group in
+                SwiftUI.Section(group.title) {
+                    ForEach(group.things) { t in
+                        NavigationLink { HostDetailView(host: t.name) } label: { thingRow(t, v) }
+                    }
+                }
+            }
+
+            // A section of the list, not an overlay: the light and recent activity stay readable.
+            if v.things.isEmpty {
+                SwiftUI.Section { nothingWatched }
+            }
+
+            SwiftUI.Section {
+                HistoryRows(items: activity(v.things, v.byMonitor), showHost: true, step: 8, onDelete: { deletingLine = $0 })
+                pageLinks
+            } header: {
+                Text("Recent activity")
+            }
+        }
+    }
+
+    /// A wide window: the light across the top, then two parts side by side. On the left, what needs a look and each
+    /// group of machines, services and places as grids of cards, as many across as fit (a look takes 400 points, a
+    /// machine 320). On the right, in a column 420 points wide, recent activity with its links. A card opens the
+    /// machine's page as its row does.
+    private func cards(_ v: Shown) -> some View {
+        WidePage {
+            VStack(alignment: .leading, spacing: 6) {
+                light(v)
+                if board != nil && board?.things == nil { olderHubNote }
+            }
+            HStack(alignment: .top, spacing: 22) {
+                VStack(alignment: .leading, spacing: 22) {
+                    if !v.looks.isEmpty {
+                        WideSection("Needs a look") {
+                            CardGrid(minWidth: 400) {
+                                ForEach(v.looks) { l in
+                                    let row = LookRow(look: l, thing: v.byName[l.thing], onAck: { acking = $0 })
+                                    if l.thing.isEmpty {
+                                        row.gridCard().id(l.key)
+                                    } else {
+                                        NavigationLink { HostDetailView(host: l.thing) } label: { row.gridCard() }
+                                            .buttonStyle(.plain)
+                                            .id(l.key)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ForEach(groups(v.things)) { group in
+                        WideSection(group.title) {
+                            CardGrid {
+                                ForEach(group.things) { t in
+                                    NavigationLink { HostDetailView(host: t.name) } label: { thingRow(t, v).gridCard() }
+                                        .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                    if v.things.isEmpty { nothingWatched }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                WideSection("Recent activity") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HistoryRows(items: activity(v.things, v.byMonitor), showHost: true, step: 8, onDelete: { deletingLine = $0 })
+                        pageLinks.buttonStyle(.borderless)
+                    }
+                    .gridCard()
+                }
+                .frame(width: 420)
             }
         }
     }
