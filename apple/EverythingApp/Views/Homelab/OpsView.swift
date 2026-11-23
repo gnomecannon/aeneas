@@ -193,7 +193,7 @@ struct OpsView: View {
         }
         .refreshable { await engine.sync(); await load(maxAge: 0) }
         #if DEBUG && os(iOS)
-        .navigationDestination(item: $debugMachine) { HostDetailView(host: $0) }
+        .pageDestination(item: $debugMachine) { HostDetailView(host: $0) }
         .task {
             if !DebugHooks.machineShown, UserDefaults.standard.bool(forKey: "EAAddMachine") {
                 DebugHooks.machineShown = true
@@ -278,7 +278,7 @@ struct OpsView: View {
                         if l.thing.isEmpty {
                             row.id(l.key)
                         } else {
-                            NavigationLink { HostDetailView(host: l.thing) } label: { row }.id(l.key)
+                            PageLink { HostDetailView(host: l.thing) } label: { row }.id(l.key)
                         }
                     }
                 }
@@ -287,7 +287,7 @@ struct OpsView: View {
             ForEach(groups(v.things)) { group in
                 SwiftUI.Section(group.title) {
                     ForEach(group.things) { t in
-                        NavigationLink { HostDetailView(host: t.name) } label: { thingRow(t, v) }
+                        PageLink { HostDetailView(host: t.name) } label: { thingRow(t, v) }
                     }
                 }
             }
@@ -326,7 +326,7 @@ struct OpsView: View {
                                     if l.thing.isEmpty {
                                         row.gridCard().id(l.key)
                                     } else {
-                                        NavigationLink { HostDetailView(host: l.thing) } label: { row.gridCard() }
+                                        PageLink { HostDetailView(host: l.thing) } label: { row.gridCard() }
                                             .buttonStyle(.plain)
                                             .id(l.key)
                                     }
@@ -338,7 +338,7 @@ struct OpsView: View {
                         WideSection(group.title) {
                             CardGrid {
                                 ForEach(group.things) { t in
-                                    NavigationLink { HostDetailView(host: t.name) } label: { thingRow(t, v).gridCard() }
+                                    PageLink { HostDetailView(host: t.name) } label: { thingRow(t, v).gridCard() }
                                         .buttonStyle(.plain)
                                 }
                             }
@@ -1038,7 +1038,7 @@ struct MonitorDetailView: View {
 
             SwiftUI.Section("Settings") {
                 if let h = m.string("host"), !h.isEmpty {
-                    NavigationLink { HostDetailView(host: h) } label: {
+                    PageLink { HostDetailView(host: h) } label: {
                         LabeledContent("Host", value: h)
                     }
                 }

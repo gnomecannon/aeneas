@@ -67,6 +67,8 @@ struct RootView: View {
         .sheet(item: Binding(get: { model.openItemId.map { PendingSnooze(id: $0) } }, set: { model.openItemId = $0?.id })) { p in
             NavigationStack {
                 ItemView(id: p.id)
+                    // In the theme's colors, as the related items it opens over itself are (PageLink).
+                    .themedPage()
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { model.openItemId = nil } } }
             }
             .environmentObject(model)
@@ -308,14 +310,17 @@ struct SplitRoot: View {
         )
     }
 
+    /// The row the sidebar shows as chosen (the Library is only a screen on the iPhone).
+    private var chosen: Section { model.section == .library ? .today : model.section }
+
     var body: some View {
         NavigationSplitView {
-            List(selection: Binding(get: { Optional(model.section == .library ? .today : model.section) }, set: { if let s = $0 { model.section = s } })) {
-                ForEach(Section.primary) { s in SidebarRow(section: s).tag(s).contextMenu { popOut(s) } }
+            List(selection: Binding(get: { Optional(chosen) }, set: { if let s = $0 { model.section = s } })) {
+                ForEach(Section.primary) { s in SidebarRow(section: s, chosen: s == chosen).tag(s).contextMenu { popOut(s) } }
                 ForEach(model.libraryAreas) { area in
                     let open = expanded(area.title)
                     SwiftUI.Section(isExpanded: open) {
-                        ForEach(area.sections) { s in SidebarRow(section: s).tag(s).contextMenu { popOut(s) } }
+                        ForEach(area.sections) { s in SidebarRow(section: s, chosen: s == chosen).tag(s).contextMenu { popOut(s) } }
                     } header: {
                         HStack {
                             Text(area.title)
@@ -385,6 +390,8 @@ struct SplitRoot: View {
 struct SidebarRow: View {
     @EnvironmentObject var engine: SyncEngine
     var section: Section
+    /// Whether this is the row of the screen that is open. Only the Mac uses it, to draw the row in the theme's colors.
+    var chosen = false
 
     var body: some View {
         HStack {
@@ -392,5 +399,58 @@ struct SidebarRow: View {
             Spacer()
             if section == .inbox, !engine.unprocessedCaptures.isEmpty { Text("\(engine.unprocessedCaptures.count)").foregroundStyle(.secondary) }
         }
+        #if os(macOS)
+        .modifier(SidebarRowTheme(chosen: chosen))
+        #endif
     }
 }
+
+#if os(macOS)
+/// Mac: a sidebar row in the theme's colors. The Mac draws a sidebar's icons and its chosen row in the accent color
+/// picked in System Settings, whatever tint the app sets: under Midnight (violet) the icons and the chosen row were
+/// orange on a Mac set to orange. Under a theme the icons take the theme's accent, and the chosen row is drawn here:
+/// the theme's accent with the words and the icon in the theme's color for words on the accent (the Mac puts a white
+/// icon there, which does not read on a light accent such as Forest's green). In a window that is not the active
+/// one the row is a quiet band, as the Mac's own is. Classic is left to the system.
+private struct SidebarRowTheme: ViewModifier {
+    @Environment(\.eaTheme) private var theme
+    @Environment(\.appearsActive) private var active
+    var chosen: Bool
+
+    func body(content: Content) -> some View {
+        if let theme {
+            content
+                .foregroundStyle(chosen && active ? theme.onAccent : theme.text)
+                .labelStyle(SidebarLabel(icon: chosen && active ? theme.onAccent : nil))
+                .listItemTint(.fixed(theme.accent))
+                .listRowBackground(chosen ? band(theme) : nil)
+        } else {
+            content
+        }
+    }
+
+    /// The Mac's own band for the chosen row stays under this one and cannot be switched off, so this covers the
+    /// whole row with the sidebar's background first. The band has the Mac's shape: 10 points in from each side.
+    private func band(_ theme: ThemeColors) -> some View {
+        ZStack {
+            theme.background
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(active ? AnyShapeStyle(theme.accent) : AnyShapeStyle(theme.text.opacity(0.12)))
+                .padding(.horizontal, 10)
+        }
+    }
+}
+
+/// The label as the sidebar draws it, with the icon in a color of its own when one is given.
+private struct SidebarLabel: LabelStyle {
+    var icon: Color?
+
+    func makeBody(configuration: Configuration) -> some View {
+        Label {
+            configuration.title
+        } icon: {
+            if let icon { configuration.icon.foregroundStyle(icon) } else { configuration.icon }
+        }
+    }
+}
+#endif

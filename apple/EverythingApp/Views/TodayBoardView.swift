@@ -288,7 +288,7 @@ struct TodayBoardView: View {
             if look.thing.isEmpty {
                 Button("Open") { model.section = .ops }.buttonStyle(.borderless)
             } else {
-                NavigationLink("Open") { HostDetailView(host: look.thing) }.buttonStyle(.borderless)
+                PageLink("Open") { HostDetailView(host: look.thing) }.buttonStyle(.borderless)
             }
         case .renewal(let w, _, _):
             Button("Renewed") { Task { await engine.renewWatch(w.id) } }.buttonStyle(.themedProminent)

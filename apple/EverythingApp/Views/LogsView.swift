@@ -158,7 +158,7 @@ struct LogsView: View {
                         .contextMenu { Button(role: .destructive) { Task { await engine.softDelete(e.id) } } label: { Label("Delete", systemImage: "trash") } }
                     }
                     if engine.logs.isEmpty { Text("Nothing logged yet.").foregroundStyle(.secondary) }
-                    else { NavigationLink("All entries") { AllLogsView() }.font(.callout) }
+                    else { PageLink("All entries") { AllLogsView() }.font(.callout) }
                 }
                 }
             }

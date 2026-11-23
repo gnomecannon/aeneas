@@ -56,7 +56,7 @@ struct InboxView: View {
                 SwiftUI.Section {
                     DisclosureGroup(isExpanded: $showFiled) {
                         ForEach(done) { cap in
-                            NavigationLink(destination: ItemView(id: cap.id)) { filedWords(cap) }
+                            PageLink { ItemView(id: cap.id) } label: { filedWords(cap) }
                             // The chat that filed it: tell the assistant what it got wrong there.
                             .swipeActions(edge: .leading) {
                                 if let thread = cap.string("thread") { Button("Fix") { model.openChat(thread) }.tint(theme?.accent ?? Color.accentColor) }
@@ -94,7 +94,7 @@ struct InboxView: View {
                 DisclosureGroup(isExpanded: $showFiled) {
                     CardGrid(minWidth: 400) {
                         ForEach(done) { cap in
-                            NavigationLink(destination: ItemView(id: cap.id)) { filedWords(cap).gridCard() }
+                            PageLink { ItemView(id: cap.id) } label: { filedWords(cap).gridCard() }
                                 .buttonStyle(.plain)
                                 .contextMenu {
                                     if let thread = cap.string("thread") { Button("Fix the filing", systemImage: "bubble.left.and.text.bubble.right") { model.openChat(thread) } }

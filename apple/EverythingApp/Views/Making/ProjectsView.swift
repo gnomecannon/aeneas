@@ -32,7 +32,7 @@ struct ProjectsView: View {
                     Text("Tap New project, give it a name and one sentence for when it is done.")
                 } actions: {
                     Button("New project") { creating = true }.buttonStyle(.themedProminent)
-                    NavigationLink("Open inventory") { InventoryView() }
+                    PageLink("Open inventory") { InventoryView() }
                 }
             }
         }
@@ -43,7 +43,7 @@ struct ProjectsView: View {
         .sheet(isPresented: $creating) {
             ProjectEditSheet(project: nil) { id in opened = ProjectRoute(id: id) }
         }
-        .navigationDestination(item: $opened) { r in ProjectDetailView(projectId: r.id) }
+        .pageDestination(item: $opened) { r in ProjectDetailView(projectId: r.id) }
         .confirmationDialog("Delete \(deleting?.str("name") ?? "this project")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 if let p = deleting { Task { await engine.softDelete(p.id) } }
@@ -61,7 +61,7 @@ struct ProjectsView: View {
                 if !list.isEmpty {
                     SwiftUI.Section {
                         ForEach(list) { p in
-                            NavigationLink { ProjectDetailView(projectId: p.id) } label: {
+                            PageLink { ProjectDetailView(projectId: p.id) } label: {
                                 ProjectRow(project: p, lastClose: lastClose[p.id])
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) { statusButtons(p) }
@@ -78,7 +78,7 @@ struct ProjectsView: View {
             }
             if !projects.isEmpty {
                 SwiftUI.Section {
-                    NavigationLink { InventoryView() } label: {
+                    PageLink { InventoryView() } label: {
                         LabeledContent {
                             Text(Making.plural(engine.list(.inventory).count, "item"))
                         } label: {
@@ -104,7 +104,7 @@ struct ProjectsView: View {
                     WideSection("\(MakingBadge.project(s).text) \(list.count)") {
                         CardGrid(minWidth: 360) {
                             ForEach(list) { p in
-                                NavigationLink { ProjectDetailView(projectId: p.id) } label: {
+                                PageLink { ProjectDetailView(projectId: p.id) } label: {
                                     ProjectRow(project: p, lastClose: lastClose[p.id]).gridCard()
                                 }
                                 .buttonStyle(.plain)
@@ -121,7 +121,7 @@ struct ProjectsView: View {
             if !projects.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     CardGrid(minWidth: 360) {
-                        NavigationLink { InventoryView() } label: {
+                        PageLink { InventoryView() } label: {
                             HStack {
                                 Label("Inventory", systemImage: "shippingbox")
                                 Spacer(minLength: 8)

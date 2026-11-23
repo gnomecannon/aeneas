@@ -21,7 +21,7 @@ struct HealthDataView: View {
         List {
             SwiftUI.Section {
                 ForEach(HealthMetric.allCases) { m in
-                    NavigationLink { HealthMetricView(metric: m) } label: { row(m) }
+                    PageLink { HealthMetricView(metric: m) } label: { row(m) }
                 }
             } footer: {
                 Text(Self.footer)
@@ -35,7 +35,7 @@ struct HealthDataView: View {
         WidePage {
             CardGrid {
                 ForEach(HealthMetric.allCases) { m in
-                    NavigationLink { HealthMetricView(metric: m) } label: { row(m).gridCard() }
+                    PageLink { HealthMetricView(metric: m) } label: { row(m).gridCard() }
                         .buttonStyle(.plain)
                 }
             }

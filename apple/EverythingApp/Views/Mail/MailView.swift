@@ -90,7 +90,7 @@ struct MailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .environment(\.editMode, $editMode)
-        .navigationDestination(item: $opened) { t in
+        .pageDestination(item: $opened) { t in
             MailThreadView(store: store, id: t.id, snooze: { snoozing = SnoozeTarget(threads: [$0]) }, closed: { opened = nil })
         }
         #endif

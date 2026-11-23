@@ -45,7 +45,7 @@ struct ProjectDetailView: View {
             NewProcedureSheet(projectId: projectId) { id in openedProcedure = ProcedureRoute(id: id) }
         }
         .sheet(item: $editingTask) { t in TaskEditView(task: t) }
-        .navigationDestination(item: $openedProcedure) { r in ProcedureRunnerView(procedureId: r.id) }
+        .pageDestination(item: $openedProcedure) { r in ProcedureRunnerView(procedureId: r.id) }
         .task { await loadSummary() }
         .refreshable { await engine.sync(); await loadSummary() }
     }
@@ -102,7 +102,7 @@ struct ProjectDetailView: View {
             if !others.isEmpty {
                 SwiftUI.Section {
                     ForEach(others) { n in
-                        NavigationLink { NoteEditorView(noteId: n.id) } label: {
+                        PageLink { NoteEditorView(noteId: n.id) } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(StyleGuard.dashes(n.str("title")))
                                 Text(ISO.date(n.updated_at)?.shortDateTime ?? "").font(.caption).foregroundStyle(.secondary)
@@ -257,7 +257,7 @@ struct ProjectDetailView: View {
                     MakingMarkdown(text: body)
                 }
                 if engine.get(n.id) != nil {
-                    NavigationLink { NoteEditorView(noteId: n.id) } label: { Label("Open the plan note", systemImage: "doc.text") }
+                    PageLink { NoteEditorView(noteId: n.id) } label: { Label("Open the plan note", systemImage: "doc.text") }
                 }
             } else {
                 Text("No plan yet. Update plan writes Projects/\(name)/Plan.md with Goal, Definition of done, Current state, Next, Parts and Log.")
@@ -301,7 +301,7 @@ struct ProjectDetailView: View {
             }
             if let m = partsMessage { Label(m, systemImage: "checkmark.circle.fill").foregroundStyle(.okText).font(.callout) }
             Button { editing = true } label: { Label("Edit parts", systemImage: "pencil") }
-            NavigationLink { InventoryView() } label: { Label("Inventory", systemImage: "shippingbox") }
+            PageLink { InventoryView() } label: { Label("Inventory", systemImage: "shippingbox") }
         } header: {
             Text("Parts")
         } footer: {
@@ -322,7 +322,7 @@ struct ProjectDetailView: View {
     private func proceduresSection(_ procedures: [Entity]) -> some View {
         SwiftUI.Section {
             ForEach(procedures) { e in
-                NavigationLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e) }
+                PageLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e) }
             }
             Button { newProcedure = true } label: { Label("New procedure for this project", systemImage: "plus") }
         } header: {

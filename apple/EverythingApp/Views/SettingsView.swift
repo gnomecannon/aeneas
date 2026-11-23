@@ -21,7 +21,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .themedScreen()
         .navigationTitle("Settings")
-        .navigationDestination(item: $debugPage) { $0.view }
+        .pageDestination(item: $debugPage) { $0.view }
         .task { notifStatus = await NotificationSettingsView.statusLabel() }
         .task {
             guard let c = engine.client, let l = try? await withDeadline(15, { try await c.hubs() }), l.offered else { return }
@@ -239,7 +239,7 @@ struct SettingsAreaLink<Destination: View, Label: View>: View {
     @ViewBuilder var label: () -> Label
 
     var body: some View {
-        NavigationLink(destination: destination) { label().gridCard(if: card) }
+        PageLink(destination: destination) { label().gridCard(if: card) }
             .settingsLinkStyle(card: card)
     }
 }

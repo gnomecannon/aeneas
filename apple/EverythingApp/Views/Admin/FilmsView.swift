@@ -84,7 +84,7 @@ struct FilmsView: View {
                     Text(count).font(.footnote).foregroundStyle(.secondary)
                     CardGrid {
                         ForEach(films) { f in
-                            NavigationLink { FilmDetail(id: f.id) } label: { FilmRow(film: f).gridCard() }
+                            PageLink { FilmDetail(id: f.id) } label: { FilmRow(film: f).gridCard() }
                                 .buttonStyle(.plain)
                                 .contextMenu {
                                     Button(role: .destructive) { deleting = f } label: { Label("Delete", systemImage: "trash") }
@@ -102,7 +102,7 @@ struct FilmsView: View {
                     }
                     SwiftUI.Section {
                         ForEach(films) { f in
-                            NavigationLink { FilmDetail(id: f.id) } label: { FilmRow(film: f) }
+                            PageLink { FilmDetail(id: f.id) } label: { FilmRow(film: f) }
                                 .swipeActions(edge: .trailing) {
                                     Button(role: .destructive) { deleting = f } label: { Label("Delete", systemImage: "trash") }
                                 }
@@ -114,7 +114,7 @@ struct FilmsView: View {
         .searchable(text: $query, prompt: "Filter films")
         .navigationTitle("Films")
         .toolbar { ToolbarItem(placement: .automatic) { CSVExportButton(kind: .film) } }
-        .navigationDestination(item: $linked) { FilmDetail(id: $0) }
+        .pageDestination(item: $linked) { FilmDetail(id: $0) }
         .onAppear { takeFocus() }
         .onChange(of: model.focusItemId) { _, _ in takeFocus() }
         .toolbar {

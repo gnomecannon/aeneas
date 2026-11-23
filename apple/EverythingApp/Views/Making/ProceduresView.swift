@@ -22,7 +22,7 @@ struct ProceduresView: View {
             if !open.isEmpty {
                 SwiftUI.Section("In progress") {
                     ForEach(open) { e in
-                        NavigationLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e) }
+                        PageLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e) }
                             .deleteSwipe(e.id)
                     }
                 }
@@ -31,7 +31,7 @@ struct ProceduresView: View {
                 SwiftUI.Section {
                     DisclosureGroup(isExpanded: $showFinished) {
                         ForEach(finished) { e in
-                            NavigationLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e) }
+                            PageLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e) }
                                 .deleteSwipe(e.id)
                         }
                     } label: {
@@ -44,7 +44,7 @@ struct ProceduresView: View {
 
     /// One procedure as a card of the wide window's grid: a click runs it, Delete is in the right-click menu.
     private func card(_ e: Entity) -> some View {
-        NavigationLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e).gridCard() }
+        PageLink { ProcedureRunnerView(procedureId: e.id) } label: { ProcedureRow(procedure: e).gridCard() }
             .buttonStyle(.plain)
             .deleteSwipe(e.id)
     }
@@ -98,7 +98,7 @@ struct ProceduresView: View {
         .sheet(isPresented: $creating) {
             NewProcedureSheet(projectId: nil) { id in opened = ProcedureRoute(id: id) }
         }
-        .navigationDestination(item: $opened) { r in ProcedureRunnerView(procedureId: r.id) }
+        .pageDestination(item: $opened) { r in ProcedureRunnerView(procedureId: r.id) }
         .refreshable { await engine.sync() }
     }
 }

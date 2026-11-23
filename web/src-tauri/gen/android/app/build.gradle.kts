@@ -79,6 +79,12 @@ android {
     buildFeatures {
         buildConfig = true
     }
+    // Only the library the build made goes into the app. A checkout in a synced folder (iCloud Drive) gets copies
+    // named "libeverythingapp_lib 2.so" beside it, and every one of them was packed into the app: 1.0.12 carried
+    // one (14 MB more to download), the first 1.0.13 build two. No library of ours has a space in its name.
+    packaging {
+        jniLibs.excludes.add("**/* *.so")
+    }
 }
 
 kotlin {

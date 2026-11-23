@@ -65,13 +65,13 @@ struct NotesView: View {
         .searchable(text: $query, prompt: "Search notes")
         .navigationTitle("Notes")
         // A note asked for by a link or Spotlight opens straight away.
-        .navigationDestination(item: $linked) { id in NoteEditorView(noteId: id) }
+        .pageDestination(item: $linked) { id in NoteEditorView(noteId: id) }
         .onAppear { takeFocus() }
         .onChange(of: model.focusItemId) { _, _ in takeFocus() }
         .toolbar {
             ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Label("New", systemImage: "plus") } }
             ToolbarItem(placement: .primaryAction) {
-                NavigationLink { NotesGraphView() } label: { Label("Map", systemImage: "point.3.connected.trianglepath.dotted") }
+                PageLink { NotesGraphView() } label: { Label("Map", systemImage: "point.3.connected.trianglepath.dotted") }
             }
             if let l = linking, l.waiting > 0 || l.running {
                 ToolbarItem(placement: .primaryAction) {
@@ -267,7 +267,7 @@ private struct NoteRow: View {
         } else {
             // A destination link, not a value: the iPhone's Library stack only takes screens as values,
             // so a note id pushed as a value was dropped and the row did nothing.
-            NavigationLink { NoteEditorView(noteId: note.id) } label: { words }
+            PageLink { NoteEditorView(noteId: note.id) } label: { words }
                 .deleteSwipe(note.id)
         }
     }
@@ -407,7 +407,7 @@ struct NoteEditorView: View {
         if !items.isEmpty {
             Text(name).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             ForEach(items) { r in
-                NavigationLink { NoteEditorView(noteId: r.id) } label: {
+                PageLink { NoteEditorView(noteId: r.id) } label: {
                     HStack {
                         Text(StyleGuard.dashes(r.title)).lineLimit(1)
                         Spacer()

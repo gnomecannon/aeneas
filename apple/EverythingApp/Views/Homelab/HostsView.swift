@@ -44,7 +44,7 @@ struct HostsView: View {
                 SwiftUI.Section { openTyped }
             }
             ForEach(shown) { h in
-                NavigationLink { HostDetailView(host: h.host) } label: { HostRow(summary: h) }
+                PageLink { HostDetailView(host: h.host) } label: { HostRow(summary: h) }
             }
         }
     }
@@ -57,7 +57,7 @@ struct HostsView: View {
             if !typed.isEmpty, !hosts.contains(where: { $0.host.lowercased() == typed }) { openTyped }
             CardGrid(minWidth: 360) {
                 ForEach(shown) { h in
-                    NavigationLink { HostDetailView(host: h.host) } label: { HostRow(summary: h).gridCard() }
+                    PageLink { HostDetailView(host: h.host) } label: { HostRow(summary: h).gridCard() }
                         .buttonStyle(.plain)
                 }
             }
@@ -70,7 +70,7 @@ struct HostsView: View {
         }
         .searchable(text: $query, prompt: "Find or add a machine")
         .navigationTitle("Machines")
-        .navigationDestination(item: $openHost) { HostDetailView(host: $0) }
+        .pageDestination(item: $openHost) { HostDetailView(host: $0) }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button { newName = ""; asking = true } label: { Label("Add machine", systemImage: "plus") }
@@ -276,7 +276,7 @@ struct HostDetailView: View {
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
                     ForEach(checks) { m in
-                        NavigationLink { MonitorDetailView(id: m.id) } label: {
+                        PageLink { MonitorDetailView(id: m.id) } label: {
                             if MonitorStatus(m) == .down {
                                 DownRow(monitor: m, incident: MonitorText.openIncident(for: m, in: open), checking: checking.contains(m.id),
                                         checkError: failure(m), onAck: { acking = $0 })
@@ -315,7 +315,7 @@ struct HostDetailView: View {
                     Button("Start fix notes") { newRunbook = true }
                 } else {
                     ForEach(runbooks) { rb in
-                        NavigationLink { RunbookDetailView(id: rb.id) } label: { RunbookRow(runbook: rb) }
+                        PageLink { RunbookDetailView(id: rb.id) } label: { RunbookRow(runbook: rb) }
                             .deleteSwipe(rb.id)
                     }
                 }
@@ -328,7 +328,7 @@ struct HostDetailView: View {
                     Text("No snippets for \(me.label).").font(.subheadline).foregroundStyle(.secondary)
                 }
                 ForEach(snippets) { s in
-                    NavigationLink { SnippetDetailView(id: s.id) } label: { SnippetRow(snippet: s, showHost: false) }
+                    PageLink { SnippetDetailView(id: s.id) } label: { SnippetRow(snippet: s, showHost: false) }
                         .deleteSwipe(s.id)
                 }
                 Button("New snippet") { newSnippet = true }

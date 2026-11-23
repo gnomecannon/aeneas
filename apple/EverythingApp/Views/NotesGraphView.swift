@@ -54,7 +54,7 @@ struct NotesGraphView: View {
                 Button { withAnimation { scale = 1; offset = .zero } } label: { Label("Fit", systemImage: "arrow.down.right.and.arrow.up.left") }
             }
         }
-        .navigationDestination(item: $opened) { id in NoteEditorView(noteId: id) }
+        .pageDestination(item: $opened) { id in NoteEditorView(noteId: id) }
         .task(id: engine.notes.count) { await load() }
     }
 

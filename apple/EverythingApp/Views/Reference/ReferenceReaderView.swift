@@ -76,7 +76,7 @@ struct ReferenceReaderView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar { toolbar }
-        .navigationDestination(item: $next) { ReferenceReaderView(link: $0) }
+        .pageDestination(item: $next) { ReferenceReaderView(link: $0) }
         .sheet(item: $picture) { p in
             if let c = engine.client { ReferencePictureSheet(picture: p, client: c, style: style) }
         }

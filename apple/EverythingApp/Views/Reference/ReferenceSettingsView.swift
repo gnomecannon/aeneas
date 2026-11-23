@@ -205,7 +205,7 @@ struct ReferenceSettingsView: View {
     private func languages(_ s: ReferenceSettings) -> some View {
         let names = s.languages.map { library.languageName($0) }
         return SwiftUI.Section {
-            NavigationLink {
+            PageLink {
                 ReferenceLanguagesView(chosen: Binding(get: { settings?.languages ?? s.languages }, set: { save(ReferenceSettingsChange(languages: $0)) }),
                                        all: library.catalog?.languages ?? [], catalog: library.catalog)
             } label: {

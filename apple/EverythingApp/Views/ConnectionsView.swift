@@ -84,7 +84,7 @@ struct ConnectionsSettingsView: View {
                 Button { signInWithSteam() } label: { Label(busy == "steam" ? "Waiting for Steam" : "Sign in with Steam", systemImage: "person.badge.key") }
                     .disabled(busy != nil)
             } else {
-                NavigationLink { OwnKeyGuideView(service: "steam") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
+                PageLink { OwnKeyGuideView(service: "steam") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
                 Text("Advanced setup: this needs your own Steam key, made once by you on the service's own site; there is no server of ours in between.").font(.footnote).foregroundStyle(.secondary)
             }
             note("steam")
@@ -152,7 +152,7 @@ struct ConnectionsSettingsView: View {
                     note("google-read")
                 }
             } else {
-                NavigationLink { OwnKeyGuideView(service: "google") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
+                PageLink { OwnKeyGuideView(service: "google") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
                 Text("Advanced setup: this needs your own Google app, made once by you on the service's own site; there is no server of ours in between.").font(.footnote).foregroundStyle(.secondary)
             }
             note("google")
@@ -195,7 +195,7 @@ struct ConnectionsSettingsView: View {
                     .disabled(busy != nil)
                 note("icloud-read")
             }
-            NavigationLink { OwnKeyGuideView(service: "icloud") { Task { await load() } } } label: { Label(i.accounts.isEmpty ? "Set it up with the guide" : "Add another mailbox with the guide", systemImage: "list.number") }
+            PageLink { OwnKeyGuideView(service: "icloud") { Task { await load() } } } label: { Label(i.accounts.isEmpty ? "Set it up with the guide" : "Add another mailbox with the guide", systemImage: "list.number") }
             note("icloud")
         } header: {
             Text("iCloud Mail")
@@ -262,7 +262,7 @@ struct ConnectionsSettingsView: View {
                 Button { signInWithAtlassian() } label: { Label(busy == "atlassian" ? "Waiting for Atlassian" : "Sign in with Atlassian", systemImage: "person.badge.key") }
                     .disabled(busy != nil)
             } else {
-                NavigationLink { OwnKeyGuideView(service: "atlassian") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
+                PageLink { OwnKeyGuideView(service: "atlassian") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
                 Text("Advanced setup: this needs your own Atlassian app, made once by you on the service's own site; there is no server of ours in between.").font(.footnote).foregroundStyle(.secondary)
             }
             note("atlassian")

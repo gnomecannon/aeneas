@@ -89,7 +89,7 @@ struct MusicView: View {
 
             SwiftUI.Section("Projects") {
                 ForEach(musicProjects) { p in
-                    NavigationLink { ProjectDetailView(projectId: p.id) } label: {
+                    PageLink { ProjectDetailView(projectId: p.id) } label: {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack {
                                 Text(StyleGuard.dashes(p.str("name"))).font(.headline)
@@ -141,7 +141,7 @@ struct MusicView: View {
         }
         .navigationTitle("Music")
         .refreshable { await engine.sync() }
-        .navigationDestination(item: $opened) { MusicIdeaView(ideaId: $0) }
+        .pageDestination(item: $opened) { MusicIdeaView(ideaId: $0) }
         .onChange(of: recorder.finished) { _, take in
             guard let take else { return }
             recorder.finished = nil
@@ -262,7 +262,7 @@ struct MusicView: View {
 struct MusicLink: View {
     var idea: Entity
     var body: some View {
-        NavigationLink { MusicIdeaView(ideaId: idea.id) } label: { MusicRow(idea: idea) }
+        PageLink { MusicIdeaView(ideaId: idea.id) } label: { MusicRow(idea: idea) }
     }
 }
 

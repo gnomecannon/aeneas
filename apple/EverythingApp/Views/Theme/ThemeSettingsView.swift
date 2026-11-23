@@ -49,7 +49,7 @@ struct ThemeSettingsView: View {
         .formStyle(.grouped)
         .themedScreen()
         .navigationTitle("Theme")
-        .navigationDestination(item: $debugPage) { $0.view }
+        .pageDestination(item: $debugPage) { $0.view }
         .task { await feel.refresh() }
         .onAppear {
             #if DEBUG

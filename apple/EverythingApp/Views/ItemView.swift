@@ -158,7 +158,7 @@ struct RelatedSection: View {
         } else {
             SwiftUI.Section("Related") {
                 ForEach(shown) { r in
-                    NavigationLink(destination: ItemView(id: r.id)) {
+                    PageLink(destination: { ItemView(id: r.id) }) {
                         HStack(spacing: 10) {
                             Image(systemName: Kind(rawValue: r.kind).map { SearchView.section(for: $0).symbol } ?? "doc")
                                 .foregroundStyle(.secondary).frame(width: 22)

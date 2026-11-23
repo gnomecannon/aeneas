@@ -89,8 +89,50 @@ extension View {
     /// leaves the keyboard covering the tab bar.
     func themedScreen() -> some View { modifier(ThemedScreen()) }
 
+    /// On a page opened over a screen (a person, a note, a machine's page): the theme's colors, as `themedScreen()`
+    /// gives the screen it was opened from. A page takes nothing from that screen by itself: SwiftUI hands a pushed
+    /// page none of what the screen under it set, so under a theme the page stood in the system's colors (its gray
+    /// or black behind the theme's cards). `PageLink` and `pageDestination` apply this, so a screen only has to open
+    /// its pages through them. Only the colors, without the keyboard bar of `themedScreen()`: the same colors twice
+    /// change nothing, so this is safe on a page that themes itself too (the Settings pages).
+    func themedPage() -> some View { modifier(ThemedColors()) }
+
     /// For one list or form row, where a screen draws its own rows.
     func themedRow() -> some View { modifier(ThemedRow()) }
+
+    /// `navigationDestination(item:)` with the app theme on the page it opens (`themedPage()`).
+    func pageDestination<Item: Hashable, Page: View>(item: Binding<Item?>, @ViewBuilder page: @escaping (Item) -> Page) -> some View {
+        navigationDestination(item: item) { page($0).themedPage() }
+    }
+
+    /// `navigationDestination(isPresented:)` with the app theme on the page it opens (`themedPage()`).
+    func pageDestination<Page: View>(isPresented: Binding<Bool>, @ViewBuilder page: () -> Page) -> some View {
+        navigationDestination(isPresented: isPresented) { page().themedPage() }
+    }
+}
+
+/// A link that opens a page over the screen it is on, with the app theme on that page (`themedPage()`). Every page
+/// is opened through this or `pageDestination`, never through SwiftUI's NavigationLink with a page of its own or
+/// its `navigationDestination(item:)` (the test ThemedPagesTests fails on one). A link by value
+/// (`NavigationLink(value:)`) is fine: it opens a screen through `sectionView`, which themes it.
+struct PageLink<Destination: View, Label: View>: View {
+    private let destination: Destination
+    private let label: Label
+
+    init(@ViewBuilder destination: () -> Destination, @ViewBuilder label: () -> Label) {
+        self.destination = destination()
+        self.label = label()
+    }
+
+    var body: some View {
+        NavigationLink { destination.themedPage() } label: { label }
+    }
+}
+
+extension PageLink where Label == Text {
+    init(_ title: LocalizedStringKey, @ViewBuilder destination: () -> Destination) {
+        self.init(destination: destination) { Text(title) }
+    }
 }
 
 struct ThemedRoot: ViewModifier {
@@ -120,17 +162,12 @@ struct ThemedRoot: ViewModifier {
 }
 
 struct ThemedScreen: ViewModifier {
-    @Environment(\.eaTheme) private var theme
-
-    /// Classic leaves the screen exactly as it was: any foreground style set here would also override the gray
-    /// SwiftUI gives section footers and secondary text. Switching between Classic and a theme rebuilds the screen's
-    /// own state (scroll position); switching between themes does not.
     #if os(iOS)
     @ObservedObject private var keyboard = KeyboardWatcher.shared
     #endif
 
     func body(content: Content) -> some View {
-        themed(content)
+        content.modifier(ThemedColors())
             #if os(iOS)
             // SwiftUI's keyboard toolbar does not appear inside the tab view, so the bar is drawn here instead.
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -148,8 +185,17 @@ struct ThemedScreen: ViewModifier {
             }
             #endif
     }
+}
 
-    @ViewBuilder private func themed(_ content: Content) -> some View {
+/// The theme's colors on one screen or page: its text color, its background behind lists, forms and scroll views,
+/// and on the iPhone and iPad the same background in the title bar.
+struct ThemedColors: ViewModifier {
+    @Environment(\.eaTheme) private var theme
+
+    /// Classic leaves the screen exactly as it was: any foreground style set here would also override the gray
+    /// SwiftUI gives section footers and secondary text. Switching between Classic and a theme rebuilds the screen's
+    /// own state (scroll position); switching between themes does not.
+    @ViewBuilder func body(content: Content) -> some View {
         if let theme {
             content
                 .foregroundStyle(theme.text)

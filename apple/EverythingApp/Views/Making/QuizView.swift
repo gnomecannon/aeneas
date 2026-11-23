@@ -227,7 +227,7 @@ struct QuizView: View {
             ForEach(past.prefix(14)) { q in
                 let items = Making.quiz(q).items ?? []
                 let c = Making.quizCounts(items.map(\.result))
-                NavigationLink { QuizReviewView(quizId: q.id) } label: {
+                PageLink { QuizReviewView(quizId: q.id) } label: {
                     HStack {
                         Text(dayLabel(q.str("date")))
                         Spacer()

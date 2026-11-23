@@ -165,8 +165,8 @@ struct ReferenceView: View {
             }
         }
         .navigationTitle("Reference")
-        .navigationDestination(item: $opened) { ReferenceReaderView(link: $0) }
-        .navigationDestination(isPresented: $settingsOpen) { ReferenceSettingsView() }
+        .pageDestination(item: $opened) { ReferenceReaderView(link: $0) }
+        .pageDestination(isPresented: $settingsOpen) { ReferenceSettingsView() }
     }
 
     // MARK: the list

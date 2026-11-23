@@ -35,7 +35,7 @@ struct ListsView: View {
         } message: {
             Text("A blank list to tick off. To pack for a trip, use a template instead.")
         }
-        .navigationDestination(item: $openId) { id in AdminListDetail(id: id) }
+        .pageDestination(item: $openId) { id in AdminListDetail(id: id) }
         .refreshable { await engine.sync() }
     }
 
@@ -43,7 +43,7 @@ struct ListsView: View {
         List {
             if model.isOn(.jobs) {
                 SwiftUI.Section {
-                    NavigationLink { CareerView() } label: {
+                    PageLink { CareerView() } label: {
                         let apps = engine.list(.application)
                         let open = apps.filter { !AdminStage.closed.map(\.rawValue).contains($0.str("stage")) }.count
                         LabeledContent { Text(apps.isEmpty ? "None yet" : "\(open) open of \(apps.count)").foregroundStyle(.secondary) } label: {
@@ -58,7 +58,7 @@ struct ListsView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(open) { e in
-                    NavigationLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e) }
+                    PageLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e) }
                         .swipeActions(edge: .trailing) {
                             Button { Task { _ = await engine.update(e.id, fields: ["archived": true]) } } label: { Label("Archive", systemImage: "archivebox") }.tint(.indigo)
                         }
@@ -71,7 +71,7 @@ struct ListsView: View {
                 SwiftUI.Section {
                     ForEach(templates) { t in
                         HStack(spacing: 12) {
-                            NavigationLink { AdminListDetail(id: t.id) } label: {
+                            PageLink { AdminListDetail(id: t.id) } label: {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(StyleGuard.dashes(t.str("title"))).font(.body)
                                     Text(itemsLabel(AdminChecklist.items(t).count)).font(.caption).foregroundStyle(.secondary)
@@ -97,7 +97,7 @@ struct ListsView: View {
                 SwiftUI.Section {
                     DisclosureGroup("Archived, \(archived.count)", isExpanded: $showArchived) {
                         ForEach(archived) { e in
-                            NavigationLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e) }
+                            PageLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e) }
                                 .swipeActions(edge: .trailing) {
                                     Button { Task { _ = await engine.update(e.id, fields: ["archived": false]) } } label: { Label("Unarchive", systemImage: "tray.and.arrow.up") }.tint(.indigo)
                                 }
@@ -119,7 +119,7 @@ struct ListsView: View {
         WidePage {
             if model.isOn(.jobs) {
                 CardGrid {
-                    NavigationLink { CareerView() } label: {
+                    PageLink { CareerView() } label: {
                         let apps = engine.list(.application)
                         let open = apps.filter { !AdminStage.closed.map(\.rawValue).contains($0.str("stage")) }.count
                         HStack {
@@ -139,7 +139,7 @@ struct ListsView: View {
                 }
                 CardGrid {
                     ForEach(open) { e in
-                        NavigationLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e).gridCard() }
+                        PageLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e).gridCard() }
                             .buttonStyle(.plain)
                             .contextMenu {
                                 Button { archive(e, true) } label: { Label("Archive", systemImage: "archivebox") }
@@ -152,7 +152,7 @@ struct ListsView: View {
                     CardGrid {
                         ForEach(templates) { t in
                             HStack(spacing: 12) {
-                                NavigationLink { AdminListDetail(id: t.id) } label: {
+                                PageLink { AdminListDetail(id: t.id) } label: {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(StyleGuard.dashes(t.str("title"))).font(.body)
                                         Text(itemsLabel(AdminChecklist.items(t).count)).font(.caption).foregroundStyle(.secondary)
@@ -180,7 +180,7 @@ struct ListsView: View {
                 DisclosureGroup("Archived, \(archived.count)", isExpanded: $showArchived) {
                     CardGrid {
                         ForEach(archived) { e in
-                            NavigationLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e).gridCard() }
+                            PageLink { AdminListDetail(id: e.id) } label: { AdminListRow(list: e).gridCard() }
                                 .buttonStyle(.plain)
                                 .contextMenu {
                                     Button { archive(e, false) } label: { Label("Unarchive", systemImage: "tray.and.arrow.up") }
@@ -263,7 +263,7 @@ struct AdminListDetail: View {
                 ContentUnavailableView("List not found", systemImage: "checklist", description: Text("It may have been deleted on another device."))
             }
         }
-        .navigationDestination(item: $openCopy) { cid in AdminListDetail(id: cid) }
+        .pageDestination(item: $openCopy) { cid in AdminListDetail(id: cid) }
     }
 
     @ViewBuilder

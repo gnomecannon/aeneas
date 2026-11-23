@@ -47,11 +47,13 @@ import EACore
 ///   EA_SETUP_LINK=<setup link> pairs this copy with that link (everythingapp://setup?hub=...&code=...) without asking,
 ///                              as Setup does with a first link, and prints "setup link: paired" or what went wrong.
 ///                              For a test copy and a throwaway hub: moving to another hub wipes this copy's data.
-/// And two links, for a test copy that is running (`open -g -a <the test copy> <link>`), so a screen can be tested
+/// And three links, for a test copy that is running (`open -g -a <the test copy> <link>`), so a screen can be tested
 /// from a shell with no control of the Mac: the copy does to its own main window what a hand would.
 ///   everythingapp://debug/click?x=<points>&y=<points>   a click at that point, counted from the window's top left
 ///                                                       corner as in a screenshot at 1x
 ///   everythingapp://debug/size?w=<points>&h=<points>    the window takes that size, its top left corner staying put
+///   everythingapp://debug/key                           the window draws as the key window of the app in front,
+///                                                       without coming to the front (`actLikeKey`)
 /// Screenshots are then taken from outside (screencapture -o -l <window id>), which needs Screen Recording.
 @MainActor
 enum DebugHooksMac {
@@ -165,9 +167,35 @@ enum DebugHooksMac {
             let f = window.frame
             window.setFrame(NSRect(x: f.minX, y: f.maxY - h, width: w, height: h), display: true)
             say("size \(Int(window.frame.width))x\(Int(window.frame.height))")
+        case "key":
+            actLikeKey(window)
+            say("key \(window.isKeyWindow) main \(window.isMainWindow) active \(NSApp.isActive)")
         default:
             say("unknown command")
         }
+    }
+
+    /// `everythingapp://debug/key`: the window draws as the key window of the app in front without being it, so the
+    /// colors a screen has only then (the sidebar's chosen row, prominent buttons) can be photographed while someone
+    /// else is using the Mac: nothing comes to the front and no typing is taken. The window and the app answer "yes"
+    /// when asked whether they are key, main and active, and every view is told that this changed, as AppKit tells
+    /// them when a window really becomes key (its own, private, message for it; this file is in Debug builds only).
+    /// One thing it does not reach: a list's own band for its chosen row stays gray (the Mac draws it in the accent
+    /// only while the keyboard is really in that list).
+    private static func actLikeKey(_ window: NSWindow) {
+        let yes: @convention(block) (AnyObject) -> Bool = { _ in true }
+        let asked: [(of: AnyClass, name: String)] = [(type(of: window), "isKeyWindow"), (type(of: window), "isMainWindow"), (type(of: NSApplication.shared), "isActive")]
+        for q in asked { class_replaceMethod(q.of, Selector(q.name), imp_implementationWithBlock(yes), "c@:") }
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        NotificationCenter.default.post(name: NSWindow.didBecomeMainNotification, object: window)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        let changed = Selector(("_windowChangedKeyState"))
+        func tell(_ v: NSView) {
+            if v.responds(to: changed) { v.perform(changed) }
+            v.needsDisplay = true
+            v.subviews.forEach(tell)
+        }
+        if let top = window.contentView?.superview ?? window.contentView { tell(top) }
     }
 
     /// `-EAMenuTest YES` (with `-EASample YES` on a copy that is not set up): the window commands checked from inside

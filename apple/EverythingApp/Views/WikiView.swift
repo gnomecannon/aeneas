@@ -82,7 +82,7 @@ struct WikiView: View {
         // One page is open at a time, wherever it shows. Over the list only while the pages are not beside it: a
         // page asked for by a link before the screen knew its width opened over the list, and when the layout
         // became two panes a moment later it was closed and forgotten. Now it stays open and moves beside the list.
-        .navigationDestination(item: Binding(get: { beside ? nil : opened }, set: { if !beside { opened = $0 } })) {
+        .pageDestination(item: Binding(get: { beside ? nil : opened }, set: { if !beside { opened = $0 } })) {
             WikiPageView(id: $0.id, title: $0.title)
         }
         .overlay {
@@ -265,7 +265,7 @@ struct WikiPageView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .navigationDestination(item: $next) { WikiPageView(id: $0.id, title: $0.title) }
+        .pageDestination(item: $next) { WikiPageView(id: $0.id, title: $0.title) }
         .sheet(item: $media) { m in WikiMediaSheet(src: m.id) }
         .task(id: id) { await load() }
         .refreshable { await load() }

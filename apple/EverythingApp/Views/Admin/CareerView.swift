@@ -31,7 +31,7 @@ struct CareerView: View {
         List {
             if let f = AdminBoard.followUps(apps).first {
                 SwiftUI.Section("Next follow-up") {
-                    NavigationLink { AdminApplicationDetail(id: f.id) } label: { followUpRow(f) }
+                    PageLink { AdminApplicationDetail(id: f.id) } label: { followUpRow(f) }
                 }
             }
             ForEach(AdminStage.active) { stage in
@@ -65,7 +65,7 @@ struct CareerView: View {
     /// An application as a card of the wide window's grid: a click opens it, the right-click menu moves it to
     /// another stage or deletes it.
     private func card(_ a: Entity) -> some View {
-        NavigationLink { AdminApplicationDetail(id: a.id) } label: { AdminApplicationRow(app: a).gridCard() }
+        PageLink { AdminApplicationDetail(id: a.id) } label: { AdminApplicationRow(app: a).gridCard() }
             .buttonStyle(.plain)
             .contextMenu { menu(a) }
     }
@@ -82,7 +82,7 @@ struct CareerView: View {
             if let f = AdminBoard.followUps(apps).first {
                 WideSection("Next follow-up") {
                     CardGrid(minWidth: 400) {
-                        NavigationLink { AdminApplicationDetail(id: f.id) } label: { followUpRow(f).gridCard() }
+                        PageLink { AdminApplicationDetail(id: f.id) } label: { followUpRow(f).gridCard() }
                             .buttonStyle(.plain)
                     }
                 }
@@ -149,7 +149,7 @@ struct CareerView: View {
             }
         }
         .sheet(isPresented: $creating) { AdminNewApplication { id in openId = id } }
-        .navigationDestination(item: $openId) { id in AdminApplicationDetail(id: id) }
+        .pageDestination(item: $openId) { id in AdminApplicationDetail(id: id) }
         .onAppear { takeFocus() }
         .onChange(of: model.focusItemId) { _, _ in takeFocus() }
         .confirmationDialog("Delete \(deleting?.str("company") ?? "application")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
@@ -178,7 +178,7 @@ struct CareerView: View {
 
     private func row(_ a: Entity) -> some View {
         let stage = AdminStage.of(a)
-        return NavigationLink { AdminApplicationDetail(id: a.id) } label: { AdminApplicationRow(app: a) }
+        return PageLink { AdminApplicationDetail(id: a.id) } label: { AdminApplicationRow(app: a) }
             .swipeActions(edge: .leading) {
                 if let n = stage.next {
                     Button { setStage(a, n) } label: { Label(n.title, systemImage: n.symbol) }.tint(n.color)
@@ -452,7 +452,7 @@ struct AdminApplicationDetail: View {
             if let m = letterMsg { AdminMessage(tone: m.tone, text: m.text) }
             if let noteId = e.string("letter_note_id"), !noteId.isEmpty {
                 if engine.get(noteId) != nil {
-                    NavigationLink { NoteEditorView(noteId: noteId) } label: { Label("Open the saved letter", systemImage: "doc.text") }
+                    PageLink { NoteEditorView(noteId: noteId) } label: { Label("Open the saved letter", systemImage: "doc.text") }
                 } else {
                     Text("The letter is saved as a note. It shows here after the next sync.").font(.callout).foregroundStyle(.secondary)
                 }

@@ -40,7 +40,7 @@ extension PeopleView {
     private var list: some View {
         List {
             ForEach(shown) { p in
-                NavigationLink { PersonDetailView(personId: p.id) } label: { name(p) }
+                PageLink { PersonDetailView(personId: p.id) } label: { name(p) }
                     .deleteSwipe(p.id, label: "Remove")
             }
         }
@@ -53,7 +53,7 @@ extension PeopleView {
         WidePage {
             CardGrid {
                 ForEach(shown) { p in
-                    NavigationLink { PersonDetailView(personId: p.id) } label: { name(p).gridCard() }
+                    PageLink { PersonDetailView(personId: p.id) } label: { name(p).gridCard() }
                         .buttonStyle(.plain)
                         .deleteSwipe(p.id, label: "Remove")
                 }

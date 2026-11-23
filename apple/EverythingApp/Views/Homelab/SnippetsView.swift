@@ -50,7 +50,7 @@ struct SnippetsView: View {
             ForEach(groups, id: \.os) { g in
                 SwiftUI.Section(header: Text("\(SnippetText.osLabel(g.os)) (\(g.items.count))").font(.headline)) {
                     ForEach(g.items) { e in
-                        NavigationLink { SnippetDetailView(id: e.id) } label: { SnippetRow(snippet: e) }
+                        PageLink { SnippetDetailView(id: e.id) } label: { SnippetRow(snippet: e) }
                             .deleteSwipe(e.id)
                     }
                 }
@@ -67,7 +67,7 @@ struct SnippetsView: View {
                 WideSection("\(SnippetText.osLabel(g.os)) (\(g.items.count))") {
                     CardGrid {
                         ForEach(g.items) { e in
-                            NavigationLink { SnippetDetailView(id: e.id) } label: { SnippetRow(snippet: e).gridCard() }
+                            PageLink { SnippetDetailView(id: e.id) } label: { SnippetRow(snippet: e).gridCard() }
                                 .buttonStyle(.plain)
                                 .deleteSwipe(e.id)
                         }
