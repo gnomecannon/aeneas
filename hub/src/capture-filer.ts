@@ -17,7 +17,7 @@ import { errCode } from "./logsafe.js";
 /**
  * Save and sort, for everything the rules cannot place: the assistant reads the capture and files it with its own
  * tools (a plan on the calendar, a lasting fact in memory, a to-do, a measurement, a place to eat, an idea as a tagged
- * note in the folder it belongs in, a song idea, a film to watch), several at once
+ * note in the folder it belongs in, a song idea, a film to watch as a task to add it on Letterboxd), several at once
  * when several fit, and nothing when it is only a passing thought (the diary already has it). Runs in the background,
  * one capture at a time; a capture that could not be filed after three tries goes back to Unsorted Info.
  */
@@ -93,7 +93,9 @@ export function filingPrompt(text: string, at: Date, hint?: string, events: stri
     on("food") && T("a restaurant or meal place goes on the food list (create_item kind=food_option) when it clearly fits, and its notes always name who recommended it or who {{owner}} went with (\"Rafael recommended it\");"),
     T("an idea for something to make (a story, film, book, sketch or skit, game, app, invention, business) becomes a note with save_note: a title of 2 to 8 words naming what happens or what it is (\"The lighthouse that knocks back\"), never the whole sentence and never its kind (idea, story, skit), the whole capture as its body, tags idea plus its form (story, film, book, sketch, game, app, invention, business), in the one of {{owner}}'s note folders whose subject it clearly has (a comedy skit in a comedy sketches folder), the broader folder above it when its genre is not clear (Writing, not a guessed Writing/Horror), never Inbox when one fits;"),
     on("music") && T("a riff, chord progression, lyric or song idea goes to music with the music_idea tool, given the line as said, so its key, tempo and tuning are read;"),
-    on("films") && T("a film {{owner}} wants to watch goes on the film watchlist (create_item kind=film with watchlist true and watched false)."),
+    // The watchlist lives on Letterboxd and nothing here can add to it (gnomecannon/aeneas#16): the film becomes the
+    // one step only the owner can take.
+    on("films") && T("a film {{owner}} wants to watch becomes a task to add it on Letterboxd (create_task titled \"Add <film> to the Letterboxd watchlist\"), since the film watchlist lives on Letterboxd and cannot be added to here."),
     folders.length ? `${T("{{owner}}'s note folders:")} ${folders.join("; ")}.` : "",
     events.length ? `Already on the calendar around then: ${events.join("; ")}. When the note is about one of these (the same plan or outing), change only that event's title with update_item (the whole outing and who came; keep its times) and add no other event for it.` : "",
     tasks.length ? `Open tasks like it: ${tasks.join("; ")}. When the note is about one of these, add no other task: leave it, or change that one (a due date, a list) with update_task or update_item.` : "",

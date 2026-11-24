@@ -523,31 +523,6 @@ table.proof .narrow { display: none; }
 .today-now .aside { font-size: 15px; color: var(--text-2); margin-left: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .today-free { margin: 0; color: var(--text-2); font-variant-numeric: tabular-nums; }
 
-.ribbon { position: relative; margin: 12px 0 16px; }
-.ribbon-hours { position: relative; height: 16px; }
-.ribbon-label { position: absolute; top: 0; padding-left: 4px; font-size: 11px; line-height: 16px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.ribbon-track { position: relative; height: calc(var(--lanes, 1) * 26px + 10px); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.ribbon-tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); }
-.ribbon-seg {
-  position: absolute; top: calc(5px + var(--lane, 0) * 26px); height: 22px; min-height: 0; padding: 0 6px; border-radius: 4px;
-  font-size: 12px; line-height: 22px; color: var(--text); text-decoration: none; overflow: hidden; white-space: nowrap; z-index: 1;
-}
-.ribbon-seg > span { display: block; overflow: hidden; text-overflow: ellipsis; }
-.ribbon-seg:hover { text-decoration: none; }
-.ribbon-seg.event { background: color-mix(in srgb, var(--cal, var(--accent)) 26%, var(--surface)); border-left: 3px solid var(--cal, var(--accent)); }
-.ribbon-seg.block { background: color-mix(in srgb, var(--accent) 26%, var(--surface)); border-left: 3px solid var(--accent); }
-.ribbon-seg.block.doing { background: color-mix(in srgb, var(--ok) 26%, var(--surface)); border-left-color: var(--ok); }
-.ribbon-seg.commitment { color: var(--text-2); background-color: var(--surface-2); background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--border) 5px 7px); }
-/* Free time sits behind everything, the full height of the strip. */
-.ribbon-seg.free { top: 4px; bottom: 4px; height: auto; z-index: 0; background: transparent; border: 1px dashed var(--muted); color: var(--muted); text-align: left; font: inherit; font-size: 12px; display: flex; align-items: center; }
-button.ribbon-seg.free { cursor: pointer; }
-button.ribbon-seg.free:hover { border-color: var(--accent); color: var(--text); }
-.ribbon-dot { position: absolute; bottom: 3px; width: 8px; height: 8px; margin-left: -4px; border-radius: 50%; background: var(--warn); z-index: 2; }
-.ribbon-dot.past { background: var(--muted); }
-/* The part of the day that is over is shaded, so what is left stands out. */
-.ribbon-past { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--bg) 55%, transparent); z-index: 3; pointer-events: none; }
-.ribbon-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--danger); z-index: 4; pointer-events: none; }
-
 .today-cols { display: grid; gap: 14px; align-items: start; }
 .today-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .today .tcard { margin: 0; padding: 12px 14px 14px; }
@@ -610,10 +585,6 @@ button.ribbon-seg.free:hover { border-color: var(--accent); color: var(--text); 
 .todo-title { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
 .todo-title .muted { white-space: nowrap; }
 
-.quick-capture { display: flex; gap: 6px; margin-bottom: 8px; }
-.quick-capture input { flex: 1; min-width: 0; max-width: none; }
-.quick-capture button { flex: none; min-height: 34px; }
-.capture-said { margin: -2px 0 8px; }
 .today-numbers { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 10px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius); }
 .today-numbers > div { display: flex; flex-direction: column; }
 .today-numbers dt { font-size: 11px; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -630,13 +601,10 @@ button.ribbon-seg.free:hover { border-color: var(--accent); color: var(--text); 
 .coming-list .what { flex: 1; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
 .coming-list a.what:hover { color: var(--link); }
 .coming-list .when { flex: none; min-width: 62px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.coming-list .when.right { min-width: 0; text-align: right; }
-.coming-list .amount { flex: none; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 767px) {
   .today-now { font-size: 21px; }
   .today-now .aside { display: block; margin: 2px 0 0; }
-  .ribbon { margin: 10px 0 12px; }
 }
 
 .week .wk-bar { margin-bottom: 10px; }
@@ -821,6 +789,22 @@ table.parts tr.missing td:first-child { color: var(--warn-text); }
 .quiz-actions button.primary { min-width: 40%; }
 .quiz .counts { display: flex; gap: 14px; font-size: 16px; margin-top: 6px; }
 .music-idea .grid-meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+/* Music's way into its Projects page: a link that looks like the buttons beside it. */
+.music .to-projects { display: inline-flex; align-items: center; min-height: 34px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); color: var(--text); }
+.music .to-projects:hover { border-color: var(--muted); text-decoration: none; }
+.music-add { margin-top: 10px; }
+.music-projects .music-add { margin-top: 0; }
+.music-add > .card { max-width: 760px; }
+/* A phone: the line to type takes the whole width, with Save and Hum Song under it. */
+@media (max-width: 560px) { .music-add form > input { flex-basis: 100%; } }
+/* A project's card on Music's Projects page: the summary is its name, status and what it holds, with an arrow. */
+details.music-project { margin-bottom: 0; max-width: 1200px; }
+details.music-project > summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--text); font-size: 15px; padding: 0; min-height: 28px; }
+details.music-project > summary::-webkit-details-marker { display: none; }
+details.music-project > summary::before { content: "\25B8"; display: inline-block; width: 1em; color: var(--muted); }
+details.music-project[open] > summary::before { content: "\25BE"; }
+details.music-project > summary .t { font-weight: 600; overflow-wrap: anywhere; }
+details.music-project h3 { margin-top: 6px; }
 @media (max-width: 767px) {
   .music-idea .grid-meta { grid-template-columns: 1fr 1fr; }
   .runner-actions button.done { width: 100%; }
@@ -1058,6 +1042,11 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 .toggle-row input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
 .toggle-row.small-toggle { font-size: 13px; color: var(--muted); min-height: 28px; gap: 6px; }
 .toggle-row.small-toggle input { width: 15px; height: 15px; }
+/* Settings, Connections (gnomecannon/aeneas#10, #25): each account set apart by a line, its modules indented under it,
+   and the groups of the page (Services) named above their cards. */
+.account-row { gap: 4px; border-top: 1px solid var(--border); padding-top: 10px; }
+.account-modules { gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
+.conn-group { margin: 12px 0 -4px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .toggle-note { padding-left: 28px; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; align-self: flex-start; max-width: 100%; }
 .seg button { border: 0; border-radius: 0; background: var(--surface); min-width: 72px; }
@@ -1513,6 +1502,9 @@ a.mailx-row { color: inherit; text-decoration: none; }
 /* Undo after Done or Sweep: at the bottom of the list, over it. */
 .mailx-undo { position: sticky; bottom: 8px; margin: 12px auto 0; width: fit-content; display: flex; gap: 16px; align-items: center; background: var(--text); color: var(--bg); padding: 8px 10px 8px 16px; border-radius: var(--radius); box-shadow: 0 6px 20px rgb(0 0 0 / .25); z-index: 3; }
 .mailx-undo button { background: transparent; border: 0; color: inherit; font-weight: 600; text-decoration: underline; min-height: 0; padding: 4px 6px; cursor: pointer; }
+/* The same Undo bar on Tasks (after Done, Delete, Not done or a move to the other space). */
+.undo-bar { position: sticky; bottom: 8px; margin: 12px auto 0; width: fit-content; max-width: 100%; display: flex; gap: 16px; align-items: center; background: var(--text); color: var(--bg); padding: 8px 10px 8px 16px; border-radius: var(--radius); box-shadow: 0 6px 20px rgb(0 0 0 / .25); z-index: 3; }
+.undo-bar button { background: transparent; border: 0; color: inherit; font-weight: 600; text-decoration: underline; min-height: 0; padding: 4px 6px; cursor: pointer; }
 @media (hover: none) { .mailx-acts { display: none !important; } }
 .chip { font-size: 12px; padding: 0 8px; border-radius: 10px; background: var(--surface-2); color: var(--muted); }
 /* Bundles: the icon on the bundle's color; open, a band of it down the side. */
@@ -1970,6 +1962,7 @@ table.compare tbody th { color: var(--muted); font-weight: 600; width: 22%; }
   .info-btn { min-width: 44px; min-height: 44px; }
   .tabs a { min-height: 44px; display: flex; align-items: center; justify-content: center; }
   .topbar .back { display: inline-flex; align-items: center; min-height: 44px; }
+  .music .to-projects, details.music-project > summary { min-height: 44px; }
 }
 
 /* Large and plain (docs/helpers.md): the screens someone who is not technical uses, helped by a family member. */

@@ -97,7 +97,7 @@ export class ConnectionStore {
         ? { connected: true, username: c.letterboxd.username, last_sync: c.letterboxd.last_sync ?? null, last_error: c.letterboxd.last_error ?? null, films: c.letterboxd.films ?? 0 }
         : { connected: false },
       atlassian: c.atlassian?.cloud_id
-        ? { connected: true, app: true, site_name: c.atlassian.site_name, site_url: c.atlassian.site_url, spaces: c.atlassian.spaces, last_sync: c.atlassian.last_sync ?? null, last_error: c.atlassian.last_error ?? null, pages: c.atlassian.pages ?? 0 }
+        ? { connected: true, app: true, site_name: c.atlassian.site_name, site_url: c.atlassian.site_url, spaces: c.atlassian.spaces, last_sync: c.atlassian.last_sync ?? null, last_error: c.atlassian.last_error ?? null, pages: c.atlassian.pages ?? 0, expired: !!c.atlassian.expired }
         : { connected: false, app: !!((process.env.EA_ATLASSIAN_CLIENT_ID && process.env.EA_ATLASSIAN_CLIENT_SECRET) || c.atlassian_app?.client_id) },
       health: { last_import: c.health?.last_import ?? null, samples: c.health?.samples ?? 0, total: c.health?.total ?? 0 },
       google: {
@@ -112,13 +112,14 @@ export class ConnectionStore {
       },
       /**
        * Internet Accounts (since 2026-11-22): every linked account once, with what each can do and what is on.
-       * A feature is null when the account cannot do it (Sign in with Google reads only: no Mail screen).
+       * A feature is null when the account cannot do it (Sign in with Google reads only: no Mail screen). `read_only`
+       * (since 2026-11-24): the hub writes nothing to the account; a Google sign-in can only read, so it always is.
        */
       internet: [
-        ...(c.icloud ?? []).map((a) => ({ key: `icloud:${a.email}`, kind: "icloud" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false, calendars: !!a.calendar } })),
-        ...(c.google ?? []).map((a) => ({ key: a.email, kind: "google" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: null, receipts: true, calendars: null } })),
+        ...(c.icloud ?? []).map((a) => ({ key: `icloud:${a.email}`, kind: "icloud" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false, calendars: !!a.calendar }, read_only: a.read_only === true })),
+        ...(c.google ?? []).map((a) => ({ key: a.email, kind: "google" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: null, receipts: true, calendars: null }, read_only: true })),
         ...(c.imap ?? []).map((a) => ({ key: `imap:${a.email}`, kind: a.preset === "gmail" ? "gmail" as const : "imap" as const, email: a.email, host: a.host, port: a.port, user: a.user, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null,
-          features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false && !(c.google ?? []).some((g) => g.email === a.email), calendars: null } })),
+          features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false && !(c.google ?? []).some((g) => g.email === a.email), calendars: null }, read_only: a.read_only === true })),
       ],
       // Other mail accounts (since 2026-11-22): where they are and who signs in, never the password.
       imap: {

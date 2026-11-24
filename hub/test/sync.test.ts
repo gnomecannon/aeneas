@@ -193,3 +193,26 @@ test("sync: stamps are kept in UTC with milliseconds; one that is not a time is 
     assert.equal(t.hub.store.get(id)!.fields.title, "E");
   } finally { t.cleanup(); }
 });
+
+test("sync: moving a task to the other space wins by its stamp; an edit queued before the move does not move it back", async () => {
+  const t = makeHub();
+  try {
+    const id = randomUUID();
+    const push = async (patches: unknown[]) => (await (await t.api("/sync/push", { method: "POST", json: { device_id: "dev1", patches } })).json()) as { applied: unknown[]; rejected: { id: string; reason: string }[] };
+    await push([{ id, kind: "task", space: "personal", ts: "2026-11-20T10:00:00.000Z", fields: { title: "Send the slides to Jamie", status: "next", order: 1 }, create: true }]);
+    // Moved to Work on one device.
+    await push([{ id, kind: "task", space: "work", ts: "2026-11-20T10:05:00.000Z", fields: {} }]);
+    assert.equal(t.hub.store.get(id)!.space, "work");
+    assert.equal(t.hub.store.get(id)!.field_ts.space, "2026-11-20T10:05:00.000Z");
+    // A phone that was offline renamed it at 10:01, before it heard of the move, and names the space it saw.
+    await push([{ id, kind: "task", space: "personal", ts: "2026-11-20T10:01:00.000Z", fields: { title: "Send the slides to Alex" } }]);
+    assert.equal(t.hub.store.get(id)!.space, "work");
+    assert.equal(t.hub.store.get(id)!.fields.title, "Send the slides to Alex");
+    // An edit with no space keeps it where it is.
+    await push([{ id, kind: "task", ts: "2026-11-20T10:06:00.000Z", fields: { status: "doing" } }]);
+    assert.equal(t.hub.store.get(id)!.space, "work");
+    // Moved back later: that newer move wins.
+    await push([{ id, kind: "task", space: "personal", ts: "2026-11-20T10:07:00.000Z", fields: {} }]);
+    assert.equal(t.hub.store.get(id)!.space, "personal");
+  } finally { t.cleanup(); }
+});

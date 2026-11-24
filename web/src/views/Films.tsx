@@ -4,7 +4,11 @@ import { useEntities } from "../sync/hooks";
 import { createEntity, softDelete, updateEntity } from "../sync/edits";
 import { CsvButton } from "../components/CsvButton";
 
-/** Films: from Letterboxd (export and diary feed) or added here. Watched films by default, the watchlist one tap away. */
+/**
+ * Films: from the Letterboxd diary feed or logged here. Watched films by default, the watchlist one tap away. The
+ * watchlist lives on Letterboxd and nothing here adds to it (gnomecannon/aeneas#16): the Watchlist list keeps only the
+ * films put on it here before, under Added in Aeneas, until each is removed.
+ */
 
 type Sort = "recent" | "rating" | "rewatched" | "title";
 const SORTS: Array<[Sort, string]> = [["recent", "Recent"], ["rating", "Rating"], ["rewatched", "Most watched"], ["title", "A to Z"]];
@@ -29,7 +33,7 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
-function Row({ e }: { e: Entity }) {
+function Row({ e, remove = false }: { e: Entity; remove?: boolean }) {
   const [open, setOpen] = useState(false);
   const f = e.fields as Record<string, unknown>;
   const days = watchedOn(e);
@@ -42,6 +46,11 @@ function Row({ e }: { e: Entity }) {
             {f.year ? <span className="muted"> ({String(f.year)})</span> : null}
           </span>
           {f.liked ? <span aria-label="liked" title="liked">♥</span> : null}
+          {remove && (
+            <button className="small ghost" aria-label={`Remove ${String(f.title)}`} onClick={() => confirm(`Remove ${String(f.title)} from this list`) && void softDelete(e)}>
+              Remove
+            </button>
+          )}
           {f.rating ? <span className="stars" aria-label={`${String(f.rating)} stars`}>{stars(f.rating)}</span> : null}
         </div>
         <div className="meta">
@@ -97,8 +106,7 @@ export function Films({ q = "" }: { q?: string }) {
   const add = async () => {
     if (!title.trim()) return;
     const y = Number(year);
-    const watched = list === "watched";
-    await createEntity("film", { title: title.trim(), ...(Number.isInteger(y) && y > 1870 ? { year: y } : {}), watched, ...(watched ? { watched_on: [today()], last_watched: today() } : { watched_on: [], watchlist: true }), tags: [], source: "manual" });
+    await createEntity("film", { title: title.trim(), ...(Number.isInteger(y) && y > 1870 ? { year: y } : {}), watched: true, watched_on: [today()], last_watched: today(), tags: [], source: "manual" });
     setTitle("");
     setYear("");
   };
@@ -127,25 +135,36 @@ export function Films({ q = "" }: { q?: string }) {
         </div>
         <input placeholder="Filter" aria-label="Filter films" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 160 }} />
       </div>
-      <form
-        className="row quick-add"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void add();
-        }}
-      >
-        <input placeholder={list === "watched" ? "Film watched today" : "Film to watch"} aria-label="Film title" value={title} onChange={(e) => setTitle(e.target.value)} style={{ flex: 1 }} />
-        <input placeholder="Year" aria-label="Year" inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value)} style={{ width: 80 }} />
-        <button type="submit" className="primary" disabled={!title.trim()}>
-          Add
-        </button>
-      </form>
+      {list === "watched" ? (
+        <form
+          className="row quick-add"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void add();
+          }}
+        >
+          <input placeholder="Film watched today" aria-label="Film title" value={title} onChange={(e) => setTitle(e.target.value)} style={{ flex: 1 }} />
+          <input placeholder="Year" aria-label="Year" inputMode="numeric" value={year} onChange={(e) => setYear(e.target.value)} style={{ width: 80 }} />
+          <button type="submit" className="primary" disabled={!title.trim()}>
+            Add
+          </button>
+        </form>
+      ) : (
+        <div className="muted small">Your watchlist lives on Letterboxd: add films to it there.</div>
+      )}
+      {list === "watchlist" && shown.length > 0 && (
+        <>
+          <h3 style={{ marginTop: 12 }}>Added in Aeneas</h3>
+          <div className="muted small">Put on the watchlist here before it moved to Letterboxd. Add the ones you still want there, and remove them here.</div>
+        </>
+      )}
       <div className="list">
         {shown.map((e) => (
-          <Row key={e.id} e={e} />
+          <Row key={e.id} e={e} remove={list === "watchlist"} />
         ))}
       </div>
-      {!shown.length && all.length > 0 && <div className="empty">{filter ? "No film matches." : "Nothing here."}</div>}
+      {!shown.length && all.length > 0 && list === "watched" && <div className="empty">{filter ? "No film matches." : "Nothing here."}</div>}
+      {!shown.length && list === "watchlist" && filter && <div className="empty">No film matches.</div>}
     </div>
   );
 }

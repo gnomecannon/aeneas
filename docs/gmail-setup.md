@@ -4,8 +4,13 @@ The Mail receipts module reads Gmail messages that look like receipts, renewal n
 model files them as renewals and pet visits. It only reads: it never sends, changes or deletes mail, and the mail
 itself is not kept.
 
-This page is for reading ahead. In the app, Settings, Connections, "Your own Google app, for Gmail" shows the same
-steps one at a time, with your hub's own addresses filled in, and checks the result at the end.
+This page is for reading ahead. In the app, Settings, Connections, Keys, Google app shows the same steps one at a
+time, with your hub's own addresses filled in, and checks the result at the end. Once it is set, Add an account,
+Google offers Sign in with Google.
+
+You need this page only for Sign in with Google. Gmail on the Mail screen, and Gmail for receipts without a Google app
+of your own, use an app password instead: about 5 minutes, no Tailscale needed (see [using-aeneas.md](using-aeneas.md),
+Mail). Signed in with Google, the hub may only read, so that Gmail does not show on the Mail screen.
 
 ## Why you make your own Google app
 

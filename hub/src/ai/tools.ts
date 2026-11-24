@@ -251,6 +251,12 @@ export const OWN_TOOL: Partial<Record<(typeof ITEM_KINDS)[number], string>> = {
 };
 const CREATE_ITEM_KINDS = ITEM_KINDS.filter((k) => !OWN_TOOL[k]);
 
+/**
+ * The film watchlist lives on {{owner}}'s Letterboxd (gnomecannon/aeneas#16): Letterboxd has no open API, the hub keeps
+ * no Letterboxd password, and its terms forbid reading its pages by machine, so nothing here can put a film on it.
+ */
+export const NO_WATCHLIST = "the film watchlist lives on {{owner}}'s Letterboxd, and Aeneas cannot add to it: tell {{owner}} to add the film on Letterboxd (letterboxd.com)";
+
 type Row = { id?: string; fields: Record<string, any> };
 type OpsData = { monitors?: Row[]; incidents_open?: Row[]; incidents_7d?: number; uptime_24h?: { name: string; pct: number }[]; journal_recent?: Row[] };
 
@@ -449,7 +455,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "list_items", writes: false,
-    description: `List saved items of one kind, newest first. Kinds: ${READ_KINDS.join(", ")}. Tasks can be filtered by status (inbox, next, scheduled, doing, done, parked) and by list (an Apple Reminders list by name, e.g. Groceries; "what's on my grocery list"). Notes can be filtered by tag and folder: ideas are notes tagged idea plus their form ("my skit ideas": tag idea and sketch; "movie ideas": idea and film), in folders like Writing/Sketches.`,
+    description: `List saved items of one kind, newest first. Kinds: ${READ_KINDS.join(", ")}. Tasks can be filtered by status (inbox, next, scheduled, doing, done, parked; the app calls parked "Set aside") and by list (an Apple Reminders list by name, e.g. Groceries; "what's on my grocery list"). Notes can be filtered by tag and folder: ideas are notes tagged idea plus their form ("my skit ideas": tag idea and sketch; "movie ideas": idea and film), in folders like Writing/Sketches.`,
     parameters: { type: "object", properties: { kind: { type: "string", enum: [...READ_KINDS] }, status: { type: "string" }, list: { type: "string" }, tag: { type: "string", description: "notes: one or more tags, comma separated, all must match" }, folder: { type: "string", description: "notes: a folder and the folders inside it" }, limit: { type: "number" } }, required: ["kind"] },
     run: async (api, a, ctx) => {
       const kind = str(a.kind);
@@ -680,7 +686,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "library", writes: false,
-    description: "Ranked lists of {{owner}}'s games (Steam library and games added by hand: hours played, last two weeks, last played), films (Letterboxd: rating, when watched, times watched, likes; watchlist=yes for the watchlist) job applications (stage, applied date) subscriptions (renewals in the subscription category with cost: monthly and yearly totals) and renewals (every renewal with a cost, any category: what they cost together a month and a year, by category, and any left out because they do not repeat). For \"how much do my renewals cost\", use what=renewals. Use for questions like most played games, films watched this year, best rated films, or open applications. For a written list, read here first, then save it with save_note or create_item kind=checklist.",
+    description: "Ranked lists of {{owner}}'s games (Steam library and games added by hand: hours played, last two weeks, last played), films (Letterboxd: rating, when watched, times watched, likes; watchlist=yes for films put on the watchlist in Aeneas before, since the watchlist itself is on Letterboxd and not read here) job applications (stage, applied date) subscriptions (renewals in the subscription category with cost: monthly and yearly totals) and renewals (every renewal with a cost, any category: what they cost together a month and a year, by category, and any left out because they do not repeat). For \"how much do my renewals cost\", use what=renewals. Use for questions like most played games, films watched this year, best rated films, or open applications. For a written list, read here first, then save it with save_note or create_item kind=checklist.",
     parameters: {
       type: "object",
       properties: {
@@ -798,7 +804,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: "update_task", writes: true,
-    description: "Change a task: mark it done, start it (doing), park it with a reason, rename it, or set its due date. Find the id with get_today or list_items. A renewal's reminder (\"Renew: ...\") is finished with record_done what=renewal, which also moves the renewal to its next due date.",
+    description: "Change a task: mark it done, start it (doing), set it aside with a reason (status parked, which the app shows as Set aside; say set aside to {{owner}}), rename it, or set its due date. Find the id with get_today or list_items. A renewal's reminder (\"Renew: ...\") is finished with record_done what=renewal, which also moves the renewal to its next due date.",
     parameters: { type: "object", properties: { id: { type: "string" }, status: { type: "string", enum: ["inbox", "next", "doing", "done", "parked"] }, title: { type: "string" }, due: { type: "string" }, parked_reason: { type: "string" } }, required: ["id"] },
     run: (api, a, ctx) => {
       const fields: Record<string, unknown> = {};
@@ -1117,6 +1123,7 @@ export const TOOLS: ToolDef[] = [
       const owner = moduleOfKind(kind);
       if (owner && ctx.moduleOn && !ctx.moduleOn(owner)) return Promise.resolve({ error: `${moduleDef(owner).title} is switched off (Settings, Modules), so there is no ${kind} to make; save it as a note or a task instead, or tell {{owner}} it can be switched on` });
       const fields = a.fields && typeof a.fields === "object" ? a.fields as Record<string, unknown> : {};
+      if (kind === "film" && (fields.watchlist === true || fields.watched === false)) return Promise.resolve({ error: NO_WATCHLIST });
       // Midnight to midnight is a whole day: the model sometimes leaves out all_day and makes a 24 hour timed event.
       if (kind === "event" && fields.all_day === undefined && midnight(fields.start) && midnight(fields.end) && String(fields.end) > String(fields.start)) fields.all_day = true;
       return call(api, "POST", "/entities", { kind, space: a.work === true ? "work" : "personal", fields }).then((r) =>
@@ -1129,6 +1136,7 @@ export const TOOLS: ToolDef[] = [
     parameters: { type: "object", properties: { id: { type: "string" }, fields: { type: "object" } }, required: ["id", "fields"] },
     run: (api, a, ctx) => {
       const fields = a.fields && typeof a.fields === "object" ? a.fields as Record<string, unknown> : {};
+      if (fields.watchlist === true && ctx.store.get(str(a.id) ?? "")?.kind === "film") return Promise.resolve({ error: NO_WATCHLIST });
       // A body read through a list (cut at 1500 characters) must not be saved back over the full text.
       if (typeof fields.body === "string" && /\[cut, \d+ chars in full\]/.test(fields.body)) return Promise.resolve({ error: "that body was cut short; read the item with get_item and send the full text" });
       const id = encodeURIComponent(str(a.id) ?? "");

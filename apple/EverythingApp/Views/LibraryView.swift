@@ -168,7 +168,7 @@ extension SyncEngine {
         case .films: return n(list(.film).filter { $0.fields["watched"] != .bool(false) }.count, "film", "films")
         case .reference: return "Wikipedia and more, kept on the hub"
         // Never anything of a mail: the Library line is the same whatever is in the Inbox.
-        case .mail: return "Your iCloud Inbox, in bundles"
+        case .mail: return "Your Inbox, in bundles"
         default: return nil
         }
     }

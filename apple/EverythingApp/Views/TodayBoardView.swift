@@ -2,17 +2,18 @@ import SwiftUI
 import EACore
 
 /// Today as a status board, in the order its owner asked every report to take: at the top what is on now and how long
-/// it has left, with the day drawn as one strip; then what needs you (actions only, numbered, each with its
-/// buttons), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
-/// that needs nothing from you. One column on an iPhone, up to five across a wide window. The rules are EACore's
-/// `TodayBoard`, the same as the web app's.
+/// it has left; then what needs you (actions only, numbered, each with its buttons), the schedule (what is left),
+/// things to do, today so far (what is done and was said), and what is coming that needs nothing from you. One column
+/// on an iPhone, up to five across a wide window. The rules are EACore's `TodayBoard`, the same as the web app's.
 ///
-/// The theme's accent is only on what can be pressed to act; a charge on autopay is never an action.
+/// The day is drawn once, as the Schedule card's list: a strip of it across the top said the same again
+/// (gnomecannon/aeneas#15). Capturing is the Capture tab's, one press away on every screen; a box for it here said
+/// that again (gnomecannon/aeneas#21). A charge on autopay pays itself, so Today does not list it (#14).
+///
+/// The theme's accent is only on what can be pressed to act.
 struct TodayBoardView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
-    /// Calendar colors, so a color chosen in Theme redraws the day at once.
-    @ObservedObject private var feel = FeelController.shared
     /// Tech's board, for what needs a look: the same list as the Overview's, so the two never disagree.
     @ObservedObject private var feed = OpsBoardFeed.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -23,13 +24,6 @@ struct TodayBoardView: View {
 
     /// The screen's own width: it decides how many columns there are.
     @State private var width: CGFloat = 0
-    /// The capture box's words are kept here, not in its card: a card is drawn again when the window's width moves it
-    /// to another column, and what was typed must not go with it.
-    @State private var draft = ""
-    @State private var saving = false
-    /// What the last save said, and the capture it was.
-    @State private var said: String?
-    @State private var savedId: String?
     @State private var acking: Entity?
 
     /// How wide one column of cards is at the width the screen has now.
@@ -67,11 +61,6 @@ struct TodayBoardView: View {
         let spans = TodayBoard.spans(blocks: today.blocks, commitments: today.commitments, events: events, reminders: today.reminders_due, freeSlots: today.free_slots)
         VStack(alignment: .leading, spacing: 16) {
             head(spans, now: now)
-            DayRibbonView(ribbon: TodayBoard.dayRibbon(spans, now: now, hourLabel: Self.hourLabel),
-                          events: Dictionary(events.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }),
-                          calendars: feel.settings.calendars,
-                          onFree: { span in if let slot = today.free_slots.first(where: { "f|" + $0.id == span.id }) { onSchedule(slot) } },
-                          onOpen: { model.open(itemId: $0) })
             HStack(alignment: .top, spacing: 16) {
                 ForEach(Array(TodayBoard.columns(width: Double(width)).enumerated()), id: \.offset) { _, column in
                     VStack(alignment: .leading, spacing: 16) {
@@ -87,12 +76,6 @@ struct TodayBoardView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-    }
-
-    /// An hour mark in the device's own clock style: "7 AM", or "07" where the clock runs to 24.
-    private static func hourLabel(_ h: Int) -> String {
-        guard let d = Calendar.current.date(bySettingHour: ((h % 24) + 24) % 24, minute: 0, second: 0, of: Date()) else { return TodayBoard.hourLabel(h) }
-        return d.formatted(.dateTime.hour())
     }
 
     @ViewBuilder
@@ -418,26 +401,6 @@ struct TodayBoardView: View {
         let rows = TodayBoard.soFar(diary: diary?.lines ?? [], tasks: engine.list(.task), logs: engine.logs, now: now)
         let numbers = model.isOn(.health) ? TodayBoard.todayNumbers(engine.logs, now: now) : []
         return card("Today so far", count: rows.isEmpty ? nil : "\(rows.count)") {
-            HStack(spacing: 8) {
-                TextField("Capture a thought or what you did", text: $draft)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit { save() }
-                    .accessibilityLabel("Capture")
-                    .help("It goes in today's diary and the assistant files it")
-                Button(saving ? "Saving" : "Save") { save() }
-                    .buttonStyle(.themedProminent)
-                    .controlSize(.small)
-                    .disabled(saving || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-            if let said {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(StyleGuard.dashes(said)).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    // The chat that filed it: tell the assistant what it got wrong there.
-                    if said.hasPrefix("Filed:"), let thread = savedId.flatMap({ engine.get($0)?.string("thread") }) {
-                        Button("Fix") { model.openChat(thread) }.buttonStyle(.borderless).font(.caption)
-                    }
-                }
-            }
             if !numbers.isEmpty {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10, alignment: .topLeading)], alignment: .leading, spacing: 8) {
                     ForEach(numbers) { n in
@@ -470,39 +433,12 @@ struct TodayBoardView: View {
         }
     }
 
-    /// Saves the capture box's words as Capture does, and says where they went once the assistant has filed them.
-    private func save() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !saving else { return }
-        saving = true
-        Task {
-            let e = await engine.capture(text)
-            saving = false
-            guard let e else { said = "Nothing saved"; return }
-            // Only what was sent is cleared: words typed while it saved stay.
-            draft = CaptureDraft.remainder(after: text, now: draft).0
-            savedId = e.id
-            said = engine.status == .online ? "Saved." : "Saved here. It is filed when the hub is back."
-            guard e.str("filing") == "pending" else { return }
-            said = "Saved to your diary. Filing it now."
-            for _ in 0..<30 {
-                try? await Task.sleep(for: .seconds(3))
-                guard savedId == e.id else { return }
-                if let c = engine.get(e.id), c.str("filing") != "pending" {
-                    said = c.str("filing") == "done" ? "Filed: \(c.str("filed", "Diary only"))" : "Saved to your diary. It will be filed when the assistant is back."
-                    return
-                }
-            }
-        }
-    }
-
     // MARK: coming up
 
     private func comingCard(now: Date) -> some View {
         let tomorrowDay = Calendar.current.date(byAdding: .day, value: 1, to: now) ?? now
         let tomorrow = TodayBoard.tomorrowLines(engine.localDay(tomorrowDay, now: now).events, now: now)
         let dates = TodayExtras.datesSoon(engine.list(.person), now: now)
-        let charges = model.isOn(.renewals) ? TodayBoard.chargesSoon(today.watches_due_soon, now: now) : []
         return card("Coming up") {
             if !tomorrow.lines.isEmpty {
                 sub("Tomorrow")
@@ -522,25 +458,7 @@ struct TodayBoardView: View {
                     .buttonStyle(.plain)
                 }
             }
-            if !charges.isEmpty {
-                sub("Charges on autopay").padding(.top, tomorrow.lines.isEmpty && dates.isEmpty ? 0 : 4)
-                ForEach(charges.prefix(5)) { c in
-                    Button { model.open(itemId: c.id) } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(StyleGuard.dashes(c.title)).font(.subheadline).lineLimit(1)
-                            Spacer(minLength: 6)
-                            if !c.amount.isEmpty { Text(c.amount).font(.subheadline.monospacedDigit()) }
-                            Text(c.when).font(.caption).foregroundStyle(.secondary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                if charges.count > 5 {
-                    Button("\(charges.count - 5) more") { model.section = .renewals }.buttonStyle(.borderless).font(.subheadline)
-                }
-            }
-            if tomorrow.lines.isEmpty && dates.isEmpty && charges.isEmpty {
+            if tomorrow.lines.isEmpty && dates.isEmpty {
                 Text("Nothing coming up in the next two weeks.").font(.subheadline).foregroundStyle(.secondary)
             }
         }
@@ -553,146 +471,5 @@ struct TodayBoardView: View {
             Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
-    }
-}
-
-/// The day as one strip across the screen (`TodayBoard.dayRibbon`): hour marks, each thing with a time at its place
-/// (events in their calendar's color, blocks in the accent, fixed hours in gray), free time as a dashed outline that
-/// schedules a task when pressed, reminders as dots, the time that has passed faded toward the page, and a line at
-/// now. A picture of what the Schedule card lists: the card is what VoiceOver reads row by row, so the strip is one
-/// image to it.
-struct DayRibbonView: View {
-    @Environment(\.eaTheme) private var theme
-    var ribbon: TodayBoard.Ribbon
-    /// Today's events by id, for their calendar colors.
-    var events: [String: Entity]
-    var calendars: [CalendarColorEntry]
-    var onFree: (TodayBoard.Span) -> Void
-    var onOpen: (String) -> Void
-
-    private static let rowHeight: CGFloat = 24
-    private static let gap: CGFloat = 3
-    private var trackHeight: CGFloat { CGFloat(ribbon.lanes) * (Self.rowHeight + Self.gap) + Self.gap + 8 }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            GeometryReader { geo in
-                ForEach(Array(ribbon.hours.enumerated()), id: \.offset) { _, h in
-                    if let label = h.label {
-                        Text(label).font(.caption2).foregroundStyle(.secondary).fixedSize()
-                            .offset(x: h.left * geo.size.width)
-                    }
-                }
-            }
-            .frame(height: 13)
-            GeometryReader { geo in track(geo.size.width) }
-                .frame(height: trackHeight)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(spoken)
-        .accessibilityAddTraits(.isImage)
-    }
-
-    /// The page's own color: the theme's, else the system's.
-    private var page: Color {
-        if let theme { return theme.background }
-        #if os(macOS)
-        return Color(nsColor: .windowBackgroundColor)
-        #else
-        return Color(uiColor: .systemBackground)
-        #endif
-    }
-
-    private var spoken: String {
-        let things = ribbon.segs.filter { $0.kind != .free }
-        let span = "The day from \(ribbon.start.formatted(.dateTime.hour())) to \(ribbon.end.formatted(.dateTime.hour()))"
-        return things.isEmpty ? "\(span): nothing with a time" : "\(span): " + things.map { "\($0.title), \($0.when)" }.joined(separator: "; ")
-    }
-
-    private func color(_ seg: TodayBoard.RibbonSeg) -> AnyShapeStyle {
-        switch seg.kind {
-        case .event: return events[seg.span.itemId].map { EventColor.style($0, calendars: calendars) } ?? AnyShapeStyle(.tint)
-        case .block: return AnyShapeStyle(.tint)
-        default: return AnyShapeStyle(Color.gray)
-        }
-    }
-
-    @ViewBuilder
-    private func track(_ w: CGFloat) -> some View {
-        let h = trackHeight
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.07))
-            ForEach(Array(ribbon.hours.enumerated()), id: \.offset) { _, hour in
-                Rectangle().fill(Color.secondary.opacity(hour.label == nil ? 0.10 : 0.22)).frame(width: 1, height: h)
-                    .offset(x: hour.left * w)
-            }
-            // Free time behind everything else, the whole height of the strip.
-            ForEach(ribbon.segs.filter { $0.kind == .free }) { seg in free(seg, w: w, h: h) }
-            ForEach(ribbon.segs.filter { $0.kind != .free }) { seg in bar(seg, w: w) }
-            ForEach(ribbon.dots) { dot in
-                Circle().fill(.warn).frame(width: 8, height: 8)
-                    .offset(x: dot.left * w - 4, y: h - 10)
-                    .help(dot.title)
-            }
-            if let now = ribbon.now {
-                // What has passed fades toward the page, over everything in it, as on the web: what is left of the day
-                // is what stands out, on a light theme and a dark one alike (a black shade was a heavy band on a light
-                // theme and could not be seen on a dark one). The line is now.
-                Rectangle().fill(page.opacity(0.55)).frame(width: now * w, height: h)
-                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8))
-                    .allowsHitTesting(false)
-                Rectangle().fill(.danger).frame(width: 2, height: h)
-                    .offset(x: min(max(now * w - 1, 0), w - 2))
-                    .allowsHitTesting(false)
-            }
-        }
-        .frame(width: w, height: h, alignment: .topLeading)
-    }
-
-    /// Free time: a dashed outline. Pressing it schedules a task there, as Schedule here does in the list.
-    @ViewBuilder
-    private func free(_ seg: TodayBoard.RibbonSeg, w: CGFloat, h: CGFloat) -> some View {
-        let width = max(seg.width * w, 4)
-        let outline = RoundedRectangle(cornerRadius: 6)
-            .strokeBorder(Color.secondary.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-            .frame(width: width, height: h - 6)
-            .contentShape(Rectangle())
-        Group {
-            if seg.past {
-                outline
-            } else {
-                Button { onFree(seg.span) } label: { outline }.buttonStyle(.plain)
-            }
-        }
-        .offset(x: seg.left * w, y: 3)
-        .help(seg.past ? "\(seg.title), \(seg.when)" : "\(seg.title), \(seg.when). Schedule a task here")
-    }
-
-    /// Something with a time: a tint of its color under its name and a solid edge, so the name reads on any theme.
-    @ViewBuilder
-    private func bar(_ seg: TodayBoard.RibbonSeg, w: CGFloat) -> some View {
-        let width = max(seg.width * w, 4)
-        let fill = color(seg)
-        let shape = RoundedRectangle(cornerRadius: 5)
-        let body = ZStack(alignment: .leading) {
-            shape.fill(fill.opacity(0.30))
-            shape.fill(fill).frame(width: 3)
-            if width > 46 {
-                Text(StyleGuard.dashes(seg.title)).font(.caption2.weight(.medium)).lineLimit(1)
-                    .padding(.leading, 7).padding(.trailing, 3)
-            }
-        }
-        .frame(width: width, height: Self.rowHeight, alignment: .leading)
-        .clipShape(shape)
-        .contentShape(Rectangle())
-        Group {
-            if seg.kind == .commitment || seg.span.itemId.isEmpty {
-                body
-            } else {
-                Button { onOpen(seg.span.itemId) } label: { body }.buttonStyle(.plain)
-            }
-        }
-        .offset(x: seg.left * w, y: Self.gap + CGFloat(seg.lane) * (Self.rowHeight + Self.gap))
-        .help("\(seg.title), \(seg.when)")
     }
 }

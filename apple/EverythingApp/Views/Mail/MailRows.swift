@@ -33,6 +33,14 @@ struct MailThreadRow: View {
                     if thread.pinned {
                         Image(systemName: "pin.fill").font(.caption).foregroundStyle(MailWord(key: .place("inbox"))).accessibilityLabel("Pinned")
                     }
+                    if let n = s.attachments {
+                        Image(systemName: "paperclip").font(.caption).foregroundStyle(.secondary)
+                            .accessibilityLabel(n == 1 ? "An attachment" : "\(n) attachments")
+                    }
+                    if s.triage?.needs_reply == true && s.state == .inbox {
+                        Text("Reply?").font(.caption2.weight(.semibold)).foregroundStyle(MailWord(key: .place("inbox")))
+                            .help("Your hub's model thinks this needs a reply")
+                    }
                     Spacer(minLength: 6)
                     Text(verbatim: when(s)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -42,6 +50,13 @@ struct MailThreadRow: View {
                     .lineLimit(1)
                 if !s.preview.isEmpty {
                     Text(verbatim: s.preview).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                }
+                // Its first card's facts, as text (Track is on the open mail).
+                if let c = s.cards?.first, !Mail.cardLine(c).isEmpty {
+                    HStack(spacing: 5) {
+                        MailCardIcon(card: c, size: 16)
+                        Text(verbatim: Mail.cardLine(c)).font(.caption).foregroundStyle(MailWord(key: .place(Mail.cardBundle(c)))).lineLimit(1)
+                    }
                 }
             }
         }
@@ -129,12 +144,20 @@ struct MailBundleRow: View {
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(open ? 90 : 0))
                 }
-                Text(verbatim: Mail.sendersLine(mails)).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                Text(verbatim: line).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
             }
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
         .accessibilityHint(open ? "Hides its mail" : "Shows its mail")
+    }
+
+    /// The Trips row says the next trip not over yet ("Trip to JFK, Dec 3 to 6"), else who the mail is from.
+    private var line: String {
+        if bundle.id == "trips", let next = Mail.trips(mails, members: { $0.members }).first, next.end.addingTimeInterval(86_400) >= Date() {
+            return "\(next.name), \(Mail.tripDates(start: next.start, end: next.end))"
+        }
+        return Mail.sendersLine(mails)
     }
 }
 

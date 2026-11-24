@@ -258,6 +258,11 @@ export const MELODY = {
   minSeconds: 0.08,
   /** Unvoiced frames bridged inside a sung line (a soft consonant, a crackle). */
   bridgeFrames: 2,
+  /** A fall-off or scoop: at the end (or start) of a line, within this many seconds of it, held still for less than
+   * `tailHeld` seconds, lower than the note it leads from (or to), and `tailDb` quieter than it. */
+  tailSeconds: 0.35,
+  tailHeld: 0.15,
+  tailDb: 6,
 };
 
 /**
@@ -349,14 +354,34 @@ export function melodyNotes(track: PitchTrack, levels: Float32Array, trace?: str
       }
       notes.push({ a: c.a, b: c.b, vals: [...c.vals], resung: resungBetween });
     }
+    const loudness = (x: Note) => {
+      const lv: number[] = [];
+      for (let k = x.a; k <= x.b; k++) if (voiced[k]) lv.push(levels[k]);
+      return lv.length ? median(lv) : top - MELODY.silenceDb;
+    };
+    // A voice falls off the end of a phrase as it fades, and often scoops up into its first note from below while it
+    // swells: the model's pitch line, which lags a moving voice, holds still long enough on the way to look like a
+    // short note, and it became one that was never hummed (gnomecannon/aeneas#11). A short, brief-held stretch at the
+    // end of a line, lower than the note before it and clearly quieter, is that note's fall-off; the same at the start,
+    // lower than the note after it, is a scoop into that note.
+    const tail = (x: Note, held: Note) =>
+      track.t[x.b] - track.t[x.a] < MELODY.tailHeld && median(x.vals) < median(held.vals) - MELODY.sameSemitones && loudness(x) <= loudness(held) - MELODY.tailDb;
+    while (notes.length >= 2) {
+      const last = notes[notes.length - 1], before = notes[notes.length - 2];
+      if (last.resung || track.t[j] - track.t[before.b] > MELODY.tailSeconds || !tail(last, before)) break;
+      notes.pop();
+    }
+    while (notes.length >= 2) {
+      const first = notes[0], after = notes[1];
+      if (after.resung || track.t[first.b] - track.t[i] > MELODY.tailSeconds || !tail(first, after)) break;
+      notes.shift();
+    }
     // The slide before a note belongs to it: each note starts where the one before it held steady last, and the
     // first starts with the line; the last runs to the end of the line.
     for (let x = 0; x < notes.length; x++) {
       const a = x === 0 ? i : notes[x - 1].b + 1;
       const b = x === notes.length - 1 ? j : notes[x].b;
-      const lv: number[] = [];
-      for (let k = notes[x].a; k <= notes[x].b; k++) if (voiced[k]) lv.push(levels[k]);
-      const loud = lv.length ? median(lv) : top - MELODY.silenceDb;
+      const loud = loudness(notes[x]);
       out.push({ p: Math.round(median(notes[x].vals)), s: track.t[a], d: track.t[b] - track.t[a] + dt, v: Math.max(30, Math.min(127, Math.round(127 - (top - loud) * 3))), resung: notes[x].resung });
     }
     i = j + 1;
@@ -620,10 +645,28 @@ export function humLayers(m: { mode?: string; notes?: HumNote[]; melody?: HumNot
   return m.mode === "rhythm" ? { melody: [], rhythm: m.notes ?? [] } : { melody: m.notes ?? [], rhythm: [] };
 }
 
-/** What the owner keeps: their choice, else both when both have notes, else the one that has. */
+/**
+ * The hits only repeat the melody: at least 70% of them start within 100 ms of a melody note. Every hummed note starts
+ * with a jump in level, so a hummed tune is also heard as one drum hit per note; kept as well, those hits put a drum
+ * part nobody hummed into the file and the playback (gnomecannon/aeneas#11: 85 drum notes in the files of 100 hummed
+ * notes, in the hum test harness).
+ */
+export function hitsEchoMelody(layers: { melody: HumNote[]; rhythm: HumNote[] }): boolean {
+  const { melody, rhythm } = layers;
+  if (!melody.length || !rhythm.length) return false;
+  const near = rhythm.filter((h) => melody.some((n) => Math.abs(n.s - h.s) <= ECHO_SECONDS)).length;
+  return near >= ECHO_SHARE * rhythm.length;
+}
+export const ECHO_SECONDS = 0.1;
+export const ECHO_SHARE = 0.7;
+
+/**
+ * What the owner keeps: their choice; else the melody when the hits only repeat its note starts (a hummed tune), both
+ * when both have notes of their own (a tune with taps or beatboxing between), else the one that has.
+ */
 export function humUse(chosen: unknown, layers: { melody: HumNote[]; rhythm: HumNote[] }): HumUse {
   if (chosen === "melody" || chosen === "rhythm" || chosen === "both") return chosen;
-  if (layers.melody.length && layers.rhythm.length) return "both";
+  if (layers.melody.length && layers.rhythm.length) return hitsEchoMelody(layers) ? "melody" : "both";
   return layers.rhythm.length ? "rhythm" : "melody";
 }
 

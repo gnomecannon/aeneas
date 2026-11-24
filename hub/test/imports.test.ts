@@ -5,7 +5,7 @@ import path from "node:path";
 import { makeHub, fileMode } from "./helpers.js";
 import { norm, stableId } from "../src/imports/util.js";
 import { FEED_MAX, filmsFromRss } from "../src/imports/letterboxd.js";
-import { TOOLS } from "../src/ai/tools.js";
+import { NO_WATCHLIST, runTool, TOOLS, type ToolContext } from "../src/ai/tools.js";
 
 type Route = (url: URL) => { status?: number; json?: unknown; text?: string };
 function fakeFetch(route: Route, seen: string[] = []): typeof fetch {
@@ -167,6 +167,31 @@ test("letterboxd: the diary feed brings films, and the next read adds new watche
     assert.deepEqual(year.films.map((f: any) => [f.title, f.times_watched]), [["Alien", 2], ["Heat", 1]]);
     assert.equal(((await (await t.api("/connections/letterboxd", { method: "DELETE" })).json()) as any).connected, false);
     assert.equal(t.hub.store.list({ kind: "film" }).length, 2, "unlinking keeps the films");
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("letterboxd: the assistant cannot put a film on the watchlist, and says to add it on Letterboxd", async () => {
+  const t = makeHub();
+  try {
+    const api = async (method: string, p: string, body?: unknown) => { const r = await t.api(p, { method, json: body }); return { status: r.status, data: await r.json() }; };
+    const ctx = { sessionId: "s", lastUser: "", topic: "", store: t.hub.store, cfg: t.hub.cfg, hosts: null, moduleOn: t.hub.modules.check } as ToolContext;
+    const tools = TOOLS.filter((x) => x.name === "create_item" || x.name === "update_item");
+    for (const fields of [{ title: "Heat", watchlist: true }, { title: "Heat", watched: false }]) {
+      const out = await runTool(api, { name: "create_item", arguments: { kind: "film", fields } }, ctx, tools);
+      assert.equal(out.ok, false);
+      assert.match(out.text, /add the film on Letterboxd/);
+    }
+    assert.equal(t.hub.store.list({ kind: "film" }).length, 0);
+    assert.match(NO_WATCHLIST, /cannot add to it/);
+    // Logging a film as watched still works, and it cannot be moved onto the watchlist afterwards.
+    const made = await runTool(api, { name: "create_item", arguments: { kind: "film", fields: { title: "Heat", year: 1995, watched: true, watched_on: ["2026-11-20"] } } }, ctx, tools);
+    assert.equal(made.ok, true);
+    const heat = t.hub.store.list({ kind: "film" })[0];
+    const moved = await runTool(api, { name: "update_item", arguments: { id: heat.id, fields: { watchlist: true } } }, ctx, tools);
+    assert.equal(moved.ok, false);
+    assert.notEqual(t.hub.store.get(heat.id)!.fields.watchlist, true);
   } finally {
     t.cleanup();
   }

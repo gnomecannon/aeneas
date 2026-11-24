@@ -1106,7 +1106,17 @@ public final class SyncEngine: ObservableObject {
             // Half a millisecond of margin, since the formatter truncates to whole milliseconds.
             if let last = ISO.date(e.field_ts[k]), ISO.string(last) >= ISO.string(ts) { ts = last.addingTimeInterval(0.0015) }
         }
-        return await apply(Patch(id: id, kind: e.kind, space: e.space, ts: ISO.string(ts), fields: fields))
+        // No space: the hub keeps the item where it is. Naming the space this copy last saw moved an item back that had
+        // been moved to the other space on another device meanwhile (moveToSpace does the moving).
+        return await apply(Patch(id: id, kind: e.kind, ts: ISO.string(ts), fields: fields))
+    }
+
+    /// Move an item to the other space (a task between Personal and Work), keeping its id and fields.
+    public func moveToSpace(_ id: String, _ space: Space, fields: [String: JSONValue] = [:]) async {
+        guard let e = entities[id], e.space != space else { return }
+        var ts = Date()
+        if let last = ISO.date(e.field_ts["space"]), ISO.string(last) >= ISO.string(ts) { ts = last.addingTimeInterval(0.0015) }
+        _ = await apply(Patch(id: id, kind: e.kind, space: space, ts: ISO.string(ts), fields: fields))
     }
 
     public func softDelete(_ id: String) async {

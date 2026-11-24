@@ -91,7 +91,7 @@ struct AppEventsCalendarSection: View {
             // only work events, or every personal event would be made twice.
             let hubKeeps = SharedConfig.hubKeepsCalendars(model.modules)
             if hubKeeps {
-                Text("Your hub keeps your iCloud calendars in step (Settings, Connections, iCloud Calendar), so this device leaves personal events to it.")
+                Text("Your hub keeps your iCloud calendars in step (Settings, Connections, Internet Accounts), so this device leaves personal events to it.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             if importer.access == .full, !importer.calendars.isEmpty {

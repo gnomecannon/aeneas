@@ -1,7 +1,9 @@
 import SwiftUI
 import EACore
 
-/// Films from Letterboxd (export and diary feed) or added here: what was watched and when, ratings, likes, the watchlist.
+/// Films from the Letterboxd diary feed or logged here: what was watched and when, ratings, likes. The watchlist lives on
+/// Letterboxd and nothing here adds to it (gnomecannon/aeneas#16): the Watchlist shelf keeps only the films put on it
+/// here before, under Added in Aeneas, until each is removed.
 struct FilmsView: View {
     @EnvironmentObject var engine: SyncEngine
     @EnvironmentObject var model: AppModel
@@ -68,8 +70,12 @@ struct FilmsView: View {
         let films = shown
         let all = engine.list(.film)
         let year = String(Calendar.current.component(.year, from: Date()))
-        let count = all.isEmpty ? "No films yet. Link Letterboxd in Settings, Connections, or tap + to add one."
+        let count = list == .watchlist ? "Your watchlist lives on Letterboxd: add films to it there."
+            : all.isEmpty ? "No films yet. Link Letterboxd in Settings, Connections, or tap + to add one."
             : "\(all.filter { $0.fields["watched"] != .bool(false) }.count) watched, \(all.filter { Self.watchedOn($0).contains { $0.hasPrefix(year) } }.count) this year."
+        let addedNote = "Put on the watchlist here before it moved to Letterboxd. Add the ones you still want there, and remove them here."
+        // On the Watchlist shelf, Delete is Remove: the films there are the ones added in Aeneas before.
+        let verb = list == .watchlist ? "Remove" : "Delete"
         // The rows are swiped to delete a film, so the cards are for the Mac only (WideReader).
         WideReader(macOnly: true) { wide in
             if wide {
@@ -82,12 +88,18 @@ struct FilmsView: View {
                         orderPicker.fixedSize()
                     }
                     Text(count).font(.footnote).foregroundStyle(.secondary)
+                    if list == .watchlist && !films.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Added in Aeneas").font(.headline)
+                            Text(addedNote).font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
                     CardGrid {
                         ForEach(films) { f in
                             PageLink { FilmDetail(id: f.id) } label: { FilmRow(film: f).gridCard() }
                                 .buttonStyle(.plain)
                                 .contextMenu {
-                                    Button(role: .destructive) { deleting = f } label: { Label("Delete", systemImage: "trash") }
+                                    Button(role: .destructive) { deleting = f } label: { Label(verb, systemImage: "trash") }
                                 }
                         }
                     }
@@ -104,9 +116,13 @@ struct FilmsView: View {
                         ForEach(films) { f in
                             PageLink { FilmDetail(id: f.id) } label: { FilmRow(film: f) }
                                 .swipeActions(edge: .trailing) {
-                                    Button(role: .destructive) { deleting = f } label: { Label("Delete", systemImage: "trash") }
+                                    Button(role: .destructive) { deleting = f } label: { Label(verb, systemImage: "trash") }
                                 }
                         }
+                    } header: {
+                        if list == .watchlist && !films.isEmpty { Text("Added in Aeneas") }
+                    } footer: {
+                        if list == .watchlist && !films.isEmpty { Text(addedNote) }
                     }
                 }
             }
@@ -118,11 +134,14 @@ struct FilmsView: View {
         .onAppear { takeFocus() }
         .onChange(of: model.focusItemId) { _, _ in takeFocus() }
         .toolbar {
-            ToolbarItem(placement: .primaryAction) { Button { adding = true } label: { Label("Add film", systemImage: "plus") } }
+            // A film is logged here as watched; the watchlist is added to on Letterboxd.
+            if list == .watched {
+                ToolbarItem(placement: .primaryAction) { Button { adding = true } label: { Label("Add film", systemImage: "plus") } }
+            }
         }
-        .sheet(isPresented: $adding) { NewFilm(watchlist: list == .watchlist) }
-        .confirmationDialog("Delete \(deleting?.str("title") ?? "film")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
+        .sheet(isPresented: $adding) { NewFilm() }
+        .confirmationDialog("\(list == .watchlist ? "Remove" : "Delete") \(deleting?.str("title") ?? "film")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
+            Button(list == .watchlist ? "Remove" : "Delete", role: .destructive) {
                 if let d = deleting { Task { await engine.softDelete(d.id) } }
                 deleting = nil
             }
@@ -192,7 +211,6 @@ struct FilmDetail: View {
 struct NewFilm: View {
     @EnvironmentObject var engine: SyncEngine
     @Environment(\.dismiss) private var dismiss
-    var watchlist: Bool
     @State private var title = ""
     @State private var year = ""
     /// Set while the film is being written: two quick taps on Add made two films.
@@ -206,9 +224,9 @@ struct NewFilm: View {
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
-                Text(watchlist ? "Goes on the watchlist." : "Logged as watched today.").foregroundStyle(.secondary)
+                Text("Logged as watched today.").foregroundStyle(.secondary)
             }
-            .navigationTitle(watchlist ? "Add to watchlist" : "Add a film")
+            .navigationTitle("Add a film")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -218,8 +236,7 @@ struct NewFilm: View {
                         let today = FilmsView.today()
                         var f: [String: JSONValue] = ["title": .string(title.trimmingCharacters(in: .whitespaces)), "tags": .array([]), "source": .string("manual")]
                         if let y = Int(year), y > 1870 { f["year"] = .number(Double(y)) }
-                        if watchlist { f["watched"] = .bool(false); f["watchlist"] = .bool(true); f["watched_on"] = .array([]) }
-                        else { f["watched"] = .bool(true); f["watched_on"] = .array([.string(today)]); f["last_watched"] = .string(today) }
+                        f["watched"] = .bool(true); f["watched_on"] = .array([.string(today)]); f["last_watched"] = .string(today)
                         Task { _ = await engine.create(kind: .film, fields: f); dismiss() }
                     }
                     .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || saving)

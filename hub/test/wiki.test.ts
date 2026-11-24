@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeHub } from "./helpers.js";
 import { storageToMarkdown, attachmentsShown, parseStorage, MAX_DEPTH } from "../src/wiki-storage.js";
-import { convert, syncConfluence } from "../src/imports/confluence.js";
+import { convert, refreshRetry, SIGNIN_ENDED, syncConfluence } from "../src/imports/confluence.js";
 import { titleOf } from "../src/wiki.js";
 
 test("wiki: Confluence storage becomes readable markdown", () => {
@@ -250,4 +250,97 @@ test("wiki: a Confluence page that cannot be converted is skipped; the rest of t
     assert.equal(again.updated, 1);
     assert.equal(t.hub.connections.get().atlassian!.last_error, null);
   } finally { convert.storageToMarkdown = real; t.cleanup(); }
+});
+
+test("wiki: Confluence keeps its sign-in through a refused access token, a lost refresh answer and two refreshes at once; one Atlassian ended waits for Reconnect, which keeps the chosen spaces (gnomecannon/aeneas#24)", async () => {
+  const t = makeHub();
+  const waits = refreshRetry.waitsMs;
+  refreshRetry.waitsMs = [0, 0];
+  try {
+    const soon = () => new Date(Date.now() + 3_600_000).toISOString();
+    t.hub.connections.update((c) => {
+      c.atlassian_app = { client_id: "AbCdEf0123456789AbCdEf0123456789", client_secret: "ATOA-secret-value-0123456789abcdef" };
+      c.atlassian = { access_token: "access-0", refresh_token: "refresh-0", expires_at: soon(), cloud_id: "cloud-1", site_url: "https://example-studio.atlassian.net", site_name: "example-studio", spaces: ["STARFALL"] };
+    });
+    const token: { n: number; mode: "ok" | "refuse" | "unreachable-once"; traded: string[] } = { n: 0, mode: "ok", traded: [] };
+    // Access tokens Atlassian no longer takes, whatever their time says.
+    const revoked = new Set<string>();
+    let site = { id: "cloud-1", url: "https://example-studio.atlassian.net", name: "example-studio" };
+    t.hub.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const u = new URL(String(input));
+      const json = (j: unknown, status = 200) => new Response(JSON.stringify(j), { status });
+      if (u.pathname === "/oauth/token") {
+        const b = JSON.parse(String(init?.body));
+        if (b.grant_type === "refresh_token") token.traded.push(b.refresh_token);
+        if (token.mode === "unreachable-once") { token.mode = "ok"; throw new Error("socket hang up"); }
+        if (token.mode === "refuse" && b.grant_type === "refresh_token") return json({ error: "invalid_grant", error_description: "Unknown or invalid refresh token." }, 403);
+        await new Promise((r) => setTimeout(r, 5));
+        token.n++;
+        return json({ access_token: `access-${token.n}`, refresh_token: `refresh-${token.n}`, expires_in: 3600 });
+      }
+      if (u.pathname === "/oauth/token/accessible-resources") return json([{ ...site, scopes: ["read:page:confluence"] }]);
+      if (revoked.has(String((init?.headers as Record<string, string>)?.authorization).replace("Bearer ", ""))) return json({ message: "Unauthorized" }, 401);
+      const p = u.pathname.replace("/ex/confluence/cloud-1/wiki", "");
+      if (p === "/api/v2/spaces" && u.searchParams.get("keys")) return json({ results: [{ id: "688130", key: "STARFALL", name: "Starfall" }] });
+      if (p === "/api/v2/spaces") return json({ results: [{ id: "688130", key: "STARFALL", name: "Starfall" }] });
+      if (p === "/api/v2/spaces/688130/pages") return json({ results: [{ id: "688306", title: "Starfall", parentId: null, position: 0, version: { number: 1 }, _links: { webui: "/spaces/STARFALL/overview" }, body: { storage: { value: "<p>Home</p>" } } }] });
+      return json({ results: [] }, 404);
+    }) as typeof fetch;
+    const link = () => t.hub.connections.get().atlassian!;
+    const view = async () => ((await (await t.api("/connections")).json()) as { atlassian: { connected: boolean; expired?: boolean; spaces?: string[]; last_error?: string | null } }).atlassian;
+
+    // An access token refused before its time is up: one refresh and the same request again. It said "sign in again"
+    // and stopped, though the refresh token still worked.
+    revoked.add("access-0");
+    let r = await t.api("/connections/atlassian/sync", { method: "POST" });
+    assert.equal(r.status, 200);
+    assert.deepEqual(token.traded, ["refresh-0"]);
+    assert.deepEqual([link().access_token, link().refresh_token, link().expired, link().last_error], ["access-1", "refresh-1", undefined, null]);
+
+    // Two callers at once with a token due: one refresh between them. Each traded the same refresh token.
+    t.hub.connections.update((c) => { c.atlassian!.expires_at = new Date(Date.now() - 1000).toISOString(); });
+    token.traded = [];
+    const both = await Promise.all([t.api("/connections/atlassian/spaces"), t.api("/connections/atlassian/sync", { method: "POST" })]);
+    assert.deepEqual(both.map((x) => x.status), [200, 200]);
+    assert.deepEqual(token.traded, ["refresh-1"]);
+    assert.equal(link().refresh_token, "refresh-2");
+
+    // Atlassian not reached for a moment: the refresh is tried again at once with the same token (inside Atlassian's
+    // reuse interval), not left for the next hourly sync, when the token kept would be refused for good.
+    t.hub.connections.update((c) => { c.atlassian!.expires_at = new Date(Date.now() - 1000).toISOString(); });
+    token.traded = [];
+    token.mode = "unreachable-once";
+    assert.equal((await t.api("/connections/atlassian/sync", { method: "POST" })).status, 200);
+    assert.deepEqual(token.traded, ["refresh-2", "refresh-2"]);
+    assert.equal(link().refresh_token, "refresh-3");
+
+    // Atlassian refuses the refresh token: the link stays, with its spaces and pages, marked for Reconnect.
+    t.hub.connections.update((c) => { c.atlassian!.expires_at = new Date(Date.now() - 1000).toISOString(); });
+    token.mode = "refuse";
+    r = await t.api("/connections/atlassian/sync", { method: "POST" });
+    assert.equal(r.status, 409);
+    assert.equal(((await r.json()) as { error: string }).error, SIGNIN_ENDED);
+    let v = await view();
+    assert.deepEqual([v.connected, v.expired, v.spaces, v.last_error], [true, true, ["STARFALL"], SIGNIN_ENDED]);
+    assert.equal(((await (await t.api("/wiki")).json()) as { sources: { kind: string; pages: number }[] }).sources.find((x) => x.kind === "confluence")?.pages, 1, "the mirrored pages stay");
+
+    // Reconnect with an account on another site: refused, and the link is as it was.
+    token.mode = "ok";
+    const start = async () => new URL(((await (await t.api("/connections/atlassian/signin", { method: "POST", json: { hub: "https://core.example.ts.net:8787", client: "apple" } })).json()) as { url: string }).url).searchParams.get("state")!;
+    site = { id: "cloud-9", url: "https://other-team.atlassian.net", name: "other-team" };
+    let back = await t.app.request(`/connections/atlassian/return?state=${await start()}&code=good-code`);
+    assert.match(decodeURIComponent(back.headers.get("location")!.replace(/\+/g, " ")), /error=That account's Confluence site is other-team, not example-studio/);
+    v = await view();
+    assert.deepEqual([v.expired, v.spaces], [true, ["STARFALL"]]);
+
+    // Reconnect with the right account: the same spaces, read again at once, and the mark gone.
+    site = { id: "cloud-1", url: "https://example-studio.atlassian.net", name: "example-studio" };
+    back = await t.app.request(`/connections/atlassian/return?state=${await start()}&code=good-code`);
+    assert.match(decodeURIComponent(back.headers.get("location")!.replace(/\+/g, " ")), /linked=1&message=Confluence reconnected: example-studio, 1 pages/);
+    v = await view();
+    assert.deepEqual([v.connected, v.expired, v.spaces, v.last_error], [true, false, ["STARFALL"], null]);
+  } finally {
+    refreshRetry.waitsMs = waits;
+    t.cleanup();
+  }
 });

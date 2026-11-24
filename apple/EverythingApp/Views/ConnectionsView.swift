@@ -2,15 +2,16 @@ import SwiftUI
 import AuthenticationServices
 import EACore
 
-/// Settings, Connections: Gmail (read-only, files receipts, renewals, orders and vet mail), Steam (key and profile),
-/// Confluence (the wiki's handbook), Letterboxd (diary feed) and, on the iPhone, Apple Health. Linked data lands in
-/// Renewals, Inventory, Pet, Games, Wiki, Films and Logs on its own, where the assistant reads it too.
+/// Settings, Connections, grouped as on every device (gnomecannon/aeneas#10, #25): Internet Accounts first (iCloud,
+/// Google and other mail accounts, each with Mail, Calendars, Reminders, Read only and Receipts), then the services by
+/// kind (Steam and Letterboxd, Confluence, Apple Health, the password manager, the calendar feed), then Keys, the
+/// hub's own app keys those services need. Linked data lands in Renewals, Pet, Games, Wiki, Films and Logs on its
+/// own, where the assistant reads it too.
 struct ConnectionsSettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
     @Environment(\.webAuthenticationSession) private var webAuth
-    @State private var c: Connections?
-    @State private var loadError: String?
+    @StateObject private var store = ConnectionsStore()
     @State private var busy: String?
     @State private var message: [String: (ok: Bool, text: String)] = [:]
     @State private var spaces: [AtlassianSpace]?
@@ -21,8 +22,6 @@ struct ConnectionsSettingsView: View {
     /// The calendar feed's own key (GET /feeds): it reads the feed and nothing else, so it can live in Calendar.
     @State private var calendarKey = ""
     @State private var confirmNewCalendarLink = false
-    @State private var unlinkMail: String?
-    @State private var unlinkICloud: String?
     #if os(iOS)
     @State private var healthOn = false
     #endif
@@ -31,23 +30,20 @@ struct ConnectionsSettingsView: View {
         Form {
             if engine.client == nil {
                 Text("Set up the hub connection first.").foregroundStyle(.secondary)
-            } else if let c {
-                if let g = c.google { gmail(g) }
-                // One link serves Mail receipts and the Mail screen, whichever are on (the hub answers while either is).
-                if model.isOn(.mail) || model.modules.isOnListed(.mailInbox), let i = c.icloud {
-                    icloudMail(i, reading: c.google?.reading == true, times: c.google?.times, receipts: model.isOn(.mail), inbox: model.modules.isOnListed(.mailInbox))
-                }
-                // Calendar accounts: the hub keeps iCloud calendars in step itself (hub calendar-sync.ts).
-                if model.isOn(.calendars) { ICloudCalendarSection(mailAddresses: c.icloud?.accounts.map(\.email) ?? []) }
-                // Each link feeds one module; while that module is off its link is hidden and the hub pauses its sync.
+            } else if let c = store.c {
+                // Every account, with what it brings in; Apple Reminders' switch is on the iCloud account.
+                InternetAccountsSection(store: store, note: message["accounts"], reload: { await load() })
+                // The services, by kind. Each feeds one module; while that module is off its link is hidden and the
+                // hub pauses its sync.
                 if model.isOn(.games) { steam(c.steam) }
-                if model.isOn(.wiki), let a = c.atlassian { confluence(a) }
                 if model.isOn(.films) { letterboxd(c.letterboxd) }
+                if model.isOn(.wiki), let a = c.atlassian { confluence(a) }
                 if model.isOn(.health) { health(c.health) }
                 if model.isOn(.homelab), let pm = c.password_manager { PasswordManagerSection(view: pm, reload: { await load() }) }
-                if model.isOn(.appleReminders) { AppleRemindersSection() }
                 calendarFeed
-            } else if let loadError {
+                // The keys those services need, set once.
+                KeysSection(c: c, reload: { await load() })
+            } else if let loadError = store.loadError {
                 Text(loadError).foregroundStyle(.dangerText)
             } else {
                 ProgressView()
@@ -84,8 +80,7 @@ struct ConnectionsSettingsView: View {
                 Button { signInWithSteam() } label: { Label(busy == "steam" ? "Waiting for Steam" : "Sign in with Steam", systemImage: "person.badge.key") }
                     .disabled(busy != nil)
             } else {
-                PageLink { OwnKeyGuideView(service: "steam") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
-                Text("Advanced setup: this needs your own Steam key, made once by you on the service's own site; there is no server of ours in between.").font(.footnote).foregroundStyle(.secondary)
+                Text("Signing in needs the hub's own Steam key first, set once under Keys at the end of this page.").foregroundStyle(.secondary)
             }
             note("steam")
         } header: {
@@ -96,7 +91,7 @@ struct ConnectionsSettingsView: View {
             } else if s.hub_key == true {
                 Text("Sign in on Steam's own page. The app learns only which account is yours; your Steam password never reaches it. Your profile's Game details need to be public.")
             } else {
-                Text("The guide takes about 2 minutes. After that, sign in with Steam.")
+                Text("The key takes about 2 minutes. After that, sign in with Steam here.")
             }
         }
         .themedRow()
@@ -125,123 +120,27 @@ struct ConnectionsSettingsView: View {
         }
     }
 
-    @ViewBuilder private func gmail(_ g: Connections.Google) -> some View {
-        SwiftUI.Section {
-            ForEach(g.accounts) { a in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(a.email).font(.body.weight(.semibold))
-                    Text(a.summary).font(.footnote)
-                    Text("Last checked \(when(a.last_sync))").font(.caption).foregroundStyle(.secondary)
-                    if let e = a.last_error, !e.isEmpty { Text(e).font(.caption).foregroundStyle(.dangerText) }
-                    Button("Unlink", role: .destructive) { unlinkMail = a.email }
-                        .disabled(busy != nil)
-                        .font(.footnote)
-                }
-            }
-            .confirmationDialog("Unlink \(unlinkMail ?? "")?", isPresented: Binding(get: { unlinkMail != nil }, set: { if !$0 { unlinkMail = nil } }), titleVisibility: .visible, presenting: unlinkMail) { email in
-                Button("Unlink", role: .destructive) { run("google") { try await $0.disconnectGoogle(email: email); return "Unlinked \(email)." } }
-            } message: { _ in
-                Text("Google forgets the hub's sign-in. What was filed from this mailbox stays.")
-            }
-            if g.app {
-                Button { signInWithGoogle() } label: { Label(busy == "google" ? "Waiting for Google" : g.accounts.isEmpty ? "Sign in with Google" : "Add another mailbox", systemImage: "envelope.badge.person.crop") }
-                    .disabled(busy != nil)
-                if !g.accounts.isEmpty {
-                    Button(g.reading == true ? "Reading the waiting mail" : g.waiting > 0 ? "Read now (\(g.waiting) waiting)" : "Read now") { run("google-read") { _ = try await $0.readMailNow(); return "Reading the waiting mail now. It stops for any chat." } }
-                        .disabled(busy != nil)
-                    note("google-read")
-                }
-            } else {
-                PageLink { OwnKeyGuideView(service: "google") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
-                Text("Advanced setup: this needs your own Google app, made once by you on the service's own site; there is no server of ours in between.").font(.footnote).foregroundStyle(.secondary)
-            }
-            note("google")
-        } header: {
-            Text("Gmail")
-        } footer: {
-            if g.app {
-                Text("Receipts, renewal notices and vet mail fill in Renewals and \(PetView.pet). The hub checks for new mail every 15 minutes and reads it \(Self.readTimes(g.times)) when no game is using the GPU; Read now reads it right away.\(g.waiting_for_gpu.map { " Waiting: \($0)." } ?? "") Google lets the hub read mail only; it never sends, changes or deletes any, and the mail itself is never kept.")
-            } else {
-                Text("The guide takes about 10 to 15 minutes: your own Google app, allowed only to read mail. After that, sign in with Google.")
-            }
-        }
-        .themedRow()
-    }
-
-    /// iCloud Mail, read-only: each mailbox linked with an app-specific password made at account.apple.com, through the
-    /// hub's guide (the password goes only to the hub's own route and is never shown again).
-    @ViewBuilder private func icloudMail(_ i: Connections.ICloud, reading: Bool, times: [String]?, receipts: Bool, inbox: Bool) -> some View {
-        SwiftUI.Section {
-            ForEach(i.accounts) { a in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(a.email).font(.body.weight(.semibold))
-                    if receipts {
-                        Text(a.summary).font(.footnote)
-                        Text("Last checked \(when(a.last_sync))").font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let e = a.last_error, !e.isEmpty { Text(e).font(.caption).foregroundStyle(.dangerText) }
-                    Button("Unlink", role: .destructive) { unlinkICloud = a.email }
-                        .disabled(busy != nil)
-                        .font(.footnote)
-                }
-            }
-            .confirmationDialog("Unlink \(unlinkICloud ?? "")?", isPresented: Binding(get: { unlinkICloud != nil }, set: { if !$0 { unlinkICloud = nil } }), titleVisibility: .visible, presenting: unlinkICloud) { email in
-                Button("Unlink", role: .destructive) { run("icloud") { try await $0.disconnectICloud(email: email) } }
-            } message: { _ in
-                Text("The hub deletes this mailbox's app-specific password, and its mail on the Mail screen. What was filed from its mail stays. To end the password itself, revoke it at account.apple.com.")
-            }
-            if !i.accounts.isEmpty && receipts {
-                Button(reading ? "Reading the waiting mail" : i.waiting > 0 ? "Read now (\(i.waiting) waiting)" : "Read now") { run("icloud-read") { _ = try await $0.icloudReadNow(); return "Reading the waiting mail now. It stops for any chat." } }
-                    .disabled(busy != nil)
-                note("icloud-read")
-            }
-            PageLink { OwnKeyGuideView(service: "icloud") { Task { await load() } } } label: { Label(i.accounts.isEmpty ? "Set it up with the guide" : "Add another mailbox with the guide", systemImage: "list.number") }
-            note("icloud")
-        } header: {
-            Text("iCloud Mail")
-        } footer: {
-            Text(i.accounts.isEmpty
-                 ? "Apple has no sign-in for mail, so the guide has you make an app-specific password at account.apple.com, in about 5 minutes. It is kept on your hub only and never shown again."
-                 : [inbox ? "Mail shows this mailbox's Inbox, sorted into bundles. Opening a mail marks it read in iCloud too; Done moves it to Archive there, and Undo moves it back. Each message is kept on the hub while it is in your Inbox, never its attachments." : nil,
-                    receipts ? "Receipts, renewal notices and vet mail fill in Renewals and \(PetView.pet), read \(Self.readTimes(times)) like Gmail's when no game is using the GPU. For these the hub only reads: folders are opened read-only, nothing is marked read, moved or deleted, Junk, Trash, Drafts and Sent are skipped, and the mail itself is never kept." : nil]
-                    .compactMap { $0 }.joined(separator: "\n\n"))
-        }
-        .themedRow()
-    }
-
-    /// Google's account chooser in a secure browser sheet; the hub sends it back to everythingapp://google.
-    private func signInWithGoogle() {
-        guard let client = engine.client else { return }
-        busy = "google"
-        message["google"] = nil
-        Task {
-            defer { busy = nil }
-            do {
-                let url = try await client.googleSignInURL()
-                let back = try await webAuth.authenticate(using: url, callbackURLScheme: "everythingapp")
-                let q = URLComponents(url: back, resolvingAgainstBaseURL: false)?.queryItems ?? []
-                if let err = q.first(where: { $0.name == "error" })?.value { message["google"] = (false, err) }
-                else { message["google"] = (true, q.first(where: { $0.name == "message" })?.value ?? "Gmail linked.") }
-            } catch let e as ASWebAuthenticationSessionError where e.code == .canceledLogin {
-                message["google"] = (false, "Sign-in cancelled.")
-            } catch {
-                message["google"] = (false, error.localizedDescription)
-            }
-            await load()
-        }
-    }
-
     /// Sign-in that came back through everythingapp://google instead of the browser sheet.
     private func takeGoogleReturn() {
         guard let r = model.googleReturn else { return }
         model.googleReturn = nil
-        message["google"] = (r.ok, r.text)
+        message["accounts"] = (r.ok, r.text)
         Task { await load() }
     }
 
     @ViewBuilder private func confluence(_ a: Connections.Atlassian) -> some View {
         SwiftUI.Section {
-            if a.connected {
+            if a.needsReconnect {
+                // Atlassian ended the sign-in: Reconnect is the same sign-in and keeps the spaces and pages. Unlink and
+                // linking again was the only way, and Unlink drops both (gnomecannon/aeneas#24).
+                LabeledContent("Site", value: a.site_name ?? a.site_url ?? "")
+                LabeledContent("Pages", value: "\(a.pages ?? 0)")
+                LabeledContent("Last sync", value: when(a.last_sync))
+                Text(a.last_error ?? "Atlassian ended the sign-in.").font(.footnote).foregroundStyle(.dangerText)
+                Button { signInWithAtlassian() } label: { Label(busy == "atlassian" ? "Waiting for Atlassian" : "Reconnect", systemImage: "arrow.clockwise") }
+                    .disabled(busy != nil)
+                unlinkAtlassian
+            } else if a.connected {
                 LabeledContent("Site", value: a.site_name ?? a.site_url ?? "")
                 LabeledContent("Pages", value: "\(a.pages ?? 0)")
                 LabeledContent("Last sync", value: when(a.last_sync))
@@ -249,35 +148,41 @@ struct ConnectionsSettingsView: View {
                 spacePicker
                 Button(busy == "atlassian" ? "Syncing" : "Sync now") { run("atlassian") { Self.counts(try await $0.syncConfluence()) } }
                     .disabled(busy != nil)
-                Button("Unlink", role: .destructive) { confirmUnlinkAtlassian = true }
-                    .disabled(busy != nil)
-                    .confirmationDialog("Unlink Confluence?", isPresented: $confirmUnlinkAtlassian, titleVisibility: .visible) {
-                        Button("Unlink", role: .destructive) {
-                            run("atlassian") { try await $0.disconnectAtlassian(); spaces = nil; return "Unlinked. The Confluence pages left the wiki." }
-                        }
-                    } message: {
-                        Text("The hub forgets the sign-in and takes the mirrored Confluence pages out of the wiki. Confluence itself is not touched.")
-                    }
+                unlinkAtlassian
             } else if a.app == true {
                 Button { signInWithAtlassian() } label: { Label(busy == "atlassian" ? "Waiting for Atlassian" : "Sign in with Atlassian", systemImage: "person.badge.key") }
                     .disabled(busy != nil)
             } else {
-                PageLink { OwnKeyGuideView(service: "atlassian") { Task { await load() } } } label: { Label("Set it up with the guide", systemImage: "list.number") }
-                Text("Advanced setup: this needs your own Atlassian app, made once by you on the service's own site; there is no server of ours in between.").font(.footnote).foregroundStyle(.secondary)
+                Text("Signing in needs the hub's own Atlassian app first, set once under Keys at the end of this page.").foregroundStyle(.secondary)
             }
             note("atlassian")
         } header: {
             Text("Confluence")
         } footer: {
-            if a.connected {
+            if a.needsReconnect {
+                Text("Reconnect opens Atlassian's page: sign in with the account that reads \(a.site_name ?? "this site"). The pages already in the wiki stay.")
+            } else if a.connected {
                 Text("The chosen spaces are read again every hour and show under Library, Wiki, next to the repo docs.")
             } else if a.app == true {
                 Text("Sign in on Atlassian's own page. The hub asks only to read spaces, pages and attachments; your Atlassian password never reaches it. Atlassian sends you back only to an https hub address.")
             } else {
-                Text("The guide takes about 10 minutes: your own Atlassian app, allowed only to read Confluence. After that, sign in with Atlassian.")
+                Text("The Atlassian app takes about 10 minutes, allowed only to read Confluence. After that, sign in with Atlassian here.")
             }
         }
         .themedRow()
+    }
+
+    /// Unlink, after asking: the sign-in and the mirrored pages go.
+    private var unlinkAtlassian: some View {
+        Button("Unlink", role: .destructive) { confirmUnlinkAtlassian = true }
+            .disabled(busy != nil)
+            .confirmationDialog("Unlink Confluence?", isPresented: $confirmUnlinkAtlassian, titleVisibility: .visible) {
+                Button("Unlink", role: .destructive) {
+                    run("atlassian") { try await $0.disconnectAtlassian(); spaces = nil; return "Unlinked. The Confluence pages left the wiki." }
+                }
+            } message: {
+                Text("The hub forgets the sign-in and takes the mirrored Confluence pages out of the wiki. Confluence itself is not touched.")
+            }
     }
 
     /// The spaces the account can read, ticked when mirrored. Save sends the ticked keys and the hub reads them.
@@ -473,9 +378,11 @@ struct ConnectionsSettingsView: View {
 
     private func load() async {
         guard let client = engine.client else { return }
-        do { c = try await client.connections(); loadError = nil } catch { loadError = error.localizedDescription }
+        await store.load(client, calendarsOn: model.isOn(.calendars))
+        let c = store.c
         if calendarKey.isEmpty, let k = try? await client.feedKeys() { calendarKey = k.calendar.key }
-        if c?.atlassian?.connected == true, spaces == nil {
+        // An ended sign-in cannot list the spaces: they load once Reconnect lands.
+        if c?.atlassian?.connected == true, c?.atlassian?.needsReconnect != true, spaces == nil {
             do {
                 let s = try await client.atlassianSpaces()
                 spaces = s
@@ -515,39 +422,4 @@ struct ConnectionsSettingsView: View {
         }
     }
     #endif
-}
-
-/// Apple Reminders: every list, both ways, with this app's tasks. Work account lists go into the work space.
-struct AppleRemindersSection: View {
-    @ObservedObject private var sync = RemindersSync.shared
-
-    var body: some View {
-        SwiftUI.Section {
-            Toggle("Sync with Apple Reminders", isOn: Binding(get: { sync.enabled }, set: { on in
-                // Turning it on here is the person asking for it, so access is asked for now if it never was.
-                if on { Task { await sync.turnOn() } } else { sync.enabled = false }
-            }))
-            if sync.enabled {
-                switch sync.access {
-                case .notDetermined:
-                    Button("Allow access to Reminders") { Task { await sync.requestAccess() } }
-                case .denied, .restricted, .writeOnly:
-                    Text("Reminders access is off. Turn on Full Access for Aeneas in \(systemSettingsName.replacingOccurrences(of: "Open ", with: "")).")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button(systemSettingsName) { openPrivacySettings("Privacy_Reminders") }
-                case .full:
-                    LabeledContent("Last sync", value: sync.lastRun.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "Not yet")
-                    if let s = sync.lastSummary { Text(s).font(.caption).foregroundStyle(.secondary) }
-                    if let e = sync.lastError { Text(e).font(.caption).foregroundStyle(.dangerText) }
-                    Button(sync.running ? "Syncing" : "Sync now") { Task { await sync.runNow(reason: "button") } }.disabled(sync.running)
-                }
-            }
-        } header: {
-            Text("Apple Reminders")
-        } footer: {
-            Text(sync.createsInApple
-                 ? "Every list syncs both ways: titles, notes, due dates, alerts, repeats, done, and deletes. New tasks from the app go to your default list."
-                 : "Every list syncs both ways: titles, notes, due dates, alerts, repeats, done, and deletes. New tasks from the app are added to Reminders by the iPhone.")
-        }
-    }
 }

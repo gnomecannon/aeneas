@@ -12,14 +12,17 @@ public struct HubCalendars: Decodable, Equatable, Sendable {
         public var email: String
         /// Mail receipts reads this address too, with the same app-specific password.
         public var mail: Bool
+        /// Read only (Internet Accounts): its calendars are read and never written; new events stay in the app. Nil
+        /// from an older hub.
+        public var read_only: Bool?
         public var calendars: [Calendar]
         /// Where events made in the app go; nil keeps them in the app.
         public var target: String?
         public var last_sync: String?
         public var last_error: String?
 
-        public init(email: String, mail: Bool = false, calendars: [Calendar] = [], target: String? = nil, last_sync: String? = nil, last_error: String? = nil) {
-            self.email = email; self.mail = mail; self.calendars = calendars; self.target = target; self.last_sync = last_sync; self.last_error = last_error
+        public init(email: String, mail: Bool = false, read_only: Bool? = nil, calendars: [Calendar] = [], target: String? = nil, last_sync: String? = nil, last_error: String? = nil) {
+            self.email = email; self.mail = mail; self.read_only = read_only; self.calendars = calendars; self.target = target; self.last_sync = last_sync; self.last_error = last_error
         }
     }
 

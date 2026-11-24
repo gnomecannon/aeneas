@@ -7,14 +7,15 @@ import { useEntities, useEntity } from "../sync/hooks";
 import { createEntity, updateEntity, softDelete } from "../sync/edits";
 import { go } from "../lib/router";
 import { useDraftSave } from "../lib/useDraftSave";
-import { fmtDateTime } from "../lib/time";
-import { MUSIC_TYPES, musicMeta, parseMusicQuick, type MusicF, type MusicStatus, type MusicType, type ProjectF } from "../lib/creative";
+import { fmtDate, fmtDateTime, fmtTime } from "../lib/time";
+import { MUSIC_STATUS_LABEL, MUSIC_TYPES, isHummed, musicMeta, musicProjectCards, parseMusicQuick, type MusicF, type MusicProjectCard, type MusicStatus, type MusicType, type ProjectF } from "../lib/creative";
 import { HumRecorder, HumResult } from "../components/Hum";
 import { HumSongIcon } from "../components/HumSongIcon";
 
 const STATUSES: MusicStatus[] = ["idea", "wip", "done"];
 
 export function Music({ id }: { id?: string }) {
+  if (id === "projects") return <MusicProjectsPage />;
   if (id) return <IdeaPage id={id} />;
   return <MusicList />;
 }
@@ -26,9 +27,10 @@ function Row({ e }: { e: Entity }) {
       <div className="body">
         <div className="row">
           <span className="t grow">{f.title}</span>
-          <span className={`chip static status-${f.status}`}>{f.status}</span>
+          <span className={`chip static status-${f.status}`}>{MUSIC_STATUS_LABEL[f.status] ?? f.status}</span>
         </div>
         <div className="meta">
+          <span title={isHummed(f) ? "Recorded" : "Added"}>{fmtDateTime(e.created_at)}</span>
           {musicMeta(f).map((x) => (
             <span key={x} className="mono">
               {x}
@@ -41,14 +43,22 @@ function Row({ e }: { e: Entity }) {
   );
 }
 
+/** A group's heading: "Riffs (4)", the type and how many ideas it holds (it read "Riff 4", like an idea's name). */
+const TYPE_HEADINGS: Record<MusicType, string> = { riff: "Riffs", progression: "Progressions", lyric: "Lyrics", song: "Songs" };
+
+/** When an idea was made, with the date even when it was today ("Nov 24 9:41 PM"): what tells two hums apart. */
+function madeAt(f: MusicF, iso: string): string {
+  return `${isHummed(f) ? "Recorded" : "Added"} ${fmtDate(iso)} ${fmtTime(iso)}`;
+}
+
+/**
+ * Music (gnomecannon/aeneas#13): one row of actions (a line to type and Hum Song), the way into Projects, then the
+ * ideas by type. Projects have a page of their own; cheat sheets and checklists are notes, pointed to at the foot.
+ */
 function MusicList() {
   const all = useEntities("music_idea");
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const [saved, setSaved] = useState<string | null>(null);
+  const projects = useEntities("project", (p) => (p.fields as ProjectF).area === "music");
   const [status, setStatus] = useState<MusicStatus | null>(null);
-  const preview = useMemo(() => (text.trim() ? parseMusicQuick(text) : null), [text]);
 
   const groups = useMemo(() => {
     const out: Array<{ type: MusicType; items: Entity[] }> = [];
@@ -61,6 +71,58 @@ function MusicList() {
     return out;
   }, [all, status]);
 
+  return (
+    <div className="music">
+      <div className="row between">
+        <h1 style={{ margin: 0 }}>Music</h1>
+        <a href="#/music/projects" className="to-projects">
+          Projects{projects.length ? ` (${projects.length})` : ""} {"\u203a"}
+        </a>
+      </div>
+      <MusicAdd autoFocus />
+
+      {all.length > 0 && (
+        <div className="chips" style={{ marginTop: 14 }} role="group" aria-label="Status filter">
+          {STATUSES.map((s) => (
+            <button key={s} type="button" className={`chip ${status === s ? "on" : ""}`} aria-pressed={status === s} onClick={() => setStatus(status === s ? null : s)}>
+              {MUSIC_STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
+      )}
+      {!groups.length && <div className="empty">{all.length ? "Nothing with that status." : "No ideas yet. Type a line above, or press Hum Song."}</div>}
+      {groups.map((g) => (
+        <section key={g.type} style={{ marginTop: 14 }}>
+          <h2>
+            {TYPE_HEADINGS[g.type]} <span className="muted small" style={{ fontWeight: 400 }}>({g.items.length})</span>
+          </h2>
+          <div className="list">
+            {g.items.map((e) => (
+              <Row key={e.id} e={e} />
+            ))}
+          </div>
+        </section>
+      ))}
+      <div className="muted small" style={{ marginTop: 14 }}>
+        Cheat sheets and checklists are notes: <a href="#/notes">Notes, Music, Reference</a>.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The row of actions: one line (chords, time signature, bpm and tuning are picked out, the rest is the title) and
+ * Hum Song, which opens the recorder under the row. With a project (a card on the Projects page), what is added goes
+ * into that project.
+ */
+function MusicAdd({ projectId, autoFocus = false }: { projectId?: string; autoFocus?: boolean }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [saved, setSaved] = useState<string | null>(null);
+  const [humming, setHumming] = useState(false);
+  const preview = useMemo(() => (text.trim() ? parseMusicQuick(text) : null), [text]);
+
   const capture = async () => {
     const t = text.trim();
     if (!t) return;
@@ -70,7 +132,7 @@ function MusicList() {
       let e: Entity | null = null;
       if (engine.client) {
         try {
-          e = await engine.client.musicQuick(t);
+          e = await engine.client.musicQuick(t, projectId);
           await engine.absorb([e]);
         } catch (err) {
           if (err instanceof HubError) throw err;
@@ -80,6 +142,7 @@ function MusicList() {
         const q = parseMusicQuick(t);
         const fields: Record<string, unknown> = { title: q.title, type: q.type, body: q.body, status: "idea", tags: [] };
         for (const k of ["key", "bpm", "time_sig", "tuning"] as const) if (q[k] != null) fields[k] = q[k];
+        if (projectId) fields.project_id = projectId;
         e = await createEntity("music_idea", fields);
       }
       setSaved(String(e.fields.title));
@@ -93,111 +156,139 @@ function MusicList() {
   };
 
   return (
-    <div className="music">
-      <h1>Music</h1>
+    <div className="col music-add">
       <form
-        className="card col"
+        className="row"
         onSubmit={(e) => {
           e.preventDefault();
           void capture();
         }}
       >
-        <div className="row">
-          <input className="grow mono" value={text} onChange={(e) => setText(e.target.value)} placeholder="Am F C G 6/8 112bpm drop D" aria-label="Quick capture" autoCapitalize="off" autoFocus />
-          <button className="primary" type="submit" disabled={busy || !text.trim()}>
-            Save
-          </button>
-        </div>
-        {preview && (
-          <div className="muted small">
-            {preview.type}: {preview.title}
-            {musicMeta(preview).length ? `, ${musicMeta(preview).join(", ")}` : ""}
-          </div>
-        )}
-        {saved && <div className="ok">Saved {saved}.</div>}
-        {err && <div className="error">{err}</div>}
+        <input className="grow mono" value={text} onChange={(e) => setText(e.target.value)} placeholder="Am F C G 6/8 112bpm drop D" aria-label={projectId ? "New idea in this project" : "Quick capture"} autoCapitalize="off" autoFocus={autoFocus} />
+        <button className="primary" type="submit" disabled={busy || !text.trim()}>
+          Save
+        </button>
+        <button type="button" className={humming ? "on" : ""} aria-pressed={humming} onClick={() => setHumming(!humming)}>
+          <HumSongIcon /> Hum Song
+        </button>
       </form>
-
-      <details className="card" style={{ marginTop: 10 }}>
-        <summary><strong><HumSongIcon /> Hum Song</strong> <span className="muted small">a melody, a rhythm or both, to notes and a MIDI file</span></summary>
-        <div style={{ marginTop: 8 }}>
-          <HumRecorder onDone={(idea) => go(`/music/${idea.id}`)} />
+      {preview && (
+        <div className="muted small">
+          {preview.type}: {preview.title}
+          {musicMeta(preview).length ? `, ${musicMeta(preview).join(", ")}` : ""}
         </div>
-      </details>
+      )}
+      {saved && <div className="ok">Saved {saved}.</div>}
+      {err && <div className="error">{err}</div>}
+      {humming && (
+        <div className="card" style={{ margin: 0 }}>
+          <HumRecorder projectId={projectId} onDone={(idea) => go(`/music/${idea.id}`)} />
+        </div>
+      )}
+    </div>
+  );
+}
 
-      <MusicProjects ideas={all} />
-      <div className="muted small" style={{ marginTop: 4 }}>
-        Cheat sheets and checklists are notes: <a href="#/notes">Notes, Music, Reference</a>.
-      </div>
+const OPEN_KEY = "music.projects.open";
 
-      <div className="chips" style={{ marginTop: 14 }} role="group" aria-label="Status filter">
-        {STATUSES.map((s) => (
-          <button key={s} type="button" className={`chip ${status === s ? "on" : ""}`} aria-pressed={status === s} onClick={() => setStatus(status === s ? null : s)}>
-            {s}
-          </button>
-        ))}
-      </div>
-      {!groups.length && <div className="empty">{all.length ? "Nothing with that status." : "No ideas yet. Type a line above."}</div>}
-      {groups.map((g) => (
-        <section key={g.type} style={{ marginTop: 14 }}>
-          <h2 style={{ textTransform: "capitalize" }}>
-            {g.type} <span className="muted small" style={{ fontWeight: 400 }}>{g.items.length}</span>
-          </h2>
-          <div className="list">
-            {g.items.map((e) => (
-              <Row key={e.id} e={e} />
-            ))}
-          </div>
-        </section>
+function readOpen(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(OPEN_KEY) ?? "[]") as string[]); } catch { return new Set(); }
+}
+
+/**
+ * Music's Projects page: each project a release in the making (an album, an EP, a single), a card that opens to its
+ * ideas and hummed takes with the row of actions for adding to it. Cards start closed; the ones opened stay open on
+ * this device. A project started here opens at once.
+ */
+function MusicProjectsPage() {
+  const projects = useEntities("project", (p) => (p.fields as ProjectF).area === "music");
+  const ideas = useEntities("music_idea");
+  const cards = useMemo(() => musicProjectCards(projects, ideas), [projects, ideas]);
+  const [open, setOpen] = useState<Set<string>>(readOpen);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  // From the latest set, not the one this render saw: a project started here opens after its save, when other cards
+  // may have been opened or closed meanwhile.
+  const toggle = (id: string, isOpen: boolean) =>
+    setOpen((cur) => {
+      if (cur.has(id) === isOpen) return cur;
+      const next = new Set(cur);
+      if (isOpen) next.add(id); else next.delete(id);
+      try { localStorage.setItem(OPEN_KEY, JSON.stringify([...next])); } catch { /* private window */ }
+      return next;
+    });
+
+  const start = async () => {
+    if (!name.trim()) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const p = await createEntity("project", { name: name.trim(), status: "active", definition_of_done: "", area: "music" });
+      setName("");
+      toggle(p.id, true);
+    } catch (e) {
+      setErr(plainError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="music music-projects col">
+      <a className="sub-back" href="#/music">
+        {"\u2039"} Music
+      </a>
+      <h1>Projects</h1>
+      <div className="muted small">Each is a release in the making, an album, an EP or a single, with its ideas and hummed takes.</div>
+      <form className="row" onSubmit={(ev) => { ev.preventDefault(); void start(); }}>
+        <input className="grow" value={name} onChange={(ev) => setName(ev.target.value)} placeholder="New album, EP or single" aria-label="New project" />
+        <button type="submit" className="primary" disabled={busy || !name.trim()}>Start</button>
+      </form>
+      {err && <div className="error">{err}</div>}
+      {!cards.length && <div className="empty">No projects yet. Name one above to start it.</div>}
+      {cards.map((c) => (
+        <ProjectCard key={c.project.id} card={c} open={open.has(c.project.id)} onToggle={(o) => toggle(c.project.id, o)} />
       ))}
     </div>
   );
 }
 
-/** Music projects: projects with area music, shown here with their ideas; a new one starts here. */
-function MusicProjects({ ideas }: { ideas: Entity[] }) {
-  const projects = useEntities("project", (p) => (p.fields as ProjectF).area === "music" && p.fields.status !== "done");
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const start = async () => {
-    if (!name.trim()) return;
-    setBusy(true);
-    try {
-      const p = await createEntity("project", { name: name.trim(), status: "active", definition_of_done: "", area: "music" });
-      setName("");
-      go(`/projects/${p.id}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+/** One project's card: closed, its name, status and what it holds; open, the row of actions, its ideas and its takes. */
+function ProjectCard({ card, open, onToggle }: { card: MusicProjectCard; open: boolean; onToggle: (open: boolean) => void }) {
+  const { project: p, ideas, takes } = card;
+  const f = p.fields as ProjectF;
+  const holds = [ideas.length ? `${ideas.length} ${ideas.length === 1 ? "idea" : "ideas"}` : "", takes.length ? `${takes.length} hummed ${takes.length === 1 ? "take" : "takes"}` : ""].filter(Boolean).join(", ") || "empty";
   return (
-    <section style={{ marginTop: 4 }}>
-      <h2>Projects</h2>
-      <div className="list">
-        {projects.map((p) => {
-          const f = p.fields as ProjectF;
-          const n = ideas.filter((m) => (m.fields as MusicF).project_id === p.id).length;
-          return (
-            <a key={p.id} href={`#/projects/${p.id}`} className="item" style={{ color: "inherit" }}>
-              <div className="body">
-                <div className="row">
-                  <span className="t grow" style={{ fontWeight: 600 }}>{f.name}</span>
-                  <span className={`chip static status-${f.status}`}>{f.status}</span>
-                </div>
-                <div className="meta">
-                  <span>{n} {n === 1 ? "idea" : "ideas"}</span>
-                  {f.definition_of_done && <span>Done when: {f.definition_of_done}</span>}
-                </div>
-              </div>
-            </a>
-          );
-        })}
-      </div>
-      <form className="row" style={{ marginTop: 6 }} onSubmit={(ev) => { ev.preventDefault(); void start(); }}>
-        <input className="grow" value={name} onChange={(ev) => setName(ev.target.value)} placeholder="New music project (an album, an EP, a song)" aria-label="New music project" />
-        <button type="submit" disabled={busy || !name.trim()}>Start</button>
-      </form>
-    </section>
+    <details className="card music-project" open={open} onToggle={(e) => onToggle((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>
+        <span className="t">{f.name}</span>
+        <span className={`chip static status-${f.status}`}>{f.status}</span>
+        <span className="muted small">{holds}</span>
+      </summary>
+      {open && (
+        <div className="col" style={{ marginTop: 8 }}>
+          {f.definition_of_done && <div className="small">Done when: {f.definition_of_done}</div>}
+          <MusicAdd projectId={p.id} />
+          {ideas.length > 0 && (
+            <section>
+              <h3>Ideas ({ideas.length})</h3>
+              <div className="list">{ideas.map((e) => <Row key={e.id} e={e} />)}</div>
+            </section>
+          )}
+          {takes.length > 0 && (
+            <section>
+              <h3>Hummed takes ({takes.length})</h3>
+              <div className="list">{takes.map((e) => <Row key={e.id} e={e} />)}</div>
+            </section>
+          )}
+          <a href={`#/projects/${p.id}`} className="small">
+            Status, tasks and plan: the project page
+          </a>
+        </div>
+      )}
+    </details>
   );
 }
 
@@ -252,10 +343,11 @@ function IdeaPage({ id }: { id: string }) {
           all music
         </a>
       </div>
+      <div className="muted small" style={{ marginTop: 4 }}>{madeAt(f, e.created_at)}</div>
       <div className="row" style={{ marginTop: 10 }} role="group" aria-label="Status">
         {STATUSES.map((s) => (
           <button key={s} className={`chip ${f.status === s ? "on" : ""}`} aria-pressed={f.status === s} onClick={() => void updateEntity(e, { status: s })}>
-            {s}
+            {MUSIC_STATUS_LABEL[s]}
           </button>
         ))}
       </div>

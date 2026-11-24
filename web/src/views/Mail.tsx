@@ -75,6 +75,8 @@ import {
   MAIL_KEYS,
   mailApp,
   mailboxOf,
+  readOnlyBox,
+  writableBoxes,
   folderGroups,
   askBeforeLeaving,
   mailKeyAction,
@@ -668,7 +670,7 @@ export function Mail() {
         )}
         {!chosen.length && (
           <div className="mailx-bar-right">
-            <button type="button" className="mailx-compose-btn" aria-expanded={composing} onClick={() => setNewMail(!composing)} title="Write a new mail, saved to Drafts in your mailbox"><Icon name="pencil" /><span>New mail</span></button>
+            {writableBoxes(boxes).length > 0 && <button type="button" className="mailx-compose-btn" aria-expanded={composing} onClick={() => setNewMail(!composing)} title="Write a new mail, saved to Drafts in your mailbox"><Icon name="pencil" /><span>New mail</span></button>}
           </div>
         )}
       </div>
@@ -858,6 +860,8 @@ function FolderCard({ m, f, close }: { m: FolderMail; f: MailFolder; close: () =
   const [box, setBoxState] = useState<"forward" | "draft" | null>(() => { const k = WRITING.open.get(m.id); return k === "forward" || k === "draft" ? k : null; });
   const setBox = (k: "forward" | "draft" | null) => { if (k) WRITING.open.set(m.id, k); else WRITING.open.delete(m.id); setBoxState(k); };
   const mine = m.folder_role === "sent" || m.folder_role === "drafts";
+  const { boxes } = useContext(Look);
+  const ro = readOnlyBox(boxes, f.email);
   return (
     <article className="mailx-card" data-nav={folderRow(m.id)}>
       <button type="button" className="mailx-card-head" onClick={close} aria-expanded="true">
@@ -868,11 +872,11 @@ function FolderCard({ m, f, close }: { m: FolderMail; f: MailFolder; close: () =
         </span>
       </button>
       <div className="mailx-card-acts mailx-card-pad"><FolderActions m={m} f={f} />
-        <button type="button" className={`mailx-act${box === "forward" ? " on" : ""}`} aria-expanded={box === "forward"} onClick={() => setBox(box === "forward" ? null : "forward")}><Icon name="forward" /><span>Forward</span></button>
-        {f.role === "drafts" && <button type="button" className={`mailx-act${box === "draft" ? " on" : ""}`} aria-expanded={box === "draft"} onClick={() => setBox(box === "draft" ? null : "draft")}><Icon name="pencil" /><span>Edit</span></button>}
+        {!ro && <button type="button" className={`mailx-act${box === "forward" ? " on" : ""}`} aria-expanded={box === "forward"} onClick={() => setBox(box === "forward" ? null : "forward")}><Icon name="forward" /><span>Forward</span></button>}
+        {f.role === "drafts" && !ro && <button type="button" className={`mailx-act${box === "draft" ? " on" : ""}`} aria-expanded={box === "draft"} onClick={() => setBox(box === "draft" ? null : "draft")}><Icon name="pencil" /><span>Edit</span></button>}
       </div>
-      {box === "forward" && <Composer forward={m} mailbox={f.email} close={() => setBox(null)} />}
-      {box === "draft" && f.role === "drafts" && <Composer draft={{ m, email: f.email }} close={() => setBox(null)} />}
+      {box === "forward" && !ro && <Composer forward={m} mailbox={f.email} close={() => setBox(null)} />}
+      {box === "draft" && f.role === "drafts" && !ro && <Composer draft={{ m, email: f.email }} close={() => setBox(null)} />}
       {m.folder_role === "junk" && <div className="warn small mailx-card-pad">This mail is in Spam. Be careful with its links, and never sign in or pay through them.</div>}
       <Message m={m} />
     </article>
@@ -926,7 +930,7 @@ function Mailboxes({ data, showKeys }: { data: MailList; showKeys: () => void })
         <div className="mailx-info">
           {data.mailboxes.map((m) => (
             <div key={m.email}>
-              <span className="muted">{m.email}: {m.last_refresh ? `refreshed ${fmtDateTime(m.last_refresh)}` : "not refreshed yet"}</span>
+              <span className="muted">{m.email}: {m.last_refresh ? `refreshed ${fmtDateTime(m.last_refresh)}` : "not refreshed yet"}{m.read_only ? ". Read only: Aeneas changes nothing in it (Settings, Connections)" : ""}</span>
               {m.last_error && <div className="error">{m.last_error}</div>}
             </div>
           ))}
@@ -1329,9 +1333,10 @@ function useSwipe(on: boolean, done: () => void, snooze: (() => void) | null) {
 }
 
 function Row({ m, open, setOpen }: { m: MailThread; open: boolean; setOpen: (id: string | null) => void }) {
-  const { cursor, selected, pick, move, setSnoozeFor, openMail } = useContext(Look);
+  const { cursor, selected, pick, move, setSnoozeFor, openMail, boxes } = useContext(Look);
   const back = m.state === "done";
-  const swipe = useSwipe(!open && selected.size === 0,
+  // A Read only mailbox's mail has no Done to swipe to (its Snooze, on the hub only, is on the open mail).
+  const swipe = useSwipe(!open && selected.size === 0 && !readOnlyBox(boxes, m.mailbox),
     () => void move(back ? m.ids.done : m.ids.open, back ? "inbox" : "done"),
     back ? null : () => { setSnoozeFor(m.key); openMail(m.key); });
   if (open) return <Card m={m} close={() => setOpen(null)} />;
@@ -1378,9 +1383,11 @@ function Avatar({ m }: { m: MailSummary }) {
 
 /** Pin or unpin: the pin filled while pinned. `labelled`: with its word beside it (an open mail's bar). */
 function PinButton({ m, labelled = false }: { m: MailThread; labelled?: boolean }) {
-  const { act, offerUndo } = useContext(Look);
+  const { act, offerUndo, boxes } = useContext(Look);
   const [busy, setBusy] = useState(false);
   const label = m.pinned ? "Unpin" : "Pin";
+  // A pin is the mailbox's flag: none is set in a Read only mailbox.
+  if (readOnlyBox(boxes, m.mailbox)) return null;
   return (
     <button type="button" className={`mailx-act act-pin${m.pinned ? " on" : ""}`} aria-pressed={m.pinned} title={label} aria-label={label} disabled={busy}
       onClick={async () => { setBusy(true); const was = m.pinned; await act((c) => c.mailPin(m.id, !was)); offerUndo(was ? "Unpinned" : "Pinned", () => act((c) => c.mailPin(m.id, was))); setBusy(false); }}>
@@ -1396,6 +1403,7 @@ function DoneButton({ m, labelled = false }: { m: MailThread; labelled?: boolean
   const back = m.state === "done";
   const label = back ? "Move to Inbox" : "Done";
   const where = inProvider(mailboxOf(boxes, m.mailbox));
+  if (readOnlyBox(boxes, m.mailbox)) return null;
   return (
     <button type="button" className="mailx-act act-done" title={back ? `Move back to the Inbox ${where}` : `Done: moves it to Archive ${where}`} aria-label={label} disabled={busy}
       onClick={async () => { setBusy(true); await move(back ? m.ids.done : m.ids.open, back ? "inbox" : "done"); setBusy(false); }}>
@@ -1508,6 +1516,7 @@ function MoveButtons({ ids, mailbox, back, spam = false }: { ids: string[]; mail
   const go = async (to: MoveTarget, said: string) => { setBusy(true); await relocate(ids, to, said, back); setBusy(false); };
   const box = mailboxOf(boxes, mailbox);
   const own = moveFolders(folders, [box?.email]);
+  if (box?.read_only) return null;
   return (
     <>
       <button type="button" className="mailx-act" disabled={busy} title={`Delete: moves it to Trash ${inProvider(box)}`} onClick={() => void go("trash", "Moved to Trash")}><Icon name="trash" /><span>Delete</span></button>
@@ -1547,6 +1556,7 @@ function FolderActions({ m, f }: { m: FolderMail; f: MailFolder }) {
   const can = folderActs(f.role);
   const here: MoveTarget = f.role === "own" ? f.key : f.role;
   const others = can.move ? moveFolders(folders, [f.email], f.key) : [];
+  if (readOnlyBox(boxes, f.email)) return <span className="muted small">Read only: Aeneas changes nothing in this mailbox.</span>;
   return (
     <>
       {can.inbox && <button type="button" className="mailx-act" disabled={busy} onClick={() => void go("inbox", "Moved to Inbox", here)}><Icon name="inbox" /><span>{f.role === "junk" ? "Not spam" : "Move to Inbox"}</span></button>}
@@ -1559,9 +1569,9 @@ function FolderActions({ m, f }: { m: FolderMail; f: MailFolder }) {
 
 /** Sweep: every unpinned thread here marked done at once (pinned ones stay), with one Undo. */
 function Sweep({ mails }: { mails: MailThread[] }) {
-  const { move } = useContext(Look);
+  const { move, boxes } = useContext(Look);
   const [busy, setBusy] = useState(false);
-  const ids = mails.filter((m) => !m.pinned && m.state !== "done").flatMap((m) => m.ids.open);
+  const ids = mails.filter((m) => !m.pinned && m.state !== "done" && !readOnlyBox(boxes, m.mailbox)).flatMap((m) => m.ids.open);
   if (!ids.length) return null;
   return (
     <button type="button" className="mailx-act mailx-sweep" title={`Mark ${ids.length} done (pinned mail stays)`} disabled={busy}
@@ -1653,7 +1663,9 @@ const FORMATTED_DRAFT = "This draft has formatting from another mail app. Saving
  * box was open before the screen showed, and does not take the focus.
  */
 function Composer({ reply, all = false, forward, draft, mailbox, focus = true, close }: { reply?: MailSummary; all?: boolean; forward?: MailSummary; draft?: { m: FolderMail; email: string }; mailbox?: string; focus?: boolean; close: () => void }) {
-  const { boxes, act } = useContext(Look);
+  const { boxes: linked, act } = useContext(Look);
+  // A draft is saved to a mailbox: never to a Read only one.
+  const boxes = writableBoxes(linked);
   const what: DraftFor = reply ? { reply: reply.id, all } : forward ? { forward: forward.id } : draft ? { draft: draft.m.id, from: draft.email } : { fresh: true };
   const key = reply ? `reply:${reply.id}` : forward ? `forward:${forward.id}` : draft ? `draft:${draft.m.id}` : NEW_MAIL;
   // A new mail goes from one of several mailboxes: the one used last time, until another is chosen.
@@ -1954,7 +1966,7 @@ function SenderTools({ m, close }: { m: MailSummary; close: () => void }) {
           <span className="muted small">Opens {linkHost} in your browser.</span>
         </div>
       )}
-      {ways?.mailto && (
+      {ways?.mailto && !readOnlyBox(boxes, m.mailbox) && (
         <div className="mailx-compose-acts">
           <button type="button" disabled={busy} onClick={() => void run(async () => { await engine.client!.mailUnsubscribe(m.id, "mailto"); return `A mail to ${ways.mailto!.to} is in Drafts: send it from ${app}.`; })}>Write the unsubscribe mail</button>
           <span className="muted small">To {ways.mailto.to}, saved in Drafts for you to send.</span>
@@ -2126,7 +2138,10 @@ function FoldNotesList() {
  * A message, with Reply, Reply all and Forward under it (`write`): the writing box opens right below it, and is open
  * again when it was open before (the thread closed and opened, the list changed under it).
  */
-function Message({ m, write = false }: { m: MailSummary; write?: boolean }) {
+function Message({ m, write: asked = false }: { m: MailSummary; write?: boolean }) {
+  const { boxes } = useContext(Look);
+  // Replies are drafts saved to the mailbox: none for a Read only one.
+  const write = asked && !readOnlyBox(boxes, m.mailbox);
   const [w, setWState] = useState<"one" | "all" | "forward" | null>(() => { const k = write ? WRITING.open.get(m.id) : undefined; return k === "one" || k === "all" || k === "forward" ? k : null; });
   const setW = (k: "one" | "all" | "forward" | null) => { if (k) WRITING.open.set(m.id, k); else WRITING.open.delete(m.id); setWState(k); };
   const btn = (k: "one" | "all" | "forward", icon: string, label: string) => (

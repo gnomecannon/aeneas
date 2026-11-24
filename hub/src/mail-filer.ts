@@ -520,9 +520,13 @@ export function startMailJob(hub: Hub): () => void {
 }
 
 /** Read every mailbox now (Settings, Connections, "Read now"): new mail is queued, and the waiting mail is read. */
-export async function readMailNow(hub: Hub) {
+export async function readMailNow(hub: Hub, only?: string) {
   const out: Record<string, { listed: number; queued: number } | { error: string }> = {};
-  for (const { source, account } of mailAccounts(hub)) out[account] = await source.list(hub, account, { owner: true }).catch((e) => ({ error: (e as Error).message }));
+  for (const { source, account } of mailAccounts(hub)) {
+    // One account's Read now (Internet Accounts) lists that one; the waiting mail of every account is read either way.
+    if (only && account !== only) continue;
+    out[account] = await source.list(hub, account, { owner: true }).catch((e) => ({ error: (e as Error).message }));
+  }
   readRequested = true;
   return out;
 }

@@ -320,7 +320,10 @@ export class Store {
       }
       const patch: Patch = { ...input, ts };
       if (prev && prev.kind !== patch.kind) throw new StoreError(409, `kind mismatch: entity is ${prev.kind}`);
-      const space = patch.space ?? prev?.space ?? "personal";
+      // A move between spaces goes by last writer wins like a field, its stamp kept as `field_ts.space`: an edit queued
+      // on a device before the move (older builds name the space they saw in every patch) no longer moves it back.
+      const moving = !!prev && !!patch.space && patch.space !== prev.space && (!prev.field_ts.space || prev.field_ts.space > future || patch.ts > prev.field_ts.space);
+      const space = prev ? (moving ? patch.space! : prev.space) : (patch.space ?? "personal");
       if (space === "work" && !WORK_KINDS.has(patch.kind)) throw new StoreError(422, "work space holds only task and event entities");
 
       // deleted_at is an envelope column that moves through the same LWW rule as any field.
@@ -362,6 +365,7 @@ export class Store {
         fieldTs[k] = patch.ts;
         changed.push(k);
       }
+      if (moving) fieldTs.space = patch.ts;
       let deleted_at = prev?.deleted_at ?? null;
       if (hasDeleted && newer("deleted_at")) {
         deleted_at = typeof deletedIn === "string" ? deletedIn : null;

@@ -10,6 +10,94 @@ extension Entity {
     }
 }
 
+extension TaskStatus {
+    /// The status in words. `parked` is stored as it always was; on screen it is Set aside, which says what it does.
+    var label: String {
+        switch self {
+        case .parked: return "Set aside"
+        case .scheduled: return "Scheduled"
+        default: return rawValue.capitalized
+        }
+    }
+}
+
+extension Entity {
+    /// Tied to an Apple Reminders item (not only named for a list it is yet to be added to).
+    var tiedToApple: Bool { !(fields["apple"]?.objectValue?["id"]?.stringValue ?? "").isEmpty }
+}
+
+/// The last Done, Not done, Delete or move on Tasks, for its Undo bar (gone after a few seconds, or with the next one).
+@MainActor final class TaskUndo: ObservableObject {
+    struct Offer: Identifiable { let id = UUID(); var text: String; var run: () async -> Void }
+    @Published var offer: Offer?
+    private var timer: Task<Void, Never>?
+
+    func offer(_ text: String, _ run: @escaping () async -> Void) {
+        offer = Offer(text: text, run: run)
+        timer?.cancel()
+        timer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            if !Task.isCancelled { self?.offer = nil }
+        }
+    }
+
+    /// Done with its Undo: what Done wrote goes back as it was (a repeating task's dates too).
+    func done(_ t: Entity, engine: SyncEngine) async {
+        guard let back = await engine.markDoneUndoable(t.id) else { return }
+        offer("Done: \(Self.short(t))") { _ = await engine.update(t.id, fields: back) }
+    }
+
+    /// Not done: back at the end of Next.
+    func reopen(_ t: Entity, engine: SyncEngine) async {
+        guard let back = await engine.reopen(t.id) else { return }
+        offer("Back in Next: \(Self.short(t))") { _ = await engine.update(t.id, fields: back) }
+    }
+
+    func delete(_ t: Entity, engine: SyncEngine) async {
+        await engine.softDelete(t.id)
+        offer("Deleted: \(Self.short(t))") { await engine.restore(t.id) }
+    }
+
+    /// To the other space, keeping the task. A list it was only named for goes (lists belong to one account); a
+    /// personal task in an Apple Reminders list leaves it, as work tasks stay out of personal lists.
+    func moveSpace(_ t: Entity, engine: SyncEngine) async {
+        let back = await Self.move(t, engine: engine)
+        offer("Moved to \(t.space == .work ? "Personal" : "Work"): \(Self.short(t))", back)
+    }
+
+    /// The move itself; returns what moves it back.
+    static func move(_ t: Entity, engine: SyncEngine) async -> () async -> Void {
+        let to: Space = t.space == .work ? .personal : .work
+        let named = t.fields["apple"] != nil && !t.tiedToApple
+        await engine.moveToSpace(t.id, to, fields: named ? ["apple": .null] : [:])
+        return { await engine.moveToSpace(t.id, t.space, fields: named ? ["apple": t.fields["apple"] ?? .null] : [:]) }
+    }
+
+    private static func short(_ t: Entity) -> String { String(StyleGuard.dashes(t.str("title")).prefix(40)) }
+}
+
+/// The Undo bar at the bottom of Tasks.
+struct TaskUndoBar: View {
+    @ObservedObject var undo: TaskUndo
+    var body: some View {
+        if let u = undo.offer {
+            HStack(spacing: 14) {
+                Text(verbatim: u.text).foregroundStyle(.white).lineLimit(1)
+                Button("Undo") { let run = u.run; undo.offer = nil; Task { await run() } }
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 18).padding(.vertical, 12)
+            .background(Capsule().fill(Color.black.opacity(0.85)))
+            .padding(.bottom, 16)
+            .padding(.horizontal)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityElement(children: .contain)
+        }
+    }
+}
+
 extension SyncEngine {
     /// Every list for one space: Reminders lists on this device (empty ones too) and any a task names.
     @MainActor func taskListTitles(space: Space) -> [String] {
@@ -20,7 +108,7 @@ extension SyncEngine {
 }
 
 /// Tasks by status, inside one space (Personal or Work) and one list (all of them, one Reminders list, or none).
-/// Drag a task into another section to move it, or within Next to reorder. Done is a drawer. Edit, park, block.
+/// Drag a task into another section to move it, or within Next to reorder. Done is a drawer. Edit, set aside, block.
 struct TasksView: View {
     @EnvironmentObject var engine: SyncEngine
     @ObservedObject private var reminders = RemindersSync.shared
@@ -28,6 +116,7 @@ struct TasksView: View {
     @State private var creating = false
     @State private var parking: Entity?
     @State private var showDone = false
+    @StateObject private var undo = TaskUndo()
     @AppStorage("tasks.space") private var spaceRaw = Space.personal.rawValue
     /// "" is every list; `noList` is tasks in no Reminders list; anything else is a list name.
     @AppStorage("tasks.list") private var listFilter = ""
@@ -63,11 +152,12 @@ struct TasksView: View {
             #endif
             ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Label("New", systemImage: "plus") } }
         }
-        .sheet(item: $editing) { t in TaskEditView(task: t) }
+        .sheet(item: $editing) { t in TaskEditView(task: t, undo: undo) }
         .sheet(isPresented: $creating) { TaskEditView(task: nil, newSpace: space, newList: listFilter == Self.noList || listFilter.isEmpty ? nil : listFilter) }
         .sheet(item: $parking) { t in ParkSheet(task: t) }
         .refreshable { await engine.sync() }
         .overlay { if !engine.tasks.contains(where: inScope) { EmptyState(text: listFilter.isEmpty ? "No tasks yet" : "Nothing in this list") } }
+        .overlay(alignment: .bottom) { TaskUndoBar(undo: undo) }
     }
 
     private var list: some View {
@@ -134,7 +224,7 @@ struct TasksView: View {
                 } else {
                     let items = status == .done ? Array(all.sorted { $0.str("done_at") > $1.str("done_at") }.prefix(50)) : all
                     ForEach(items) { t in
-                        TaskRow(task: t, onEdit: { editing = t }, onPark: { parking = t }, showsList: listFilter.isEmpty)
+                        TaskRow(task: t, undo: undo, onEdit: { editing = t }, onPark: { parking = t }, showsList: listFilter.isEmpty)
                             .draggable(t.id)
                     }
                     .onMove { from, to in reorder(items, status: status, from: from, to: to) }
@@ -167,7 +257,7 @@ struct TasksView: View {
 
     private func header(_ status: TaskStatus) -> some View {
         HStack {
-            Text(status == .scheduled ? "Scheduled and reminders" : status.rawValue.capitalized).font(.headline)
+            Text(status == .scheduled ? "Scheduled and reminders" : status.label).font(.headline)
             if status == .done && showDone {
                 Spacer()
                 Button("Hide") { withAnimation { showDone = false } }.font(.subheadline).buttonStyle(.borderless)
@@ -175,7 +265,7 @@ struct TasksView: View {
         }
     }
 
-    /// Parked asks for its reason; Scheduled without a time opens the editor to set one.
+    /// Set aside asks for its reason; Scheduled without a time opens the editor to set one.
     private func drop(_ id: String, on status: TaskStatus, order: [String]?) {
         guard let t = engine.get(id), t.kind == .task else { return }
         if status == .parked { if t.str("status") != "parked" { parking = t }; return }
@@ -194,6 +284,10 @@ struct TasksView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
+                Text(verbatim: "Work holds tasks you add under Work, tasks from work Reminders accounts and captures that start with \"work:\". The rest are Personal. To move one, open it.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
             }
             let titles = engine.taskListTitles(space: space)
             let loose = openCount { $0.reminderList == nil }
@@ -244,6 +338,7 @@ struct ListChip: View {
 struct TaskRow: View {
     @EnvironmentObject var engine: SyncEngine
     var task: Entity
+    @ObservedObject var undo: TaskUndo
     var onEdit: () -> Void
     var onPark: () -> Void
     /// Off while the screen shows one list, which would only repeat its name on every row.
@@ -252,12 +347,14 @@ struct TaskRow: View {
     var body: some View {
         let f = task.decoded(TaskFields.self)
         HStack(spacing: 12) {
+            // The circle finishes a task; on a finished one it is Not done. Both offer Undo.
             Button {
-                Task { await engine.markDone(task.id) }
+                Task { if f?.status == .done { await undo.reopen(task, engine: engine) } else { await undo.done(task, engine: engine) } }
             } label: {
                 Image(systemName: f?.status == .done ? "checkmark.circle.fill" : "circle").font(.title2)
             }
             .buttonStyle(.borderless)
+            .accessibilityLabel(f?.status == .done ? "Not done" : "Done")
             VStack(alignment: .leading, spacing: 3) {
                 Text(StyleGuard.dashes(task.str("title"))).font(.title3)
                 // When: the reminder, repeat, deadline and block. Then what it belongs to.
@@ -291,7 +388,8 @@ struct TaskRow: View {
         .onTapGesture { onEdit() }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if let at = task.alertDate, at <= Date() { Button("Snooze") { snooze() }.tint(.purple) }
-            if f?.status != .parked { Button("Park") { onPark() }.tint(.orange) }
+            Button("Delete", role: .destructive) { Task { await undo.delete(task, engine: engine) } }
+            if f?.status != .parked && f?.status != .done { Button("Set aside") { onPark() }.tint(.orange) }
             if f?.status != .doing { Button("Block") { Task { await engine.startBlock(task.id) } }.tint(.blue) }
             if f?.status != .next && f?.status != .doing { Button("Next") { Task { await engine.moveToNext(task.id) } }.tint(.green) }
         }
@@ -300,11 +398,12 @@ struct TaskRow: View {
             Button("Start 3 h block") { Task { await engine.startBlock(task.id) } }
             Button("Make Now") { Task { await engine.makeNow(task.id) } }
             Button("Move to Next") { Task { await engine.moveToNext(task.id) } }
-            Button("Park") { onPark() }
-            Button("Done") { Task { await engine.markDone(task.id) } }
+            if f?.status != .done { Button("Set aside") { onPark() } }
+            if f?.status == .done { Button("Not done") { Task { await undo.reopen(task, engine: engine) } } }
+            else { Button("Done") { Task { await undo.done(task, engine: engine) } } }
             if task.alertDate != nil { Button("Snooze 1 hour") { snooze() } }
             Divider()
-            Button("Delete", role: .destructive) { Task { await engine.softDelete(task.id) } }
+            Button("Delete", role: .destructive) { Task { await undo.delete(task, engine: engine) } }
         }
     }
 }
@@ -327,15 +426,16 @@ struct ParkSheet: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text(task.str("title")).font(.title3)
                 TextField("Reason", text: $reason, axis: .vertical).textFieldStyle(.roundedBorder).font(.title3).lineLimit(2...6)
-                BigButton(title: "Park", symbol: "pause", prominent: true) {
+                BigButton(title: "Set aside", symbol: "pause", prominent: true) {
                     Task { await engine.park(task.id, reason: reason) }
                     dismiss()
                 }
                 .disabled(reason.trimmingCharacters(in: .whitespaces).isEmpty)
+                Text("Out of Next and Now until you bring it back.").font(.footnote).foregroundStyle(.secondary)
                 Spacer()
             }
             .padding()
-            .navigationTitle("Park")
+            .navigationTitle("Set aside")
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
         .presentationDetents([.medium])
@@ -349,6 +449,8 @@ struct TaskEditView: View {
     /// For a new task: the space and list the Tasks screen was showing.
     var newSpace: Space = .personal
     var newList: String? = nil
+    /// Tasks' Undo bar, for Delete and moves from here; elsewhere they act without one.
+    var undo: TaskUndo? = nil
     @State private var title = ""
     @State private var notes = ""
     @State private var listTitle: String?
@@ -371,10 +473,11 @@ struct TaskEditView: View {
         NavigationStack {
             Form {
                 TextField("Title", text: $title).font(.title3)
-                Picker("Status", selection: $status) { ForEach(TaskStatus.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) } }
-                Picker("Space", selection: $space) { ForEach(Space.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) } }
-                    .disabled(task != nil)
-                    .onChange(of: space) { _, _ in if task == nil, !engine.taskListTitles(space: space).contains(listTitle ?? "") { listTitle = nil } }
+                Picker("Status", selection: $status) { ForEach(TaskStatus.allCases, id: \.self) { Text($0.label).tag($0) } }
+                if task == nil {
+                    Picker("Space", selection: $space) { ForEach(Space.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) } }
+                        .onChange(of: space) { _, _ in if !engine.taskListTitles(space: space).contains(listTitle ?? "") { listTitle = nil } }
+                }
                 Picker("List", selection: $listTitle) {
                     Text(space == .work ? "None" : "Default list").tag(String?.none)
                     ForEach(engine.taskListTitles(space: space), id: \.self) { Text(StyleGuard.dashes($0)).tag(Optional($0)) }
@@ -406,7 +509,19 @@ struct TaskEditView: View {
                 if let t = task {
                     SwiftUI.Section {
                         Button("Start 3 h block") { Task { await engine.startBlock(t.id) }; dismiss() }
-                        Button("Delete", role: .destructive) { Task { await engine.softDelete(t.id) }; dismiss() }
+                        // Personal or Work: a task from a work Reminders account stays in Work (work items stay in Apple).
+                        if !(t.space == .work && t.tiedToApple) {
+                            Button(t.space == .work ? "Move to Personal" : "Move to Work") {
+                                Task { if let u = undo { await u.moveSpace(t, engine: engine) } else { _ = await TaskUndo.move(t, engine: engine) } }
+                                dismiss()
+                            }
+                        }
+                        Button("Delete", role: .destructive) {
+                            Task { if let u = undo { await u.delete(t, engine: engine) } else { await engine.softDelete(t.id) } }
+                            dismiss()
+                        }
+                    } footer: {
+                        Text(t.space == .work && t.tiedToApple ? "Work. It is in a work Reminders account, so it stays in Work." : t.space == .work ? "Work." : "Personal.")
                     }
                 }
             }

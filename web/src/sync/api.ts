@@ -7,6 +7,7 @@ import type { Feel, FeelView } from "../feel/prefs";
 import type { Board, DashboardPrefs, MetricInfo, Series, Tile } from "../lib/dashboard";
 import type { WikiHit, WikiIndex, WikiPage } from "../lib/wiki";
 import type { BundleDelivery, CustomBundle, FolderMail, FoldNote, SearchHit, UnsubscribeOptions, MailAttachment, MailBlocked, MailMovedTo, MoveTarget, MailDraft, MailDraftRequest, MailGreeting, MailList, MailNotify, MailMessage, MailMoved, MailRefresh, SnoozeTimes, TriageAnswer } from "../lib/mail";
+import { listAsSent } from "../lib/mail";
 import { directBase, hubFetch, isDirect } from "./direct";
 import type { JoinRequest } from "./join";
 
@@ -23,6 +24,8 @@ export type ModulePermission = "microphone" | "speech" | "notifications" | "remi
 export interface ModuleInfo {
   id: string; title: string; summary: string; example?: string; group: string; on: boolean;
   reads?: string; permissions?: ModulePermission[]; setup?: { minutes: string; needs: string };
+  /** Where its switch is when not in Settings, Modules: `connections` (Apple Reminders, on the iCloud account). */
+  switch_in?: "connections";
 }
 
 /**
@@ -279,6 +282,8 @@ export interface InternetAccount {
   last_sync: string | null;
   last_error: string | null;
   features: { inbox: boolean | null; receipts: boolean | null; calendars: boolean | null };
+  /** The hub writes nothing to it (since 2026-11-24; a Google sign-in can only read). Absent on older hubs. */
+  read_only?: boolean;
   receipts?: Pick<GmailAccount, "listed" | "to_read" | "read" | "failed" | "filed">;
 }
 /** Linking another mail account: Gmail (the hub fills in the server) or any IMAP server over TLS. */
@@ -289,6 +294,8 @@ export interface CalendarAccount {
   email: string;
   /** Mail receipts reads this address too. */
   mail: boolean;
+  /** Read only: its calendars are read and never written; new events stay in the app. Absent on older hubs. */
+  read_only?: boolean;
   calendars: { url: string; name: string; color?: string; writable: boolean; chosen: boolean }[];
   target: string | null;
   last_sync: string | null;
@@ -309,9 +316,13 @@ export interface GmailAccount {
   filed: { renewals: number; pet: number; events: number };
 }
 
+/**
+ * Confluence. `expired`: Atlassian ended the sign-in (refused its refresh token); the link, its spaces and its pages
+ * stay until Reconnect (the same sign-in) or Unlink. Absent on older hubs.
+ */
 export type AtlassianConnection =
   | { connected: false; app: boolean }
-  | { connected: true; app: true; site_name: string; site_url: string; spaces: string[]; last_sync: string | null; last_error: string | null; pages: number };
+  | { connected: true; app: true; site_name: string; site_url: string; spaces: string[]; last_sync: string | null; last_error: string | null; pages: number; expired?: boolean };
 
 export interface AtlassianSpace {
   key: string;
@@ -619,8 +630,9 @@ export class HubClient {
     return this.req<Entity[]>("GET", `/music${q ? `?${q}` : ""}`);
   }
 
-  musicQuick(text: string) {
-    return this.req<Entity>("POST", "/music/quick", { text });
+  /** One line becomes a music idea; with a project, in that project (Music's Projects page). */
+  musicQuick(text: string, projectId?: string) {
+    return this.req<Entity>("POST", "/music/quick", projectId ? { text, project_id: projectId } : { text });
   }
 
   quizToday() {
@@ -735,9 +747,9 @@ export class HubClient {
   googleSignIn(client: "web" | "apple") {
     return this.req<{ url: string }>("POST", "/connections/google/signin", { hub: this.url(""), client });
   }
-  /** List every linked mailbox for new mail now; the hub files it in the background. */
-  readMailNow() {
-    return this.req<Record<string, { listed: number; queued: number } | { error: string }>>("POST", "/connections/google/sync", {});
+  /** List every linked mailbox (or the one account named by its key) for new mail now; the hub files it in the background. */
+  readMailNow(account?: string) {
+    return this.req<Record<string, { listed: number; queued: number } | { error: string }>>("POST", "/connections/google/sync", account ? { account } : {});
   }
   /** List every linked mailbox now, from the iCloud Mail panel (the same as readMailNow). */
   icloudReadNow() {
@@ -752,8 +764,8 @@ export class HubClient {
    * Switch what an account does: `inbox` (shown in Mail) and `receipts` (read for Mail receipts). Switching off the
    * last thing it does removes the account, password and all: the answer then has `removed` and the hub's `message`.
    */
-  setAccountFeatures(key: string, body: { inbox?: boolean; receipts?: boolean }) {
-    return this.req<{ inbox: boolean; receipts: boolean; removed?: boolean; message?: string }>("PUT", `/connections/accounts/${encodeURIComponent(key)}`, body);
+  setAccountFeatures(key: string, body: { inbox?: boolean; receipts?: boolean; read_only?: boolean }) {
+    return this.req<{ inbox: boolean; receipts: boolean; read_only?: boolean; removed?: boolean; message?: string }>("PUT", `/connections/accounts/${encodeURIComponent(key)}`, body);
   }
   /**
    * Remove an account whole, of any kind, by its `key` (an InternetAccount's): its calendars stop syncing, its mail
@@ -1028,7 +1040,7 @@ export class HubClient {
 
   /** The Mail screen (module mail_inbox): the linked mailboxes' Inbox, sorted into bundles. */
   mailList(signal?: AbortSignal) {
-    return this.req<MailList>("GET", "/mail", undefined, signal);
+    return this.req<MailList>("GET", "/mail", undefined, signal).then(listAsSent);
   }
   mailMessage(id: string) {
     return this.req<MailMessage>("GET", `/mail/messages/${encodeURIComponent(id)}`);

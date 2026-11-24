@@ -59,10 +59,17 @@ function ModuleToggle({ m, busy, onFlip }: { m: ModuleInfo; busy: boolean; onFli
   );
 }
 
+/**
+ * The modules this list switches: not one whose switch is elsewhere (`switch_in`: Apple Reminders, on the iCloud
+ * account in Settings, Connections, gnomecannon/aeneas#10), so the one setting is never in two places.
+ */
+export const listedHere = (list: ModuleInfo[]) => list.filter((m) => !m.switch_in);
+
 /** "4 of 17 on", for the Settings menu row. */
 export function modulesSummary(list: ModuleInfo[] | null): string {
   if (!list) return "Choose what this app keeps track of";
-  return `${list.filter((m) => m.on).length} of ${list.length} on`;
+  const here = listedHere(list);
+  return `${here.filter((m) => m.on).length} of ${here.length} on`;
 }
 
 /**
@@ -71,7 +78,8 @@ export function modulesSummary(list: ModuleInfo[] | null): string {
  * Settings, Modules and on Welcome.
  */
 export function ModulePicker() {
-  const { list } = useModules();
+  const { list: all } = useModules();
+  const list = all && listedHere(all);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   if (!list) return <div className="muted small">Asking the hub which modules are on.</div>;
@@ -111,7 +119,7 @@ export function ModulesPage() {
   return (
     <SubPage path="/settings/modules">
       <div className="muted small">
-        Switch off what you do not use. Off hides it on every device and stops its background work; nothing is erased, so switching it back on shows everything again (Mail alone deletes the hub's copy of your mail when switched off, as its own text says, and fetches it again from iCloud when switched back on). Today, the Assistant, Capture, Search, Tasks, Week, Notes, Memory, People and Lists are always on.
+        Switch off what you do not use. Off hides it on every device and stops its background work; nothing is erased, so switching it back on shows everything again (Mail alone deletes the hub's copy of your mail when switched off, as its own text says, and fetches it again from your mailbox when switched back on). Today, the Assistant, Capture, Search, Tasks, Week, Notes, Memory, People and Lists are always on.
       </div>
       <ModulePicker />
     </SubPage>

@@ -32,6 +32,33 @@ export type HumMidi = { source: "hum"; mode: "melody" | "rhythm"; state: "listen
 /** What the owner keeps of a hum. */
 export type HumUse = "melody" | "rhythm" | "both";
 export type MusicF = { title: string; type: MusicType; body?: string; key?: string; bpm?: number; time_sig?: string; tuning?: string; status: MusicStatus; tags?: string[]; project_id?: string; audio_ref?: string; midi?: HumMidi; hum_use?: HumUse };
+/** A status in words: "wip" read as a code. */
+export const MUSIC_STATUS_LABEL: Record<MusicStatus, string> = { idea: "idea", wip: "in progress", done: "done" };
+
+/** A hummed take: its recording is kept on the hub (`audio_ref` hum:<id>). */
+export const isHummed = (f: Pick<MusicF, "audio_ref">): boolean => typeof f.audio_ref === "string" && f.audio_ref.startsWith("hum:");
+
+/** One card on Music's Projects page: a release in the making, its ideas and its hummed takes. */
+export type MusicProjectCard = { project: Entity; ideas: Entity[]; takes: Entity[] };
+
+const PROJECT_ORDER: Record<ProjectStatus, number> = { active: 0, parked: 1, done: 2 };
+const newestFirst = (a: Entity, b: Entity) => (a.updated_at > b.updated_at ? -1 : a.updated_at < b.updated_at ? 1 : 0);
+
+/**
+ * Music's Projects page (gnomecannon/aeneas#13): every music project (an album, an EP or a single in the making), active
+ * ones first, then parked, then done, the newest change first within each; with its ideas and its hummed takes, each
+ * newest change first. The Apple apps sort the same way (EACore MusicProjects).
+ */
+export function musicProjectCards(projects: Entity[], ideas: Entity[]): MusicProjectCard[] {
+  const live = (e: Entity) => !e.deleted_at;
+  return projects
+    .filter((p) => live(p) && (p.fields as ProjectF).area === "music")
+    .sort((a, b) => (PROJECT_ORDER[(a.fields as ProjectF).status] ?? 0) - (PROJECT_ORDER[(b.fields as ProjectF).status] ?? 0) || newestFirst(a, b))
+    .map((project) => {
+      const mine = ideas.filter((m) => live(m) && (m.fields as MusicF).project_id === project.id).sort(newestFirst);
+      return { project, ideas: mine.filter((m) => !isHummed(m.fields as MusicF)), takes: mine.filter((m) => isHummed(m.fields as MusicF)) };
+    });
+}
 
 /** A hum's two hearings; an idea heard before both were kept has one, under `mode` and `notes`. */
 export function humLayers(m: HumMidi | undefined): { melody: HumNote[]; rhythm: HumNote[] } {
@@ -40,10 +67,24 @@ export function humLayers(m: HumMidi | undefined): { melody: HumNote[]; rhythm: 
   return m.mode === "rhythm" ? { melody: [], rhythm: m.notes ?? [] } : { melody: m.notes ?? [], rhythm: [] };
 }
 
-/** What the owner keeps: their choice, else both when both have notes, else the one that has (as the hub decides). */
+/**
+ * The hits only repeat the melody (at least 70% of them start within 100 ms of a melody note): a hummed tune, whose
+ * every note also starts with a jump in level. As the hub decides (hub/src/hum.ts).
+ */
+export function hitsEchoMelody(layers: { melody: HumNote[]; rhythm: HumNote[] }): boolean {
+  const { melody, rhythm } = layers;
+  if (!melody.length || !rhythm.length) return false;
+  const near = rhythm.filter((h) => melody.some((n) => Math.abs(n.s - h.s) <= 0.1)).length;
+  return near >= 0.7 * rhythm.length;
+}
+
+/**
+ * What the owner keeps: their choice; else the melody when the hits only repeat its note starts, both when both have
+ * notes of their own, else the one that has (as the hub decides).
+ */
 export function humUse(chosen: unknown, layers: { melody: HumNote[]; rhythm: HumNote[] }): HumUse {
   if (chosen === "melody" || chosen === "rhythm" || chosen === "both") return chosen;
-  if (layers.melody.length && layers.rhythm.length) return "both";
+  if (layers.melody.length && layers.rhythm.length) return hitsEchoMelody(layers) ? "melody" : "both";
   return layers.rhythm.length ? "rhythm" : "melody";
 }
 export type QuizResult = "right" | "wrong" | "revealed";

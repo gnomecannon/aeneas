@@ -146,8 +146,13 @@ public struct HTTPTransport: HubTransport {
         // machines/setup: the hub gives the first sign-in 20 s, then adds its key and signs in again with it.
         // mail/refresh signs in to every mailbox and reads what is new; mail/done and mail/undo move up to 500 mails;
         // a mail's pictures are fetched from its sender while the request waits.
-        if path == "mail/refresh" || (path.hasPrefix("mail/messages/") && path.hasSuffix("/pictures")) { return 120 }
-        if path == "mail/done" || path == "mail/undo" || path == "mail/seen" { return 60 }
+        // A draft carries up to 15 MB of files (a forward's own read from the mailbox when it is saved); an attachment is
+        // read from the mailbox while the request waits, up to 25 MB; a block moves the sender's mail to Spam.
+        if path == "mail/refresh" || path == "mail/drafts" || path == "mail/settings/blocked" { return 120 }
+        if path.hasPrefix("mail/messages/") && (path.hasSuffix("/pictures") || path.contains("/attachments/")) { return 120 }
+        if path == "mail/done" || path == "mail/undo" || path == "mail/seen" || path == "mail/move" { return 60 }
+        // The attachments' list and the unsubscribe ways are read from the mailbox now; a greeting is the hub's model's.
+        if path.hasPrefix("mail/messages/") && (path.hasSuffix("/attachments") || path.hasSuffix("/unsubscribe") || path.hasSuffix("/greeting")) { return 60 }
         // devices/join: the hub reaches the new device (20 s), waits for its answer (20 s), then for it to claim its code (60 s).
         if path == "devices/join" { return 110 }
         return path == "ai/chat" ? 300 : path == "agent/jobs" ? 60 : path == "machines/setup" ? 90 : nil

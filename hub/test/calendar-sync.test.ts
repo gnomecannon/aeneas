@@ -185,6 +185,41 @@ test("calendar sync: server events come in, app events go out, and edits and del
   } finally { setDavFetch(null); t.cleanup(); }
 });
 
+test("calendar sync: a Read only account is read and never written (gnomecannon/aeneas#10)", async () => {
+  const t = makeHub();
+  const s = fakeICloud();
+  try {
+    await setup(t);
+    await t.api("/calendars/icloud/you%40icloud.com", { method: "PUT", json: { chosen: [CAL], target: CAL } });
+    const key = encodeURIComponent("icloud:you@icloud.com");
+    const ro = await t.api(`/connections/accounts/${key}`, { method: "PUT", json: { read_only: true } });
+    assert.equal(ro.status, 200, await ro.clone().text());
+    s.put(`${CAL}dentist.ics`, ics("dentist-1", `DTSTART;TZID=America/New_York:${day(3)}T140000\r\nDTEND;TZID=America/New_York:${day(3)}T150000\r\nSUMMARY:Dentist`));
+    const mine = t.hub.store.create("event", { title: "Climbing", start: new Date(Date.now() + 4 * 86_400_000).toISOString(), end: new Date(Date.now() + 4 * 86_400_000 + 7_200_000).toISOString() });
+    const writes = () => s.calls.filter((c) => c.method === "PUT" || c.method === "DELETE");
+    await syncCalendarsNow(t.hub);
+    const dentist = events(t).find((e) => e.fields.title === "Dentist");
+    assert.ok(dentist, "its events still come in");
+    assert.equal(s.objects.has(`${CAL}${mine.id}.ics`), false, "an event made in the app stays in the app");
+    // Changed and deleted in the app: iCloud keeps its own, and the app follows iCloud again.
+    t.hub.store.patch(dentist!.id, { title: "Dentist (moved)" });
+    await syncCalendarsNow(t.hub);
+    assert.equal(t.hub.store.get(dentist!.id)!.fields.title, "Dentist");
+    t.hub.store.patch(dentist!.id, { deleted_at: new Date().toISOString() });
+    await syncCalendarsNow(t.hub);
+    assert.ok(s.objects.has(`${CAL}dentist.ics`), "not deleted in iCloud");
+    assert.deepEqual(writes(), [], "nothing was written to iCloud");
+    // The view says so, new events have nowhere to go, and choosing a calendar for them is refused.
+    const v = await (await t.api("/calendars")).json() as { accounts: { read_only: boolean; target: string | null }[] };
+    assert.deepEqual([v.accounts[0].read_only, v.accounts[0].target], [true, null]);
+    assert.equal((await t.api("/calendars/icloud/you%40icloud.com", { method: "PUT", json: { target: CAL } })).status, 422);
+    // Switched off, the calendar chosen before takes new events again: nothing to set up again.
+    await t.api(`/connections/accounts/${key}`, { method: "PUT", json: { read_only: false } });
+    await syncCalendarsNow(t.hub);
+    assert.ok(s.objects.has(`${CAL}${mine.id}.ics`));
+  } finally { setDavFetch(null); t.cleanup(); }
+});
+
 test("calendar sync: a refused password stops it until the owner asks again, and a server's address elsewhere is never followed", async () => {
   const t = makeHub();
   let refuse = false;

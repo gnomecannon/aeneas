@@ -139,14 +139,16 @@ export async function syncAccount(hub: Hub, email: string, now: Date = new Date(
     const found = await discoverCalendars(login);
     const calendars = found.map(({ ctag: _c, ...c }) => c);
     const chosen = conf.chosen.filter((u) => calendars.some((c) => c.url === u));
-    const target = conf.target && chosen.includes(conf.target) && calendars.find((c) => c.url === conf.target)?.writable ? conf.target : null;
+    // A Read only account (Internet Accounts) is read and never written: no calendar of it takes an edit or a new event.
+    const ro = acct.read_only === true;
+    const target = !ro && conf.target && chosen.includes(conf.target) && calendars.find((c) => c.url === conf.target)?.writable ? conf.target : null;
     saveConf(hub, email, { calendars });
     // Their colors for Theme, Calendar colors, under the key events name them by (icloud:<calendar address>).
     try {
       const shown = calendars.filter((c) => chosen.includes(c.url)).map((c) => ({ key: `icloud:${c.url}`, name: c.name.slice(0, 120) || "Calendar", account: email, ...(c.color ? { color: c.color } : {}) }));
       if (shown.length) hub.feel.reportCalendars(shown, now);
     } catch (e) { console.error(`[calendars] colors not kept: ${errCode(e)}`); }
-    const writable = new Set(calendars.filter((c) => c.writable).map((c) => c.url));
+    const writable = new Set(ro ? [] : calendars.filter((c) => c.writable).map((c) => c.url));
 
     // Everything in the chosen calendars, read before anything is written.
     const singles = new Map<string, Remote>();
@@ -312,6 +314,8 @@ export interface CalendarAccountView {
   email: string;
   /** Mail receipts reads this account too. */
   mail: boolean;
+  /** Read only (Internet Accounts): the hub reads its calendars and writes none of them, so new events stay in the app. */
+  read_only: boolean;
   calendars: { url: string; name: string; color?: string; writable: boolean; chosen: boolean }[];
   target: string | null;
   last_sync: string | null;
@@ -320,9 +324,10 @@ export interface CalendarAccountView {
 
 export function calendarView(hub: Hub): { accounts: CalendarAccountView[]; active: boolean } {
   const accounts = (hub.connections.get().icloud ?? []).filter((a) => a.calendar).map((a) => ({
-    email: a.email, mail: a.mail !== false,
+    email: a.email, mail: a.mail !== false, read_only: a.read_only === true,
     calendars: a.calendar!.calendars.map((c) => ({ ...c, chosen: a.calendar!.chosen.includes(c.url) })),
-    target: a.calendar!.target, last_sync: a.calendar!.last_sync ?? null, last_error: a.calendar!.last_error ?? null,
+    // Kept while Read only is on, and used again when it is switched off; meanwhile new events stay in the app.
+    target: a.read_only ? null : a.calendar!.target, last_sync: a.calendar!.last_sync ?? null, last_error: a.calendar!.last_error ?? null,
   }));
   return { accounts, active: calendarSyncActive(hub) };
 }
@@ -372,6 +377,7 @@ export function chooseCalendars(hub: Hub, email: string, body: Record<string, un
   let target = body.target === undefined ? a.calendar.target : body.target;
   if (target !== null && (typeof target !== "string" || !urls.has(target))) throw new StoreError(422, "target is one of this account's calendar addresses, or null");
   if (target && !a.calendar.calendars.find((c) => c.url === target)?.writable) throw new StoreError(422, "that calendar cannot be written to; choose another for new events");
+  if (target && a.read_only && body.target !== undefined) throw new StoreError(422, `${email} is Read only, so new events cannot go to its calendars. Switch Read only off in Settings, Connections first.`);
   // A calendar taken out of the list stops taking new events; one picked for new events is kept in step.
   if (body.target === undefined && target && !chosen.includes(target)) target = null;
   if (target && !chosen.includes(target)) chosen.push(target);

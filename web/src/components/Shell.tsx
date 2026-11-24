@@ -96,6 +96,7 @@ const OTHER: Item[] = [
   { path: "/notes/map", label: "Notes map" },
   { path: "/images", label: "Create image" },
   { path: "/lists/jobs", label: "Job applications" },
+  { path: "/music/projects", label: "Music projects" },
   { path: "/career", label: "Job applications" },
   { path: "/reminders", label: "Tasks" },
   { path: "/item", label: "Item" },
@@ -103,6 +104,11 @@ const OTHER: Item[] = [
   { path: "/help/connections", label: "Connections help" },
   { path: "/join", label: "Add a device" },
 ];
+
+/** Pages inside a screen, as Settings has pages: the phone's top bar leads back to the screen they are in. */
+const SUB_PAGES: Record<string, { path: string; label: string }> = {
+  "/music/projects": { path: "/music", label: "Music" },
+};
 
 /**
  * The screen a path shows: its name, for the window title, and a key that changes only when the screen does. A note
@@ -256,8 +262,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
     if (openAreas.includes(title)) toggleArea(title);
     if (title === here) setShut(title);
   };
-  // A Settings sub-page leads back to the page above it rather than all the way to Library.
-  const back = settingsBack(route.path);
+  // A Settings sub-page, or a page inside a screen, leads back to the page above it rather than all the way to Library.
+  const back = settingsBack(route.path) ?? SUB_PAGES[route.path] ?? null;
   const inLibrary = AREAS.some((a) => a.items.some((i) => active(i.path))) || SYSTEM.some((i) => active(i.path)) || active("/plan-rules");
   const inSettings = active(SETTINGS.path);
   // Library is the phone's home for every screen that is not a tab.

@@ -32,11 +32,20 @@ export async function createEntity(kind: Kind, fields: Record<string, unknown>, 
   return out;
 }
 
+/**
+ * An edit names no space: the hub keeps the item where it is. Naming the space this device last saw moved an item
+ * back when it had been moved to the other space meanwhile on another device (moveToSpace does the moving).
+ */
 export async function updateEntity(e: Pick<Entity, "id" | "kind" | "space">, fields: Record<string, unknown>): Promise<Entity> {
-  const patch: Patch = { id: e.id, kind: e.kind, space: e.space, ts: now(), fields };
+  const patch: Patch = { id: e.id, kind: e.kind, ts: now(), fields };
   const out = await engine.enqueue(patch);
   if (e.kind === "task" && (fields.status === "done" || (fields.done_at && fields.remind_at))) celebrate("complete");
   return out;
+}
+
+/** Move an item to the other space (a task or an event between Personal and Work), keeping its id and fields. */
+export async function moveToSpace(e: Pick<Entity, "id" | "kind">, space: Space, fields: Record<string, unknown> = {}): Promise<Entity> {
+  return engine.enqueue({ id: e.id, kind: e.kind, space, ts: now(), fields });
 }
 
 export async function softDelete(e: Pick<Entity, "id" | "kind" | "space">): Promise<Entity> {

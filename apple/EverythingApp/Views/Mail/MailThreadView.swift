@@ -11,10 +11,14 @@ struct MailThreadView: View {
     var snooze: (MailThread) -> Void
     /// The thread left (Done, Mark unread): the screen goes back to the list.
     var closed: () -> Void
+    /// All mail with one person (from All with), in the list's place.
+    var showPerson: ((MailAddress) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     /// The unread messages that open by themselves: the newest few, fixed when the thread opens. Each open message is
     /// a page of its own, and a long thread opening all at once is more than a screen should carry.
     @State private var openAtStart: Set<String>?
+    /// Unsubscribe or block, for this sender.
+    @State private var tools: MailSummary?
 
     var body: some View {
         Group {
@@ -27,13 +31,11 @@ struct MailThreadView: View {
                             Text("Snoozed until \(d.shortDateTime). It comes back to the top of your Inbox then; its task, called Snoozed mail, is in Tasks and Reminders.")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                        if t.members.count == 1, let m = t.members.first {
-                            MailMessageBody(store: store, mail: m)
-                        } else {
-                            ForEach(Array(t.members.enumerated()), id: \.element.id) { i, m in
-                                MailThreadMessage(store: store, mail: m, startOpen: i == t.members.count - 1 || (openAtStart ?? []).contains(m.id))
-                                if i < t.members.count - 1 { Divider() }
-                            }
+                        // One mail or many, each is drawn the same way, so a mail (and a reply being written under it)
+                        // stays as it is when another arrives in the thread.
+                        ForEach(Array(t.members.enumerated()), id: \.element.id) { i, m in
+                            MailThreadMessage(store: store, mail: m, single: t.members.count == 1, startOpen: i == t.members.count - 1 || (openAtStart ?? []).contains(m.id))
+                            if i < t.members.count - 1 { Divider() }
                         }
                     }
                     .padding()
@@ -49,8 +51,10 @@ struct MailThreadView: View {
                 MailEmpty(title: "Not here any more", text: "This mail left the place you opened it from.")
             }
         }
+        .sheet(item: $tools) { m in MailSenderToolsSheet(store: store, mail: m) }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .mailMoveQuestion(store)
         #endif
         .navigationTitle(store.thread(id).map { $0.summary.subject.isEmpty ? "(no subject)" : $0.summary.subject } ?? "Mail")
     }
@@ -75,11 +79,17 @@ struct MailThreadView: View {
 
     private func actions(_ t: MailThread) -> some View {
         let back = t.state == .done
+        // Where the mail is kept, by its own mailbox: "in Gmail", "in iCloud", or "in your mailbox" (it said iCloud for every one).
+        let where_ = Mail.inProvider(Mail.mailboxOf(store.list?.mailboxes ?? [], t.summary.mailbox))
+        let readOnly = store.readOnly(t)
         return FlowLayout(spacing: 8) {
-            Button { Task { await store.done([t], inDone: back); leave() } } label: {
-                Label(back ? "Move to Inbox" : "Done", systemImage: back ? "tray" : "checkmark")
+            // A Read only mailbox (Settings, Connections) takes no Done and no Pin.
+            if !readOnly {
+                Button { Task { await store.done([t], inDone: back); leave() } } label: {
+                    Label(back ? "Move to Inbox" : "Done", systemImage: back ? "tray" : "checkmark")
+                }
+                .help(back ? "Move back to the Inbox \(where_)" : "Done: moves it to Archive \(where_)")
             }
-            .help(back ? "Move back to the Inbox in iCloud" : "Done: moves it to Archive in iCloud")
             if !back {
                 Button { snooze(t) } label: { Label(t.state == .snoozed ? "Change snooze" : "Snooze", systemImage: "clock") }
                     .help(t.state == .snoozed ? "Change when it comes back" : "Snooze: hide it until a time you pick")
@@ -87,13 +97,44 @@ struct MailThreadView: View {
             if t.state == .snoozed {
                 Button { Task { await store.unsnooze(t) } } label: { Label("Unsnooze", systemImage: "tray") }
             }
-            Button { Task { await store.pin([t]) } } label: { Label(t.pinned ? "Unpin" : "Pin", systemImage: t.pinned ? "pin.slash" : "pin") }
+            if !readOnly {
+                Button { Task { await store.pin([t]) } } label: { Label(t.pinned ? "Unpin" : "Pin", systemImage: t.pinned ? "pin.slash" : "pin") }
+            }
             Button { Task { await store.read([t], false); leave() } } label: { Label("Mark unread", systemImage: "envelope.badge") }
                 .help("Mark unread, here and in your mail app")
+            #if os(macOS)
+            MailMoveButtons(store: store, threads: [t]) { leave() }
+            if let a = answer(t) {
+                Button { tools = a } label: { Label("Unsubscribe or block", systemImage: "hand.raised") }
+                    .help("Unsubscribe from this sender's mail, or block them")
+                if let showPerson {
+                    Button { showPerson(a.from) } label: { Label("All with \(firstName(a.from))", systemImage: "person") }
+                        .help("All your mail with \(a.from.address)")
+                }
+            }
+            #else
+            // On the iPhone and iPad the rest is in More, so the bar stays a line or two.
+            MailMoveButtons(store: store, threads: [t], spam: false, move: false) { leave() }
+            Menu {
+                MailMoveButtons(store: store, threads: [t], delete: false) { leave() }
+                if let a = answer(t) {
+                    Button { tools = a } label: { Label("Unsubscribe or block", systemImage: "hand.raised") }
+                    if let showPerson {
+                        Button { showPerson(a.from) } label: { Label("All with \(firstName(a.from))", systemImage: "person") }
+                    }
+                }
+            } label: { Label("More", systemImage: "ellipsis.circle") }
+            .fixedSize()
+            #endif
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
     }
+
+    /// The thread's newest mail from someone else (never the owner's own reply): the sender Unsubscribe and Block are for.
+    private func answer(_ t: MailThread) -> MailSummary? { t.members.last { !$0.isMine } }
+
+    private func firstName(_ a: MailAddress) -> String { Mail.personLabel(a).split(whereSeparator: { $0.isWhitespace }).first.map(String.init) ?? a.address }
 
     private func leave() {
         closed()
@@ -107,29 +148,39 @@ struct MailThreadView: View {
 struct MailThreadMessage: View {
     @ObservedObject var store: MailStore
     var mail: MailSummary
+    /// The thread's only mail: shown whole, with no line of its own.
+    var single = false
     var startOpen: Bool
     @State private var open: Bool?
 
     var body: some View {
-        let isOpen = open ?? startOpen
+        // Open from the start when a reply or a forward is being written under it.
+        let isOpen = single || (open ?? (startOpen || MailWriting.shared.open[mail.id] != nil))
         VStack(alignment: .leading, spacing: 8) {
-            Button { open = !isOpen } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text(verbatim: mail.isMine ? "You" : Mail.personLabel(mail.from)).fontWeight(.semibold)
-                        Text(verbatim: "<\(mail.from.address)>").foregroundStyle(.secondary).lineLimit(1)
-                        Spacer(minLength: 6)
-                        Text(verbatim: ISO.date(mail.at)?.shortDateTime ?? "").font(.caption).foregroundStyle(.secondary)
-                    }
-                    .font(.subheadline)
-                    if !isOpen { Text(verbatim: mail.preview).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
-                }
-                .contentShape(Rectangle())
+            if !single { head(isOpen) }
+            if isOpen {
+                MailMessageBody(store: store, mail: mail)
+                MailWriteButtons(store: store, mail: mail)
             }
-            .buttonStyle(.plain)
-            .accessibilityHint(isOpen ? "Hides this message" : "Shows this message")
-            if isOpen { MailMessageBody(store: store, mail: mail) }
         }
+    }
+
+    private func head(_ isOpen: Bool) -> some View {
+        Button { open = !isOpen } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(verbatim: mail.isMine ? "You" : Mail.personLabel(mail.from)).fontWeight(.semibold)
+                    Text(verbatim: "<\(mail.from.address)>").foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 6)
+                    Text(verbatim: ISO.date(mail.at)?.shortDateTime ?? "").font(.caption).foregroundStyle(.secondary)
+                }
+                .font(.subheadline)
+                if !isOpen { Text(verbatim: mail.preview).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(isOpen ? "Hides this message" : "Shows this message")
     }
 }
 
@@ -144,6 +195,8 @@ struct MailMessageBody: View {
     @State private var showQuote = false
     @State private var pageQuote = false
     @State private var fetchingPictures = false
+    /// "Folded too much?": the note on what the fold hid.
+    @State private var noting = false
     @State private var picturesError: String?
 
     var body: some View {
@@ -152,6 +205,8 @@ struct MailMessageBody: View {
                 Text("The sender's name shows a different address than the one it came from.")
                     .font(.footnote).foregroundStyle(.warnText)
             }
+            if let cards = mail.cards, !cards.isEmpty { MailFactsView(cards: cards) }
+            if mail.asksForAttachments { MailAttachmentsView(store: store, mail: mail) }
             if let full, let html = full.html, !asText {
                 if full.pictures_ask { picturesLine }
                 MailPageView(html: html, unfolded: showQuote, foldable: $pageQuote)
@@ -165,16 +220,32 @@ struct MailMessageBody: View {
                 ProgressView().frame(maxWidth: .infinity)
             }
             if let full, hasQuote(full) {
-                Button { showQuote.toggle() } label: { Text(verbatim: "\u{2022}\u{2022}\u{2022}").fontWeight(.bold) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityLabel(showQuote ? "Hide the quoted text" : "Show the quoted text")
-                    .help(showQuote ? "Hide the quoted text" : "Show the quoted text")
+                HStack(spacing: 10) {
+                    Button { showQuote.toggle() } label: { Text(verbatim: "\u{2022}\u{2022}\u{2022}").fontWeight(.bold) }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityLabel(showQuote ? "Hide the quoted text" : "Show the quoted text")
+                        .help(showQuote ? "Hide the quoted text" : "Show the quoted text")
+                    // A folder's mail has no note: notes are for Inbox mail.
+                    if mail.state != .folder {
+                        Button("Folded too much?") { noting = true }.buttonStyle(.borderless).font(.footnote)
+                    }
+                }
             }
             if let full { footer(full) }
         }
         .task(id: mail.id) {
-            do { full = try await store.message(mail.id) } catch { self.error = error.localizedDescription }
+            do {
+                full = try await store.message(mail.id)
+                if full?.no_fold == true { showQuote = true }
+            } catch { self.error = error.localizedDescription }
+        }
+        .sheet(isPresented: $noting) {
+            if let full {
+                MailFoldNoteSheet(store: store, mail: mail, lines: Mail.foldedLines(full.text, quoteAt: full.quote_at)) { unfold in
+                    if unfold { showQuote = true; self.full?.quote_at = nil; self.full?.no_fold = true }
+                }
+            }
         }
     }
 

@@ -49,6 +49,49 @@ extension SyncEngine {
         _ = await update(id, fields: ReminderMath.completeTask(e))
     }
 
+    /// What takes an edit back: each field the edit wrote, as it was before (null for one that was not there). Undo
+    /// after Done uses it, so a repeating task gets its reminder and deadline back as well as a one-off its status.
+    nonisolated public static func undoFields(before e: Entity, edit: [String: JSONValue]) -> [String: JSONValue] {
+        var out: [String: JSONValue] = [:]
+        for k in edit.keys { out[k] = k == "deleted_at" ? (e.deleted_at.map { .string($0) } ?? .null) : (e.fields[k] ?? .null) }
+        return out
+    }
+
+    /// Done, as markDone, returning what takes it back for an Undo.
+    public func markDoneUndoable(_ id: String) async -> [String: JSONValue]? {
+        guard let e = entities[id] else { return nil }
+        let edit = ReminderMath.completeTask(e)
+        _ = await update(id, fields: edit)
+        return Self.undoFields(before: e, edit: edit)
+    }
+
+    /// Not done: a finished task back at the end of Next, with no done_at. Returns what takes it back.
+    public func reopen(_ id: String) async -> [String: JSONValue]? {
+        guard let e = entities[id] else { return nil }
+        let last = tasks.filter { $0.str("status") == "next" }.map { $0.number("order") ?? 0 }.max() ?? 0
+        let edit: [String: JSONValue] = ["status": "next", "order": .number(max(0, last) + 1), "done_at": .null]
+        _ = await update(id, fields: edit)
+        return Self.undoFields(before: e, edit: edit)
+    }
+
+    /// The fields that bring a deleted task back. A personal task tied to an Apple Reminders item loses the tie: the
+    /// iPhone deletes the item of a deleted personal task and forgets it, so the task is added to its list again (an
+    /// item still there is matched by its record and tied again). A work task keeps its tie: work items stay in Apple.
+    nonisolated public static func restoreFields(_ t: Entity) -> [String: JSONValue] {
+        var out: [String: JSONValue] = ["deleted_at": .null]
+        if t.space != .work, var link = t.fields["apple"]?.objectValue, !(link["id"]?.stringValue ?? "").isEmpty {
+            link["id"] = ""
+            out["apple"] = .object(link)
+        }
+        return out
+    }
+
+    /// Undo of a delete.
+    public func restore(_ id: String) async {
+        guard let e = entities[id] else { return }
+        _ = await update(id, fields: Self.restoreFields(e))
+    }
+
     /// Skip: send the task to the end of next so the following one becomes Now.
     public func skip(_ id: String) async {
         _ = await update(id, fields: ["status": "next", "order": .number(maxOrder + 1), "block": .null])

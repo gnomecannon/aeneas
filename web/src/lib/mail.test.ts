@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { BUNDLES, CARD_ICON, blockUndo, draftRequest, flatScreen, folderActs, folderRow, fromChoice, givesFocusBack, hitRow, inboxPlace, inboxScreen, inProvider, keyFocus, keyTarget, mailApp, mailboxOf, moveFolders, reminderRow, rowKind, rowTakes, screenRows, threadToFollow, triageRow, WRITING_BOX, type MailKey, type MailMailbox, backLaterToday, selectAll, foldedLines, needsYou, whereLabel, fileSize, previewSrc, riskyFile, MAIL_KEYS, folderCount, folderGroups, askBeforeLeaving, folderLabel, folderWho, type FolderMail, type MailFolder, tripDates, tripsOf, type MailCard, swipeAction, swipeLock, cardLine, cardLink, cardTime, bundleClass, bundleOf, dueReminders, mailKeyAction, deliveryAt, inboxAt, QUOTE_SELECTOR, threadRows, frameLink, initials, logoSrc, shownAt, snoozeChoices, httpsLink, dayGroup, inboxSections, initial, matches, messageLines, nameHidesAddress, replyToWarning, sendersLine, shownBundles, textParts, viewMessages, whenLabel, type MailSummary, frameClick, checkFrameLinks, type KeyFocus } from "./mail";
+import { BUNDLES, SHORT_LIVED_BUNDLE_IDS, listAsSent, CARD_ICON, blockUndo, draftRequest, flatScreen, folderActs, folderRow, fromChoice, givesFocusBack, hitRow, inboxPlace, inboxScreen, inProvider, keyFocus, keyTarget, mailApp, mailboxOf, moveFolders, reminderRow, rowKind, rowTakes, screenRows, threadToFollow, triageRow, WRITING_BOX, type MailKey, type MailMailbox, backLaterToday, selectAll, foldedLines, needsYou, whereLabel, fileSize, previewSrc, riskyFile, MAIL_KEYS, folderCount, folderGroups, askBeforeLeaving, folderLabel, folderWho, type FolderMail, type MailFolder, tripDates, tripsOf, type MailCard, swipeAction, swipeLock, cardLine, cardLink, cardTime, bundleClass, bundleOf, dueReminders, mailKeyAction, deliveryAt, inboxAt, QUOTE_SELECTOR, threadRows, frameLink, initials, logoSrc, shownAt, snoozeChoices, httpsLink, dayGroup, inboxSections, initial, matches, messageLines, nameHidesAddress, replyToWarning, sendersLine, shownBundles, textParts, viewMessages, whenLabel, type MailSummary, frameClick, checkFrameLinks, type KeyFocus } from "./mail";
 import { SCREEN_MODULE, moduleOfScreen } from "./modules";
 
 const ALEX = { name: "Alex", address: "alex@example.com" };
@@ -31,6 +31,19 @@ describe("mail screen rules", () => {
     expect(bundleOf({ bundle: "pet" }, shownBundles(off))).toBeNull();
     expect(bundleOf({ bundle: "made-up" }, shownBundles(allOn))).toBeNull();
     expect(bundleOf({ bundle: "promos" }, shownBundles(allOn))?.name).toBe("Promotions");
+  });
+
+  it("reads a hub's short-lived bundle ids (a build of the renaming) as the bundles they stood for (gnomecannon/aeneas#7)", () => {
+    const l = listAsSent({
+      messages: [mail({ bundle: "updates", automated: true }), mail({ bundle: "updates", automated: true }), mail({ bundle: "transactions", automated: true }), mail({ bundle: "promotions", automated: true }), mail({ bundle: "trips", automated: true })],
+      mailboxes: [],
+      bundle_delivery: { promotions: { mode: "never" }, updates: { mode: "daily", time: "07:00" }, other: { mode: "weekly", time: "08:00", day: 1 } },
+      mail_notify: { people: true, bundles: ["updates", "other", "transactions"], detail: "full" },
+    });
+    expect(l.messages.map((m) => m.bundle)).toEqual(["other", "other", "purchases", "promos", "trips"]);
+    expect(l.bundle_delivery).toEqual({ promos: { mode: "never" }, other: { mode: "weekly", time: "08:00", day: 1 } });
+    expect(l.mail_notify?.bundles).toEqual(["other", "purchases"]);
+    expect(Object.keys(SHORT_LIVED_BUNDLE_IDS).every((id) => !BUNDLES.some((b) => b.id === id))).toBe(true);
   });
 
   it("lists the Inbox newest first under day headings, a bundle as one row per day, pinned mail on its own", () => {

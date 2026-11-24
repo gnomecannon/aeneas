@@ -155,9 +155,9 @@ struct SettingsView: View {
 
     /// The links whose module is on, in the order the Connections screen shows them.
     private var connectionsSummary: String {
-        let links: [(AppModule, String)] = [(.games, "Steam"), (.wiki, "Confluence"), (.films, "Letterboxd"), (.health, "Apple Health")]
-        let shown = links.filter { model.isOn($0.0) }.map(\.1)
-        return shown.isEmpty ? "Gmail and Apple Reminders" : shown.joined(separator: ", ")
+        let links: [(AppModule, String)] = [(.games, "Steam"), (.films, "Letterboxd"), (.wiki, "Confluence"), (.health, "Apple Health")]
+        let shown = ["Internet Accounts"] + links.filter { model.isOn($0.0) }.map(\.1)
+        return shown.joined(separator: ", ")
     }
 
     /// The Mac says whether it shows itself in Tech (ThisMacReport).
@@ -170,7 +170,8 @@ struct SettingsView: View {
     }
 
     private var modulesSummary: String {
-        let list = model.modules
+        // Not Apple Reminders, whose switch is on the iCloud account in Connections.
+        let list = model.modules.listedInModules
         if list.isEmpty { return "Everything on" }
         let on = list.filter(\.on).count
         return on == list.count ? "All \(on) on" : "\(on) of \(list.count) on"

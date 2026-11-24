@@ -32,7 +32,23 @@ export interface AtlassianConn {
   last_sync?: string;
   last_error?: string | null;
   pages?: number;
+  /**
+   * Atlassian refused the refresh token (unused for 90 days, a password change, access taken back): the link, its
+   * chosen spaces and the mirrored pages stay, and it waits for Reconnect (the same sign-in), which clears this.
+   */
+  expired?: boolean;
 }
+
+/** What a link whose sign-in Atlassian ended says, on every device. */
+export const SIGNIN_ENDED = "Atlassian ended the sign-in. Reconnect to go on reading Confluence; the chosen spaces stay.";
+
+/**
+ * Waits before trying a refresh again when Atlassian could not be reached or answered with an error of its own; tests
+ * shorten them. Atlassian rotates the refresh token on each use and lets the old one be traded again for 10 minutes
+ * (its reuse interval); after that, trading it counts as a stolen token. So a refresh whose answer was lost is tried
+ * again inside those 10 minutes, not at the next hourly sync, when the token it kept would be refused for good.
+ */
+export const refreshRetry = { waitsMs: [2_000, 15_000] };
 
 export function atlassianApp(hub: Hub): { client_id: string; client_secret: string } | null {
   const c = hub.connections.get();
@@ -95,41 +111,84 @@ export async function atlassianReturn(hub: Hub, query: Record<string, string>): 
     const site = Array.isArray(sites) ? sites.find((s) => (s.scopes ?? []).some((x) => x.includes("confluence"))) ?? sites[0] : undefined;
     if (!site) return fail("That Atlassian account has no Confluence site.");
     const prev = hub.connections.get().atlassian;
+    // Reconnect is this same sign-in. An account whose site is not the linked one would leave the chosen spaces and
+    // the mirrored pages of a site the hub can no longer read: the link stays as it was instead.
+    if (prev && prev.cloud_id !== site.id) return fail(`That account's Confluence site is ${site.name}, not ${prev.site_name}. Reconnect with the account that reads ${prev.site_name}, or Unlink first to link another site.`);
     hub.connections.update((c) => {
-      c.atlassian = { access_token: t.access, refresh_token: t.refresh, expires_at: t.expires_at, cloud_id: site.id, site_url: site.url.replace(/\/$/, ""), site_name: site.name, spaces: prev?.cloud_id === site.id ? prev.spaces : [] };
+      c.atlassian = { access_token: t.access, refresh_token: t.refresh, expires_at: t.expires_at, cloud_id: site.id, site_url: site.url.replace(/\/$/, ""), site_name: site.name, spaces: prev?.spaces ?? [], ...(prev ? { pages: prev.pages, last_sync: prev.last_sync } : {}) };
     });
     const spaces = hub.connections.get().atlassian!.spaces;
-    if (!spaces.length) return { client: p.client, ok: true, message: `Confluence linked: ${site.name}. Choose the spaces to mirror in Settings, Connections.` };
+    if (!spaces.length) return { client: p.client, ok: true, message: `Confluence ${prev ? "reconnected" : "linked"}: ${site.name}. Choose the spaces to mirror in Settings, Connections.` };
     const s = await syncConfluence(hub);
-    return { client: p.client, ok: true, message: `Confluence linked: ${site.name}, ${s.pages} pages.` };
+    return { client: p.client, ok: true, message: `Confluence ${prev ? "reconnected" : "linked"}: ${site.name}, ${s.pages} pages.` };
   } catch (e) {
     return fail((e as Error).message);
   }
 }
 
-/** A current access token, refreshed when it is within two minutes of expiring. Atlassian rotates the refresh token. */
-async function accessToken(hub: Hub): Promise<AtlassianConn> {
+/** The refresh running now, per hub: two at once traded the same refresh token, and the one kept could be the one Atlassian had already replaced. */
+const refreshing = new WeakMap<Hub, Promise<AtlassianConn>>();
+
+/**
+ * A current access token, refreshed when it is within two minutes of expiring, or when `stale` (a token Atlassian
+ * just refused) is still the one kept. One refresh at a time; Atlassian rotates the refresh token.
+ */
+async function accessToken(hub: Hub, stale?: string): Promise<AtlassianConn> {
   const c = hub.connections.get().atlassian;
   if (!c) throw new StoreError(409, "Confluence is not linked");
-  if (Date.parse(c.expires_at) - Date.now() > 120_000) return c;
+  const due = stale !== undefined ? c.access_token === stale : Date.parse(c.expires_at) - Date.now() <= 120_000;
+  if (!due) return c;
+  const running = refreshing.get(hub);
+  if (running) return running;
+  const p = refresh(hub, c).finally(() => refreshing.delete(hub));
+  refreshing.set(hub, p);
+  return p;
+}
+
+async function refresh(hub: Hub, c: AtlassianConn): Promise<AtlassianConn> {
   const app = atlassianApp(hub);
   if (!app) throw new StoreError(409, "the hub has no Atlassian app");
-  if (!c.refresh_token) throw new StoreError(409, "Atlassian sign-in expired: sign in again");
-  let t;
-  try {
-    t = await tokenCall(hub, { grant_type: "refresh_token", client_id: app.client_id, client_secret: app.client_secret, refresh_token: c.refresh_token });
-  } catch (e) {
-    if (e instanceof StoreError && e.status === 422) throw new StoreError(409, "Atlassian sign-in expired: sign in again");
-    throw e;
+  if (!c.refresh_token) throw ended(hub, c.refresh_token);
+  let t: Awaited<ReturnType<typeof tokenCall>>;
+  for (let n = 0; ; n++) {
+    try {
+      t = await tokenCall(hub, { grant_type: "refresh_token", client_id: app.client_id, client_secret: app.client_secret, refresh_token: c.refresh_token });
+      break;
+    } catch (e) {
+      // Refused (400, 401 or 403, Atlassian's invalid_grant): only a new sign-in helps. Anything else (Atlassian not
+      // reached, its own error) is tried again shortly, while the token kept can still be traded.
+      if (e instanceof StoreError && e.status === 422) throw ended(hub, c.refresh_token);
+      const wait = refreshRetry.waitsMs[n];
+      if (wait === undefined) throw e;
+      await new Promise((r) => setTimeout(r, wait));
+    }
   }
-  hub.connections.update((x) => { if (x.atlassian) Object.assign(x.atlassian, { access_token: t.access, refresh_token: t.refresh || x.atlassian.refresh_token, expires_at: t.expires_at }); });
+  hub.connections.update((x) => {
+    // Unless a sign-in (Reconnect) replaced the link meanwhile: its tokens are newer.
+    if (x.atlassian?.refresh_token !== c.refresh_token) return;
+    Object.assign(x.atlassian, { access_token: t.access, refresh_token: t.refresh || x.atlassian.refresh_token, expires_at: t.expires_at });
+    delete x.atlassian.expired;
+  });
   return hub.connections.get().atlassian!;
+}
+
+/** Atlassian ended the sign-in: the link is marked so the apps offer Reconnect (unless a sign-in replaced it meanwhile). */
+function ended(hub: Hub, refreshToken: string): StoreError {
+  hub.connections.update((x) => { if (x.atlassian && x.atlassian.refresh_token === refreshToken) Object.assign(x.atlassian, { expired: true, last_error: SIGNIN_ENDED }); });
+  return new StoreError(409, SIGNIN_ENDED);
 }
 
 async function confluence(hub: Hub, c: AtlassianConn, pathOrNext: string): Promise<any> {
   const url = pathOrNext.startsWith("http") ? pathOrNext : `${API}/ex/confluence/${c.cloud_id}${pathOrNext}`;
-  const r = await fetchWithTimeout(hub.fetch, url, "Confluence", { headers: { authorization: `Bearer ${c.access_token}`, accept: "application/json" } }, 30_000);
-  if (r.status === 401) throw new StoreError(409, "Atlassian sign-in expired: sign in again");
+  const get = () => fetchWithTimeout(hub.fetch, url, "Confluence", { headers: { authorization: `Bearer ${c.access_token}`, accept: "application/json" } }, 30_000);
+  let r = await get();
+  if (r.status === 401) {
+    // An access token Atlassian no longer takes, though its time is not up (a sync that outlived it): one refresh,
+    // then the same request again. It said "sign in again" at once, while the refresh token still worked.
+    Object.assign(c, await accessToken(hub, c.access_token));
+    r = await get();
+    if (r.status === 401) throw ended(hub, c.refresh_token);
+  }
   if (r.status === 403) throw new StoreError(422, "Confluence refused: the account cannot read that");
   if (!r.ok) throw new StoreError(502, `Confluence answered ${r.status}`);
   return r.json();

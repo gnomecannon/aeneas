@@ -831,6 +831,33 @@ export function completeTaskPatch(f: { repeat?: unknown; remind_at?: unknown; du
 }
 
 /**
+ * What takes an edit back: each field the edit wrote, as it was before (null for one that was not there). Undo after
+ * Done uses it, so a repeating task gets its reminder and deadline back as well as a one-off its status.
+ */
+export function undoPatch(before: Record<string, unknown>, edit: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.keys(edit).map((k) => [k, before[k] === undefined ? null : before[k]]));
+}
+
+/**
+ * Not done: a finished task back in Next, at its end. `done_at` goes, so it reads as never finished.
+ */
+export function reopenTaskPatch(nextOrders: number[]): Record<string, unknown> {
+  return { status: "next", order: Math.max(0, ...nextOrders) + 1, done_at: null };
+}
+
+/**
+ * Undo of a delete. A personal task tied to an Apple Reminders item loses that tie: the iPhone deletes the item of a
+ * deleted personal task and forgets it, so the restored task is added to its list again (an item still there, when
+ * the iPhone had not run yet, is matched by its record and tied again). A work task keeps its tie, since work items
+ * are never deleted in Apple.
+ */
+export function restoreTaskPatch(t: { space: string; fields: Record<string, unknown> }): Record<string, unknown> {
+  const apple = t.fields.apple as Record<string, unknown> | undefined;
+  const tied = !!apple && typeof apple.id === "string" && apple.id !== "";
+  return { deleted_at: null, ...(tied && t.space !== "work" ? { apple: { ...apple, id: "" } } : {}) };
+}
+
+/**
  * A dash in a range reads as "to": between numbers and times ("3:00 to 4:00 PM", "9:00 AM to 5:00 PM"), weekdays
  * ("Mon to Fri") and months. A comma there changed the meaning ("Mon, Fri").
  */

@@ -18,7 +18,7 @@ struct ModulesSettingsView: View {
     var body: some View {
         Form {
             SwiftUI.Section {
-                Text("Switch off what you do not use. Off hides it on every device and stops its background work; nothing is erased (Mail alone deletes the hub's copy of your mail when switched off, and fetches it again from iCloud when switched back on).")
+                Text("Switch off what you do not use. Off hides it on every device and stops its background work; nothing is erased (Mail alone deletes the hub's copy of your mail when switched off, and fetches it again from your mailbox when switched back on).")
                     .font(.callout).foregroundStyle(.secondary)
                 if let error { Text(error).font(.caption).foregroundStyle(.dangerText) }
             }

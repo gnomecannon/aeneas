@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Entity } from "@everythingapp/shared";
-import { advanceProcedure, initialQuiz, missingPartTasks, parseMusicQuick, parsePartsText, partRows, partTotals, quizCounts, quizStep, stepsFromText, type ProcedureF, type QuizItem } from "./creative";
+import { advanceProcedure, humUse, initialQuiz, missingPartTasks, musicProjectCards, parseMusicQuick, parsePartsText, partRows, partTotals, quizCounts, quizStep, stepsFromText, type ProcedureF, type QuizItem } from "./creative";
 
 const inv = (name: string, qty: number): Entity => ({ id: `inv-${name}`, kind: "inventory", space: "personal", created_at: "", updated_at: "", deleted_at: null, fields: { name, category: "component", qty }, field_ts: {} });
 
@@ -30,6 +30,31 @@ describe("music quick line", () => {
     expect(parseMusicQuick("").title).toBe("Untitled");
     expect(parseMusicQuick("Em C D G garden song")).toMatchObject({ type: "progression", title: "garden song" });
     expect(parseMusicQuick("song Hollow Light Am")).toMatchObject({ type: "song", title: "Hollow Light", key: "Am" });
+  });
+});
+
+describe("music projects page", () => {
+  const ent = (id: string, kind: string, updated_at: string, fields: Record<string, unknown>, deleted_at: string | null = null): Entity =>
+    ({ id, kind, space: "personal", created_at: updated_at, updated_at, deleted_at, fields, field_ts: {} }) as Entity;
+  const project = (id: string, status: string, updated_at: string, area: string | null = "music") => ent(id, "project", updated_at, { name: id, status, definition_of_done: "", ...(area ? { area } : {}) });
+  const idea = (id: string, project_id: string, updated_at: string, hum = false, deleted = false) =>
+    ent(id, "music_idea", updated_at, { title: id, type: "riff", status: "idea", project_id, ...(hum ? { audio_ref: `hum:${id}` } : {}) }, deleted ? updated_at : null);
+
+  it("shows every music project, active first, then parked, then done, the newest change first within each", () => {
+    const cards = musicProjectCards(
+      [project("ep-done", "done", "2026-11-20"), project("album", "active", "2026-11-01"), project("single", "parked", "2026-11-23"), project("ep", "active", "2026-11-10"), project("shed", "active", "2026-11-24", null)],
+      [],
+    );
+    expect(cards.map((c) => c.project.id)).toEqual(["ep", "album", "single", "ep-done"]);
+  });
+
+  it("splits a project's ideas from its hummed takes, newest first, leaving out deleted ones and other projects' ideas", () => {
+    const [card] = musicProjectCards(
+      [project("album", "active", "2026-11-01")],
+      [idea("riff-old", "album", "2026-11-02"), idea("take-1", "album", "2026-11-03", true), idea("riff-new", "album", "2026-11-05"), idea("take-2", "album", "2026-11-04", true), idea("gone", "album", "2026-11-06", false, true), idea("elsewhere", "ep", "2026-11-07")],
+    );
+    expect(card.ideas.map((e) => e.id)).toEqual(["riff-new", "riff-old"]);
+    expect(card.takes.map((e) => e.id)).toEqual(["take-2", "take-1"]);
   });
 });
 
@@ -118,5 +143,21 @@ describe("quiz machine", () => {
 
   it("is done from the start when everything has a result", () => {
     expect(initialQuiz(items.map((i) => ({ ...i, result: "right" as const }))).phase).toBe("done");
+  });
+});
+
+describe("what a hum keeps when nothing is chosen", () => {
+  const note = (p: number, s: number) => ({ p, s, d: 0.4, v: 90 });
+  const melody = [note(60, 0), note(62, 0.5), note(64, 1), note(65, 1.5)];
+  it("keeps only the melody when the hits just repeat where its notes start (gnomecannon/aeneas#11)", () => {
+    const echo = melody.map((n, i) => ({ p: i % 2 ? 38 : 36, s: n.s + 0.04, d: 0.1, v: 90 }));
+    expect(humUse(undefined, { melody, rhythm: echo })).toBe("melody");
+    expect(humUse("both", { melody, rhythm: echo })).toBe("both");
+  });
+  it("keeps both when the hits fall between the notes, and the one heard when only one was", () => {
+    const taps = [0.25, 0.75, 1.25, 1.75].map((s) => ({ p: 42, s, d: 0.1, v: 80 }));
+    expect(humUse(undefined, { melody, rhythm: taps })).toBe("both");
+    expect(humUse(undefined, { melody: [], rhythm: taps })).toBe("rhythm");
+    expect(humUse(undefined, { melody, rhythm: [] })).toBe("melody");
   });
 });

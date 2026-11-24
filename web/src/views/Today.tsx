@@ -4,7 +4,7 @@ import { datePhrase, datesSoon, peopleInPlans, plansToday } from "@everythingapp
 import { useHubPoll } from "../sync/useHubPoll";
 import { usePoll } from "../lib/usePoll";
 import { localToday, scheduleTask, unscheduleTask, conflictMessage, renewWatch } from "../sync/planner";
-import { useEntities, useEntity } from "../sync/hooks";
+import { useEntities } from "../sync/hooks";
 import { db } from "../sync/db";
 import { timeline, parseLocalDate, daySpan, overlaps, spanOf, fmtDue, wholeDay, type PlannerToday, type TimelineItem } from "../lib/planner";
 import { fmtTime, relative } from "../lib/time";
@@ -12,11 +12,10 @@ import { NowCard, pickCurrent } from "./Now";
 import { useModules } from "../lib/modules";
 import { Timeline } from "../components/Timeline";
 import { TaskPicker } from "../components/TaskPicker";
-import { DayRibbon } from "../components/DayRibbon";
 import { createEntity, updateEntity } from "../sync/edits";
-import { SOURCE, ackReminder, capture, completeTask, snoozeFor, type CaptureResult } from "../sync/actions";
+import { SOURCE, ackReminder, completeTask, snoozeFor } from "../sync/actions";
 import { DIARY_DAY_START, diaryToday, followUpsDue, regularMeds } from "../lib/today";
-import { chargesSoon, dayRibbon, freeLine, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines, type Need, type TodaySection } from "../lib/todayBoard";
+import { freeLine, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines, type Need, type TodaySection } from "../lib/todayBoard";
 import { dueReminders, hasReminder } from "../lib/reminders";
 import { needsALook, techLight } from "../lib/tech";
 import type { OpsData } from "../lib/ops";
@@ -59,9 +58,13 @@ function useWidth<T extends HTMLElement>(): [RefObject<T>, number] {
 
 /**
  * The day as a status board, in the order its owner asked every report to take: at the top what is on now and how
- * long it has left, with the day drawn as one strip; then what needs you (actions only, numbered, each with its
- * button), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
- * that needs nothing from you. One column on a phone, up to five across a wide window (lib/todayBoard.ts).
+ * long it has left; then what needs you (actions only, numbered, each with its button), the schedule (what is left),
+ * things to do, today so far (what is done and was said), and what is coming that needs nothing from you. One column
+ * on a phone, up to five across a wide window (lib/todayBoard.ts).
+ *
+ * The day is drawn once, as the Schedule card's list: a strip of it across the top said the same again
+ * (gnomecannon/aeneas#15). Capturing is the Capture screen's, one press away on every screen; a box for it here said
+ * that again (gnomecannon/aeneas#21). A charge on autopay pays itself, so Today does not list it (#14).
  * The plan is GET /planner/today, refreshed every 60 s while visible and on change events; the local copy supplies
  * the same shape when the hub is unreachable.
  */
@@ -102,13 +105,6 @@ export function Today() {
   const [err, setErr] = useState<string | null>(null);
   const [force, setForce] = useState<{ taskId: string; start: string; hours: number } | null>(null);
   const [rowErr, setRowErr] = useState<{ key: string; text: string } | null>(null);
-  // The capture box's words are kept here, not in its card: a card is drawn again when the window's width moves it
-  // to another column, and what was typed must not go with it.
-  const [draft, setDraft] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState<CaptureResult | null>(null);
-  const [captureErr, setCaptureErr] = useState("");
-  const savedLive = useEntity(saved?.capture?.id);
 
   const todayEvents = useMemo(() => (t ? events.filter((e) => overlaps(spanOf(e), daySpan(parseLocalDate(t.date)))) : []), [t, events]);
   const items = useMemo(
@@ -130,11 +126,9 @@ export function Today() {
   const rest = open.filter((x) => x.id !== current?.id);
   const done = useMemo(() => soFar({ diary, tasks: allTasks, logs, now }), [diary, allTasks, logs, now]);
   const numbers = useMemo(() => (on("health") ? todayNumbers(logs, now) : []), [logs, now, on]);
-  const charges = useMemo(() => (on("renewals") ? chargesSoon(t?.watches_due_soon ?? [], now) : []), [t, now, on]);
   const tomorrow = useMemo(() => tomorrowLines(events, now), [events, now]);
   const line = useMemo(() => nowLine(items, now), [items, now]);
   const free = useMemo(() => freeLine(items, now), [items, now]);
-  const ribbon = useMemo(() => dayRibbon(items, now), [items, now]);
   const allDay = todayEvents.filter((e) => e.fields.all_day === true);
   // A rule for the whole day (a custody week) is named with them: it has no time to stand at in the list.
   const dayRules = items.filter((it): it is Extract<TimelineItem, { kind: "commitment" }> => it.kind === "commitment" && wholeDay(it));
@@ -179,21 +173,6 @@ export function Today() {
     void fn().then(() => poll.reload()).catch((e) => setRowErr({ key, text: plainError(e) }));
   };
 
-  const saveCapture = async () => {
-    const text = draft.trim();
-    if (!text || saving) return;
-    setSaving(true);
-    setCaptureErr("");
-    try {
-      setSaved(await capture(text));
-      setDraft("");
-    } catch (e) {
-      setCaptureErr(plainError(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const needActions = (n: Need): ReactNode => {
     switch (n.kind) {
       case "reminder":
@@ -233,7 +212,6 @@ export function Today() {
     }
   };
 
-  const filing = String((savedLive ?? saved?.capture)?.fields.filing ?? "");
   const sections: Record<TodaySection, ReactNode> = {
     needs: (
       <section className={`card tcard needs${needs.length ? " has" : ""}`} aria-label="Needs you">
@@ -320,19 +298,6 @@ export function Today() {
     sofar: (
       <section className="card tcard sofar" aria-label="Today so far">
         <h2>Today so far {done.length > 0 && <span className="count quiet">{done.length}</span>}</h2>
-        <form className="quick-capture" onSubmit={(e) => { e.preventDefault(); void saveCapture(); }}>
-          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Capture a thought or what you did" title="It goes in today's diary and the assistant files it" aria-label="Capture" />
-          <button type="submit" className="small primary" disabled={saving || !draft.trim()}>{saving ? "Saving" : "Save"}</button>
-        </form>
-        {captureErr && <div className="error" role="alert">{captureErr}</div>}
-        {saved && (
-          <div className="small muted capture-said" role="status">
-            {filing === "pending" ? "Saved to your diary. Filing it now."
-              : filing === "done" && savedLive ? <>Filed: {String(savedLive.fields.filed ?? "Diary only")}{typeof savedLive.fields.thread === "string" && <> <a href={`#/assistant/${savedLive.fields.thread}`} title="Open the chat that filed this, to correct it">Fix</a></>}</>
-              : filing === "failed" ? "Saved to your diary. It will be filed when the assistant is back."
-              : saved.offline ? "Saved here. It is filed when the hub is back." : "Saved."}
-          </div>
-        )}
         {numbers.length > 0 && (
           <dl className="today-numbers" aria-label="Logged today">
             {numbers.map((n) => <div key={n.type}><dt>{n.label}</dt><dd>{n.value}</dd></div>)}
@@ -375,22 +340,7 @@ export function Today() {
             </ul>
           </>
         )}
-        {charges.length > 0 && (
-          <>
-            <h3>Charges on autopay</h3>
-            <ul className="coming-list">
-              {charges.slice(0, 5).map((c) => (
-                <li key={c.key}>
-                  <a href={`#/renewals?focus=${c.id}`} className="what">{c.title}</a>
-                  <span className="amount">{c.amount}</span>
-                  <span className="when right">{c.when}</span>
-                </li>
-              ))}
-              {charges.length > 5 && <li><a href="#/renewals" className="small">{charges.length - 5} more</a></li>}
-            </ul>
-          </>
-        )}
-        {tomorrow.lines.length === 0 && dates.length === 0 && charges.length === 0 && <p className="muted small" style={{ margin: 0 }}>Nothing coming up in the next two weeks.</p>}
+        {tomorrow.lines.length === 0 && dates.length === 0 && <p className="muted small" style={{ margin: 0 }}>Nothing coming up in the next two weeks.</p>}
       </section>
     ),
   };
@@ -431,7 +381,6 @@ export function Today() {
             )}
           </p>
           {free && <p className="today-free">{free}</p>}
-          <DayRibbon ribbon={ribbon} onFree={(start) => setSlot({ start, hours: 3 })} />
         </>
       )}
       <div className="today-cols" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}>

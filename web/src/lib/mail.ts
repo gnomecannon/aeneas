@@ -409,7 +409,7 @@ export function frameClick(e: { type: string; button: number; target: unknown })
  * `provider`: who keeps it, as the screen says it ("iCloud", "Gmail", or the server's name); `kind`: how it is linked.
  * An older hub leaves both out.
  */
-export interface MailMailbox { email: string; last_refresh: string | null; last_error: string | null; more: boolean; provider?: string; kind?: "icloud" | "gmail" | "imap" }
+export interface MailMailbox { email: string; last_refresh: string | null; last_error: string | null; more: boolean; provider?: string; kind?: "icloud" | "gmail" | "imap"; read_only?: boolean }
 
 /**
  * The browser's own "Leave this page?" question while something typed is not saved: a handler for `beforeunload`.
@@ -446,6 +446,13 @@ export function folderGroups<F extends { email: string }>(folders: F[], boxes: {
 export function mailboxOf(boxes: MailMailbox[], email: string | undefined): MailMailbox | undefined {
   return email ? boxes.find((b) => b.email.toLowerCase() === email.toLowerCase()) : boxes.length === 1 ? boxes[0] : undefined;
 }
+/**
+ * Whether the mailbox a mail is in is Read only (Settings, Connections): the hub refuses every change to it, so the
+ * screen offers none (Done, Delete, Spam, Move to, Pin, replies, drafts). An older hub never says so.
+ */
+export const readOnlyBox = (boxes: MailMailbox[], email: string | undefined) => !!mailboxOf(boxes, email)?.read_only;
+/** The mailboxes a new mail can be written from: the ones that are not Read only. */
+export const writableBoxes = <B extends Pick<MailMailbox, "read_only">>(boxes: B[]) => boxes.filter((b) => !b.read_only);
 /** Where a mailbox's mail is kept, in words: "in iCloud", "in Gmail", or "in your mailbox" when its provider is not known. */
 export const inProvider = (box: Pick<MailMailbox, "provider"> | undefined) => (box?.provider?.trim() ? `in ${box.provider.trim()}` : "in your mailbox");
 /** The app a mailbox's drafts are sent from, in words: Apple Mail for an iCloud mailbox, else "your mail app". */
@@ -584,6 +591,28 @@ export const shownBundles = (on: (module: string) => boolean, custom: CustomBund
   ...BUNDLES.filter((b) => !b.module || on(b.module)),
   ...custom.map((c) => ({ id: c.id, name: c.name, custom: c.color })),
 ];
+
+/**
+ * The ids a build of the renaming used for a few days (2026-11-22), by the id every app knows the bundle by. A hub
+ * running that build sends them, and an app that read them as bundles it has no view for listed all of their mail on
+ * its own (gnomecannon/aeneas#7). The hub takes them the same way (SHORT_LIVED_BUNDLE_IDS in hub/src/mail-bundles.ts).
+ */
+export const SHORT_LIVED_BUNDLE_IDS: Record<string, string> = { transactions: "purchases", updates: "other", promotions: "promos" };
+const bundleIdAsSent = (id: string) => (Object.hasOwn(SHORT_LIVED_BUNDLE_IDS, id) ? SHORT_LIVED_BUNDLE_IDS[id] : id);
+
+/** The list with every bundle under its real id: its mail, when each bundle shows (the real id's setting wins) and its alerts. */
+export function listAsSent(l: MailList): MailList {
+  const delivery = l.bundle_delivery && Object.fromEntries([
+    ...Object.entries(l.bundle_delivery).filter(([k]) => Object.hasOwn(SHORT_LIVED_BUNDLE_IDS, k) && !l.bundle_delivery![bundleIdAsSent(k)]).map(([k, v]) => [bundleIdAsSent(k), v] as const),
+    ...Object.entries(l.bundle_delivery).filter(([k]) => !Object.hasOwn(SHORT_LIVED_BUNDLE_IDS, k)),
+  ]);
+  return {
+    ...l,
+    messages: l.messages.map((m) => (m.bundle && Object.hasOwn(SHORT_LIVED_BUNDLE_IDS, m.bundle) ? { ...m, bundle: bundleIdAsSent(m.bundle) } : m)),
+    ...(delivery ? { bundle_delivery: delivery } : {}),
+    ...(l.mail_notify ? { mail_notify: { ...l.mail_notify, bundles: [...new Set(l.mail_notify.bundles.map(bundleIdAsSent))] } } : {}),
+  };
+}
 
 /** The bundle a message shows in, or null: an unknown bundle, or one whose module is off, shows the mail on its own. */
 export function bundleOf(m: Pick<MailSummary, "bundle">, shown: Bundle[]): Bundle | null {

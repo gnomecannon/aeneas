@@ -182,6 +182,8 @@ public actor SyncStore {
         var entity: Entity
         if let existing = try get(patch.id) {
             entity = existing
+            // A patch that names a space moves the item there, as on the hub (edits name none).
+            if let to = patch.space, to != entity.space { entity.space = to; entity.field_ts["space"] = patch.ts }
         } else {
             entity = Entity(id: patch.id, kind: patch.kind, space: patch.space ?? .personal, created_at: patch.ts)
         }

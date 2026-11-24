@@ -111,7 +111,7 @@ test("the filer is not told about modules that are off", () => {
   assert.match(all, /food list/);
   const off = filingPrompt("Luigi's was great, Rafael recommended it", new Date(), undefined, [], [], [], undefined, (m) => m !== "food" && m !== "music");
   assert.doesNotMatch(off, /food list|music_idea/);
-  assert.match(off, /film watchlist/);
+  assert.match(off, /Letterboxd watchlist/);
 });
 
 test("Today and the digest leave renewals out while that module is off", async () => {
@@ -234,4 +234,25 @@ test("tool guide: no line for web search or machines when this hub does not offe
   const none = toolGuide(() => true, { has: (n) => n !== "web_search" && n !== "run_command" });
   assert.doesNotMatch(none, /web_search/);
   assert.doesNotMatch(none, /run_command/);
+});
+
+test("Mail and Mail receipts name every kind of mailbox the hub links, not iCloud alone (gnomecannon/aeneas#22)", () => {
+  for (const id of ["mail", "mail_inbox"] as const) {
+    const m = MODULES.find((x) => x.id === id)!;
+    for (const text of [m.summary, m.reads ?? "", m.setup?.needs ?? ""]) {
+      assert.match(text, /iCloud Mail/, `${id}: ${text.slice(0, 60)}`);
+      assert.match(text, /Gmail/, `${id}: ${text.slice(0, 60)}`);
+    }
+    assert.match(m.summary + (m.reads ?? ""), /another mail|other mail/, id);
+    // Gmail with an app password needs neither a Google app nor Tailscale; only Sign in with Google does.
+    assert.doesNotMatch(m.setup?.needs ?? "", /^for Gmail, your own Google app/, id);
+  }
+});
+
+test("modules: Apple Reminders is switched on the iCloud account in Settings, Connections, and no other module is (gnomecannon/aeneas#10)", async () => {
+  const t = makeHub();
+  try {
+    const list = ((await (await t.api("/modules")).json()) as { modules: { id: string; switch_in?: string }[] }).modules;
+    assert.deepEqual(list.filter((m) => m.switch_in).map((m) => [m.id, m.switch_in]), [["apple_reminders", "connections"]]);
+  } finally { t.cleanup(); }
 });

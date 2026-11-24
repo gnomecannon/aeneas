@@ -145,7 +145,7 @@ test("internet accounts: one app password feeds the Mail screen and receipts, ea
 
     // Receipts off: the queue goes, the Mail screen stays.
     const sw = (body: unknown, key = KEY) => t.api(`/connections/accounts/${encodeURIComponent(key)}`, { method: "PUT", json: body });
-    assert.deepEqual(await (await sw({ receipts: false })).json(), { receipts: false, inbox: true });
+    assert.deepEqual(await (await sw({ receipts: false })).json(), { receipts: false, inbox: true, read_only: false });
     assert.deepEqual(imapSource.accounts(t.hub), []);
     assert.equal((t.hub.db.prepare("SELECT COUNT(*) AS n FROM mail WHERE account = ?").get(KEY) as { n: number }).n, 0);
     await t.api("/mail/refresh", { method: "POST" });
@@ -184,7 +184,7 @@ test("internet accounts: an address also signed in with Google is read for recei
     // iCloud: receipts off keeps it on the Mail screen (before, one switch did both).
     linked(t);
     const sw = await t.api(`/connections/accounts/${encodeURIComponent("icloud:robin@icloud.example")}`, { method: "PUT", json: { receipts: false } });
-    assert.deepEqual(await sw.json(), { receipts: false, inbox: true });
+    assert.deepEqual(await sw.json(), { receipts: false, inbox: true, read_only: false });
     assert.deepEqual(INBOX_SOURCES.flatMap((s) => s.accounts(t.hub)).filter((a) => a.startsWith("icloud:")), ["icloud:robin@icloud.example"]);
   } finally { tearDown(t); }
 });
@@ -252,7 +252,7 @@ test("internet accounts: an address whose receipts are read through Google: Mail
     // Without the Google link the same switch leaves Receipts' use, and the account.
     t.hub.connections.update((c) => { c.google = []; });
     await link(t, { email: "robin@fastmail.example", host: "imap.fastmail.example", password: PASSWORD });
-    assert.deepEqual(await sw({ inbox: false }), { receipts: true, inbox: false });
+    assert.deepEqual(await sw({ inbox: false }), { receipts: true, inbox: false, read_only: false });
     assert.ok(mine());
     // A new password keeps the switches as the owner set them (Mail stays off, Receipts on).
     await link(t, { email: "robin@fastmail.example", host: "imap.fastmail.example", password: PASSWORD });

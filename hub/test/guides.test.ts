@@ -59,3 +59,33 @@ test("guides: the Google check tells a good app from a wrong secret without sign
     assert.deepEqual([r.ok, /could not be reached/.test(r.message)], [false, true]);
   } finally { t.cleanup(); }
 });
+
+test("guides: the iCloud Mail guide says what the hub does with the mail by the modules on, never only reading while the Mail screen changes mail", async () => {
+  const t = makeHub();
+  try {
+    const guide = async () => {
+      const g = (await (await t.api("/connections/guides/icloud")).json()) as Guide & { after: string };
+      return { after: g.after, what: g.steps[0].text };
+    };
+    // Mail receipts alone: the hub only reads.
+    t.hub.modules.set({ mail: true, mail_inbox: false });
+    let g = await guide();
+    assert.match(g.after, /reads your receipts, renewals and vet mail/);
+    assert.doesNotMatch(g.after, /Inbox/);
+    assert.match(g.what, /For receipts it only reads/);
+    assert.doesNotMatch(g.what, /Mail screen/);
+    // The Mail screen alone: it says what changes in the mailbox (it said "only reads ... never moves" before).
+    t.hub.modules.set({ mail: false, mail_inbox: true });
+    g = await guide();
+    assert.match(g.after, /brings its Inbox into Mail/);
+    assert.doesNotMatch(g.after, /receipts/);
+    assert.doesNotMatch(g.what, /only reads|never sends, moves/);
+    assert.match(g.what, /marks it read, Pin flags it/);
+    // Both: both are said.
+    t.hub.modules.set({ mail: true, mail_inbox: true });
+    g = await guide();
+    assert.match(g.after, /brings its Inbox into Mail and reads your receipts/);
+    assert.ok(/For receipts it only reads/.test(g.what) && /On the Mail screen/.test(g.what));
+    for (const x of [g.after, g.what]) assert.ok(!/[–—]/.test(x));
+  } finally { t.cleanup(); }
+});

@@ -61,6 +61,7 @@ public enum MailColors {
         case .snoozed: return .place("snoozed")
         case .done: return .place("done")
         case .bundle(let id): return .place(id)
+        case .folder: return .place("folder")
         }
     }
 

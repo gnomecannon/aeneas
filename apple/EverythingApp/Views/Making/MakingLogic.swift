@@ -208,6 +208,11 @@ enum Making {
 
     /// What the Music section holds. Reference sheets, templates and settings are notes in Music/Reference (the hub moves any it finds).
     static let musicTypes = ["riff", "progression", "lyric", "song"]
+
+    /// A group of ideas in Music: "Riffs", "Progressions", "Lyrics", "Songs".
+    static func musicTypeHeading(_ type: String) -> String {
+        ["riff": "Riffs", "progression": "Progressions", "lyric": "Lyrics", "song": "Songs"][type] ?? type.capitalized
+    }
     static let musicStatuses = ["idea", "wip", "done"]
 
     struct MusicQuick {

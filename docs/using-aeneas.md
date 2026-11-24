@@ -35,29 +35,38 @@ Today is the day as a status board, the same on every device. From the top:
   left"), else what is next and how long until it, else that nothing else is scheduled. Under it is the free time
   now or next. With Machines on, Tech's light sits beside it: green when all is good, and a press opens the Tech
   Overview.
-- **The day strip** draws the day from 7 AM to 11 PM, wider when something is earlier or later: every event, block
-  of work and fixed hours at its time, reminders as dots, free time as a dashed outline, and a line at now. What has
-  passed is faded. Press free time to put a task there.
 - **Needs you** lists only what waits on you, numbered in the order to take it, each with its buttons: reminders
   that have come due, machines and checks that need a look, renewals to renew, job follow-ups, a medicine not logged
-  today, and captures the assistant could not file. A charge on autopay is never listed there.
+  today, and captures the assistant could not file. A charge on autopay is not on Today at all: it pays itself, and
+  Renewals lists it.
 - **Schedule** names the all-day things first (events, and a plan rule for the whole day), then the day in time
   order with Schedule here on free time, then the people in today's plans with what you have noted about them.
 - **To do** shows the task you are doing, or the first one in Next, with its buttons, then your other open tasks:
   the circle finishes one, Start makes it the task you are doing.
-- **Today so far** has a box to capture a thought or what you did, today's numbers when Health is on (weight, sleep,
-  steps, caffeine, mood), and the diary's lines, finished tasks and logs in the order they happened.
-- **Coming up** shows tomorrow's plans, birthdays and other dates in the next two weeks, and charges on autopay with
-  their amounts.
+- **Today so far** shows today's numbers when Health is on (weight, sleep, steps, caffeine, mood), and the diary's
+  lines, finished tasks and logs in the order they happened. To capture something, use Capture, which is on every
+  screen.
+- **Coming up** shows tomorrow's plans, and birthdays and other dates in the next two weeks.
 
 The cards are in one column on a phone and in up to five across a wide window. On iPhone, iPad and Mac, swiping left
 or right shows another day's plan.
 
 ## Now
 
-Now shows the one task you are doing, or the first one in Next, with Done, Park, Skip and Start block. When nothing
-is being done it lists your open tasks, each with Start. On a wide window, what is due today and what is up next sit
-beside the task.
+Now shows the one task you are doing, or the first one in Next, with Done, Set aside, Skip and Start block. When
+nothing is being done it lists your open tasks, each with Start. On a wide window, what is due today and what is up
+next sit beside the task.
+
+## Tasks
+
+- **Set aside** takes a task out of Next and Now, with a reason, until you bring it back; it waits under Set aside.
+- **Done** offers Undo for a few seconds. A finished task has **Not done** in the Done list, which puts it back at the
+  end of Next.
+- **Delete** is in a task's edit (on the iPhone also a swipe, on the Mac the right-click menu) and offers Undo. A task
+  from Apple Reminders is deleted there too, except one from a work account, which stays in that account.
+- **Personal and Work**: Work holds tasks you add under Work, tasks from work Reminders accounts (Exchange, or one
+  named after your work email's domain) and captures that start with "work:". Everything else is Personal. Move to
+  Work or Move to Personal in a task's edit changes it; a task from a work Reminders account stays in Work.
 
 ## Wide windows
 
@@ -65,7 +74,7 @@ On a large window (a Mac, a browser on a computer, the Windows app, a large iPad
 width instead of one column in the middle. Collections become grids of cards, and in the Apple apps Tasks is a board
 with its statuses side by side. Notes, the Wiki and the Assistant keep their list at the left with what you open
 beside it. In the Apple apps a page about one thing (a person, a machine, a project) shows two lists side by side.
-Text you read keeps a width that reads. On the Mac a card cannot be swiped: delete, archive, park and move are in
+Text you read keeps a width that reads. On the Mac a card cannot be swiped: delete, archive, set aside and move are in
 its right-click menu. A narrow window, the iPhone and an iPad held upright keep their lists and swipes.
 
 ## Calendars
@@ -76,12 +85,12 @@ There are two directions, and they are set up in different places.
 
 The Calendar accounts module keeps your iCloud calendars in step with Aeneas on the hub, both ways, so every device
 has them: Windows, Android and the web as well as the Apple apps. Switch it on in Settings, Modules, then open
-Settings, Connections, iCloud Calendar:
+Settings, Connections, Internet Accounts:
 
-1. Make an app-specific password at account.apple.com (Sign-In and Security, App-Specific Passwords). An address
-   already linked for iCloud Mail needs no new one: it is the same password.
-2. Enter the address and the password, and choose Link. The hub checks them with iCloud and lists your calendars.
-3. Tick the calendars to keep in step, and pick where events made in Aeneas go.
+1. Make an app-specific password at account.apple.com (Sign-In and Security, App-Specific Passwords). An iCloud account
+   already added for Mail needs no new one: switch its Calendars on.
+2. Otherwise choose Add Account, iCloud, and enter the address and the password. The hub checks them with iCloud.
+3. Switch Calendars on for the account, tick the calendars to keep in step, and pick where events made in Aeneas go.
 
 Single events in those calendars, from 30 days back to a year ahead, come in as your events; edits and deletions
 made either in Aeneas or in iCloud reach the other side within about 5 minutes (10 seconds after a change in the
@@ -126,8 +135,9 @@ Copy link and adding it as a subscribed calendar by URL works in any calendar ap
 
 ## Mail
 
-Mail is read on the hub, not on the devices. Accounts are linked in Settings, Connections: under Internet Accounts in
-the web, Windows and Android apps, under Gmail and iCloud Mail in the Apple apps. Two modules use them.
+Mail is read on the hub, not on the devices. Accounts are linked in Settings, Connections, Internet Accounts, on every
+device: iCloud, Google with an app password, or another mail server. Their mail then shows in Mail on every device.
+Two modules use them.
 
 **Mail receipts.** The hub reads only mail that looks like receipts, renewal notices or vet mail, files them as
 renewals and pet visits, and does not keep the mail itself.
@@ -213,20 +223,26 @@ Linking a mailbox:
   Contacts and Calendars; Aeneas uses it for mail, and for calendars only when Calendar accounts is on.
 - **Gmail on the Mail screen** needs an app password you make in your Google Account (16 letters; Google offers it
   once 2-Step Verification is on). Add the account under Internet Accounts as Google, with an app password. The same
-  password can feed Mail receipts.
+  password feeds Mail receipts, and nothing needs setting up at Google.
 - **Gmail for receipts only** can use Sign in with Google instead: your own Google app, allowed only to read mail,
   and the hub reached through Tailscale (Google returns only to an https name). The steps are in
-  [gmail-setup.md](gmail-setup.md) and in the guide in Settings, Connections. Signed in this way, the hub may only
-  read, so that account does not show on the Mail screen.
+  [gmail-setup.md](gmail-setup.md) and in the guide under Settings, Connections, Keys. Signed in this way, the hub may
+  only read, so that account does not show on the Mail screen.
 - **Another mail server** needs its IMAP server's name, your username and an app password from your provider. The
   hub links only servers on the internet, over an encrypted connection (port 993 as a rule).
-- Each account has switches for what it does (Mail, Receipts, Calendars), and Remove account takes its password and
-  its mail off the hub. A password stays on the hub only while one of the three uses it: switching off the last one
-  removes the account, and the app asks first.
+- Each account has switches for what it brings in (Mail, Calendars, and on your iCloud account Reminders, which your
+  iPhone and Mac sync), then the Aeneas modules that read it (Receipts, with Read now), and Remove account, which takes
+  its password and its mail off the hub. A password stays on the hub only while Mail, Receipts or Calendars uses it:
+  switching off the last one removes the account, and the app asks first.
+- **Read only**, on each account, keeps Aeneas from changing anything in it: no drafts saved, no mail moved, flagged
+  or marked read there, and no calendar event written. The hub itself refuses those changes, and Mail offers no Done,
+  Delete, Pin or replies for that account's mail. Reminders are not covered: your iPhone and Mac write them through
+  Apple's own Reminders.
 
 ## Reminders, Contacts and Health
 
-These are read on the Apple devices: the Apple Reminders and Contacts modules (Settings, Modules), and Apple Health,
+These are read on the Apple devices: Apple Reminders (the Reminders switch on your iCloud account in Settings,
+Connections, or on its own line there before you add one), the Contacts module (Settings, Modules), and Apple Health,
 turned on in the iPhone app under Settings, Connections. Health works both ways: readings come in, and what you log
 in Aeneas goes to Health.
 
@@ -245,11 +261,22 @@ Each capture goes into the day's diary and the assistant files it where it belon
 a fact in memory, a tagged note, a song idea, a film to watch), or nowhere when it is only a passing thought (the
 diary has it). One it could not file after three tries waits in Unsorted Info.
 
+## Music
+
+Music module. The Music screen starts with one row: a line to type and Hum Song. The line picks out chords, time
+signature, tempo and tuning (`Am F C G 6/8 112bpm drop D`); the rest is the title. Your ideas are under it by type,
+with a filter by status. Projects (at the top of the screen; on the Apple apps, the Projects row) holds your releases
+in the making: an album, an EP or a single. New project is there. Each project is a card that opens to its ideas and
+hummed takes, and the line and Hum Song inside a card add to that project. A project's status, tasks and plan are on
+its page in Projects. Cheat sheets and checklists are notes, in Notes under Music, Reference.
+
 ## Hum Song
 
 Music module. Press Hum Song (in Capture, Music, or on the Watch) and hum, sing, tap or beatbox for up to 2 minutes.
 The hub hears every recording both as a melody and as a rhythm. Afterwards, on the idea in Music, choose Melody,
-Rhythm or Both; playback and the MIDI download follow that choice.
+Rhythm or Both; playback and the MIDI download follow that choice. Until you choose, a hummed tune keeps only its
+melody (every hummed note also starts with a jump in level, which the rhythm hearing would add as a drum hit), and a
+recording with hits of its own between the notes keeps both. Each idea in Music shows when it was recorded.
 
 ## Apple Watch
 

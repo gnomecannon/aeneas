@@ -121,6 +121,20 @@ final class HumTests: XCTestCase {
         XCTAssertEqual(tapped.use("melody"), .rhythm)
     }
 
+    /// A hummed tune is also heard as one hit per note start; with nothing chosen only the melody is kept, so no drum
+    /// part nobody hummed plays or goes into the file (gnomecannon/aeneas#11).
+    func testHitsThatOnlyRepeatTheMelodysStartsAreNotKeptByDefault() {
+        let melody: [HumMidi.Note] = [0, 0.5, 1, 1.5].enumerated().map { .init(p: 60 + $0.offset, s: $0.element, d: 0.4, v: 90) }
+        let echo: [HumMidi.Note] = melody.map { .init(p: 36, s: $0.s + 0.04, d: 0.1, v: 90) }
+        let hummed = HumMidi(state: .done, melody: melody, rhythm: echo)
+        XCTAssertTrue(hummed.hitsEchoMelody)
+        XCTAssertEqual(hummed.defaultUse, .melody)
+        XCTAssertEqual(hummed.use(nil), .melody)
+        XCTAssertEqual(hummed.use("both"), .both, "the owner's choice stands")
+        let taps: [HumMidi.Note] = [0.25, 0.75, 1.25, 1.75].map { .init(p: 42, s: $0, d: 0.1, v: 80) }
+        XCTAssertEqual(HumMidi(state: .done, melody: melody, rhythm: taps).defaultUse, .both)
+    }
+
     func testIdeasHeardBeforeBothLayersGetTheirOneLayer() throws {
         let melody = try XCTUnwrap(JSONCoding.decode(Entity.self, from: idea(fields: #"{"title":"Melody, 120 BPM","type":"riff","midi":{"mode":"melody","state":"done","notes":[{"p":60,"s":0,"d":0.5,"v":90}]}}"#)).humMidi)
         XCTAssertEqual(melody.melody.count, 1)

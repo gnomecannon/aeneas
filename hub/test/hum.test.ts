@@ -174,10 +174,13 @@ test("hum: POST /music/hum makes the idea at once, fills in the notes, and gives
     assert.equal(file.status, 200);
     assert.equal(file.headers.get("content-type"), "audio/midi");
     assert.match(file.headers.get("content-disposition") ?? "", /Song in A minor, 120 BPM\.mid/);
-    // Nothing chosen yet: both, the melody on channel 1 and the drums on channel 10.
-    const both = Buffer.from(await file.arrayBuffer());
-    assert.equal(both.toString("ascii", 0, 4), "MThd");
+    // Nothing chosen yet: the hits only repeat where the hummed notes start, so the file is the melody alone
+    // (gnomecannon/aeneas#11); asked for both, the melody is on channel 1 and the drums on channel 10.
     const ons = (f: Buffer, status: number) => { let n = 0; for (let i = 22; i < f.length - 2; i++) if (f[i] === status && f[i + 2] > 0) n++; return n; };
+    const plain = Buffer.from(await file.arrayBuffer());
+    assert.equal(plain.toString("ascii", 0, 4), "MThd");
+    assert.ok(ons(plain, 0x90) === 5 && ons(plain, 0x99) === 0, "no drum part nobody hummed");
+    const both = Buffer.from(await (await t.api(`/music/${idea.id}/midi?use=both`)).arrayBuffer());
     assert.ok(ons(both, 0x90) > 0 && ons(both, 0x99) > 0);
     const melodyOnly = Buffer.from(await (await t.api(`/music/${idea.id}/midi?use=melody`)).arrayBuffer());
     assert.equal(ons(melodyOnly, 0x99), 0);
@@ -315,6 +318,7 @@ test("hum: a tapped rhythm heard both ways keeps every hit at its tempo; older i
   assert.deepEqual(h.rhythm.map((n) => n.p), pattern.map(([, k]) => (k === "k" ? 36 : k === "s" ? 38 : 42)));
   assert.ok(h.rhythm.length >= h.melody.length, "the tempo comes from the hits");
   assert.ok(Math.abs(h.bpm - 110) <= 2, `bpm ${h.bpm}`);
+  assert.notEqual(humUse(undefined, h), "melody", "a tapped rhythm's hits are its own, not a melody's note starts");
   assert.equal(Math.min(h.rhythm[0].s, h.melody[0]?.s ?? Infinity), 0);
   // Silence is still refused.
   await assert.rejects(hearBoth(new Float32Array(HUM_RATE), undefined, basicPitch), /silent/);
@@ -322,8 +326,10 @@ test("hum: a tapped rhythm heard both ways keeps every hit at its tempo; older i
   const n = [{ p: 60, s: 0, d: 0.5, v: 90 }];
   assert.deepEqual(humLayers({ mode: "rhythm", notes: n }), { melody: [], rhythm: n });
   assert.deepEqual(humLayers({ mode: "melody", notes: n }), { melody: n, rhythm: [] });
-  // Nothing chosen: both when both have notes, else the one that has.
-  assert.equal(humUse(undefined, { melody: n, rhythm: n }), "both");
+  // Nothing chosen: both when both have notes of their own, the melody when the hits only repeat its starts, else
+  // the one that has.
+  assert.equal(humUse(undefined, { melody: n, rhythm: [{ p: 42, s: 0.25, d: 0.1, v: 90 }] }), "both");
+  assert.equal(humUse(undefined, { melody: n, rhythm: n }), "melody");
   assert.equal(humUse(undefined, { melody: [], rhythm: n }), "rhythm");
   assert.equal(humUse("melody", { melody: n, rhythm: n }), "melody");
   assert.equal(heardCount({ melody: [], rhythm: [...n, ...n] }), "2 hits");

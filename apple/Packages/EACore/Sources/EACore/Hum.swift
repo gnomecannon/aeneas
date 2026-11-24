@@ -118,8 +118,17 @@ public struct HumMidi: Codable, Equatable, Sendable {
         }
     }
 
-    /// With no choice made: both when both were heard, else the one that was.
-    public var defaultUse: Use { has(.both) ? .both : has(.melody) ? .melody : .rhythm }
+    /// With no choice made: the melody when the hits only repeat its note starts (a hummed tune, whose every note
+    /// also starts with a jump in level), both when both have notes of their own, else the one that was heard. As the
+    /// hub decides (hub/src/hum.ts `humUse`).
+    public var defaultUse: Use { has(.both) ? (hitsEchoMelody ? .melody : .both) : has(.melody) ? .melody : .rhythm }
+
+    /// At least 70% of the hits start within 100 ms of a melody note.
+    public var hitsEchoMelody: Bool {
+        guard !melody.isEmpty, !rhythm.isEmpty else { return false }
+        let near = rhythm.filter { h in melody.contains { abs($0.s - h.s) <= 0.1 } }.count
+        return Double(near) >= 0.7 * Double(rhythm.count)
+    }
 
     /// The owner's choice (`fields.hum_use`) when it has notes, else `defaultUse`, as the hub reads it for the file.
     public func use(_ chosen: String?) -> Use {

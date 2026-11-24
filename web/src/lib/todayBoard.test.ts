@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Entity } from "@everythingapp/shared";
 import { takesTime, timeline, wholeDay, type RuleType, type TimelineItem } from "./planner";
-import { cameDue, chargesSoon, dayRibbon, daysUntil, durationWords, freeLine, hourLabel, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines } from "./todayBoard";
+import { cameDue, daysUntil, durationWords, freeLine, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines } from "./todayBoard";
 import type { Look } from "./tech";
 
 let n = 0;
@@ -73,48 +73,6 @@ describe("timeline", () => {
   it("draws the now marker above the free time that holds now (the hub starts that slot a moment before this device's now)", () => {
     const day = { blocks: [], commitments: [], events: [], reminders: [], free_slots: [{ start: new Date(at(16, 14).getTime() - 900).toISOString(), end: iso(23), hours: 6.8 }] };
     expect(timeline(day, at(16, 14)).map((x) => x.kind)).toEqual(["now", "free"]);
-  });
-});
-
-describe("dayRibbon", () => {
-  it("runs 7 AM to 11 PM, places each thing by its time and marks what is over", () => {
-    const r = dayRibbon([event("Dentist cleaning", 15, 16), free(16, 23), reminder("Call the vet", 16, 8)], at(16, 14));
-    expect(r.start).toEqual(at(7));
-    expect(r.end).toEqual(at(23));
-    const dentist = r.segs.find((s) => s.title === "Dentist cleaning")!;
-    expect(dentist.left).toBe(50);
-    expect(dentist.width).toBe(6.25);
-    expect(dentist.past).toBe(true);
-    expect(dentist.when).toBe("3:00 PM to 4:00 PM");
-    expect(r.segs.find((s) => s.kind === "free")!.title).toBe("Free, 7 h");
-    expect(r.dots).toEqual([{ key: "r:Call the vet", left: 57.08, title: "4:08 PM Call the vet", id: "Call the vet", past: true }]);
-    expect(r.now).toBe(57.71);
-    expect(r.hours.filter((h) => h.label).map((h) => h.label)).toEqual(["9 AM", "12 PM", "3 PM", "6 PM", "9 PM"]);
-  });
-  it("widens for something early or late, and for now itself", () => {
-    expect(dayRibbon([event("Run", 5, 6)], at(12)).start).toEqual(at(5));
-    const late = dayRibbon([], at(23, 40));
-    expect(late.end).toEqual(new Date(2026, 10, 23, 0));
-    expect(late.now).toBeGreaterThan(95);
-  });
-  it("puts things that overlap in rows of their own, free time behind them", () => {
-    const r = dayRibbon([event("A", 9, 11), event("B", 10, 12), event("C", 11, 12), free(13, 17)], at(8));
-    expect(r.segs.filter((s) => s.kind !== "free").map((s) => [s.title, s.lane])).toEqual([["A", 0], ["B", 1], ["C", 0]]);
-    expect(r.lanes).toBe(2);
-    expect(r.segs.find((s) => s.kind === "free")!.lane).toBe(0);
-  });
-  it("leaves out what takes no time: a custody week does not stretch the strip to midnight or take a row", () => {
-    const r = dayRibbon([rule("Pepper weeks", "info", 0, 24), rule("Music first", "preference", 10, 13), rule("Away", "blackout", 0, 24), rule("Quiet evenings", "blackout", 21, 23), event("Dentist cleaning", 15, 16)], at(16, 14));
-    expect(r.start).toEqual(at(7));
-    expect(r.end).toEqual(at(23));
-    expect(r.segs.map((s) => s.title)).toEqual(["Dentist cleaning", "Quiet evenings"]);
-    expect(r.lanes).toBe(1);
-  });
-  it("has no now on another day", () => {
-    expect(dayRibbon([event("A", 9, 11)], at(8), new Date(2026, 10, 23)).now).toBeNull();
-  });
-  it("names hours the way the timeline does", () => {
-    expect([0, 7, 12, 15, 24].map(hourLabel)).toEqual(["12 AM", "7 AM", "12 PM", "3 PM", "12 AM"]);
   });
 });
 
@@ -220,19 +178,6 @@ describe("todayNumbers", () => {
 
 describe("coming up", () => {
   const now = at(16, 31);
-  it("says charges on autopay with their amount and day, never as overdue", () => {
-    const out = chargesSoon([
-      e("watch", { title: "Spotify", due: "2026-11-25", autopay: true, cost: 11.99 }),
-      e("watch", { title: "Server rental", due: "2026-11-17", autopay: true }),
-      e("watch", { title: "Passport", due: "2026-11-25" }),
-      e("watch", { title: "Insurance", due: "2026-11-23", autopay: true, cost: 92.45 }),
-    ], now);
-    expect(out.map((c) => [c.title, c.amount, c.when])).toEqual([
-      ["Spotify", "$11.99", `${new Date(2026, 10, 25).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}, in 3 days`],
-      ["Server rental", "", new Date(2026, 10, 17).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })],
-      ["Insurance", "$92.45", "tomorrow"],
-    ]);
-  });
   it("lists tomorrow's plans, all-day ones first, and how many more there are", () => {
     const events = [
       e("event", { title: "Standup", start: new Date(2026, 10, 23, 9).toISOString(), end: new Date(2026, 10, 23, 9, 30).toISOString() }),

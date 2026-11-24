@@ -60,6 +60,15 @@ final class MailTests: XCTestCase {
         XCTAssertEqual(Set(quoted(String(ids))), Set(Mail.bundles.map(\.id)))
         let names = try XCTUnwrap(hub.split(separator: "\n").first { $0.hasPrefix("export const BUNDLE_NAMES") })
         for b in Mail.bundles { XCTAssertTrue(names.contains("\(b.id): \"\(b.name)\""), "\(b.id) is called \(b.name) on the hub") }
+        // The ids a build of the renaming used are read as the same bundles here as on the hub.
+        let short = try XCTUnwrap(hub.split(separator: "\n").first { $0.hasPrefix("export const SHORT_LIVED_BUNDLE_IDS") })
+        let body = short.split(separator: "{").last?.split(separator: "}").first ?? ""
+        var hubMap: [String: String] = [:]
+        for kv in body.split(separator: ",") {
+            let p = kv.split(separator: ":").map { $0.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\""))) }
+            if p.count == 2 { hubMap[p[0]] = p[1] }
+        }
+        XCTAssertEqual(hubMap, Mail.shortLivedBundleIds)
     }
 
     func testMailOfABundleThisAppHasNoViewForIsNeverHeldBack() {

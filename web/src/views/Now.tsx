@@ -22,7 +22,7 @@ export function pickCurrent(tasks: Entity[]): { current: Entity | null; next: En
 }
 
 /**
- * The one-task card with Done, Start block, Skip and Park. Reused in Today's To do, which passes `whenEmpty` (what to
+ * The one-task card with Done, Start block, Skip and Set aside. Reused in Today's To do, which passes `whenEmpty` (what to
  * show when nothing is being done or next; null for nothing): Today lists the open tasks itself.
  */
 export function NowCard({ showNext = true, whenEmpty }: { showNext?: boolean; whenEmpty?: ReactNode } = {}) {
@@ -32,7 +32,7 @@ export function NowCard({ showNext = true, whenEmpty }: { showNext?: boolean; wh
   const done = () => current && completeTask(current);
   const park = () => {
     if (!current) return;
-    const reason = window.prompt("Why park it");
+    const reason = window.prompt("Why set it aside?");
     if (reason === null) return;
     void updateEntity(current, { status: "parked", parked_reason: reason });
   };
@@ -65,7 +65,7 @@ export function NowCard({ showNext = true, whenEmpty }: { showNext?: boolean; wh
             </button>
             {f.status !== "doing" && <button onClick={startBlock}>Start block</button>}
             <button onClick={skip}>Skip</button>
-            <button onClick={park}>Park</button>
+            <button onClick={park} title="Out of Next and Now until you bring it back, with the reason">Set aside</button>
           </div>
         </div>
       ) : whenEmpty !== undefined ? (

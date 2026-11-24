@@ -279,6 +279,10 @@ test("music: /music/quick creates the idea and /music filters by type and status
     assert.equal(((await (await t.api("/music?status=wip")).json()) as Entity[])[0].id, idea.id);
     assert.equal(((await (await t.api("/music?type=riff&status=wip")).json()) as Entity[]).length, 0);
     assert.equal((await t.api("/music/quick", { method: "POST", json: {} })).status, 422);
+    // A line typed in a project's card on Music's Projects page goes into that project.
+    const inProject = await (await t.api("/music/quick", { method: "POST", json: { text: "Em C G D", project_id: "album-1" } })).json() as Entity;
+    assert.equal(inProject.fields.project_id, "album-1");
+    assert.equal(idea.fields.project_id, undefined);
   } finally { t.cleanup(); }
 });
 

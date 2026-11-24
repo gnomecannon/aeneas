@@ -25,7 +25,7 @@ describe("proof run", () => {
     expect(frictionItems(report.friction)).toEqual([
       { kind: "capture", id: "c1", title: "call the vet", detail: "unsorted for 40 h" },
       { kind: "reminder", id: "r1", title: "Meds", detail: "snoozed 4 times" },
-      { kind: "task", id: "t1", title: "Fix the fence", detail: "parked 16 days" },
+      { kind: "task", id: "t1", title: "Fix the fence", detail: "set aside 16 days" },
     ]);
     expect(frictionItems(undefined)).toEqual([]);
     expect(frictionItems({})).toEqual([]);

@@ -84,6 +84,11 @@ export interface ICloudAccount {
   inbox?: boolean;
   /** Its calendars, when calendar sync uses this account (calendar-sync.ts). */
   calendar?: import("../calendar-sync.js").CalendarConf;
+  /**
+   * Read only (Internet Accounts, since 2026-11-24): the hub changes nothing in the account. No draft is saved, no mail
+   * is moved, flagged or marked read there, and no calendar event is written or deleted; it is only read. Absent is off.
+   */
+  read_only?: boolean;
 }
 
 /** Said when iCloud refused a mailbox's password and the hub stopped signing in. */
@@ -327,6 +332,20 @@ export const isGmail = (a: Partial<ImapAccount>) => a.preset === "gmail" || /(^|
 /** How to sign in to a linked mailbox. */
 const loginOf = (a: ICloudAccount & Partial<ImapAccount>): ImapLogin =>
   a.host ? { user: a.user ?? a.email, pass: a.password, host: a.host, port: a.port ?? PORT, name: providerName(a) } : { user: a.email, pass: a.password };
+
+/** Whether an account is Read only: the hub writes nothing to it (a Google sign-in can only read, so it always is). */
+export function readOnly(hub: Hub, key: string): boolean {
+  if (!key.startsWith(PREFIX) && !isImapKey(key)) return true;
+  try { return account(hub, key).read_only === true; } catch { return false; }
+}
+
+/** What a write to a Read only account is refused with. */
+export const readOnlyText = (email: string) => `${email} is set to Read only in Settings, Connections, so Aeneas changes nothing in it. Switch Read only off there to do this.`;
+
+/** Refuse a write to a Read only account: every one of the Mail screen's writes asks this first. */
+function refuseIfReadOnly(a: { email: string; read_only?: boolean }) {
+  if (a.read_only) throw new StoreError(409, readOnlyText(a.email));
+}
 
 /** What a paused mailbox says: iCloud's own words, or the same for another provider. */
 const refusedText = (a: Partial<ImapAccount>) => (!a.host ? REFUSED
@@ -1276,6 +1295,7 @@ export type MoveDest = { role: "inbox" | "trash" | "junk" } | { path: string };
 export async function moveToICloud(hub: Hub, accountKey: string, refs: MoveRef[], dest: MoveDest): Promise<Map<string, string | null>> {
   const email = accountKey;
   const a = account(hub, accountKey);
+  refuseIfReadOnly(a);
   if (a.refused_at) throw new StoreError(409, refusedText(a));
   const out = new Map<string, string | null>(refs.map((r) => [r.id, null]));
   await withClient(loginOf(a), DEADLINES.read, async (c) => {
@@ -1329,6 +1349,7 @@ export async function moveToICloud(hub: Hub, accountKey: string, refs: MoveRef[]
 export async function moveICloud(hub: Hub, accountKey: string, refs: MoveRef[], to: "archive" | "inbox"): Promise<Map<string, string | null>> {
   const email = accountKey;
   const a = account(hub, accountKey);
+  refuseIfReadOnly(a);
   if (a.refused_at) throw new StoreError(409, refusedText(a));
   const out = new Map<string, string | null>(refs.map((r) => [r.id, null]));
   await withClient(loginOf(a), DEADLINES.read, async (c) => {
@@ -1383,6 +1404,7 @@ async function setFlagICloud(hub: Hub, accountKey: string, refs: MoveRef[], flag
   if (!todo.length) return out;
   const email = accountKey;
   const a = account(hub, accountKey);
+  refuseIfReadOnly(a);
   if (a.refused_at) throw new StoreError(409, refusedText(a));
   // One sign-in for all of them (opening a thread of 25 unread mails used to make 25), a folder at a time.
   return withClient(loginOf(a), DEADLINES.read, async (c) => {
@@ -1427,6 +1449,7 @@ export async function saveDraftICloud(hub: Hub, accountKey: string, raw: Buffer)
   if (raw.length > DRAFT_BYTES) throw new StoreError(413, "the draft is too big to save");
   const email = accountKey;
   const a = account(hub, accountKey);
+  refuseIfReadOnly(a);
   if (a.refused_at) throw new StoreError(409, refusedText(a));
   return withClient(loginOf(a), DEADLINES.read, async (c) => {
     const w = c as unknown as ImapClient & ImapDrafter;
@@ -1505,18 +1528,20 @@ export const imapSource: MailSource = {
 };
 
 /**
- * An account's switches (Internet Accounts, since 2026-11-22): `receipts` (Mail receipts reads it) and `inbox` (the Mail
- * screen shows it), each only when given. The account stays linked whatever is off; Remove unlinks it.
+ * An account's switches (Internet Accounts, since 2026-11-22): `receipts` (Mail receipts reads it), `inbox` (the Mail
+ * screen shows it) and `read_only` (since 2026-11-24: the hub writes nothing to it), each only when given. The account
+ * stays linked whatever is off; Remove unlinks it.
  */
-export function setMailboxFeatures(hub: Hub, key: string, body: Record<string, unknown>): { receipts: boolean; inbox: boolean } {
+export function setMailboxFeatures(hub: Hub, key: string, body: Record<string, unknown>): { receipts: boolean; inbox: boolean; read_only: boolean } {
   const a = account(hub, key);
-  for (const k of ["receipts", "inbox"] as const) if (body[k] !== undefined && typeof body[k] !== "boolean") throw new StoreError(422, `${k} is true or false`);
+  for (const k of ["receipts", "inbox", "read_only"] as const) if (body[k] !== undefined && typeof body[k] !== "boolean") throw new StoreError(422, `${k} is true or false`);
   const fields: Partial<ICloudAccount> = {};
   if (typeof body.receipts === "boolean") fields.mail = body.receipts;
+  if (typeof body.read_only === "boolean") fields.read_only = body.read_only;
   // The Mail screen's switch is kept on its own once set, so turning receipts off leaves Mail as it was.
   if (typeof body.inbox === "boolean") fields.inbox = body.inbox;
   else if (typeof body.receipts === "boolean" && a.inbox === undefined) fields.inbox = inboxOn(a);
   saveAccount(hub, key, fields);
   const now = account(hub, key);
-  return { receipts: now.mail !== false, inbox: inboxOn(now) };
+  return { receipts: now.mail !== false, inbox: inboxOn(now), read_only: now.read_only === true };
 }

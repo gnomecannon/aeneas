@@ -1,15 +1,16 @@
 import { plainError } from "../lib/errors";
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
 import type { Entity } from "@everythingapp/shared";
-import { taskAlertAt } from "@everythingapp/shared";
+import { completeTaskPatch, reopenTaskPatch, restoreTaskPatch, taskAlertAt, undoPatch } from "@everythingapp/shared";
 import { useEntities } from "../sync/hooks";
-import { createEntity, updateEntity, softDelete } from "../sync/edits";
+import { createEntity, updateEntity, softDelete, moveToSpace } from "../sync/edits";
+import { engine } from "../sync/engine";
 import { fmtDateTime, fromLocalInput, HOUR, toLocalInput } from "../lib/time";
 import { useEscape } from "../lib/keys";
 import { CsvButton } from "../components/CsvButton";
 import { LinkedItem } from "../components/LinkedItem";
 import { DraftInput, DraftTextarea } from "../components/DraftField";
-import { completeTask, snoozeReminder } from "../sync/actions";
+import { snoozeReminder } from "../sync/actions";
 import { dueFromInput, dueInputValue, fmtDue, isOverdue } from "../lib/planner";
 
 const STATUSES = ["doing", "next", "inbox", "scheduled", "parked"] as const;
@@ -20,7 +21,15 @@ type TaskF = {
   remind_at?: string; repeat?: string; friction?: "none" | "reason"; snoozed_until?: string; linked_id?: string; apple?: { list_title?: string };
 };
 
-const SECTION_TITLE: Record<string, string> = { doing: "Doing", next: "Next", inbox: "Inbox", scheduled: "Scheduled and reminders", parked: "Parked" };
+const SECTION_TITLE: Record<string, string> = { doing: "Doing", next: "Next", inbox: "Inbox", scheduled: "Scheduled and reminders", parked: "Set aside" };
+/** Each status in words. "parked" is stored as it always was; on screen it is Set aside, which says what it does. */
+export const STATUS_LABEL: Record<Status, string> = { doing: "Doing", next: "Next", inbox: "Inbox", scheduled: "Scheduled", parked: "Set aside", done: "Done" };
+
+/** Tied to an Apple Reminders item (not only named for a list it is yet to be added to). */
+export function tiedToApple(t: Entity): boolean {
+  const id = (t.fields.apple as { id?: unknown } | undefined)?.id;
+  return typeof id === "string" && id !== "";
+}
 
 /** Repeat choices; anything else typed in Custom is kept as written. */
 export const REPEATS = [
@@ -110,6 +119,19 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
   const [drag, setDrag] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
   useEscape(useCallback(() => setOpen(null), []));
+  // The last Done, Not done, Delete or move, for its Undo bar (gone after a few seconds, or with the next one).
+  const [undo, setUndo] = useState<{ text: string; run: () => void } | null>(null);
+  useEffect(() => {
+    if (!undo) return;
+    const h = setTimeout(() => setUndo(null), 10_000);
+    return () => clearTimeout(h);
+  }, [undo]);
+  // Whether the hub's work space is on (Settings, Calendar and work); offline, whether any work task is here.
+  const [workOn, setWorkOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    engine.client?.workSpace().then((w) => setWorkOn(w.enabled), () => setWorkOn(null));
+  }, []);
+  const canMove = workOn ?? hasWork;
 
   useEffect(() => {
     if (!focus) return;
@@ -152,12 +174,21 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
     setRemindAt("");
   };
 
+  const named = (t: Entity) => String(t.fields.title ?? "").slice(0, 40);
+  /** Write an edit and offer its Undo, which writes back what the edit changed. */
+  const editWithUndo = (t: Entity, edit: Record<string, unknown>, text: string) => {
+    const back = undoPatch(t.fields, edit);
+    void updateEntity(t, edit);
+    setUndo({ text, run: () => void updateEntity(t, back) });
+  };
+
   const setStatus = (t: Entity, status: Status) => {
     // Done on a repeating task moves its reminder and deadline on instead of finishing it.
-    if (status === "done") return void completeTask(t);
+    if (status === "done") return editWithUndo(t, completeTaskPatch(t.fields), `Done: ${named(t)}`);
+    if (t.fields.status === "done" && status === "next") return reopen(t);
     const extra: Record<string, unknown> = {};
     if (status === "parked") {
-      const reason = window.prompt("Why park it");
+      const reason = window.prompt("Why set it aside?");
       if (reason === null) return;
       extra.parked_reason = reason;
     }
@@ -166,6 +197,27 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
       extra.order = maxOrder + 1;
     }
     void updateEntity(t, { status, ...extra });
+  };
+
+  /** Not done: back in Next, at its end. */
+  const reopen = (t: Entity) =>
+    editWithUndo(t, reopenTaskPatch(tasks.filter((x) => x.fields.status === "next").map((x) => x.fields.order as number)), `Back in Next: ${named(t)}`);
+
+  const remove = (t: Entity) => {
+    void softDelete(t);
+    if (open === t.id) setOpen(null);
+    setUndo({ text: `Deleted: ${named(t)}`, run: () => void updateEntity(t, restoreTaskPatch(t)) });
+  };
+
+  /**
+   * To the other space, keeping the task as it is. A list it was only named for goes (lists belong to one account);
+   * a personal task in an Apple Reminders list leaves that list, as work tasks stay out of personal lists.
+   */
+  const moveSpace = (t: Entity) => {
+    const to = t.space === "work" ? "personal" : "work";
+    void moveToSpace(t, to, t.fields.apple && !tiedToApple(t) ? { apple: null } : {});
+    if (open === t.id) setOpen(null);
+    setUndo({ text: `Moved to ${to === "work" ? "Work" : "Personal"}: ${named(t)}`, run: () => void moveToSpace(t, t.space, t.fields.apple && !tiedToApple(t) ? { apple: t.fields.apple } : {}) });
   };
 
   const snooze = async (t: Entity, minutes: number) => {
@@ -266,15 +318,20 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
             {f.linked_id && <LinkedItem id={f.linked_id} />}
             {!listFilter && f.apple?.list_title && f.apple.list_title !== "Reminders" && <span title="Apple Reminders list">{f.apple.list_title} list</span>}
             {f.block && <span>block {fmtDateTime(f.block.start)}</span>}
-            {f.parked_reason && f.status === "parked" && <span>parked: {f.parked_reason}</span>}
+            {f.parked_reason && f.status === "parked" && <span>set aside: {f.parked_reason}</span>}
             {f.project_id && projectName.has(f.project_id) && (
               <a href={`#/projects/${f.project_id}`} title="Open the project">
                 {projectName.get(f.project_id)}
               </a>
             )}
             {f.notes && !isOpen && <span>notes</span>}
-            <button className="ghost small" onClick={() => setOpen(isOpen ? null : t.id)} aria-expanded={isOpen} aria-label={`${isOpen ? "Hide" : "Show"} details for ${f.title}`}>
-              {isOpen ? "less" : "more"}
+            {f.status === "done" && (
+              <button className="small" onClick={() => reopen(t)} aria-label={`Not done: ${f.title}`}>
+                Not done
+              </button>
+            )}
+            <button className="ghost small" onClick={() => setOpen(isOpen ? null : t.id)} aria-expanded={isOpen} aria-label={`${isOpen ? "Close" : "Edit"} ${f.title}`}>
+              {isOpen ? "close" : "edit"}
             </button>
           </div>
           {isOpen && (
@@ -286,7 +343,7 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
                   <select id={`st-${t.id}`} value={f.status} onChange={(e) => setStatus(t, e.target.value as Status)}>
                     {ALL.map((s) => (
                       <option key={s} value={s}>
-                        {s}
+                        {STATUS_LABEL[s]}
                       </option>
                     ))}
                   </select>
@@ -420,15 +477,21 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
                     Done
                   </button>
                 )}
-                {f.status !== "parked" && (
-                  <button className="small" onClick={() => setStatus(t, "parked")}>
-                    Park
+                {f.status !== "parked" && f.status !== "done" && (
+                  <button className="small" onClick={() => setStatus(t, "parked")} title="Out of Next and Now until you bring it back, with the reason">
+                    Set aside
                   </button>
                 )}
-                <button className="small ghost danger" onClick={() => confirm("Delete this task") && softDelete(t)}>
+                {canMove && !(t.space === "work" && tiedToApple(t)) && (
+                  <button className="small" onClick={() => moveSpace(t)}>
+                    Move to {t.space === "work" ? "Personal" : "Work"}
+                  </button>
+                )}
+                <button className="small ghost danger" onClick={() => remove(t)}>
                   Delete
                 </button>
               </div>
+              {t.space === "work" && tiedToApple(t) && <div className="muted small">In a work Reminders account, so it stays in Work.</div>}
             </div>
           )}
         </div>
@@ -464,6 +527,9 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
           </div>
         )}
       </div>
+      {hasWork && (
+        <div className="muted small">Work holds tasks you add under Work, tasks from work Reminders accounts and captures that start with "work:". The rest are Personal. To move one, open it with edit.</div>
+      )}
       <form
         className="row"
         onSubmit={(e) => {
@@ -492,6 +558,12 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
           <summary>Done ({done.length})</summary>
           <div className="list">{done.slice(0, 50).map(renderTask)}</div>
         </details>
+      )}
+      {undo && (
+        <div className="undo-bar" role="status">
+          <span>{undo.text}</span>
+          <button type="button" onClick={() => { const run = undo.run; setUndo(null); run(); }}>Undo</button>
+        </div>
       )}
     </div>
   );

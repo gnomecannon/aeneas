@@ -4,7 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type { DB } from "./db.js";
 import type { Hub } from "./hub.js";
-import { FOLDER_KEEP, icloudInbox, imapInbox, INBOX_DAYS, mailboxProvider, type FolderListing, type FolderRole, type MailAttachment } from "./imports/icloud.js";
+import { FOLDER_KEEP, icloudInbox, imapInbox, INBOX_DAYS, mailboxProvider, readOnly, readOnlyText, type FolderListing, type FolderRole, type MailAttachment } from "./imports/icloud.js";
 import type { InboxMail, InboxSource, MailAddress } from "./imports/inbox-source.js";
 
 /** Where the Mail screen's mail comes from (imports/inbox-source.ts): iCloud, and other IMAP accounts (Gmail among them). */
@@ -227,7 +227,7 @@ const folderOf = (id: string) => /^\d+:\d+:([\s\S]+)$/.exec(id)?.[1] ?? "";
  * 3. mail kept as in the Inbox (or snoozed there) that is no longer in it was archived, moved or deleted elsewhere:
  *    it goes. Done mail is in Archive and stays (for its kept time). Nothing goes when the listing found no Inbox.
  */
-export function keepInbox(db: DB, account: string, found: { present: string[] | null; seen?: string[] | null; flagged?: string[] | null; doneFlags?: { present: string[]; flagged: string[] } | null; mails: InboxMail[]; moved: { id: string; message_id: string }[]; refs?: { id: string; refs: string[] }[] }): { kept: number; gone: number; woken: string[]; fresh: string[] } {
+export function keepInbox(db: DB, account: string, found: { present: string[] | null; seen?: string[] | null; flagged?: string[] | null; doneFlags?: { present: string[]; flagged: string[] } | null; mails: InboxMail[]; moved: { id: string; message_id: string }[]; refs?: { id: string; refs: string[] }[] }, opts: { readOnly?: boolean } = {}): { kept: number; gone: number; woken: string[]; fresh: string[] } {
   const insert = db.prepare(`INSERT OR IGNORE INTO inbox (account, id, key, message_id, at, from_name, from_address, reply_to, subject, text, automated, unsubscribe, list_id, html, remote, logo_domain, refs, mine, state, seen, cards, attachments, rcpt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   const setRefs = db.prepare("UPDATE inbox SET refs = ? WHERE account = ? AND id = ?");
@@ -257,10 +257,12 @@ export function keepInbox(db: DB, account: string, found: { present: string[] | 
     }
     for (const r of found.refs ?? []) setRefs.run(JSON.stringify(r.refs), account, r.id);
     // Read or unread as the mailbox has it now (read in Apple Mail counts; Aeneas writes its own opening there too).
+    // A Read only mailbox is never told what was opened here, so there the mailbox can only add read marks: one opened
+    // here stays read on the hub instead of turning unread again at every refresh.
     if (found.present && found.seen) {
       const read = new Set(found.seen);
       const mark = db.prepare("UPDATE inbox SET seen = ? WHERE account = ? AND id = ? AND seen != ?");
-      for (const id of found.present) { const v = read.has(id) ? 1 : 0; mark.run(v, account, id, v); }
+      for (const id of found.present) { const v = read.has(id) ? 1 : 0; if (v || !opts.readOnly) mark.run(v, account, id, v); }
     }
     // Pinned as the mailbox has it (since 2026-11-21): a message flagged in Apple Mail is pinned here, one not flagged
     // is not; a thread is pinned while any of its mail is (Pin here flags all of it).
@@ -1097,7 +1099,8 @@ export async function setSeenMany(hub: Hub, keys: string[], seen: boolean): Prom
       const refs = mine.map((r) => now.get(r.key) as { id: string; message_id: string | null } | undefined);
       const source = sourceOf(account);
       const here = refs.filter((x): x is { id: string; message_id: string | null } => !!x);
-      if (!source || !here.length) return;
+      // Read only: the mark stays on the hub, and the mailbox is not told.
+      if (!source || !here.length || readOnly(hub, account)) return;
       synced += (await source.setSeen(hub, account, here, seen)).filter(Boolean).length;
       // A refresh that read the mailbox's flags before this mark reached it wrote the old state back: said again.
       for (const r of mine) mark.run(seen ? 1 : 0, r.key);
@@ -1116,6 +1119,9 @@ export async function setSeenMany(hub: Hub, keys: string[], seen: boolean): Prom
  */
 export async function setPinnedSynced(hub: Hub, key: string, pinned: boolean): Promise<{ ok: boolean; synced: number }> {
   const db = hub.mailDb;
+  // A pin is the mailbox's flag: a Read only mailbox's pins are the ones its mail app set, and Pin here changes none.
+  const own = db.prepare("SELECT account FROM inbox WHERE key = ?").get(key) as { account: string } | undefined;
+  if (own && readOnly(hub, own.account)) throw new StoreError(409, readOnlyText(own.account.slice(own.account.indexOf(":") + 1)));
   if (!setPinned(db, key, pinned)) return { ok: false, synced: 0 };
   const members = db.prepare(`SELECT key, account FROM inbox WHERE (${THREAD_OF}) AND state IN ('inbox', 'snoozed', 'done')`).all(key, key) as { key: string; account: string }[];
   let synced = 0;
@@ -1432,6 +1438,12 @@ export function clearFoldNotes(db: DB, key?: string): number {
  * message that is no longer the one the hub kept takes no flag, and that is final: the hub's copy of it goes or moves
  * with the next listing.
  */
+/** Whether a mailbox's old pins became flags already (flagOldPins), or it has none to carry over: its flags decide pins. */
+function pinsFlagged(db: DB, account: string): boolean {
+  return !!db.prepare("SELECT 1 FROM settings WHERE key = ?").get(`pins_flagged:${account}`)
+    || !db.prepare("SELECT 1 FROM inbox WHERE account = ? AND pinned = 1 AND state IN ('inbox', 'snoozed', 'done')").get(account);
+}
+
 async function flagOldPins(hub: Hub, account: string): Promise<boolean> {
   const db = hub.mailDb;
   const done = `pins_flagged:${account}`;
@@ -1991,14 +2003,15 @@ export async function showPictures(hub: Hub, key: string): Promise<MailMessage |
 }
 
 /**
- * Each linked mailbox with when the Mail screen last refreshed it, what went wrong, whether more is coming, and who it
- * is with (`kind`, and `provider` as people say it: the screen says "in Gmail" or "your mail app" by it).
+ * Each linked mailbox with when the Mail screen last refreshed it, what went wrong, whether more is coming, who it
+ * is with (`kind`, and `provider` as people say it: the screen says "in Gmail" or "your mail app" by it), and whether
+ * it is Read only (`read_only`: the screen offers nothing that would change it).
  */
-export function mailboxStates(hub: Hub): { email: string; last_refresh: string | null; last_error: string | null; more: boolean; kind?: "icloud" | "gmail" | "imap"; provider?: string }[] {
+export function mailboxStates(hub: Hub): { email: string; last_refresh: string | null; last_error: string | null; more: boolean; kind?: "icloud" | "gmail" | "imap"; provider?: string; read_only: boolean }[] {
   const get = hub.mailDb.prepare("SELECT last_refresh, last_error, more FROM mailboxes WHERE account = ?");
   return INBOX_SOURCES.flatMap((source) => source.accounts(hub).map((account) => {
     const s = get.get(account) as { last_refresh: string | null; last_error: string | null; more: number } | undefined;
-    return { email: account.slice(source.prefix.length), last_refresh: s?.last_refresh ?? null, last_error: s?.last_error ?? null, more: !!s?.more, ...(mailboxProvider(hub, account) ?? {}) };
+    return { email: account.slice(source.prefix.length), last_refresh: s?.last_refresh ?? null, last_error: s?.last_error ?? null, more: !!s?.more, ...(mailboxProvider(hub, account) ?? {}), read_only: readOnly(hub, account) };
   }));
 }
 
@@ -2050,11 +2063,13 @@ export function refreshMail(hub: Hub, opts: { owner?: boolean } = {}, now: Date 
         const doneIds = (db.prepare("SELECT id FROM inbox WHERE account = ? AND state = 'done' ORDER BY done_at DESC LIMIT ?").all(account, MOVE_MAX) as { id: string }[]).map((x) => x.id);
         const listed = await source.list(hub, account, since, isKept(db, account), isKeptMessage(db, account), { ...opts, needsRefs: (id) => !!missing.get(account, id), sentFrom, doneIds });
         if (!shown()) continue;
-        // Old pins become flags once. Until they are, the mailbox's flags (read before that) decide no pin.
-        const found = (await flagOldPins(hub, account)) ? listed : { ...listed, flagged: null, doneFlags: null };
+        // Old pins become flags once. Until they are, the mailbox's flags (read before that) decide no pin. A Read only
+        // mailbox is never flagged: its old pins stay as they are until Read only is switched off.
+        const ro = readOnly(hub, account);
+        const found = (ro ? pinsFlagged(db, account) : await flagOldPins(hub, account)) ? listed : { ...listed, flagged: null, doneFlags: null };
         if (!shown()) continue;
         const before = (db.prepare("SELECT last_refresh FROM mailboxes WHERE account = ?").get(account) as { last_refresh: string | null } | undefined)?.last_refresh ?? null;
-        const r = keepInbox(db, account, found);
+        const r = keepInbox(db, account, found, { readOnly: ro });
         for (const key of r.woken) unsnoozeMail(hub, key, {}, now);
         // New mail since the last refresh, never the first one (a mailbox's first 90 days).
         if (before) arrived.push(...r.fresh.filter((key) => { const at = (db.prepare("SELECT at FROM inbox WHERE key = ?").get(key) as { at: string } | undefined)?.at; return !!at && Date.parse(at) >= Date.parse(before) - NOTIFY_SLACK_MS; }));
@@ -2062,8 +2077,9 @@ export function refreshMail(hub: Hub, opts: { owner?: boolean } = {}, now: Date 
         if (found.sentAt) db.prepare("UPDATE mailboxes SET sent_at = ? WHERE account = ?").run(found.sentAt, account);
         if (r.kept || r.gone || found.more) console.log(`[mail-inbox] ${mailboxLabel(hub, account)}: ${r.kept} new, ${r.gone} left the Inbox${found.more ? ", more next time" : ""}`);
         out.mailboxes.push({ email, kept: r.kept, gone: r.gone, more: found.more });
-        // Blocked senders' mail: to Spam (the fenced MOVE), before any new-mail alert looks at it.
-        const blockedNow = blockedKeys(db, blockedSenders(db), account);
+        // Blocked senders' mail: to Spam (the fenced MOVE), before any new-mail alert looks at it. Not in a Read only
+        // mailbox, where nothing is moved.
+        const blockedNow = ro ? [] : blockedKeys(db, blockedSenders(db), account);
         if (blockedNow.length) {
           const b = await moveNow(hub, blockedNow, "junk", null, now).catch((e) => { console.error(`[mail-inbox] ${mailboxLabel(hub, account)}: blocked ${errCode(e)}`); return null; });
           if (b?.moved.length) console.log(`[mail-inbox] ${mailboxLabel(hub, account)}: ${b.moved.length} from blocked senders moved to Spam`);

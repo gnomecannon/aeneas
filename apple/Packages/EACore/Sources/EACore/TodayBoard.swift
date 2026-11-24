@@ -5,7 +5,8 @@ import Foundation
 ///
 /// Today is a status report of the day in the order its owner asked every report to take: what needs you (actions
 /// only, numbered), what is on now and what is left (the schedule), what is done (today so far), then what is coming
-/// and needs nothing from you. An automatic record (a charge on autopay) is never an action.
+/// and needs nothing from you. An automatic record (a charge on autopay) is never an action, and Today does not list
+/// it at all: it pays itself (gnomecannon/aeneas#14); Renewals shows it.
 public enum TodayBoard {
     /// How a time of day is written ("3:00 PM"): the device's own short style on screen, a fixed one in tests.
     public typealias Clock = @Sendable (Date) -> String
@@ -130,107 +131,13 @@ public enum TodayBoard {
         return from.timeIntervalSince(now) < 120 ? "Free until \(clock(free.end)), \(length)" : "Free \(clock(free.start)) to \(clock(free.end)), \(length)"
     }
 
-    // MARK: the day ribbon
-
-    public struct RibbonSeg: Equatable, Identifiable, Sendable {
-        public var id: String
-        public var kind: Span.Kind
-        /// Where it starts and how wide it is, as parts of the ribbon's width (0 to 1).
-        public var left: Double
-        public var width: Double
-        /// Which row it sits in when things overlap; 0 is the top one.
-        public var lane: Int
-        public var title: String
-        /// "3:00 PM to 4:00 PM".
-        public var when: String
-        public var past: Bool
-        /// The thing it draws, for its color and its link.
-        public var span: Span
-    }
-
-    public struct RibbonDot: Equatable, Identifiable, Sendable {
-        public var id: String
-        public var left: Double
-        public var title: String
-        public var itemId: String
-        public var past: Bool
-    }
-
-    public struct RibbonHour: Equatable, Sendable {
-        public var left: Double
-        /// Every hour has a tick, every third a label.
-        public var label: String?
-    }
-
-    public struct Ribbon: Equatable, Sendable {
-        public var start: Date
-        public var end: Date
-        public var hours: [RibbonHour]
-        public var segs: [RibbonSeg]
-        /// Reminders: a dot at their time.
-        public var dots: [RibbonDot]
-        public var lanes: Int
-        /// Where now is, as a part of the width; nil when now is another day.
-        public var now: Double?
-    }
-
-    /// The day as one strip from 7 AM to 11 PM, wider when something (or now) falls outside that: everything with a
-    /// time, placed by its time, so the shape of the day reads at a glance and a wide window is used for the one
-    /// thing that is naturally wide. All-day plans are not on it (they have no place in time); the screen names them
-    /// beside it. Nor are plan rules that are only a preference or a note (a custody week runs the whole day and
-    /// would stretch the strip to midnight at both ends): the strip shows what holds the time.
-    public static func dayRibbon(_ spans: [Span], now: Date, day: Date? = nil, calendar: Calendar = .current, clock: Clock = deviceClock,
-                                 hourLabel: (Int) -> String = TodayBoard.hourLabel) -> Ribbon {
-        let day = day ?? now
-        let midnight = calendar.startOfDay(for: day)
-        func at(_ h: Int) -> Date { midnight.addingTimeInterval(Double(h) * 3600) }
-        let dayEnd = at(24)
-        let bars = spans.filter { isTimed($0) || $0.kind == .free }
-        let reminders = spans.filter { $0.kind == .reminder }
-        let sameDay = calendar.isDate(now, inSameDayAs: day)
-        var times: [Date] = bars.flatMap { [$0.start, $0.end] } + reminders.map(\.start)
-        if sameDay { times.append(now) }
-        times = times.map { min(max($0, midnight), dayEnd) }
-        let lo = ([at(7)] + times).min() ?? at(7), hi = ([at(23)] + times).max() ?? at(23)
-        let startH = Int((lo.timeIntervalSince(midnight) / 3600).rounded(.down)), endH = Int((hi.timeIntervalSince(midnight) / 3600).rounded(.up))
-        let start = at(startH), end = at(endH), total = end.timeIntervalSince(start)
-        func part(_ d: Date) -> Double {
-            let x = min(max(d, start), end).timeIntervalSince(start) / total
-            return (x * 10000).rounded() / 10000
-        }
-
-        var hours: [RibbonHour] = []
-        for h in startH...endH { hours.append(RibbonHour(left: part(at(h)), label: h % 3 == 0 && h < endH ? hourLabel(h) : nil)) }
-
-        // Rows: each thing goes in the first row whose last thing has ended. Free time has a row to itself behind them.
-        var laneEnds: [Date] = []
-        let ordered = bars.sorted { a, b in
-            if a.start != b.start { return a.start < b.start }
-            return a.end != b.end ? a.end > b.end : a.id < b.id
-        }
-        var segs: [RibbonSeg] = []
-        for s in ordered {
-            var lane = 0
-            if s.kind != .free {
-                lane = laneEnds.firstIndex { $0 <= s.start } ?? laneEnds.count
-                if lane == laneEnds.count { laneEnds.append(s.end) } else { laneEnds[lane] = s.end }
-            }
-            let left = part(s.start)
-            segs.append(RibbonSeg(id: s.id, kind: s.kind, left: left, width: max(((part(s.end) - left) * 10000).rounded() / 10000, 0.004), lane: lane,
-                                  title: s.kind == .free ? "Free, \(durationWords(s.end.timeIntervalSince(s.start)))" : s.title,
-                                  when: "\(clock(s.start)) to \(clock(s.end))", past: sameDay && s.end <= now, span: s))
-        }
-        let dots = reminders.map { RibbonDot(id: $0.id, left: part($0.start), title: "\(clock($0.start)) \($0.title)", itemId: $0.itemId, past: sameDay && $0.start <= now) }
-        return Ribbon(start: start, end: end, hours: hours, segs: segs, dots: dots, lanes: max(1, laneEnds.count), now: sameDay ? part(now) : nil)
-    }
-
-    /// "7 AM", "12 PM", "12 AM" for the ribbon's hour marks (24 is the midnight that ends the day).
-    public static func hourLabel(_ h: Int) -> String {
-        let x = ((h % 24) + 24) % 24
-        return "\(x % 12 == 0 ? 12 : x % 12) \(x < 12 ? "AM" : "PM")"
-    }
-
     // MARK: needs you
+
+    /// The renewals the owner has to make: a charge on autopay pays itself, so Today never shows it, today or on
+    /// another day swiped to (gnomecannon/aeneas#14). Renewals lists every one.
+    public static func toRenew(_ watches: [Entity]) -> [Entity] {
+        watches.filter { !$0.isDeleted && $0.bool("autopay") != true }
+    }
 
     /// One thing waiting on the owner, with what the row needs to act on it.
     public enum Need: Equatable, Identifiable, Sendable {
@@ -290,7 +197,7 @@ public enum TodayBoard {
     public static func needsYou(reminders: [Mail.DueReminder], tasks: [Entity] = [], looks: [TechLook], watches: [Entity], followUps: [Entity],
                                 meds: [TodayExtras.Med], unsorted: Int, now: Date, calendar: Calendar = .current, clock: Clock = deviceClock) -> [Need] {
         var out: [Need] = []
-        let toRenew = watches.filter { !$0.isDeleted && $0.bool("autopay") != true }
+        let toRenew = toRenew(watches)
         let renewing = Set(toRenew.map(\.id))
         let about = Dictionary(tasks.map { ($0.id, $0.str("linked_id")) }, uniquingKeysWith: { a, _ in a })
         for r in reminders {
@@ -490,32 +397,6 @@ public enum TodayBoard {
     }
 
     // MARK: coming up
-
-    public struct Charge: Equatable, Identifiable, Sendable {
-        public var id: String
-        public var title: String
-        /// "$11.99", or empty when no cost is set.
-        public var amount: String
-        public var when: String
-    }
-
-    /// Charges on autopay that are near: what will be taken and when, nothing to do. A date already past is said as
-    /// the date alone (the charge has gone through or is about to; it is never "overdue", since nobody has to pay it
-    /// by hand).
-    public static func chargesSoon(_ watches: [Entity], now: Date, calendar: Calendar = .current) -> [Charge] {
-        watches.filter { !$0.isDeleted && $0.bool("autopay") == true }.map { w in
-            let due = w.str("due")
-            let days = daysUntil(due, now: now, calendar: calendar)
-            let date = localDay(String(due.prefix(10)), calendar: calendar) ?? ISO.date(due)
-            var style = Date.FormatStyle.dateTime.weekday(.abbreviated).month(.abbreviated).day()
-            style.calendar = calendar
-            style.timeZone = calendar.timeZone
-            let day = date.map { $0.formatted(style) } ?? due
-            let amount = w.number("cost").map { String(format: "$%.2f", $0) } ?? ""
-            let when = days == 0 ? "today" : days == 1 ? "tomorrow" : days > 1 ? "\(day), in \(days) days" : day
-            return Charge(id: w.id, title: w.str("title"), amount: amount, when: when)
-        }
-    }
 
     public struct TomorrowLine: Equatable, Identifiable, Sendable {
         public var id: String

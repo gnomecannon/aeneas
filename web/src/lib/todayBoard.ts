@@ -4,7 +4,8 @@
  *
  * Today is a status report of the day in the order its owner asked every report to take: what needs you (actions
  * only, numbered), what is on now and what is left (the schedule), what is done (today so far), then what is coming
- * and needs nothing from you. An automatic record (a charge on autopay) is never an action.
+ * and needs nothing from you. An automatic record (a charge on autopay) is never an action, and Today does not list
+ * it at all: it pays itself (gnomecannon/aeneas#14); Renewals shows it.
  */
 import type { Entity } from "@everythingapp/shared";
 import type { TimelineItem } from "./planner";
@@ -69,93 +70,6 @@ export function freeLine(items: TimelineItem[], now: Date): string | null {
   const length = durationWords(Date.parse(free.end) - from);
   // A slot that has begun (the hub starts today's first one at the moment it answered) is free from now.
   return from - t < 2 * MIN ? `Free until ${fmtTime(free.end)}, ${length}` : `Free ${fmtTime(free.start)} to ${fmtTime(free.end)}, ${length}`;
-}
-
-// ---------- the day ribbon ----------
-
-export interface RibbonSeg {
-  key: string;
-  kind: "event" | "block" | "commitment" | "free";
-  /** Percent of the ribbon's width. */
-  left: number;
-  width: number;
-  /** Which row it sits in when things overlap; 0 is the top one. */
-  lane: number;
-  title: string;
-  /** "3:00 PM to 4:00 PM". */
-  when: string;
-  past: boolean;
-  /** The timeline item it draws, for its color and its link. */
-  item: Extract<TimelineItem, { kind: "event" | "block" | "commitment" | "free" }>;
-}
-export interface Ribbon {
-  start: Date;
-  end: Date;
-  /** Hour marks: every hour has a tick, every third a label. */
-  hours: { left: number; label: string | null }[];
-  segs: RibbonSeg[];
-  /** Reminders: a dot at their time. */
-  dots: { key: string; left: number; title: string; id: string; past: boolean }[];
-  lanes: number;
-  /** Where now is, percent; null when now is another day. */
-  now: number | null;
-}
-
-/**
- * The day as one strip from 7 AM to 11 PM, wider when something (or now) falls outside that: everything that holds
- * its time, placed by its time, and the free time between, so the shape of the day reads at a glance and a wide
- * window is used for the one thing that is naturally wide. All-day plans are not on it (they have no place in time),
- * nor are preference and info rules (they take no time: a custody week drawn as a bar stretched the strip from
- * midnight to midnight and took a row of its own); the Schedule card names them.
- */
-export function dayRibbon(items: TimelineItem[], now: Date, day: Date = now): Ribbon {
-  const midnight = new Date(day.getFullYear(), day.getMonth(), day.getDate());
-  const at = (h: number) => midnight.getTime() + h * 3600_000;
-  const dayEnd = at(24);
-  const spans = items.filter((it): it is RibbonSeg["item"] => isTimed(it) || it.kind === "free");
-  const reminders = items.filter((it): it is Extract<TimelineItem, { kind: "reminder" }> => it.kind === "reminder" && !!it.start);
-  const sameDay = localDate(now) === localDate(day);
-  const times = [
-    ...spans.flatMap((s) => [Date.parse(s.start), Date.parse(s.end)]),
-    ...reminders.map((r) => Date.parse(r.start)),
-    ...(sameDay ? [now.getTime()] : []),
-  ].filter((x) => Number.isFinite(x)).map((x) => Math.min(Math.max(x, midnight.getTime()), dayEnd));
-  const lo = Math.min(at(7), ...times), hi = Math.max(at(23), ...times);
-  const startH = Math.floor((lo - midnight.getTime()) / 3600_000), endH = Math.ceil((hi - midnight.getTime()) / 3600_000);
-  const start = at(startH), end = at(endH), total = end - start;
-  const pct = (ms: number) => Math.round(((Math.min(Math.max(ms, start), end) - start) / total) * 10000) / 100;
-
-  const hours: Ribbon["hours"] = [];
-  for (let h = startH; h <= endH; h++) hours.push({ left: pct(at(h)), label: h % 3 === 0 && h < endH ? hourLabel(h) : null });
-
-  // Lanes: each thing goes in the first row whose last thing has ended. Free time has a row to itself behind them.
-  const laneEnds: number[] = [];
-  const segs: RibbonSeg[] = spans
-    .slice()
-    .sort((a, b) => Date.parse(a.start) - Date.parse(b.start) || Date.parse(b.end) - Date.parse(a.end))
-    .map((it) => {
-      const s = Date.parse(it.start), e = Date.parse(it.end);
-      let lane = 0;
-      if (it.kind !== "free") {
-        lane = laneEnds.findIndex((le) => le <= s);
-        if (lane < 0) lane = laneEnds.length;
-        laneEnds[lane] = e;
-      }
-      const left = pct(s);
-      return {
-        key: it.key, kind: it.kind, left, width: Math.max(pct(e) - left, 0.4), lane,
-        title: it.kind === "free" ? `Free, ${durationWords(e - s)}` : it.title,
-        when: `${fmtTime(it.start)} to ${fmtTime(it.end)}`, past: sameDay && e <= now.getTime(), item: it,
-      };
-    });
-  const dots = reminders.map((r) => ({ key: r.key, left: pct(Date.parse(r.start)), title: `${fmtTime(r.start)} ${r.title}`, id: r.id, past: sameDay && Date.parse(r.start) <= now.getTime() }));
-  return { start: new Date(start), end: new Date(end), hours, segs, dots, lanes: Math.max(1, laneEnds.length), now: sameDay ? pct(now.getTime()) : null };
-}
-
-/** "7 AM", "12 PM", "12 AM" for the ribbon's hour marks (24 is the midnight that ends the day). */
-export function hourLabel(h: number): string {
-  const x = ((h % 24) + 24) % 24;
-  return `${x % 12 === 0 ? 12 : x % 12} ${x < 12 ? "AM" : "PM"}`;
 }
 
 // ---------- needs you ----------
@@ -359,29 +273,6 @@ export function fmtNumber(n: number): string {
 }
 
 // ---------- coming up ----------
-
-export interface Charge { key: string; id: string; title: string; amount: string; when: string }
-
-/**
- * Charges on autopay that are near: what will be taken and when, nothing to do. A date already past is said as the
- * date alone (the charge has gone through or is about to; it is never "overdue", since nobody has to pay it by hand).
- */
-export function chargesSoon(watches: Entity[], now: Date): Charge[] {
-  return watches
-    .filter((w) => w.fields.autopay === true)
-    .map((w) => {
-      const due = String(w.fields.due ?? "");
-      const days = daysUntil(due, now);
-      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(due);
-      const date = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(due);
-      const day = date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-      return {
-        key: w.id, id: w.id, title: String(w.fields.title ?? ""),
-        amount: typeof w.fields.cost === "number" ? `$${w.fields.cost.toFixed(2)}` : "",
-        when: days === 0 ? "today" : days === 1 ? "tomorrow" : days > 1 ? `${day}, in ${days} days` : day,
-      };
-    });
-}
 
 /** Tomorrow's plans from the local copy: all-day ones first, then by time; at most `limit`, with how many more. */
 export function tomorrowLines(events: Entity[], now: Date, limit = 3): { lines: { key: string; time: string; title: string }[]; more: number } {

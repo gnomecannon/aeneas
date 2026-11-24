@@ -6,7 +6,7 @@ struct NowView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
     @State private var showPark = false
-    /// The task the Park sheet opened for. Park used to act on whatever was Now when it was tapped, which could be
+    /// The task the Set aside sheet opened for. Set aside (once Park) used to act on whatever was Now when it was tapped, which could be
     /// another task if the first was finished elsewhere meanwhile.
     @State private var parkTaskId: String?
     @State private var showUpNext = false
@@ -171,7 +171,7 @@ struct NowView: View {
             VStack(spacing: 10) {
                 BigButton(title: "Done", symbol: "checkmark", prominent: true) { Task { await engine.markDone(task.id) } }
                 HStack(spacing: 10) {
-                    BigButton(title: "Park", symbol: "pause") { parkReason = ""; parkTaskId = task.id; showPark = true }
+                    BigButton(title: "Set aside", symbol: "pause") { parkReason = ""; parkTaskId = task.id; showPark = true }
                     BigButton(title: "Skip", symbol: "forward") { Task { await engine.skip(task.id) } }
                 }
                 if f?.status != .doing {
@@ -187,12 +187,12 @@ struct NowView: View {
     private var parkSheet: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Why park it?").font(.title2.bold())
+                Text("Why set it aside?").font(.title2.bold())
                 TextField("Reason", text: $parkReason, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .font(.title3)
                     .lineLimit(3...6)
-                BigButton(title: "Park", symbol: "pause", prominent: true) {
+                BigButton(title: "Set aside", symbol: "pause", prominent: true) {
                     if let id = parkTaskId { let reason = parkReason; Task { await engine.park(id, reason: reason) } }
                     showPark = false
                 }

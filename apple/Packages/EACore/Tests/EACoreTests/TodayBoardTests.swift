@@ -58,55 +58,6 @@ final class TodayBoardTests: XCTestCase {
         XCTAssertNil(TodayBoard.freeLine(free, now: at(23, 30), clock: clock))
     }
 
-    func testRibbonRunsSevenToElevenPlacesEachThingByItsTimeAndMarksWhatIsOver() {
-        let items = [span(.event, "Coffee", at(9, 30), at(10, 15)), span(.event, "Dentist", at(15), at(16)), span(.free, "", at(16), at(18)),
-                     span(.reminder, "Bins", at(20, 30)), span(.event, "Market", at(0), at(24), allDay: true)]
-        let r = TodayBoard.dayRibbon(items, now: at(15, 14), calendar: cal, clock: clock)
-        XCTAssertEqual(r.start, at(7))
-        XCTAssertEqual(r.end, at(23))
-        XCTAssertEqual(r.hours.count, 17)
-        XCTAssertEqual(r.hours.compactMap(\.label), ["9 AM", "12 PM", "3 PM", "6 PM", "9 PM"])
-        XCTAssertEqual(r.segs.map(\.title), ["Coffee", "Dentist", "Free, 2 h"])
-        let coffee = r.segs[0]
-        XCTAssertEqual(coffee.left, 0.1563, accuracy: 0.0001)
-        XCTAssertEqual(coffee.width, 0.0468, accuracy: 0.0002)
-        XCTAssertEqual(coffee.when, "09:30 to 10:15")
-        XCTAssertTrue(coffee.past)
-        XCTAssertFalse(r.segs[1].past)
-        XCTAssertEqual(r.dots.map(\.title), ["20:30 Bins"])
-        XCTAssertFalse(r.dots[0].past)
-        XCTAssertEqual(r.now ?? 0, 0.5146, accuracy: 0.0001)
-        XCTAssertEqual(r.lanes, 1)
-    }
-
-    func testRibbonWidensForSomethingEarlyOrLateAndForNowItself() {
-        let early = TodayBoard.dayRibbon([span(.event, "Run", at(5, 30), at(6, 15))], now: at(12), calendar: cal, clock: clock)
-        XCTAssertEqual(early.start, at(5))
-        let late = TodayBoard.dayRibbon([], now: at(23, 40), calendar: cal, clock: clock)
-        XCTAssertEqual(late.end, at(0, day: 23))
-        // A thing that runs past midnight stops at the end of the day.
-        let over = TodayBoard.dayRibbon([span(.event, "Show", at(22), at(2, day: 23))], now: at(12), calendar: cal, clock: clock)
-        XCTAssertEqual(over.end, at(0, day: 23))
-        XCTAssertEqual((over.segs[0].left + over.segs[0].width), 1, accuracy: 0.0002)
-    }
-
-    func testRibbonPutsThingsThatOverlapInRowsOfTheirOwnFreeTimeBehindThem() {
-        let items = [span(.event, "A", at(9), at(11)), span(.event, "B", at(10), at(12)), span(.event, "C", at(11), at(12)), span(.free, "", at(9), at(12))]
-        let r = TodayBoard.dayRibbon(items, now: at(8), calendar: cal, clock: clock)
-        XCTAssertEqual(Dictionary(uniqueKeysWithValues: r.segs.map { ($0.title, $0.lane) }), ["A": 0, "B": 1, "C": 0, "Free, 3 h": 0])
-        XCTAssertEqual(r.lanes, 2)
-    }
-
-    func testRibbonLeavesOutRulesThatAreOnlyAPreferenceOrANote() {
-        let items = [span(.commitment, "Pepper weeks", at(0), at(0, day: 23), rule: .info), span(.commitment, "Music first", at(10), at(13), rule: .preference),
-                     span(.commitment, "Work hours", at(9), at(17), rule: .commitment), span(.commitment, "Quiet evenings", at(21, 30), at(0, day: 23), rule: .blackout)]
-        let r = TodayBoard.dayRibbon(items, now: at(12), calendar: cal, clock: clock)
-        XCTAssertEqual(r.segs.map(\.title), ["Work hours", "Quiet evenings"])
-        // A whole-day note does not stretch the strip back to midnight; the blackout that runs to midnight ends it there.
-        XCTAssertEqual(r.start, at(7))
-        XCTAssertEqual(r.end, at(0, day: 23))
-    }
-
     func testOnlyACommitmentOrABlackoutTakesTime() {
         XCTAssertEqual(PlanRuleType.allCases.filter(\.takesTime), [.blackout, .commitment])
     }
@@ -118,30 +69,16 @@ final class TodayBoardTests: XCTestCase {
         XCTAssertFalse(TodayBoard.wholeDay(start: at(9), end: at(17)))
         XCTAssertTrue(TodayBoard.wholeDay(PlannerCommitment(rule_id: "r", title: "Pepper weeks", start: ISO.string(at(0)), end: ISO.string(at(0, day: 23)), type: .info)))
         XCTAssertFalse(TodayBoard.wholeDay(PlannerCommitment(rule_id: "r", title: "Broken", start: "", end: "", type: .info)))
-        // The plan's spans carry it, so the Now line and the strip leave such a rule out.
+        // The plan's spans carry it, so the Now line leaves such a rule out.
         let away = PlannerCommitment(rule_id: "r", title: "Away", start: ISO.string(at(0)), end: ISO.string(at(0, day: 23)), type: .blackout)
         let work = PlannerCommitment(rule_id: "w", title: "Work hours", start: ISO.string(at(9)), end: ISO.string(at(17)), type: .commitment)
         XCTAssertEqual(TodayBoard.spans(blocks: [], commitments: [away, work], events: [], reminders: [], freeSlots: []).map(\.allDay), [true, false])
     }
 
-    func testAWholeDayRuleIsNeverWhatIsOnNowOrABarOnTheDay() {
+    func testAWholeDayRuleIsNeverWhatIsOnNow() {
         let items = [span(.commitment, "Away", at(0), at(0, day: 23), allDay: true, rule: .blackout), span(.commitment, "Work hours", at(9), at(17), rule: .commitment)]
         XCTAssertEqual(TodayBoard.nowLine([items[0]], now: at(11)), .clear)
         XCTAssertEqual(TodayBoard.nowLine(items, now: at(11)), .during(title: "Work hours", until: at(17), left: "6 h", what: .commitment))
-        let r = TodayBoard.dayRibbon(items, now: at(11), calendar: cal, clock: clock)
-        XCTAssertEqual(r.segs.map(\.title), ["Work hours"])
-        XCTAssertEqual(r.start, at(7))
-        XCTAssertEqual(r.end, at(23))
-    }
-
-    func testRibbonHasNoNowOnAnotherDay() {
-        let r = TodayBoard.dayRibbon([span(.event, "Tomorrow", at(9, day: 23), at(10, day: 23))], now: at(15), day: at(12, day: 23), calendar: cal, clock: clock)
-        XCTAssertNil(r.now)
-        XCTAssertFalse(r.segs[0].past)
-    }
-
-    func testHourLabels() {
-        XCTAssertEqual([0, 7, 12, 13, 23, 24].map(TodayBoard.hourLabel), ["12 AM", "7 AM", "12 PM", "1 PM", "11 PM", "12 AM"])
     }
 
     // MARK: needs you
@@ -186,6 +123,15 @@ final class TodayBoardTests: XCTestCase {
                                         followUps: [], meds: [], unsorted: 0, now: now, calendar: cal, clock: clock)
         // The autopay renewal is not listed; a reminder someone set for it by hand still is.
         XCTAssertEqual(needs.map(\.id), ["r:t8", "w:w1"])
+    }
+
+    func testTodayLeavesOutChargesOnAutopayButKeepsRenewalsToMakeEvenOverdue() {
+        // gnomecannon/aeneas#14: a charge on autopay pays itself, so Today, and another day swiped to, never lists it.
+        let watches = [watch("w1", "Plex Pass", due: "2026-11-18"), watch("w2", "Spotify", due: "2026-11-20", autopay: true), watch("w3", "Domain", due: "2026-11-30")]
+        XCTAssertEqual(TodayBoard.toRenew(watches).map(\.id), ["w1", "w3"])
+        let needs = TodayBoard.needsYou(reminders: [], looks: [], watches: watches, followUps: [], meds: [], unsorted: 0, now: at(15), calendar: cal, clock: clock)
+        XCTAssertEqual(needs.map(\.id), ["w:w1", "w:w3"])
+        XCTAssertEqual(needs.first.map { if case .renewal(_, _, let overdue) = $0 { overdue } else { false } }, true)
     }
 
     func testNeedsYouIsEmptyWhenNothingWaitsAndCountsOneOfEach() {
@@ -275,19 +221,6 @@ final class TodayBoardTests: XCTestCase {
     }
 
     // MARK: coming up
-
-    func testChargesOnAutopayWithTheirAmountAndDayNeverAsOverdue() {
-        let now = at(15)
-        let c = TodayBoard.chargesSoon([watch("w1", "Spotify", due: "2026-11-25", autopay: true, cost: 11.99), watch("w2", "Plex Pass", due: "2026-11-24"), watch("w3", "Cloud", due: "2026-11-22", autopay: true, cost: 5),
-                                        watch("w4", "Hosting", due: "2026-11-23", autopay: true), watch("w5", "Gym", due: "2026-11-20", autopay: true, cost: 30)], now: now, calendar: cal)
-        XCTAssertEqual(c.map(\.title), ["Spotify", "Cloud", "Hosting", "Gym"])
-        XCTAssertEqual(c.map(\.amount), ["$11.99", "$5.00", "", "$30.00"])
-        XCTAssertEqual(c[0].when, "Wed, Nov 25, in 3 days")
-        XCTAssertEqual(c[1].when, "today")
-        XCTAssertEqual(c[2].when, "tomorrow")
-        XCTAssertEqual(c[3].when, "Fri, Nov 20")
-        XCTAssertFalse(c.contains { $0.when.contains("overdue") })
-    }
 
     func testTomorrowsPlansAllDayOnesFirstAndHowManyMoreThereAre() {
         let now = at(15)

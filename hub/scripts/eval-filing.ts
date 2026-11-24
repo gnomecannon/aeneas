@@ -171,11 +171,11 @@ const CASES: Case[] = [
   { id: "song-idea", text: "Song idea: slow verse in D minor about rain on a tin roof",
     setup: noteFolders,
     check: ({ made }) => (of(made, "music_idea").length ? null : `no music idea (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`) },
+  // The watchlist is read from Letterboxd and nothing here adds to it (gnomecannon/aeneas#16): a task to add it there.
   { id: "film-to-watch", text: "I want to watch Heat, the Michael Mann movie",
     check: ({ made }) => {
-      const f = of(made, "film").find((e) => /heat/i.test(title(e)));
-      if (!f) return `no film (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
-      return f.fields.watchlist === true && f.fields.watched === false ? null : `film not on the watchlist: ${JSON.stringify(f.fields)}`;
+      if (of(made, "film").length) return `a film was made: ${of(made, "film").map(title).join(", ")}`;
+      return of(made, "task").some((e) => /heat/i.test(title(e)) && /letterboxd/i.test(title(e))) ? null : `no task to add it on Letterboxd (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
     } },
 ];
 

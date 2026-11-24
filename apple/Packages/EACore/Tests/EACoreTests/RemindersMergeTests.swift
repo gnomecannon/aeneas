@@ -117,6 +117,72 @@ final class RemindersMergeTests: XCTestCase {
         XCTAssertEqual(p.appleCreates.last?.isWork, true)
     }
 
+    /// gnomecannon/aeneas#9: tasks from an iCloud list (Shopping) showed under no list, in Inbox, instead of under its name.
+    func testATaskTakesItsListsNameWhenTheListWasRenamedOrTheItemMovedInApple() {
+        let id = RemindersMerge.taskId(forExternal: "X1")
+        func inList(_ title: String, modified: Date?) -> ReminderItem {
+            var i = item(); i.listId = "S"; i.listTitle = title; i.modified = modified; return i
+        }
+        func linked(_ list: String) -> Entity {
+            var t = task(id, ["title": "Buy filament", "status": "inbox", "order": 1, "apple": .object(["id": "X1", "list": "S", "list_title": .string(list)])])
+            // Linked by the sync at noon, after Apple's last edit of the item at 11:00.
+            t.field_ts["apple"] = "2026-10-28T11:59:00.000Z"
+            return t
+        }
+        var rec = RemindersMerge.fields(of: item())
+        rec[RemindersMerge.listKey] = "Groceries"
+        let agreed = SyncedReminder(taskId: id, localId: "L-X1", fields: rec)
+        // The list Groceries was renamed Shopping in Apple Reminders: none of its items changed, so the link was newer
+        // and the app's old name won (a move to a list that no longer exists). The task takes the new name.
+        let renamed = inList("Shopping", modified: ISO.date("2026-10-28T11:00:00.000Z"))
+        var p = RemindersMerge.plan(items: [renamed], tasks: [linked("Groceries")], state: ["X1": agreed], presentLists: ["S"], createsInApple: true, workOff: false,
+                                    writableLists: ["Shopping", "Reminders"], now: now)
+        XCTAssertTrue(p.appleMoves.isEmpty, "never moved back to a list that is gone")
+        XCTAssertEqual(p.taskPatches.first?.fields["apple"]?.objectValue?["list_title"]?.stringValue, "Shopping")
+        XCTAssertEqual(p.state["X1"]?.fields[RemindersMerge.listKey], "Shopping")
+        // The same with a record from an older build (no list in it): the old name is on no list here, so Apple's wins.
+        let legacy = SyncedReminder(taskId: id, localId: "L-X1", fields: RemindersMerge.fields(of: item()))
+        p = RemindersMerge.plan(items: [renamed], tasks: [linked("Groceries")], state: ["X1": legacy], presentLists: ["S"], createsInApple: true, workOff: false,
+                                writableLists: ["Shopping", "Reminders"], now: now)
+        XCTAssertTrue(p.appleMoves.isEmpty)
+        XCTAssertEqual(p.taskPatches.first?.fields["apple"]?.objectValue?["list_title"]?.stringValue, "Shopping")
+        // Moved from Reminders into a new Shopping list in Apple, with no edit time given: Apple's list, not a move back.
+        p = RemindersMerge.plan(items: [inList("Shopping", modified: nil)], tasks: [linked("Reminders")], state: ["X1": legacy], presentLists: ["S"], createsInApple: true,
+                                workOff: false, writableLists: ["Shopping", "Reminders"], now: now)
+        XCTAssertTrue(p.appleMoves.isEmpty)
+        XCTAssertEqual(p.taskPatches.first?.fields["apple"]?.objectValue?["list_title"]?.stringValue, "Shopping")
+        // A move made in the app still goes to Apple, even after a later edit there (the title), by the record.
+        var moved = linked("Shopping")
+        moved.field_ts["apple"] = "2026-10-28T10:00:00.000Z"
+        let edited = inList("Groceries", modified: ISO.date("2026-10-28T11:00:00.000Z"))
+        p = RemindersMerge.plan(items: [edited], tasks: [moved], state: ["X1": agreed], presentLists: ["S"], createsInApple: true, workOff: false,
+                                writableLists: ["Shopping", "Groceries"], now: now)
+        XCTAssertEqual(p.appleMoves, [.init(localId: "L-X1", listTitle: "Shopping")])
+        XCTAssertNil(p.taskPatches.first?.fields["apple"])
+        XCTAssertEqual(p.state["X1"]?.fields[RemindersMerge.listKey], "Shopping")
+        // To a list this device does not have (an iPhone-only one, seen from the Mac): neither side changes.
+        p = RemindersMerge.plan(items: [edited], tasks: [moved], state: ["X1": agreed], presentLists: ["S"], createsInApple: false, workOff: false,
+                                writableLists: ["Groceries"], now: now)
+        XCTAssertTrue(p.appleMoves.isEmpty)
+        XCTAssertNil(p.taskPatches.first?.fields["apple"])
+        XCTAssertEqual(p.state["X1"]?.fields[RemindersMerge.listKey], "Groceries")
+        // A new item's record keeps its list.
+        p = RemindersMerge.plan(items: [renamed], tasks: [], state: [:], presentLists: ["S"], createsInApple: false, workOff: false, now: now)
+        XCTAssertEqual(p.state["X1"]?.fields[RemindersMerge.listKey], "Shopping")
+    }
+
+    /// A task made inside a list on the web: the iPhone adds it to that list, and the Mac sees the new item before the
+    /// task's link arrives. It made a second task for it, in Inbox.
+    func testAnItemMadeForATaskInAListMeetsItOnTheOtherDevice() {
+        var t = task("T1", ["title": "Milk", "status": "next", "order": 1, "apple": .object(["id": "", "list": "", "list_title": "Shopping"])])
+        t.created_at = "2026-10-28T11:50:00.000Z"
+        var i = item(title: "Milk"); i.listTitle = "Shopping"
+        let p = RemindersMerge.plan(items: [i], tasks: [t], state: [:], presentLists: ["P"], createsInApple: false, workOff: false, now: now)
+        XCTAssertFalse(p.taskPatches.contains { $0.create == true }, "no second task")
+        XCTAssertEqual(p.state["X1"]?.taskId, "T1")
+        XCTAssertEqual(p.taskPatches.first?.fields["apple"]?.objectValue?["id"]?.stringValue, "X1")
+    }
+
     func testAnAppleItemWhoseLinkHasNotArrivedMeetsItsTaskInsteadOfMakingASecond() {
         var t = task("T1", ["title": "Buy filament", "status": "next", "order": 1])
         t.created_at = "2026-10-28T11:50:00.000Z"
@@ -313,4 +379,28 @@ final class RemindersMergeTests: XCTestCase {
         XCTAssertTrue(off.keepsRepeat)
     }
 
+
+    func testATaskMovedToWorkInTheAppLeavesItsPersonalListAndAWorkItemIsNeverDeleted() {
+        let id = RemindersMerge.taskId(forExternal: "X1")
+        let agreed = SyncedReminder(taskId: id, localId: "L-X1", fields: RemindersMerge.fields(of: item()))
+        let link: JSONValue = .object(["id": "X1", "list": "P", "list_title": "Personal"])
+        // Moved to Work in the app: the item in the personal list goes, and the tie with it; nothing comes back in.
+        var moved = task(id, ["title": "Buy filament", "status": "inbox", "order": 1, "apple": link], space: .work)
+        moved.field_ts["space"] = "2026-10-28T11:30:00.000Z"
+        var p = RemindersMerge.plan(items: [item()], tasks: [moved], state: ["X1": agreed], presentLists: ["P"], createsInApple: true, workOff: false, now: now)
+        XCTAssertEqual(p.appleDeletes, ["L-X1"])
+        XCTAssertEqual(p.taskPatches.map(\.fields), [["apple": .null]])
+        XCTAssertNil(p.state["X1"])
+        XCTAssertTrue(p.appleCreates.isEmpty, "a work task with no list stays out of Apple")
+        // A work task in a personal list that was never moved in the app (the account was read as personal) is left alone.
+        let notMoved = task(id, ["title": "Buy filament", "status": "inbox", "order": 1, "apple": link], space: .work)
+        p = RemindersMerge.plan(items: [item()], tasks: [notMoved], state: ["X1": agreed], presentLists: ["P"], createsInApple: true, workOff: false, now: now)
+        XCTAssertTrue(p.appleDeletes.isEmpty)
+        XCTAssertNotNil(p.state["X1"])
+        // A deleted work task's item stays in the work account.
+        let workLink: JSONValue = .object(["id": "X1", "list": "W", "list_title": "Work"])
+        let gone = task(id, ["title": "Buy filament", "status": "inbox", "order": 1, "apple": workLink], deleted: true, space: .work)
+        p = RemindersMerge.plan(items: [item(work: true)], tasks: [gone], state: ["X1": agreed], presentLists: ["W"], createsInApple: true, workOff: false, now: now)
+        XCTAssertTrue(p.appleDeletes.isEmpty)
+    }
 }

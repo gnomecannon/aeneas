@@ -2,8 +2,8 @@ import SwiftUI
 import EACore
 
 // The Mail screen's sheets and settings: Snooze (and the owner's snooze times), when a bundle shows in the Inbox, the
-// owner's own bundles, new-mail notifications and the mailboxes, and a new reminder. All of it is kept on the hub for
-// every device, as on the web.
+// owner's own bundles, new-mail notifications and the mailboxes. All of it is kept on the hub for every device, as on
+// the web. (A new reminder is made where the app makes reminders, not here: CONTRACT.md, Mail, Reminders.)
 
 private let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
@@ -18,7 +18,7 @@ private func clockString(_ d: Date) -> String {
 }
 
 /// Snooze: later today, tomorrow, the weekend, next week (as the owner set them), or a date and time of your own. For
-/// threads, until then on the hub (the mail stays in iCloud's Inbox); for a due reminder, its task's snooze, with a
+/// threads, until then on the hub (the mail stays in its mailbox's Inbox); for a due reminder, its task's snooze, with a
 /// reason when the task asks for one.
 struct MailSnoozeSheet: View {
     @ObservedObject var store: MailStore
@@ -292,10 +292,11 @@ struct MailBundleForm: View {
     }
 }
 
-/// Each mailbox's last refresh or problem, what changes in iCloud, and which new mail notifies and what it says.
+/// Each mailbox's last refresh or problem, what changes in the mailbox, and which new mail notifies and what it says.
 struct MailSettingsSheet: View {
     @ObservedObject var store: MailStore
     @Environment(\.dismiss) private var dismiss
+    @State private var foldNotes: [MailFoldNoteEntry]?
 
     var body: some View {
         NavigationStack {
@@ -306,10 +307,13 @@ struct MailSettingsSheet: View {
                             Text(verbatim: m.email)
                             Text(m.last_refresh.flatMap(ISO.date).map { "Refreshed \($0.shortDateTime)" } ?? "Not refreshed yet")
                                 .font(.footnote).foregroundStyle(.secondary)
+                            if m.read_only == true {
+                                Text("Read only: Aeneas changes nothing in it (Settings, Connections).").font(.footnote).foregroundStyle(.secondary)
+                            }
                             if let e = m.last_error { Text(verbatim: e).font(.footnote).foregroundStyle(.dangerText) }
                         }
                     }
-                    Text("Opening a mail marks it read in iCloud too; Done moves it to Archive there, and Undo moves it back.")
+                    Text("Opening a mail marks it read in your mailbox too, and Pin flags it there (a flag in your mail app pins it here); Done moves it to Archive there, and Undo moves it back.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 SwiftUI.Section("Notifications") {
@@ -321,14 +325,26 @@ struct MailSettingsSheet: View {
                     }
                     Text("A bundle's own switch is in its view, under Show in Inbox.").font(.footnote).foregroundStyle(.secondary)
                 }
-                SwiftUI.Section("Keyboard keys") {
-                    ForEach(Mail.keys, id: \.keys) { k in
-                        LabeledContent(k.does) { Text(verbatim: k.keys).font(.body.monospaced()) }
+                MailSortingSettings(store: store, notes: $foldNotes)
+                if let blocked = store.list?.blocked, !blocked.isEmpty {
+                    SwiftUI.Section {
+                        ForEach(blocked, id: \.self) { b in
+                            HStack {
+                                Text(verbatim: b)
+                                Spacer()
+                                Button("Unblock") { Task { await store.unblock(b) } }.buttonStyle(.borderless)
+                            }
+                        }
+                    } header: {
+                        Text("Blocked senders")
+                    } footer: {
+                        Text("Their mail goes to Spam.")
                     }
                 }
             }
             .formStyle(.grouped)
             .navigationTitle("Mailboxes and settings")
+            .task { foldNotes = await store.foldNotes() }
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -336,47 +352,6 @@ struct MailSettingsSheet: View {
         }
         #if os(macOS)
         .frame(minWidth: 460, minHeight: 520)
-        #endif
-    }
-}
-
-/// A new reminder from Mail: a title and a time, saved as a task like any other (Tasks, Reminders, its notification).
-struct NewReminderSheet: View {
-    @EnvironmentObject var engine: SyncEngine
-    @Environment(\.dismiss) private var dismiss
-    @State private var title = ""
-    @State private var at: Date = {
-        let soon = Date().addingTimeInterval(3600)
-        return Calendar.current.date(bySetting: .minute, value: 0, of: soon) ?? soon
-    }()
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                TextField("What to remember", text: $title, prompt: Text("Call the dentist"))
-                    .onChange(of: title) { _, v in if v.count > 200 { title = String(v.prefix(200)) } }
-                DatePicker("When", selection: $at)
-            }
-            .formStyle(.grouped)
-            .navigationTitle("New reminder")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                        Task { await engine.createReminder(title: t, at: at); dismiss() }
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        #if os(macOS)
-        .frame(minWidth: 400, minHeight: 240)
-        #else
-        .presentationDetents([.medium])
         #endif
     }
 }

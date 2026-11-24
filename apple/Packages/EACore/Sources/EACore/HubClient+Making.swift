@@ -84,10 +84,16 @@ extension HubClient {
         return try await post("procedures/\(id)/reset", B(), as: Entity.self)
     }
 
-    /// One line such as `Am F C G 6/8 112bpm drop D` becomes a `music_idea`.
-    public func musicQuick(_ text: String) async throws -> Entity {
-        struct B: Encodable { var text: String }
-        return try await post("music/quick", B(text: text), as: Entity.self)
+    /// One line such as `Am F C G 6/8 112bpm drop D` becomes a `music_idea`; with a project, in that project (a card on
+    /// Music's Projects page).
+    public func musicQuick(_ text: String, projectId: String? = nil) async throws -> Entity {
+        try await post("music/quick", Self.musicQuickBody(text, projectId: projectId), as: Entity.self)
+    }
+
+    /// The body of `POST /music/quick`: `project_id` only when there is one.
+    struct MusicQuickBody: Encodable { var text: String; var project_id: String? }
+    static func musicQuickBody(_ text: String, projectId: String?) -> MusicQuickBody {
+        MusicQuickBody(text: text, project_id: projectId.flatMap { $0.isEmpty ? nil : $0 })
     }
 
     /// Today's quiz, or nil when none was built.

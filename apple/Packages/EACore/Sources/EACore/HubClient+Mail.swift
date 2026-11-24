@@ -7,6 +7,11 @@ private struct PinBody: Encodable { var pinned: Bool }
 private struct UntilBody: Encodable { var until: String }
 private struct NotifyBody: Encodable { var people: Bool?; var detail: String?; var bundle: String?; var on: Bool? }
 private struct BundleBody: Encodable { var name: String; var color: Int; var addresses: [String]; var domains: [String]; var words: [String] }
+private struct MoveBody: Encodable { var ids: [String]; var to: String; var undo: Bool? }
+private struct SenderBody: Encodable { var sender: String }
+private struct UnsubscribeBody: Encodable { var how: String; var direct: Bool? }
+private struct OnBody: Encodable { var on: Bool }
+private struct FoldBody: Encodable { var lines: [String]; var no_fold: Bool }
 private struct Empty: Codable {}
 private struct Ignored: Decodable {}
 
@@ -82,6 +87,66 @@ extension HubClient {
     public func mailBundleDelivery(_ bundle: String, _ d: MailBundleDelivery) async throws -> [String: MailBundleDelivery] {
         try await post("mail/settings/bundles/\(Self.bundlePath(bundle))", d, as: [String: MailBundleDelivery].self, method: "PUT")
     }
+
+    // MARK: Writing: drafts, never sent
+
+    /// A draft: with `preview`, what the hub would save; else saved to the mailbox's Drafts folder (never sent: the
+    /// owner sends it from their mail app). Its files go in the body, base64, at most 15 MB of them.
+    public func mailDraft(_ r: MailDraftRequest) async throws -> MailDraft { try await post("mail/drafts", r, as: MailDraft.self) }
+
+    /// A reply's greeting and sign-off, suggested by the hub's own model (or the plain ones), with up to 3 short replies.
+    public func mailGreeting(_ id: String) async throws -> MailGreeting { try await post(Self.mailPath(id, "/greeting"), Empty(), as: MailGreeting.self) }
+
+    /// An open mail's attachments now, with its pictures' previews (read from the mailbox by the hub, kept nowhere).
+    public func mailAttachments(_ id: String) async throws -> [MailAttachment] { try await get(Self.mailPath(id, "/attachments"), as: MailAttachmentList.self).attachments }
+
+    /// One attachment's bytes, only when the owner asks for it (Download). Never kept by the app: the owner saves it.
+    public func mailAttachment(_ id: String, part: String) async throws -> Data {
+        try await send("GET", Self.mailPath(id, "/attachments/" + (part.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "."))) ?? "")))
+    }
+
+    // MARK: Folders, moves, unsubscribe and block
+
+    /// One of the mailboxes' other folders: its kept mail, newest first.
+    public func mailFolder(_ key: String) async throws -> [MailFolderMail] {
+        try await get("mail/folders/\(key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")", as: MailFolderList.self).messages
+    }
+
+    /// Delete (`trash`), Spam (`junk`), Not spam and Move to Inbox (`inbox`), or Move to one of the owner's folders (its
+    /// key): a move in the mailbox, nothing erased. `undo`: this takes back a move just made, so the hub puts the mail
+    /// back as it was. At most `Mail.batchMax` ids.
+    public func mailMove(_ ids: [String], to: String, undo: Bool = false) async throws -> MailMovedTo {
+        try await post("mail/move", MoveBody(ids: ids, to: to, undo: undo ? true : nil), as: MailMovedTo.self)
+    }
+
+    /// The ways a mail offers to unsubscribe, read from it now; then one of them (`direct`: the owner accepted that the
+    /// sender sees the home's address, on a hub without Tor).
+    public func mailUnsubscribeOptions(_ id: String) async throws -> MailUnsubscribeOptions { try await get(Self.mailPath(id, "/unsubscribe"), as: MailUnsubscribeOptions.self) }
+    public func mailUnsubscribe(_ id: String, how: String, direct: Bool = false) async throws -> MailUnsubscribed {
+        try await post(Self.mailPath(id, "/unsubscribe"), UnsubscribeBody(how: how, direct: direct ? true : nil), as: MailUnsubscribed.self)
+    }
+
+    /// Block a sender (an address, or `@domain`): their mail goes to Spam, now and from now on. Unblock: it stops.
+    public func mailBlock(_ sender: String) async throws -> MailBlocked { try await post("mail/settings/blocked", SenderBody(sender: sender), as: MailBlocked.self) }
+    public func mailUnblock(_ sender: String) async throws { _ = try await post("mail/settings/unblock", SenderBody(sender: sender), as: Ignored.self) }
+
+    // MARK: Search, sorting and folding notes
+
+    /// Every kept mail with each word of `q` (whole texts, Inbox and folders), or all mail with one person (`with`).
+    public func mailSearch(_ q: String, with person: String = "") async throws -> [MailSearchHit] {
+        try await get("mail/search", query: ["q": q.isEmpty ? nil : q, "with": person.isEmpty ? nil : person], as: MailSearchHits.self).hits
+    }
+
+    /// Triage on or off (off erases every kept triage).
+    public func mailTriage(_ on: Bool) async throws { _ = try await post("mail/settings/triage", OnBody(on: on), as: Ignored.self, method: "PUT") }
+
+    /// Sort new mail now: the hub's model runs because the owner asked. Answers at once with how sorting stands.
+    public func mailTriageNow() async throws -> MailTriageState { try await post("mail/triage", Empty(), as: MailTriageState.self) }
+
+    /// "Something important missing?": a folding note on a mail; every note; clearing them. Kept on the hub only.
+    public func mailFolding(_ id: String, lines: [String], noFold: Bool) async throws { _ = try await post(Self.mailPath(id, "/folding"), FoldBody(lines: lines, no_fold: noFold), as: Ignored.self) }
+    public func mailFoldNotes() async throws -> [MailFoldNoteEntry] { try await get("mail/folding-notes", as: MailFoldNotes.self).notes }
+    public func mailClearFoldNotes() async throws { _ = try await send("DELETE", "mail/folding-notes") }
 
     /// The owner's snooze times (what "Tomorrow" and the rest mean).
     @discardableResult

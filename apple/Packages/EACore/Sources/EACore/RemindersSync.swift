@@ -240,7 +240,8 @@ public final class RemindersSync: ObservableObject {
         let tasks = engine.entities.values.filter { $0.kind == .task }
         let workOff = UserDefaults.standard.bool(forKey: CalendarImporter.workOffKey)
         let plan = RemindersMerge.plan(items: items, tasks: Array(tasks), state: state, presentLists: Set(lists.map(\.calendarIdentifier)),
-                                       createsInApple: createsInApple, workOff: workOff, now: now)
+                                       createsInApple: createsInApple, workOff: workOff,
+                                       writableLists: Set(lists.filter(\.allowsContentModifications).map(\.title)), now: now)
         var newState = plan.state
 
         for p in plan.taskPatches { _ = await engine.apply(p) }
@@ -284,7 +285,9 @@ public final class RemindersSync: ObservableObject {
             let ext = r.calendarItemExternalIdentifier ?? r.calendarItemIdentifier
             let link: JSONValue = .object(["id": .string(ext), "list": .string(r.calendar.calendarIdentifier), "list_title": .string(r.calendar.title)])
             _ = await engine.apply(Patch(id: taskId, kind: .task, ts: ISO.now(), fields: ["apple": link]))
-            newState[ext] = SyncedReminder(taskId: taskId, localId: r.calendarItemIdentifier, fields: fields)
+            var agreed = fields
+            agreed[RemindersMerge.listKey] = r.calendar.title
+            newState[ext] = SyncedReminder(taskId: taskId, localId: r.calendarItemIdentifier, fields: agreed)
         }
         saveState(newState)
         return "\(items.count) in Reminders; \(plan.taskPatches.count) task changes, \(plan.appleWrites.count + created.count + plan.appleDeletes.count) Reminders changes"

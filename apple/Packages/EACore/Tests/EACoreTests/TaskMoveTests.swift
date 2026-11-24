@@ -47,4 +47,39 @@ final class TaskMoveTests: XCTestCase {
         XCTAssertTrue(m8)
         XCTAssertEqual(engine.get(d.id)?.str("status"), "scheduled")
     }
+
+    func testDoneNotDoneDeleteAndMoveCanBeTakenBack() async throws {
+        let engine = try makeEngine()
+        let a = await engine.createTask(title: "Call Robin", status: .next)!
+        let b = await engine.createTask(title: "Book the dentist", status: .next)!
+
+        // Done, then Undo: open again as it was.
+        let back = await engine.markDoneUndoable(a.id)!
+        XCTAssertEqual(engine.get(a.id)?.str("status"), "done")
+        _ = await engine.update(a.id, fields: back)
+        XCTAssertEqual(engine.get(a.id)?.str("status"), "next")
+        XCTAssertEqual(engine.get(a.id)?.fields["done_at"] ?? .null, .null)
+
+        // Not done from the Done list: at the end of Next.
+        await engine.markDone(a.id)
+        _ = await engine.reopen(a.id)
+        XCTAssertEqual(engine.tasks(status: .next).map(\.id), [b.id, a.id])
+        XCTAssertEqual(engine.get(a.id)?.fields["done_at"] ?? .null, .null)
+
+        // Delete, then Undo; a personal task tied to Apple Reminders is added there again.
+        _ = await engine.update(a.id, fields: ["apple": .object(["id": "X1", "list": "P", "list_title": "Groceries"])])
+        await engine.softDelete(a.id)
+        XCTAssertFalse(engine.tasks.contains { $0.id == a.id })
+        await engine.restore(a.id)
+        XCTAssertTrue(engine.tasks.contains { $0.id == a.id })
+        XCTAssertEqual(engine.get(a.id)?.fields["apple"]?.objectValue?["id"]?.stringValue, "")
+        XCTAssertEqual(engine.get(a.id)?.fields["apple"]?.objectValue?["list_title"]?.stringValue, "Groceries")
+
+        // Moved to Work, then edited: the edit names no space, so it stays in Work.
+        await engine.moveToSpace(b.id, .work)
+        XCTAssertEqual(engine.get(b.id)?.space, .work)
+        XCTAssertNotNil(engine.get(b.id)?.field_ts["space"])
+        _ = await engine.update(b.id, fields: ["title": "Book the dentist for Alex"])
+        XCTAssertEqual(engine.get(b.id)?.space, .work)
+    }
 }

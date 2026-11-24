@@ -376,7 +376,7 @@ Drafts only. Nothing is sent from Aeneas: a draft goes to iCloud's Drafts, and t
 
 ---
 
-**Other mail accounts (next PR):** besides iCloud, Gmail and any IMAP server with an app password (Settings, Connections, Other mail accounts: Gmail fills in the server; another provider takes the server, port and username). Their Inbox joins the same Inbox and bundles, with every feature here; Done moves to their Archive (Gmail's All Mail). The screen's words say "your mailbox" and "your mail app" where they said iCloud and Apple Mail. Brand logos stay iCloud's only. They are added and switched in Settings, Connections, **Internet Accounts**: each account's Mail switch decides whether its Inbox shows here.
+**Other mail accounts (since 1.0.15):** besides iCloud, Gmail and any IMAP server with an app password (Settings, Connections, Internet Accounts: Gmail fills in the server; another provider takes the server, port and username; on every device, the Apple apps since gnomecannon/aeneas#23). Their Inbox joins the same Inbox and bundles, with every feature here; Done moves to their Archive (Gmail's All Mail). The screen's words say "your mailbox" and "your mail app" where they said iCloud and Apple Mail. Brand logos stay iCloud's only. They are added and switched in Settings, Connections, **Internet Accounts**: each account's Mail switch decides whether its Inbox shows here.
 
 ## 12. Platform guidelines: iPhone, iPad and the Mac app
 

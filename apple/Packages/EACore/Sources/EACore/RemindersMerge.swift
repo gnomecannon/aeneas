@@ -68,6 +68,9 @@ public struct RemindersPlan: Equatable, Sendable {
 /// the newer side (to the task when the match was by title alone). Pure, so it is tested without EventKit.
 public enum RemindersMerge {
     public static let fieldNames = ["title", "notes", "due", "remind_at", "repeat", "done"]
+    /// The key in a sync record for the list both sides last agreed the item is in, by name. Records from before
+    /// 2026-11-24 have none.
+    public static let listKey = "list"
     /// Finished Apple items older than this are not brought in.
     public static let importDoneWithin: TimeInterval = 14 * 86400
 
@@ -134,8 +137,9 @@ public enum RemindersMerge {
     ///   - createsInApple: whether this device adds Apple items for tasks made in the app (only one device does, so
     ///     the iPhone and Mac never both add the same one).
     ///   - workOff: the work space is off, so work lists are left alone.
+    ///   - writableLists: the names of the lists this device can move an item into; nil when not known (any).
     public static func plan(items: [ReminderItem], tasks: [Entity], state: [String: SyncedReminder], presentLists: Set<String>,
-                            createsInApple: Bool, workOff: Bool, now: Date = Date()) -> RemindersPlan {
+                            createsInApple: Bool, workOff: Bool, writableLists: Set<String>? = nil, now: Date = Date()) -> RemindersPlan {
         var out = RemindersPlan()
         var byLink: [String: Entity] = [:]
         var byId: [String: Entity] = [:]
@@ -178,8 +182,10 @@ public enum RemindersMerge {
                 // Only an open item: a finished one is another reminder that only shares the name.
                 let title = plain(item.title)
                 let space: Space = item.isWork ? .work : .personal
+                // A task made inside a list carries a link with no id yet ({ id: "", list_title }): it is not linked
+                // either. Left out, the Mac made a second task for the iPhone's new item, in Inbox.
                 task = tasks.filter { t in
-                    t.kind == .task && !t.isDeleted && t.fields["apple"] == nil && t.space == space && t.str("status") != "done"
+                    t.kind == .task && !t.isDeleted && linkId(t).isEmpty && t.space == space && t.str("status") != "done"
                         && !taken.contains(t.id) && !recorded.contains(t.id) && !title.isEmpty && plain(t.str("title")) == title
                         && (ISO.date(t.created_at).map { now.timeIntervalSince($0) < 86400 } ?? false)
                 }.min { ($0.created_at, $0.id) < ($1.created_at, $1.id) }
@@ -201,7 +207,9 @@ public enum RemindersMerge {
                 f["friction"] = "none"
                 f["apple"] = link
                 out.taskPatches.append(Patch(id: id, kind: .task, space: item.isWork ? .work : .personal, ts: ts, fields: f, create: true))
-                out.state[item.externalId] = SyncedReminder(taskId: id, localId: item.localId, fields: a)
+                var rec = a
+                rec[listKey] = item.listTitle
+                out.state[item.externalId] = SyncedReminder(taskId: id, localId: item.localId, fields: rec)
                 continue
             }
 
@@ -209,6 +217,14 @@ public enum RemindersMerge {
                 // Deleted in the app: delete it in Apple Reminders too, except work items (turning the work space
                 // off erases them from the app, never from the work account).
                 if prior != nil, t.space != .work { out.appleDeletes.append(item.localId) }
+                continue
+            }
+
+            if t.space == .work, !item.isWork, t.field_ts["space"] != nil {
+                // Moved to Work in the app (a move leaves its stamp) while its item is in a personal list: work tasks
+                // stay out of personal lists, so the item goes, as a deleted personal task's does, and so does the tie.
+                out.appleDeletes.append(item.localId)
+                if t.fields["apple"] != nil { out.taskPatches.append(Patch(id: t.id, kind: .task, ts: ts, fields: ["apple": .null])) }
                 continue
             }
 
@@ -239,10 +255,38 @@ public enum RemindersMerge {
             var patch = taskFields(toTask, item: item, task: t, now: now)
             let currentLink = t.fields["apple"]?.objectValue
             let taskList = currentLink?["list_title"]?.stringValue ?? ""
-            if !taskList.isEmpty, taskList != item.listTitle,
-               (ISO.date(t.field_ts["apple"]) ?? .distantPast) > (item.modified ?? .distantPast) {
-                // Moved to another list in the app, after the last change in Apple: move it there too.
-                out.appleMoves.append(.init(localId: item.localId, listTitle: taskList))
+            // The list, merged like the other fields against the one both sides last agreed on. It used to go by time
+            // alone: the app's side won whenever the task's link was written after Apple's last edit of the item. But
+            // renaming a list in Apple Reminders changes none of its items, and an item's edit time can be missing,
+            // so the app kept the old name (or the default list) and tried to move the item back, which failed for a
+            // list that no longer exists. Tasks from such a list showed under no list, in Inbox, for good.
+            var agreedList = item.listTitle
+            let movable = !taskList.isEmpty && (writableLists?.contains(taskList) ?? true)
+            if !taskList.isEmpty, taskList != item.listTitle {
+                let appNewer = (ISO.date(t.field_ts["apple"]) ?? .distantPast) > (item.modified ?? .distantPast)
+                let appMoved: Bool
+                if let was = prior?.fields[listKey] {
+                    let aChanged = item.listTitle != was, tChanged = taskList != was
+                    if tChanged && !aChanged { appMoved = true }
+                    else if aChanged && !tChanged { appMoved = false }
+                    else { appMoved = appNewer && item.modified != nil }
+                } else {
+                    // A record from before lists were kept in it: the time decides, as it did, but only against a
+                    // known edit time and a list this device has (a renamed list's old name is on none).
+                    appMoved = appNewer && item.modified != nil && writableLists.map { $0.contains(taskList) } != false
+                }
+                if appMoved {
+                    if movable {
+                        // Moved to another list in the app: move it there too.
+                        out.appleMoves.append(.init(localId: item.localId, listTitle: taskList))
+                        agreedList = taskList
+                    } else {
+                        // Not a list this device can put it in (another device may have it): left as both are.
+                        agreedList = prior?.fields[listKey] ?? item.listTitle
+                    }
+                } else {
+                    patch["apple"] = link
+                }
             } else if currentLink?["id"]?.stringValue != item.externalId || taskList != item.listTitle {
                 patch["apple"] = link
             }
@@ -250,6 +294,7 @@ public enum RemindersMerge {
             if !toApple.isEmpty { out.appleWrites.append(.init(localId: item.localId, fields: toApple)) }
             var agreed = a
             for (k, v) in toApple { agreed[k] = v }
+            agreed[listKey] = agreedList
             out.state[item.externalId] = SyncedReminder(taskId: t.id, localId: item.localId, fields: agreed)
         }
 

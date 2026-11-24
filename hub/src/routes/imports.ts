@@ -72,7 +72,7 @@ export function importRoutes() {
     const esc = r.message.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
     return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Gmail</title><body style="font:16px system-ui;margin:40px auto;max-width:420px;padding:0 16px"><h1>${r.ok ? "Gmail linked" : "Gmail not linked"}</h1><p>${esc}</p><p>You can close this tab and go back to EverythingApp.</p></body>`);
   });
-  r.post("/connections/google/sync", async (c) => c.json(await readMailNow(c.get("hub"))));
+  r.post("/connections/google/sync", async (c) => c.json(await readMailNow(c.get("hub"), readNowAccount(await readJsonObject(c).catch(() => ({}))))));
   r.delete("/connections/google/:email", async (c) => c.json(await disconnectGoogle(c.get("hub"), decodeURIComponent(c.req.param("email")).toLowerCase())));
 
   // iCloud Mail (icloud.ts): an app-specific password, checked with iCloud once and kept sealed; never returned.
@@ -87,7 +87,7 @@ export function importRoutes() {
   r.post("/connections/icloud/sync", async (c) => {
     const hub = c.get("hub");
     if (!hub.modules.on("mail")) throw new StoreError(404, "Mail receipts is off. Turn it on in Settings, Modules.");
-    return c.json(await readMailNow(hub));
+    return c.json(await readMailNow(hub, readNowAccount(await readJsonObject(c).catch(() => ({})))));
   });
   r.delete("/connections/icloud/:email", (c) => {
     const hub = c.get("hub");
@@ -110,7 +110,8 @@ export function importRoutes() {
   // Internet Accounts (since 2026-11-22): one account's switches. Mail off takes its mail off the Mail screen at once;
   // Receipts off drops what was waiting to be read (what was filed stays). The last use switched off removes the
   // account, password and all (`removed` and a `message` in the answer): a password is kept only while something
-  // uses it. (It stayed on the hub with every switch off, against what the contract and the guide say.)
+  // uses it. (It stayed on the hub with every switch off, against what the contract and the guide say.) Read only
+  // (since 2026-11-24) stops every write to the account, here on the hub (icloud.ts refuseIfReadOnly, calendar-sync.ts).
   r.put("/connections/accounts/:key", async (c) => {
     const hub = c.get("hub");
     const key = decodeURIComponent(c.req.param("key")).toLowerCase();
@@ -184,6 +185,13 @@ export function importRoutes() {
   return r;
 }
 
+/** Read now for one account (`{ account }`, an Internet Accounts key), or every account when none is named. */
+function readNowAccount(body: Record<string, unknown>): string | undefined {
+  if (body.account === undefined) return undefined;
+  if (typeof body.account !== "string" || !body.account || body.account.length > 300) throw new StoreError(422, "account is an account's key");
+  return body.account.toLowerCase();
+}
+
 /**
  * Remove an account whole (Internet Accounts): its calendar sync stops (its events stay in the app), its mail leaves
  * the Mail screen, what waited to be read for receipts goes (what was filed stays), and its password or sign-in is
@@ -223,7 +231,8 @@ export function startImportJob(hub: Hub, everyMs = 3600_000): () => void {
     const c = hub.connections.get();
     const steamDue = tick++ % 6 === 0;
     if (c.steam && steamDue && hub.modules.on("games")) await syncSteam(hub).then((r) => console.log(`[imports] steam: ${r.games} games, ${r.created} new, ${r.updated} changed`), (e) => console.error(`[imports] steam: ${errCode(e)}`));
-    if (c.atlassian?.spaces?.length && hub.modules.on("wiki")) await syncConfluence(hub).then((r) => console.log(`[imports] confluence: ${r.pages} pages, ${r.updated} changed, ${r.removed} removed, ${r.images} images`), (e) => console.error(`[imports] confluence: ${errCode(e)}`));
+    // A link whose sign-in Atlassian ended waits for Reconnect: its refused token is not sent again every hour.
+    if (c.atlassian?.spaces?.length && !c.atlassian.expired && hub.modules.on("wiki")) await syncConfluence(hub).then((r) => console.log(`[imports] confluence: ${r.pages} pages, ${r.updated} changed, ${r.removed} removed, ${r.images} images`), (e) => console.error(`[imports] confluence: ${errCode(e)}`));
     if (c.letterboxd?.username && hub.modules.on("films")) await syncLetterboxd(hub).then((r) => console.log(`[imports] letterboxd: ${r.entries} entries, ${r.created} new, ${r.updated} changed`), (e) => console.error(`[imports] letterboxd: ${errCode(e)}`));
   };
   const first = setTimeout(() => void run(), 120_000);

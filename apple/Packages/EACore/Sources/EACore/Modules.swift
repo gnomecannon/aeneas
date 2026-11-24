@@ -19,6 +19,9 @@ public struct ModuleInfo: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// For a module whose work also needs setting up on the hub: whether it is set up and working there (since
     /// 2026-11-18, only `calendars`: the hub keeps at least one calendar in step). Nil when the hub does not say.
     public var active: Bool?
+    /// Where its switch is when not in Settings, Modules (since 2026-11-24): "connections", for Apple Reminders, whose
+    /// switch is on the iCloud account in Settings, Connections (gnomecannon/aeneas#10). Nil for every other module.
+    public var switch_in: String?
 
     public struct AdvancedSetup: Codable, Equatable, Hashable, Sendable {
         public var minutes: String
@@ -42,6 +45,7 @@ public struct ModuleInfo: Codable, Equatable, Hashable, Sendable, Identifiable {
         permissions = try? c.decodeIfPresent([String].self, forKey: .permissions)
         setup = try? c.decodeIfPresent(AdvancedSetup.self, forKey: .setup)
         active = try? c.decodeIfPresent(Bool.self, forKey: .active)
+        switch_in = try? c.decodeIfPresent(String.self, forKey: .switch_in)
     }
 }
 
@@ -111,8 +115,9 @@ public enum AppModule: String, CaseIterable, Sendable {
     case appleCalendar = "apple_calendar"
     /// Calendar accounts: the hub keeps iCloud calendars in step with the app, both ways (since 2026-11-18).
     case calendars
-    /// Mail: the iCloud Inbox with bundles, Pin, Done and Snooze (since 2026-11-19). Off on a new hub, so the app shows
-    /// it only while the hub lists it as on (`isOnListed`), never while the switches are not known.
+    /// Mail: the Inbox of each linked mailbox (iCloud Mail, Gmail or another mail server) with bundles, Pin, Done and
+    /// Snooze (since 2026-11-19). Off on a new hub, so the app shows it only while the hub lists it as on
+    /// (`isOnListed`), never while the switches are not known.
     case mailInbox = "mail_inbox"
 
     /// The module an entity kind belongs to, nil for the core. Mirrors the hub's `kinds` in modules.ts.
@@ -143,11 +148,15 @@ extension Array where Element == ModuleInfo {
     /// has no such module, or switches not loaded yet, never show a screen the hub cannot answer.
     public func isOnListed(_ m: AppModule) -> Bool { first { $0.id == m.rawValue }?.on ?? false }
 
-    /// Grouped for Settings, groups and modules in the hub's order.
+    /// The modules Settings, Modules switches: not one whose switch is elsewhere (`switch_in`), so one setting is never in
+    /// two places.
+    public var listedInModules: [ModuleInfo] { filter { $0.switch_in == nil } }
+
+    /// Grouped for Settings, groups and modules in the hub's order (a module switched elsewhere left out).
     public var grouped: [ModuleGroup] {
         var order: [String] = []
         var by: [String: [ModuleInfo]] = [:]
-        for m in self {
+        for m in listedInModules {
             if by[m.group] == nil { order.append(m.group) }
             by[m.group, default: []].append(m)
         }

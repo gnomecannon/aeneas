@@ -165,12 +165,12 @@ test("accounts: the last use switched off removes the account with its password;
     linked(t, { calendar: CAL });
     await t.api("/mail/refresh", { method: "POST" });
     assert.equal(kept(t), 1);
-    assert.deepEqual(await put({ inbox: false, receipts: false }), { receipts: false, inbox: false });
+    assert.deepEqual(await put({ inbox: false, receipts: false }), { receipts: false, inbox: false, read_only: false });
     assert.equal(account(t)?.password, PASSWORD);
     assert.equal(kept(t), 0);
     // Without calendars: Receipts off leaves the Mail screen's use.
     linked(t);
-    assert.deepEqual(await put({ receipts: false }), { receipts: false, inbox: true });
+    assert.deepEqual(await put({ receipts: false }), { receipts: false, inbox: true, read_only: false });
     assert.equal(account(t)?.password, PASSWORD);
     await t.api("/mail/refresh", { method: "POST" });
     assert.equal(kept(t), 1);
@@ -183,9 +183,9 @@ test("accounts: the last use switched off removes the account with its password;
     assert.equal(JSON.stringify(t.hub.connections.get()).includes(PASSWORD), false);
     // An account already left with nothing on (by a hub from before this): only switching something off removes it.
     linked(t, { mail: false, inbox: false });
-    assert.deepEqual(await put({}), { receipts: false, inbox: false });
+    assert.deepEqual(await put({}), { receipts: false, inbox: false, read_only: false });
     assert.ok(account(t), "a request that changes nothing removes nothing");
-    assert.deepEqual(await put({ inbox: true }), { receipts: false, inbox: true });
+    assert.deepEqual(await put({ inbox: true }), { receipts: false, inbox: true, read_only: false });
     assert.ok(account(t));
     await t.api("/mail/refresh", { method: "POST" });
   } finally { done(t); }

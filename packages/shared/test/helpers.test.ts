@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { nextOccurrence, effectiveAt, classifyCapture, applyStyle, redact, parseRepeat, Patch, FieldsByKind, completeTaskPatch, taskAlertAt } from "../src/index.ts";
+import { nextOccurrence, effectiveAt, classifyCapture, applyStyle, redact, parseRepeat, Patch, FieldsByKind, completeTaskPatch, taskAlertAt, undoPatch, reopenTaskPatch, restoreTaskPatch } from "../src/index.ts";
 
 test("parseRepeat accepts the grammar and rejects junk", () => {
   assert.deepEqual(parseRepeat("every 1 days"), { n: 1, unit: "days", on: undefined });
@@ -122,4 +122,26 @@ test("repeats and reminders keep their day and time (2026-11-05 review)", () => 
   // A daily task due on a date alone moves to the next date, not to 7 PM the same evening.
   assert.equal(completeTaskPatch({ repeat: "every 1 days", due: "2026-11-05" }, new Date("2026-11-05T15:00:00Z")).due, "2026-11-06");
   assert.equal(completeTaskPatch({ repeat: "every 1 weeks", due: "2026-11-05" }, new Date("2026-11-05T15:00:00Z")).due, "2026-11-12");
+});
+
+test("Undo after Done puts back every field Done wrote, for a one-off and a repeating task", () => {
+  const now = new Date("2026-11-20T15:00:00Z");
+  const oneOff = { title: "Call Robin", status: "next", order: 3 };
+  const done = completeTaskPatch(oneOff, now);
+  assert.deepEqual(undoPatch(oneOff, done), { status: "next", done_at: null, snoozed_until: null });
+  const pill = { title: "Pill", status: "scheduled", order: 1, repeat: "every 1 days", remind_at: "2026-11-20T14:00:00.000Z", due: "2026-11-20", done_at: "2026-11-19T14:05:00.000Z" };
+  const moved = completeTaskPatch(pill, now);
+  assert.deepEqual(undoPatch(pill, moved), { snoozed_until: null, done_at: "2026-11-19T14:05:00.000Z", remind_at: "2026-11-20T14:00:00.000Z", due: "2026-11-20" });
+});
+
+test("Not done puts a finished task at the end of Next and clears when it was done", () => {
+  assert.deepEqual(reopenTaskPatch([1, 4, 2]), { status: "next", order: 5, done_at: null });
+  assert.deepEqual(reopenTaskPatch([]), { status: "next", order: 1, done_at: null });
+});
+
+test("Undo of a delete: a personal task tied to Apple Reminders is added again; a work task keeps its tie", () => {
+  const apple = { id: "x-1", list: "L1", list_title: "Groceries" };
+  assert.deepEqual(restoreTaskPatch({ space: "personal", fields: { apple } }), { deleted_at: null, apple: { id: "", list: "L1", list_title: "Groceries" } });
+  assert.deepEqual(restoreTaskPatch({ space: "work", fields: { apple } }), { deleted_at: null });
+  assert.deepEqual(restoreTaskPatch({ space: "personal", fields: {} }), { deleted_at: null });
 });

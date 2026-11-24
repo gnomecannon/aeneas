@@ -58,7 +58,7 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
     const ret = `${address}/connections/google/return`;
     return {
       service, title: "Your own Google app, for Gmail", minutes: "10 to 15", done: view.google.app,
-      after: "Sign in with Google below. Google shows a screen saying it has not verified the app: it is your own app, so choose Advanced, then Go to Aeneas, and allow reading mail.",
+      after: "Now Add an account, Google, offers Sign in with Google. Google shows a screen saying it has not verified the app: it is your own app, so choose Advanced, then Go to Aeneas, and allow reading mail.",
       warning: !https ? "Google sends people back only to an https address, and this hub is reached over plain http. Reach it through Tailscale (an https ts.net address) to use Gmail."
         : hostIsIp(address) ? "Google does not accept an IP address as a return address. Reach the hub through its Tailscale name (ts.net) to use Gmail." : null,
       steps: [
@@ -74,13 +74,16 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
   }
   if (service === "icloud") {
     // Apple has no sign-in for mail, so this is the person's own password for one app, not a sign-in: the guide says
-    // what it can do and how to end it, and the hub checks it with iCloud when it is saved.
+    // what it can do and how to end it, and the hub checks it with iCloud when it is saved. What the hub does with the
+    // mail depends on the modules that are on: Mail receipts only reads, while the Mail screen changes what the owner
+    // does there (the guide said "only reads" while the Mail screen moved and flagged mail; gnomecannon/aeneas#22).
+    const { does, uses } = icloudUse(hub.modules.on("mail"), hub.modules.on("mail_inbox"));
     return {
       service, title: "An app-specific password, for iCloud Mail", minutes: "5", done: view.icloud.accounts.length > 0,
-      after: "The hub signs in to iCloud Mail once to check the password, then reads your receipts, renewals and vet mail in the background. Add another iCloud mailbox by running this guide again.",
+      after: `The hub signs in to iCloud Mail once to check the password, then ${does} in the background. Add another iCloud mailbox by running this guide again.`,
       warning: null,
       steps: [
-        { title: "What this is", text: "Apple has no way for an app to sign in to iCloud Mail for you, so you make a password just for Aeneas. Apple lets such a password open iCloud Mail, Contacts and Calendars, but not change your Apple Account, and you can revoke it at any time. Aeneas only reads mail with it: it never sends, moves, deletes or marks mail as read, and never opens your Contacts or Calendars. It is kept on your hub only and never shown again." },
+        { title: "What this is", text: `Apple has no way for an app to sign in to iCloud Mail for you, so you make a password just for Aeneas. Apple lets such a password open iCloud Mail, Contacts and Calendars, but not change your Apple Account, and you can revoke it at any time. ${uses} It is kept on your hub only and never shown again.` },
         { title: "Turn on two-factor authentication", text: "App-specific passwords need two-factor authentication on your Apple Account. Most accounts have it already: on an iPhone, Settings, your name, Sign-In and Security shows it." },
         { title: "Make an app-specific password", text: "Sign in at account.apple.com, open Sign-In and Security, then App-Specific Passwords, and press the plus button. Name it Aeneas. Apple shows the password once: copy it.", copy: [{ label: "Name", value: "Aeneas" }], link: { label: "account.apple.com", url: "https://account.apple.com/" } },
         { title: "Paste it here", text: "Your iCloud Mail address and the password Apple showed. The hub checks them with iCloud now. Your Apple Account password is never asked for and would not work here.", fields: [{ id: "email", label: "iCloud Mail address", secret: false, placeholder: "you@icloud.com" }, { id: "password", label: "App-specific password", secret: true, placeholder: "abcd-efgh-ijkl-mnop" }], save: { method: "PUT", path: "/connections/icloud" } },
@@ -91,7 +94,7 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
     const ret = `${address}/connections/atlassian/return`;
     return {
       service, title: "Your own Atlassian app, for Confluence", minutes: "10", done: view.atlassian.app,
-      after: "Sign in with Atlassian below and choose the site. That sign-in is the check: Atlassian says there what is wrong. A company site may need its admin to allow apps it has not seen before.",
+      after: "Now sign in with Atlassian under Confluence and choose the site. That sign-in is the check: Atlassian says there what is wrong. A company site may need its admin to allow apps it has not seen before.",
       warning: !https ? "Atlassian sends people back only to an https address, and this hub is reached over plain http. Reach it through Tailscale (an https ts.net address) to use Confluence." : null,
       steps: [
         { title: "Make the app", text: "Sign in with your Atlassian account. Press Create, choose OAuth 2.0 integration, name it, agree to the terms and press Create.", copy: [{ label: "Name", value: "Aeneas" }], link: { label: "Atlassian developer console", url: "https://developer.atlassian.com/console/myapps/" } },
@@ -106,7 +109,7 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
   try { host = new URL(address).hostname; } catch { /* keep localhost */ }
   return {
     service, title: "Your own Steam key, for playtime", minutes: "2", done: view.steam.hub_key,
-    after: "Sign in with Steam below. In Steam, Edit Profile, Privacy Settings, set Game details to Public, or Steam sends no games.",
+    after: "Now sign in with Steam under Steam. In Steam, Edit Profile, Privacy Settings, set Game details to Public, or Steam sends no games.",
     warning: null,
     steps: [
       { title: "Before you start", text: "Steam gives keys only to accounts that have spent at least $5 in the Steam store and have Steam Guard on in the Steam app on a phone. Changing your Steam password can cancel the key; make a new one here if that happens." },
@@ -114,6 +117,20 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
       { title: "Paste it here", text: "It is kept on your hub only, never shown again, and checked with Steam now.", fields: [{ id: "api_key", label: "Key", secret: true, placeholder: "32 letters and digits" }], save: { method: "PUT", path: "/connections/steam/key" } },
     ],
   };
+}
+
+/**
+ * What the iCloud Mail guide says the hub does with the mail, by the modules that are on (`receipts`: Mail receipts,
+ * `inbox`: the Mail screen): what happens after the check, and what the password is used for.
+ */
+export function icloudUse(receipts: boolean, inbox: boolean): { does: string; uses: string } {
+  const does = [inbox && "brings its Inbox into Mail", receipts && "reads your receipts, renewals and vet mail"].filter(Boolean).join(" and ") || "reads your mail";
+  const uses = [
+    "Aeneas never sends mail with it or erases any, never opens your Contacts, and opens your Calendars only if you switch Calendars on for this account.",
+    receipts && "For receipts it only reads: nothing is moved or marked read.",
+    inbox && "On the Mail screen it changes only what you do there: opening a mail marks it read, Pin flags it, Done, Delete, Spam and Move to move it to another folder, and a draft you write is saved to Drafts.",
+  ].filter(Boolean).join(" ");
+  return { does, uses };
 }
 
 export function parseGuideService(s: string): GuideService {

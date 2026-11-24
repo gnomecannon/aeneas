@@ -204,3 +204,16 @@ extension Mail.Bundle {
     }
     var colorKey: MailColors.Key { MailColors.key(self) }
 }
+
+extension MailFolderRole {
+    /// A folder's icon (an SF Symbol), as the web's: Drafts a pencil, Sent a paper plane, Spam a shield, Trash a bin.
+    var symbol: String {
+        switch self {
+        case .drafts: return "pencil"
+        case .sent: return "paperplane"
+        case .junk: return "xmark.shield"
+        case .trash: return "trash"
+        case .own: return "folder"
+        }
+    }
+}

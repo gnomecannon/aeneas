@@ -134,7 +134,7 @@ const WATCH_NOTE = "{{owner}} is asking from the Apple Watch and hears the answe
 const ASKS_RECAP = /\b(recap|summar(y|ise|ize)|so far|what (did|have|has) (you|i|we)\b|what('s| was| were)? (changed|saved|logged|added|done)\b|did you (add|log|save|change|move|delete|remove|schedule|mark|update|create|snooze|cancel)|have you (added|logged|saved|changed|moved|deleted|removed|scheduled|marked|updated|created|snoozed|cancell?ed))/i;
 
 /** A reply line that opens by saying something was saved or changed. */
-const CLAIMS_CHANGE = /^\W*(?:done(?=[.!,:\s]|$)|(?:logged|saved|added|deleted|removed|moved|marked|snoozed|renamed|parked|scheduled|blocked|stopped|updated|changed|created|cancell?ed)\b)/im;
+const CLAIMS_CHANGE = /^\W*(?:done(?=[.!,:\s]|$)|(?:logged|saved|added|deleted|removed|moved|marked|snoozed|renamed|parked|set aside|scheduled|blocked|stopped|updated|changed|created|cancell?ed)\b)/im;
 
 /**
  * A command held for the owner's yes has not run, so nothing came back from it. Some models went on to report what it

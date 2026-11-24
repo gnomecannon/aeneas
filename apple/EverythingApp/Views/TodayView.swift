@@ -2,10 +2,10 @@ import SwiftUI
 import Combine
 import EACore
 
-/// Today: the day as a status board (`TodayBoardView`): what is on now, the day as one strip, what needs you, the
-/// schedule, things to do, today so far and what is coming. Swiping left and right moves to the next and previous
-/// day, as in a calendar app: another day shows its plan (timeline, renewals due, free slots that take a task with
-/// one tap), and Today brings it back.
+/// Today: the day as a status board (`TodayBoardView`): what is on now, what needs you, the schedule, things to do,
+/// today so far and what is coming. Swiping left and right moves to the next and previous day, as in a calendar app:
+/// another day shows its plan (timeline, renewals to make, never a charge on autopay, free slots that take a task
+/// with one tap), and Today brings it back.
 struct TodayView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -121,9 +121,10 @@ struct TodayView: View {
     @ViewBuilder private var otherDayView: some View {
         if let d = otherDay {
             TimelineList(blocks: d.blocks, commitments: d.commitments, events: d.events, reminders: d.reminders, freeSlots: d.free_slots, day: shownDate, onSchedule: { scheduling = $0 })
-            if !d.watches_due.isEmpty, model.isOn(.renewals) {
+            let due = model.isOn(.renewals) ? TodayBoard.toRenew(d.watches_due) : []
+            if !due.isEmpty {
                 Text("Renewals due").font(.headline).foregroundStyle(.secondary)
-                ForEach(d.watches_due) { Text(StyleGuard.dashes($0.str("title"))) }
+                ForEach(due) { Text(StyleGuard.dashes($0.str("title"))) }
             }
             if !otherFromHub { Text("Planned on this device.").font(.caption).foregroundStyle(.secondary) }
         } else {

@@ -20,10 +20,11 @@ public struct MailAddress: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// Where a mail is. `sent` is the owner's own reply, shown only inside its thread. A state a newer hub adds reads as
-/// done, so it never shows in the Inbox by mistake.
+/// Where a mail is. `sent` is the owner's own reply, shown only inside its thread; `folder` is mail of one of the
+/// mailbox's other folders (`GET /mail/folders/:key`, a search hit), never in the list. A state a newer hub adds reads
+/// as done, so it never shows in the Inbox by mistake.
 public enum MailState: String, Codable, Sendable {
-    case inbox, snoozed, done, sent
+    case inbox, snoozed, done, sent, folder
 
     public init(from decoder: Decoder) throws {
         self = MailState(rawValue: (try? decoder.singleValueContainer().decode(String.self)) ?? "") ?? .done
@@ -54,13 +55,30 @@ public struct MailSummary: Codable, Equatable, Hashable, Sendable, Identifiable 
     public var thread: String?
     /// The owner's own reply (from Sent).
     public var mine: Bool?
+    /// How many attachments it has (the row's paperclip); nil when none, or when not known yet (`attachmentsUnknown`).
+    public var attachments: Int?
+    /// The hub does not know yet whether it has attachments (mail kept before they were listed): asked once, on opening.
+    public var attachmentsUnknown: Bool
+    /// Its key facts (a package, a flight, a bill), from the sender's own data or its text.
+    public var cards: [MailCard]?
+    /// The hub's model's triage (kept a week): how soon it matters, what it is in a line, whether it needs a reply.
+    public var triage: MailTriage?
+    /// The mailbox it is in, by its address (one of the list's `mailboxes`). An older hub leaves it out.
+    public var mailbox: String?
 
     public init(id: String, at: String, from: MailAddress, reply_to: String? = nil, subject: String = "", preview: String = "", automated: Bool = false,
                 bundle: String? = nil, state: MailState = .inbox, pinned: Bool = false, snooze_until: String? = nil, logo_domain: String? = nil,
-                back_at: String? = nil, seen: Bool? = nil, thread: String? = nil, mine: Bool? = nil) {
+                back_at: String? = nil, seen: Bool? = nil, thread: String? = nil, mine: Bool? = nil, attachments: Int? = nil, attachmentsUnknown: Bool = false,
+                cards: [MailCard]? = nil, triage: MailTriage? = nil, mailbox: String? = nil) {
         self.id = id; self.at = at; self.from = from; self.reply_to = reply_to; self.subject = subject; self.preview = preview
         self.automated = automated; self.bundle = bundle; self.state = state; self.pinned = pinned; self.snooze_until = snooze_until
         self.logo_domain = logo_domain; self.back_at = back_at; self.seen = seen; self.thread = thread; self.mine = mine
+        self.attachments = attachments; self.attachmentsUnknown = attachmentsUnknown; self.cards = cards; self.triage = triage; self.mailbox = mailbox
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, at, from, reply_to, subject, preview, automated, bundle, state, pinned, snooze_until, logo_domain, back_at, seen, thread, mine
+        case attachments, cards, triage, mailbox
     }
 
     // Only the id is needed to show a row; a field a mail lacks falls back, so one odd mail never empties the list.
@@ -73,7 +91,8 @@ public struct MailSummary: Codable, Equatable, Hashable, Sendable, Identifiable 
         subject = (try? c.decodeIfPresent(String.self, forKey: .subject)) ?? ""
         preview = (try? c.decodeIfPresent(String.self, forKey: .preview)) ?? ""
         automated = (try? c.decodeIfPresent(Bool.self, forKey: .automated)) ?? false
-        bundle = try? c.decodeIfPresent(String.self, forKey: .bundle)
+        // A bundle under an id a build of the renaming used for a few days is that bundle (Mail.bundleIdAsSent).
+        bundle = (try? c.decodeIfPresent(String.self, forKey: .bundle)).map(Mail.bundleIdAsSent)
         state = (try? c.decodeIfPresent(MailState.self, forKey: .state)) ?? .inbox
         pinned = (try? c.decodeIfPresent(Bool.self, forKey: .pinned)) ?? false
         snooze_until = try? c.decodeIfPresent(String.self, forKey: .snooze_until)
@@ -82,9 +101,29 @@ public struct MailSummary: Codable, Equatable, Hashable, Sendable, Identifiable 
         seen = try? c.decodeIfPresent(Bool.self, forKey: .seen)
         thread = try? c.decodeIfPresent(String.self, forKey: .thread)
         mine = try? c.decodeIfPresent(Bool.self, forKey: .mine)
+        // Absent: none. null: not known yet (asked on opening). A number: how many.
+        attachments = (try? c.decodeIfPresent(Int.self, forKey: .attachments)).flatMap { $0 > 0 ? $0 : nil }
+        attachmentsUnknown = c.contains(.attachments) && ((try? c.decodeNil(forKey: .attachments)) ?? false)
+        cards = (try? c.decodeIfPresent([MailCard].self, forKey: .cards)).flatMap { $0.isEmpty ? nil : $0 }
+        triage = try? c.decodeIfPresent(MailTriage.self, forKey: .triage)
+        mailbox = try? c.decodeIfPresent(String.self, forKey: .mailbox)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id); try c.encode(at, forKey: .at); try c.encode(from, forKey: .from)
+        try c.encodeIfPresent(reply_to, forKey: .reply_to); try c.encode(subject, forKey: .subject); try c.encode(preview, forKey: .preview)
+        try c.encode(automated, forKey: .automated); try c.encodeIfPresent(bundle, forKey: .bundle); try c.encode(state, forKey: .state)
+        try c.encode(pinned, forKey: .pinned); try c.encodeIfPresent(snooze_until, forKey: .snooze_until); try c.encodeIfPresent(logo_domain, forKey: .logo_domain)
+        try c.encodeIfPresent(back_at, forKey: .back_at); try c.encodeIfPresent(seen, forKey: .seen); try c.encodeIfPresent(thread, forKey: .thread)
+        try c.encodeIfPresent(mine, forKey: .mine)
+        if attachmentsUnknown { try c.encodeNil(forKey: .attachments) } else { try c.encodeIfPresent(attachments, forKey: .attachments) }
+        try c.encodeIfPresent(cards, forKey: .cards); try c.encodeIfPresent(triage, forKey: .triage); try c.encodeIfPresent(mailbox, forKey: .mailbox)
     }
 
     public var isMine: Bool { mine == true }
+    /// Whether opening it asks the hub for its attachments: it has some, or the hub does not know yet.
+    public var asksForAttachments: Bool { attachmentsUnknown || (attachments ?? 0) > 0 }
 }
 
 /// One message whole (`GET /mail/messages/:id`). `html`: the mail as sent, cleaned by the hub into a page that loads
@@ -98,12 +137,15 @@ public struct MailMessage: Decodable, Equatable, Sendable {
     public var pictures_pending: Bool
     public var pictures_ask: Bool
     public var quote_at: Int?
+    /// The owner said not to fold this mail (a folding note): it shows unfolded, its page too.
+    public var no_fold: Bool
 
-    public init(summary: MailSummary, text: String, html: String? = nil, pictures_pending: Bool = false, pictures_ask: Bool = false, quote_at: Int? = nil) {
+    public init(summary: MailSummary, text: String, html: String? = nil, pictures_pending: Bool = false, pictures_ask: Bool = false, quote_at: Int? = nil, no_fold: Bool = false) {
         self.summary = summary; self.text = text; self.html = html; self.pictures_pending = pictures_pending; self.pictures_ask = pictures_ask; self.quote_at = quote_at
+        self.no_fold = no_fold
     }
 
-    private enum CodingKeys: String, CodingKey { case text, html, pictures_pending, pictures_ask, quote_at }
+    private enum CodingKeys: String, CodingKey { case text, html, pictures_pending, pictures_ask, quote_at, no_fold }
 
     public init(from decoder: Decoder) throws {
         summary = try MailSummary(from: decoder)
@@ -113,6 +155,7 @@ public struct MailMessage: Decodable, Equatable, Sendable {
         pictures_pending = (try? c.decodeIfPresent(Bool.self, forKey: .pictures_pending)) ?? false
         pictures_ask = (try? c.decodeIfPresent(Bool.self, forKey: .pictures_ask)) ?? false
         quote_at = try? c.decodeIfPresent(Int.self, forKey: .quote_at)
+        no_fold = (try? c.decodeIfPresent(Bool.self, forKey: .no_fold)) ?? false
     }
 
     /// The text without its quoted history (folded behind a button), or whole when it has none. `quote_at` counts
@@ -126,14 +169,22 @@ public struct MailMessage: Decodable, Equatable, Sendable {
 }
 
 /// A mailbox's state: `more` says the last refresh left new mail for the next one (a big Inbox comes in batches).
+/// `provider`: who keeps it, as the screen says it ("iCloud", "Gmail", or the server's name); `kind`: how it is
+/// linked ("icloud", "gmail" or "imap"). An older hub sends neither.
 public struct MailMailbox: Codable, Equatable, Hashable, Sendable {
     public var email: String
     public var last_refresh: String?
     public var last_error: String?
     public var more: Bool
+    public var provider: String?
+    public var kind: String?
+    /// Read only (Settings, Connections, since 2026-11-24): the hub refuses every change to it, so the screen offers
+    /// none. Nil from an older hub.
+    public var read_only: Bool?
 
-    public init(email: String, last_refresh: String? = nil, last_error: String? = nil, more: Bool = false) {
+    public init(email: String, last_refresh: String? = nil, last_error: String? = nil, more: Bool = false, provider: String? = nil, kind: String? = nil, read_only: Bool? = nil) {
         self.email = email; self.last_refresh = last_refresh; self.last_error = last_error; self.more = more
+        self.provider = provider; self.kind = kind; self.read_only = read_only
     }
 
     public init(from decoder: Decoder) throws {
@@ -142,6 +193,9 @@ public struct MailMailbox: Codable, Equatable, Hashable, Sendable {
         last_refresh = try? c.decodeIfPresent(String.self, forKey: .last_refresh)
         last_error = try? c.decodeIfPresent(String.self, forKey: .last_error)
         more = (try? c.decodeIfPresent(Bool.self, forKey: .more)) ?? false
+        provider = try? c.decodeIfPresent(String.self, forKey: .provider)
+        kind = try? c.decodeIfPresent(String.self, forKey: .kind)
+        read_only = try? c.decodeIfPresent(Bool.self, forKey: .read_only)
     }
 }
 
@@ -229,12 +283,15 @@ public struct MailNotify: Codable, Equatable, Hashable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         people = (try? c.decodeIfPresent(Bool.self, forKey: .people)) ?? true
-        bundles = (try? c.decodeIfPresent([String].self, forKey: .bundles)) ?? []
+        var seen = Set<String>()
+        bundles = ((try? c.decodeIfPresent([String].self, forKey: .bundles)) ?? []).map(Mail.bundleIdAsSent).filter { seen.insert($0).inserted }
         detail = (try? c.decodeIfPresent(Detail.self, forKey: .detail)) ?? .full
     }
 }
 
-/// `GET /mail`. `logos`: the verified brand logos the messages use, by domain (a message's `logo_domain`).
+/// `GET /mail`. `logos`: the verified brand logos the messages use, by domain (a message's `logo_domain`). `folders`:
+/// the mailboxes' other folders; `blocked`: the senders whose mail goes to Spam; `triage`: whether the hub's model sorts
+/// new mail (the switch), `triage_state`: how that stands now (an older hub sends neither).
 public struct MailList: Decodable, Equatable, Sendable {
     public var messages: [MailSummary]
     public var mailboxes: [MailMailbox]
@@ -243,14 +300,20 @@ public struct MailList: Decodable, Equatable, Sendable {
     public var bundle_delivery: [String: MailBundleDelivery]
     public var custom_bundles: [MailCustomBundle]
     public var mail_notify: MailNotify
+    public var folders: [MailFolder]
+    public var blocked: [String]
+    public var triage: Bool?
+    public var triage_state: MailTriageState?
 
     public init(messages: [MailSummary], mailboxes: [MailMailbox], logos: [String: String] = [:], snooze_times: MailSnoozeTimes = .defaults,
-                bundle_delivery: [String: MailBundleDelivery] = [:], custom_bundles: [MailCustomBundle] = [], mail_notify: MailNotify = .defaults) {
+                bundle_delivery: [String: MailBundleDelivery] = [:], custom_bundles: [MailCustomBundle] = [], mail_notify: MailNotify = .defaults,
+                folders: [MailFolder] = [], blocked: [String] = [], triage: Bool? = nil, triage_state: MailTriageState? = nil) {
         self.messages = messages; self.mailboxes = mailboxes; self.logos = logos; self.snooze_times = snooze_times
         self.bundle_delivery = bundle_delivery; self.custom_bundles = custom_bundles; self.mail_notify = mail_notify
+        self.folders = folders; self.blocked = blocked; self.triage = triage; self.triage_state = triage_state
     }
 
-    private enum CodingKeys: String, CodingKey { case messages, mailboxes, logos, snooze_times, bundle_delivery, custom_bundles, mail_notify }
+    private enum CodingKeys: String, CodingKey { case messages, mailboxes, logos, snooze_times, bundle_delivery, custom_bundles, mail_notify, folders, blocked, triage, triage_state }
 
     // The settings came one release at a time (2026-11-19 and 20): a hub without one of them gives its defaults.
     public init(from decoder: Decoder) throws {
@@ -259,9 +322,13 @@ public struct MailList: Decodable, Equatable, Sendable {
         mailboxes = (try? c.decodeIfPresent([MailMailbox].self, forKey: .mailboxes)) ?? []
         logos = (try? c.decodeIfPresent([String: String].self, forKey: .logos)) ?? [:]
         snooze_times = (try? c.decodeIfPresent(MailSnoozeTimes.self, forKey: .snooze_times)) ?? .defaults
-        bundle_delivery = (try? c.decodeIfPresent([String: MailBundleDelivery].self, forKey: .bundle_delivery)) ?? [:]
+        bundle_delivery = Mail.deliveryAsSent((try? c.decodeIfPresent([String: MailBundleDelivery].self, forKey: .bundle_delivery)) ?? [:])
         custom_bundles = (try? c.decodeIfPresent([MailCustomBundle].self, forKey: .custom_bundles)) ?? []
         mail_notify = (try? c.decodeIfPresent(MailNotify.self, forKey: .mail_notify)) ?? .defaults
+        folders = (try? c.decodeIfPresent([MailFolder].self, forKey: .folders)) ?? []
+        blocked = (try? c.decodeIfPresent([String].self, forKey: .blocked)) ?? []
+        triage = try? c.decodeIfPresent(Bool.self, forKey: .triage)
+        triage_state = try? c.decodeIfPresent(MailTriageState.self, forKey: .triage_state)
     }
 }
 
@@ -318,6 +385,10 @@ public struct MailThread: MailRowItem, Equatable, Hashable, Identifiable, Sendab
     public var openIds: [String]
     public var doneIds: [String]
     public var unreadIds: [String]
+    /// What the screen knows the row by (selected, open, its writing box shown): its thread, else its one mail's id. It
+    /// stays the same while mail comes and goes in the thread; `id` is its newest received mail's, which the hub's
+    /// actions take, and changes when another arrives (web/src/lib/mail.ts MailThread.key, kept the same).
+    public var key: String
 
     public var id: String { summary.id }
     public var state: MailState { summary.state }
@@ -336,8 +407,36 @@ public enum Mail {
     /// `aeneas-fold` (hub/src/mail-html.ts QUOTE_SELECTOR and web/src/lib/mail.ts, kept the same).
     public static let quoteSelector = ".gmail_quote, blockquote[type=\"cite\"], .moz-cite-prefix, .yahoo_quoted, #divRplyFwdMsg, #divRplyFwdMsg ~ *"
 
+    /// Where every kind of mailbox is added: Internet Accounts, on every device since 2026-11-24 (gnomecannon/aeneas#23
+    /// and #10; the Apple apps had only iCloud Mail and Sign in with Google, and sent people to another app for Gmail).
+    public static let otherAccountsWhere = "iCloud, Gmail and other mail accounts are added in Settings, Connections, Internet Accounts, with an app password."
+    /// The Mail screen with no mailbox linked: where each kind of mailbox is linked.
+    public static let noMailboxText = "No mailbox is linked yet. \(otherAccountsWhere) Their mail then shows here."
+
+    /// Whether the mailbox a mail is in is Read only: its Done, Pin and other changes are not offered (web readOnlyBox).
+    public static func readOnly(_ boxes: [MailMailbox], _ email: String?) -> Bool { mailboxOf(boxes, email)?.read_only == true }
+    /// Said when a change is held back from a Read only mailbox (the hub's own words for it, kept the same).
+    public static func readOnlyText(_ email: String?) -> String {
+        "\(email ?? "This mailbox") is set to Read only in Settings, Connections, so Aeneas changes nothing in it. Switch Read only off there to do this."
+    }
+
     /// Unread: the hub says it has not been read.
     public static func isUnread(_ m: MailSummary) -> Bool { m.seen == false }
+
+    /// The mailbox a mail is in: the one it names, else the only one linked. With several linked and none named, not
+    /// known. (web/src/lib/mail.ts mailboxOf, kept the same.)
+    public static func mailboxOf(_ boxes: [MailMailbox], _ email: String?) -> MailMailbox? {
+        guard let email, !email.isEmpty else { return boxes.count == 1 ? boxes[0] : nil }
+        return boxes.first { $0.email.lowercased() == email.lowercased() }
+    }
+
+    /// Where a mailbox's mail is kept, in words: "in iCloud", "in Gmail", or "in your mailbox" when its provider is not
+    /// known (an older hub, or several mailboxes and the mail names none). The screen said "in iCloud" for every
+    /// mailbox (gnomecannon/aeneas#22). (web/src/lib/mail.ts inProvider, kept the same.)
+    public static func inProvider(_ box: MailMailbox?) -> String {
+        let p = box?.provider?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return p.isEmpty ? "in your mailbox" : "in \(p)"
+    }
 
     /// How a person is named in the list: their name, else their address.
     public static func personLabel(_ p: MailAddress) -> String {
@@ -382,12 +481,17 @@ public enum Mail {
             s.seen = received.allSatisfy { $0.seen != false }
             s.automated = !person
             s.bundle = person ? nil : base.bundle
+            // The paperclip counts the whole thread's attachments; not known for any one, not known for the thread.
+            s.attachmentsUnknown = members.contains { $0.attachmentsUnknown }
+            s.attachments = s.attachmentsUnknown ? nil : members.reduce(0) { $0 + ($1.attachments ?? 0) }
+            if s.attachments == 0 { s.attachments = nil }
             out.append(MailThread(
                 summary: s, members: members,
                 people: members.count > 1 ? "\(names.joined(separator: ", ")) (\(members.count))" : (names.first ?? ""),
                 openIds: received.filter { $0.state == .inbox || $0.state == .snoozed }.map(\.id),
                 doneIds: received.filter { $0.state == .done }.map(\.id),
-                unreadIds: received.filter { $0.seen == false }.map(\.id)))
+                unreadIds: received.filter { $0.seen == false }.map(\.id),
+                key: k))
         }
         return out
     }
@@ -504,6 +608,24 @@ public enum Mail {
         Bundle(id: "jobs", name: "Jobs", module: "jobs", moduleName: "Job search"),
     ]
 
+    /// The ids a build of the renaming used for a few days (2026-11-22), by the id every app knows the bundle by.
+    /// A hub running that build sends them (its list, its kept settings, its alerts), and an app that read them as
+    /// bundles it has no view for listed all of their mail on its own, none of it bundled (gnomecannon/aeneas#7).
+    /// The hub takes them the same way (`SHORT_LIVED_BUNDLE_IDS` in hub/src/mail-bundles.ts; a test holds the two
+    /// together).
+    public static let shortLivedBundleIds: [String: String] = ["transactions": "purchases", "updates": "other", "promotions": "promos"]
+
+    /// A bundle id as the hub sends it today: a short-lived one is the bundle's real id, any other stays as it is.
+    public static func bundleIdAsSent(_ id: String) -> String { shortLivedBundleIds[id] ?? id }
+
+    /// Bundle delivery settings under the real ids. A setting under the real id wins over one under a short-lived id.
+    public static func deliveryAsSent(_ d: [String: MailBundleDelivery]) -> [String: MailBundleDelivery] {
+        var out: [String: MailBundleDelivery] = [:]
+        for (k, v) in d where shortLivedBundleIds[k] != nil && d[bundleIdAsSent(k)] == nil { out[bundleIdAsSent(k)] = v }
+        for (k, v) in d where shortLivedBundleIds[k] == nil { out[k] = v }
+        return out
+    }
+
     /// The bundles shown: the always-there ones, a module's only while it is on, then the owner's own.
     public static func shownBundles(on: (String) -> Bool, custom: [MailCustomBundle] = []) -> [Bundle] {
         bundles.filter { $0.module.map(on) ?? true } + custom.map { Bundle(id: $0.id, name: $0.name, custom: $0.color) }
@@ -517,10 +639,11 @@ public enum Mail {
 
     // MARK: The list
 
-    /// What the screen shows: the Inbox, Snoozed, Done, or one bundle.
+    /// What the screen shows: the Inbox, Snoozed, Done, one bundle, or one of the mailboxes' other folders (by its key).
     public enum Place: Hashable, Sendable {
         case inbox, snoozed, done
         case bundle(String)
+        case folder(String)
     }
 
     /// The heading a message is under: Today, Yesterday, This week, This month, then the month ("October 2026").
@@ -630,7 +753,7 @@ public enum Mail {
         return sections
     }
 
-    /// The messages a view lists flat (Snoozed soonest first, Done and a bundle newest first).
+    /// The messages a view lists flat (Snoozed soonest first, Done and a bundle newest first; a folder none of these).
     public static func viewMessages<T: MailRowItem>(_ messages: [T], view: Place, shown: [Bundle]) -> [T] {
         func stable(_ xs: [T], _ before: (MailSummary, MailSummary) -> Bool) -> [T] {
             xs.enumerated().sorted { a, b in
@@ -644,6 +767,8 @@ public enum Mail {
         case .done: return stable(messages.filter { $0.summary.state == .done }) { $0.at > $1.at }
         case .bundle(let id): return stable(messages.filter { $0.summary.state == .inbox && bundleOf($0.summary, in: shown)?.id == id }) { shownAt($0) > shownAt($1) }
         case .inbox: return stable(messages.filter { $0.summary.state == .inbox }) { shownAt($0) > shownAt($1) }
+        // A folder lists its own mail (GET /mail/folders/:key), never the Inbox's.
+        case .folder: return []
         }
     }
 
@@ -775,24 +900,29 @@ public enum Mail {
 
     /// What a key does on the Mail screen.
     public enum Key: String, Sendable {
-        case escape, open, select, done, snooze, pin, unread, read, search, help
+        case escape, open, select, done, snooze, pin, unread, read, delete, spam, search, help
     }
 
-    /// The Mail screen's keys, for the keys list. Arrows move through the list as in any list.
+    /// The Mail screen's keys, for the keys list (the web's MAIL_KEYS, in the Mac's names). The arrows move through the
+    /// list, and Shift with them selects, as in any list.
     public static let keys: [(keys: String, does: String)] = [
         ("\u{2191} \u{2193}", "Previous / next row"),
+        ("Shift + \u{2191} \u{2193}", "Select while moving"),
         ("Return", "Open the thread, or open or close a bundle"),
         ("Esc", "Clear the selection"),
         ("D", "Done (Move to Inbox in Done)"),
         ("S", "Snooze"),
         ("P", "Pin or unpin"),
         ("U / R", "Mark unread / read"),
+        ("Delete", "Delete (moves it to Trash)"),
+        ("!", "Spam (moves it to Spam)"),
         ("/", "Search mail"),
         ("?", "Show these keys"),
     ]
 
     /// What a key press on the Mail screen does, or nil for one it leaves to the rest of the app. Never with Control,
-    /// Command or Option, and while typing in a field only Escape (which leaves the field).
+    /// Command or Option, and while typing in a field only Escape (which leaves the field). `delete` is the Delete key
+    /// (Backspace on other keyboards, also the key that deletes forward).
     public static func keyAction(_ key: String, control: Bool = false, command: Bool = false, option: Bool = false, typing: Bool = false) -> Key? {
         if control || command || option { return nil }
         if key == "escape" { return .escape }
@@ -802,6 +932,8 @@ public enum Mail {
         case " ": return .select
         case "/": return .search
         case "?": return .help
+        case "!": return .spam
+        case "delete", "backspace", "deleteForward": return .delete
         default: break
         }
         switch key.lowercased() {

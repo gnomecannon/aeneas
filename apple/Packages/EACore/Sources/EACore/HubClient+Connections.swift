@@ -35,6 +35,11 @@ public struct Connections: Decodable, Equatable, Sendable {
         public var last_sync: String?
         public var last_error: String?
         public var pages: Int?
+        /// Atlassian ended the sign-in (refused its refresh token): the link, its spaces and its pages stay until
+        /// Reconnect (the same sign-in) or Unlink. Nil from older hubs.
+        public var expired: Bool?
+        /// Linked, but waiting for Reconnect: the screen offers it in place of the spaces and Sync now.
+        public var needsReconnect: Bool { connected && expired == true }
     }
     /// Gmail, read-only, one entry per linked mailbox. `app` says only whether the hub has its Google app; the secret stays there.
     public struct Google: Decodable, Equatable, Sendable {
@@ -57,17 +62,7 @@ public struct Connections: Decodable, Equatable, Sendable {
             public var id: String { email }
 
             /// What the mail came to, in a line: "Filed 3 renewals, 1 pet record from 40 messages read, 12 still to read."
-            public var summary: String {
-                func n(_ x: Int, _ one: String, _ many: String) -> String { x == 1 ? "1 \(one)" : "\(x) \(many)" }
-                let f = filed ?? Filed(renewals: 0, pet: 0, events: 0)
-                let parts = [
-                    f.renewals > 0 ? n(f.renewals, "renewal", "renewals") : nil,
-                    f.pet > 0 ? n(f.pet, "pet record", "pet records") : nil,
-                    f.events > 0 ? n(f.events, "appointment", "appointments") : nil,
-                ].compactMap { $0 }
-                let left = (to_read ?? 0) > 0 ? ", \(to_read!) still to read" : ""
-                return "\(parts.isEmpty ? "Nothing filed yet" : "Filed " + parts.joined(separator: ", ")) from \(n(read ?? 0, "message", "messages")) read\(left)."
-            }
+            public var summary: String { MailCounts.line(filed: filed, read: read, toRead: to_read) }
         }
         public var app: Bool
         /// Waiting mail is being read now (after Read now). Nil from older hubs.
@@ -94,6 +89,9 @@ public struct Connections: Decodable, Equatable, Sendable {
     }
     /// LastPass or 1Password through its CLI, for secrets in the assistant's commands. Nil on older hubs.
     public var password_manager: PasswordManager?
+    /// Internet Accounts (since 2026-11-22): every linked account once, with what it does. Nil from older hubs, which
+    /// the screen then lists from `icloud` and `google` to look at only.
+    public var internet: [InternetAccount]?
 
     public struct PasswordManager: Decodable, Equatable, Sendable {
         public var linked: Bool
@@ -225,9 +223,11 @@ extension HubClient {
         return u
     }
 
-    /// List every linked mailbox for new mail now. Returns how many new messages the hub will read.
-    public func readMailNow() async throws -> Int {
-        try await post("connections/google/sync", Empty(), as: [String: MailListed].self).values.reduce(0) { $0 + ($1.queued ?? 0) }
+    /// List every linked mailbox (or the one account named by its key) for new mail now. Returns how many new
+    /// messages the hub will read.
+    public func readMailNow(account: String? = nil) async throws -> Int {
+        struct B: Encodable { var account: String? }
+        return try await post("connections/google/sync", B(account: account), as: [String: MailListed].self).values.reduce(0) { $0 + ($1.queued ?? 0) }
     }
 
     /// Unlink one mailbox: Google drops the sign-in; what was filed from its mail stays.
@@ -461,5 +461,136 @@ extension HubClient {
         struct Body: Encodable { var lat: Double; var lon: Double }
         let r = { (n: Double) in (n * 100).rounded() / 100 }
         return try await post("calc/meals-tax", Body(lat: r(latitude), lon: r(longitude)), as: MealsTax.self)
+    }
+}
+
+// MARK: Internet Accounts
+
+/// What Mail receipts came to for one mailbox: messages listed, still to read, read, and the records filed from them.
+public struct MailCounts: Decodable, Equatable, Sendable {
+    public var listed: Int?
+    public var to_read: Int?
+    public var read: Int?
+    public var failed: Int?
+    public var filed: Connections.Google.Account.Filed?
+
+    public var summary: String { Self.line(filed: filed, read: read, toRead: to_read) }
+
+    /// "Filed 3 renewals, 1 pet record from 40 messages read, 12 still to read." (web mailLine, kept the same).
+    static func line(filed: Connections.Google.Account.Filed?, read: Int?, toRead: Int?) -> String {
+        func n(_ x: Int, _ one: String, _ many: String) -> String { x == 1 ? "1 \(one)" : "\(x) \(many)" }
+        let f = filed ?? .init(renewals: 0, pet: 0, events: 0)
+        let parts = [
+            f.renewals > 0 ? n(f.renewals, "renewal", "renewals") : nil,
+            f.pet > 0 ? n(f.pet, "pet record", "pet records") : nil,
+            f.events > 0 ? n(f.events, "appointment", "appointments") : nil,
+        ].compactMap { $0 }
+        let left = (toRead ?? 0) > 0 ? ", \(toRead!) still to read" : ""
+        return "\(parts.isEmpty ? "Nothing filed yet" : "Filed " + parts.joined(separator: ", ")) from \(n(read ?? 0, "message", "messages")) read\(left)."
+    }
+}
+
+/// One account in Internet Accounts (`GET /connections` `internet`): iCloud, Google signed in with Google (receipts
+/// only), Gmail with an app password, or another IMAP server. A feature is nil when the account cannot do it.
+/// `read_only` (since 2026-11-24): the hub writes nothing to it; nil from a hub older than that.
+public struct InternetAccount: Decodable, Equatable, Sendable, Identifiable {
+    public struct Features: Decodable, Equatable, Sendable {
+        public var inbox: Bool?
+        public var receipts: Bool?
+        public var calendars: Bool?
+        public init(inbox: Bool? = nil, receipts: Bool? = nil, calendars: Bool? = nil) { self.inbox = inbox; self.receipts = receipts; self.calendars = calendars }
+
+        /// Whether a change turns off the last thing the account does: the hub then removes it and deletes its password,
+        /// so the app asks first (web lastUseOff, kept the same).
+        public func lastUseOff(inbox i: Bool? = nil, receipts r: Bool? = nil, calendars c: Bool? = nil) -> Bool {
+            guard i == false || r == false || c == false else { return false }
+            return !((i ?? inbox) ?? false) && !((r ?? receipts) ?? false) && !((c ?? calendars) ?? false)
+        }
+    }
+    public var key: String
+    /// `icloud`, `google`, `gmail` or `imap`.
+    public var kind: String
+    public var email: String
+    public var host: String?
+    public var port: Int?
+    public var user: String?
+    public var linked_at: String?
+    public var last_sync: String?
+    public var last_error: String?
+    public var features: Features
+    public var read_only: Bool?
+    /// What Mail receipts came to, while it reads the account.
+    public var receipts: MailCounts?
+    public var id: String { key }
+
+    public init(key: String, kind: String, email: String, features: Features, read_only: Bool? = nil, host: String? = nil, port: Int? = nil) {
+        self.key = key; self.kind = kind; self.email = email; self.features = features; self.read_only = read_only; self.host = host; self.port = port
+    }
+
+    /// The kind in words; another server by its address.
+    public var kindLabel: String {
+        switch kind {
+        case "icloud": return "iCloud"
+        case "google": return "Google, signed in with Google"
+        case "gmail": return "Google, with an app password"
+        default: return "\(host ?? "Mail server")\(port.map { ":\($0)" } ?? "")"
+        }
+    }
+
+    /// An iCloud or app-password account on a hub that knows Read only (a Google sign-in can only read).
+    public var hasReadOnlySwitch: Bool { kind != "google" && read_only != nil }
+
+    /// What it brings in, for its line in the list: "Mail, Calendars, Receipts, read only".
+    public func summary(mail: Bool, calendars: Bool, receipts: Bool, reminders: Bool) -> String {
+        let parts = [
+            mail && features.inbox == true ? "Mail" : nil,
+            calendars && features.calendars == true ? "Calendars" : nil,
+            reminders ? "Reminders" : nil,
+            receipts && features.receipts == true ? "Receipts" : nil,
+        ].compactMap { $0 }
+        let what = parts.isEmpty ? "Nothing switched on" : parts.joined(separator: ", ")
+        return read_only == true ? "\(what), read only" : what
+    }
+
+    /// What Read only stops, said under its switch (web READ_ONLY_NOTE, kept the same).
+    public static let readOnlyNote = "Aeneas only reads this account: no drafts saved, no mail moved, flagged or marked read there, and no calendar event changed. Mail's Done, Delete, Pin and replies are off for its mail."
+    /// What the Reminders switch does, said beside it (web REMINDERS_NOTE, kept the same).
+    public static let remindersNote = "Your iPhone and Mac keep Apple Reminders and Tasks the same, both ways, every list. iCloud does not give Reminders to servers, so the hub never reads them itself."
+}
+
+/// What a switch change came to (`PUT /connections/accounts/<key>`); `removed` with the hub's `message` when it turned
+/// off the account's last use and the hub removed it.
+public struct AccountSwitches: Decodable, Equatable, Sendable {
+    public var inbox: Bool?
+    public var receipts: Bool?
+    public var read_only: Bool?
+    public var removed: Bool?
+    public var message: String?
+}
+
+extension HubClient {
+    /// One account's switches; each is sent only when given. The address goes in the path as it is, as for iCloud Mail.
+    public func setAccountFeatures(key: String, inbox: Bool? = nil, receipts: Bool? = nil, readOnly: Bool? = nil) async throws -> AccountSwitches {
+        struct B: Encodable { var inbox: Bool?; var receipts: Bool?; var read_only: Bool? }
+        return try await post("connections/accounts/\(key)", B(inbox: inbox, receipts: receipts, read_only: readOnly), as: AccountSwitches.self, method: "PUT")
+    }
+
+    /// Remove an account whole, in one request: its calendars stop, its mail leaves Mail, its password is deleted.
+    public func removeAccount(key: String) async throws -> String {
+        struct Answer: Decodable { var message: String? }
+        let data = try await send("DELETE", "connections/accounts/\(key)")
+        return (try? JSONCoding.decode(Answer.self, from: data))?.message ?? "Removed."
+    }
+
+    /// iCloud Mail: an app-specific password, checked with iCloud once (Mail and Mail receipts both read it).
+    public func linkICloudMail(email: String, password: String) async throws {
+        struct B: Encodable { var email: String; var password: String }
+        _ = try await post("connections/icloud", B(email: email, password: password), as: JSONValue.self, method: "PUT")
+    }
+
+    /// Gmail with an app password (`gmail`: the hub fills in the server), or another IMAP server over TLS.
+    public func linkImap(email: String, password: String, gmail: Bool, host: String? = nil, port: Int? = nil, user: String? = nil) async throws {
+        struct B: Encodable { var email: String; var password: String; var preset: String; var host: String?; var port: Int?; var user: String? }
+        _ = try await post("connections/imap", B(email: email, password: password, preset: gmail ? "gmail" : "imap", host: gmail ? nil : host, port: gmail ? nil : port, user: user), as: JSONValue.self, method: "PUT")
     }
 }

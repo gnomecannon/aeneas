@@ -7,7 +7,7 @@ import { META } from "../../sync/db";
 import { useHubReady, useMeta, useSyncState } from "../../sync/hooks";
 import { SubPage, errorText } from "./common";
 import { isTauri, openExternal } from "../../tauri/bridge";
-import { useModules } from "../../lib/modules";
+import { setModules, useModules } from "../../lib/modules";
 import { OwnKeyGuide } from "./OwnKeyGuide";
 
 type Msg = { ok: boolean; text: string } | null;
@@ -109,10 +109,20 @@ function Steam({ c, reload }: { c: ConnectionsView["steam"]; reload: () => void 
           </div>
         </>
       ) : (
-        <OwnKeyGuide service="steam" onDone={reload} />
+        <NeedsKey what="the hub's own Steam key" />
       )}
       <Status msg={msg} />
     </section>
+  );
+}
+
+/** A service that needs the hub's own key before anyone can sign in: where that is set (Keys, at the end of the page). */
+function NeedsKey({ what }: { what: string }) {
+  return (
+    <div className="col">
+      <div className="muted small">Signing in needs {what} first, set once under Keys at the end of this page.</div>
+      <div><button type="button" onClick={() => document.getElementById("keys")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Go to Keys</button></div>
+    </div>
   );
 }
 
@@ -172,7 +182,17 @@ function Letterboxd({ c, reload }: { c: ConnectionsView["letterboxd"]; reload: (
   );
 }
 
-/** Confluence for the game design wiki: the hub's own Atlassian app once, then Sign in with Atlassian and a choice of spaces. */
+/**
+ * Whether a sign-in with Atlassian has landed: linked, and not waiting for Reconnect. Reconnect starts from a link that
+ * is connected already, so "connected" alone said it was back before the person had signed in.
+ */
+export const atlassianSignedIn = (a: AtlassianConnection | undefined): a is Extract<AtlassianConnection, { connected: true }> => !!a?.connected && !a.expired;
+
+/**
+ * Confluence for the game design wiki: the hub's own Atlassian app once, then Sign in with Atlassian and a choice of
+ * spaces. A sign-in Atlassian ended shows Reconnect, the same sign-in, which keeps the chosen spaces and the pages
+ * (gnomecannon/aeneas#24: Unlink and linking again was the only way, and Unlink drops the spaces and pages).
+ */
 function Confluence({ c, reload }: { c: AtlassianConnection; reload: () => void }) {
   const [busy, setBusy] = useState(false);
   const [waiting, setWaiting] = useState(false);
@@ -182,6 +202,7 @@ function Confluence({ c, reload }: { c: AtlassianConnection; reload: () => void 
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const client = engine.client;
   const connected = c.connected;
+  const expired = c.connected && !!c.expired;
   const run = async (f: () => Promise<string>) => {
     setBusy(true);
     setMsg(null);
@@ -205,25 +226,26 @@ function Confluence({ c, reload }: { c: AtlassianConnection; reload: () => void 
       (e) => setSpacesErr(errorText(e)),
     );
   }, [client]);
+  // An ended sign-in cannot list the spaces: they load once Reconnect lands.
   useEffect(() => {
-    if (connected) loadSpaces();
+    if (connected && !expired) loadSpaces();
     else setSpaces(null);
-  }, [connected, loadSpaces]);
+  }, [connected, expired, loadSpaces]);
   // While Atlassian's page is open in the browser, look for the link to land.
   useEffect(() => {
     if (!waiting || !client) return;
     const started = Date.now();
     const t = setInterval(() => {
       void client.connections().then((v) => {
-        if (v.atlassian?.connected) {
+        if (atlassianSignedIn(v.atlassian)) {
           setWaiting(false);
-          setMsg({ ok: true, text: `Linked to ${v.atlassian.site_name}. Choose the spaces to mirror.` });
+          setMsg({ ok: true, text: expired ? `Reconnected to ${v.atlassian.site_name}. The chosen spaces stay.` : `Linked to ${v.atlassian.site_name}. Choose the spaces to mirror.` });
           reload();
         } else if (Date.now() - started > 5 * 60_000) setWaiting(false);
       });
     }, 3000);
     return () => clearInterval(t);
-  }, [waiting, client, reload]);
+  }, [waiting, client, reload, expired]);
   const signIn = () =>
     void run(async () => {
       const { url } = await client!.atlassianSignIn("web");
@@ -235,7 +257,23 @@ function Confluence({ c, reload }: { c: AtlassianConnection; reload: () => void 
   return (
     <section className="card col">
       <h2>Confluence</h2>
-      {c.connected ? (
+      {expired ? (
+        <>
+          <div>
+            Linked to <strong>{c.site_name}</strong>, {c.pages === 1 ? "1 page" : `${c.pages} pages`} in the wiki, last read {when(c.last_sync)}.
+          </div>
+          <div className="error small">{c.last_error || "Atlassian ended the sign-in."}</div>
+          <div className="muted small">Reconnect opens Atlassian's page: sign in with the account that reads {c.site_name}. The pages already in the wiki stay.</div>
+          <div className="row">
+            <button type="button" className="primary" disabled={busy || waiting || !client} onClick={signIn}>
+              {waiting ? "Waiting for Atlassian" : "Reconnect"}
+            </button>
+            <button type="button" className="ghost danger" disabled={busy || !client} onClick={() => confirm("Unlink Confluence? Its pages leave the wiki; the repo docs stay.") && void run(async () => { await client!.disconnectAtlassian(); return "Unlinked. The Confluence pages left the wiki."; })}>
+              Unlink
+            </button>
+          </div>
+        </>
+      ) : c.connected ? (
         <>
           <div>
             Linked to <strong>{c.site_name}</strong>, {c.pages === 1 ? "1 page" : `${c.pages} pages`} in the wiki. Last read {when(c.last_sync)}; it reads again every hour.
@@ -297,7 +335,7 @@ function Confluence({ c, reload }: { c: AtlassianConnection; reload: () => void 
           </div>
         </>
       ) : (
-        <OwnKeyGuide service="atlassian" onDone={reload} />
+        <NeedsKey what="the hub's own Atlassian app" />
       )}
       <Status msg={msg} />
     </section>
@@ -334,13 +372,12 @@ const KIND: Record<InternetAccount["kind"], string> = { icloud: "iCloud", google
 type Run = (f: () => Promise<string | void>) => Promise<void>;
 
 /**
- * Internet Accounts (since 2026-11-22): every mail and calendar account in one place, each with what it does switched on
- * or off (Mail: its Inbox in Mail; Receipts: Mail receipts reads it; Calendars: iCloud's calendars kept in step), and
- * one way to add an account: iCloud, Google or another provider. Replaces the Gmail, iCloud Mail and iCloud Calendar
- * panels; what each does is unchanged.
+ * Internet Accounts (since 2026-11-22, reworked 2026-11-24 for gnomecannon/aeneas#10): every mail and calendar account
+ * in one place. Each account has what it brings in switched on or off (Mail, Calendars, and on the iCloud account
+ * Reminders, which the iPhone and Mac sync), Read only, the Aeneas modules that read it (Receipts, with Read now), its
+ * calendars, and Remove. Then one way to add an account: iCloud, Google or another provider.
  */
 function InternetAccounts({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
-  const client = engine.client;
   const ready = useHubReady();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
@@ -361,24 +398,28 @@ function InternetAccounts({ c, on, reload }: { c: ConnectionsView; on: (m: strin
   const older = olderHubAccounts(c, cal);
   const accounts = c.internet ?? [];
   const google = c.google;
-  const waiting = accounts.reduce((t, a) => t + (a.features.receipts ? a.receipts?.to_read ?? 0 : 0), 0);
   const receipts = on("mail") && accounts.some((a) => a.features.receipts);
+  // Apple Reminders' switch (the module's own, moved here) sits on the first iCloud account, or on its own line.
+  const remindersOn = on("apple_reminders");
+  const remindersAt = accounts.find((a) => a.kind === "icloud")?.key;
+  const setReminders = (v: boolean) => void run(async () => { await setModules({ apple_reminders: v }); });
   return (
     <section className="card col">
       <h2>Internet Accounts</h2>
       <div className="muted small">
-        Your mail and calendar accounts. Each can do different things, switched on or off here: <b>Mail</b> shows its Inbox in Mail, <b>Receipts</b> lets the model on your hub file renewals and vet visits from its mail, and <b>Calendars</b> keeps its calendars in step with the app. Passwords stay on your hub and are never shown again.
+        Your iCloud, Google and other mail accounts, and what each brings into Aeneas, switched on or off here. Passwords stay on your hub and are never shown again.
       </div>
       {calErr && <div className="error small" role="alert">The calendars could not be read: {calErr}</div>}
       {accounts.map((a) => (
-        <AccountRow key={a.key} a={a} on={on} busy={busy} run={run} cal={cal} setCal={setCal}
+        <AccountRow key={a.key} a={a} on={on} busy={busy} run={run} cal={cal} setCal={setCal} reading={!!google?.reading}
+          reminders={a.key === remindersAt ? { on: remindersOn, set: setReminders } : null}
           viaGoogle={a.kind !== "google" && accounts.some((g) => g.kind === "google" && g.email === a.email)} />
       ))}
       {older && (
         <>
           <div className="warn small">This hub is older than the app. Update the hub in <a href="#/settings/about">Settings, About</a>, then add, change or remove accounts here.</div>
           {older.map((a) => (
-            <div key={`${a.kind}:${a.email}`} className="col" style={{ gap: 4, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+            <div key={`${a.kind}:${a.email}`} className="col account-row">
               <div><strong>{a.email}</strong> <span className="muted small">{a.kind}</span></div>
               {on("mail") && a.receipts && <div className="small">{mailLine(a.receipts)} <span className="muted">Last checked {when(a.receipts.last_sync)}.</span></div>}
               {a.calendars && <div className="small">Its calendars are kept in step. <span className="muted">Last synced {when(a.calendars.last_sync)}.</span></div>}
@@ -389,16 +430,15 @@ function InternetAccounts({ c, on, reload }: { c: ConnectionsView; on: (m: strin
         </>
       )}
       {!older && !accounts.length && <div className="muted small">No accounts yet.</div>}
+      {!remindersAt && (
+        <div className="col account-row">
+          <label className="toggle-row"><input type="checkbox" checked={remindersOn} disabled={busy || !engine.client} onChange={(e) => setReminders(e.target.checked)} /> <span>Reminders on your iPhone and Mac</span></label>
+          <div className="muted small">{REMINDERS_NOTE} Once you add your iCloud account, this switch is on it.</div>
+        </div>
+      )}
       {receipts && (
-        <div className="col" style={{ gap: 4 }}>
-          <div className="muted small">
-            Receipts: the hub checks for new mail every 15 minutes and reads it {google?.times?.length ? `at ${google.times.map(clock).join(", ")}` : "at set times"} when no game is using the GPU; Read now reads it right away.{google?.waiting_for_gpu && <> Waiting: {google.waiting_for_gpu}.</>} For receipts, folders are opened read-only and nothing is marked read; the mail itself is never kept.
-          </div>
-          <div>
-            <button type="button" disabled={busy || !client || !!google?.reading} onClick={() => void run(async () => { await client!.readMailNow(); return "Reading the waiting mail now. It stops for any chat."; })}>
-              {google?.reading ? "Reading" : `Read now${waiting ? ` (${waiting} waiting)` : ""}`}
-            </button>
-          </div>
+        <div className="muted small">
+          Receipts: the hub checks for new mail every 15 minutes and reads it {google?.times?.length ? `at ${google.times.map(clock).join(", ")}` : "at set times"} when no game is using the GPU; Read now reads it right away.{google?.waiting_for_gpu && <> Waiting: {google.waiting_for_gpu}.</>} For receipts, folders are opened read-only and nothing is marked read; the mail itself is never kept.
         </div>
       )}
       {!older && <AddAccount c={c} on={on} reload={() => { reload(); loadCal(); }} />}
@@ -406,6 +446,9 @@ function InternetAccounts({ c, on, reload }: { c: ConnectionsView; on: (m: strin
     </section>
   );
 }
+
+/** What the Reminders switch does, said beside it. */
+const REMINDERS_NOTE = "Your iPhone and Mac keep Apple Reminders and Tasks the same, both ways, every list. iCloud does not give Reminders to servers, so the hub never reads them itself.";
 
 /** An account as an older hub knows it: what it is, what receipts came to, its calendar sync, and its errors. */
 export interface OlderAccount { email: string; kind: string; receipts?: GmailAccount; calendars?: Pick<CalendarAccount, "last_sync">; errors: string[] }
@@ -440,13 +483,23 @@ export function lastUseOff(f: InternetAccount["features"], change: { inbox?: boo
 /** What the app asks before the last switch goes off. */
 const LAST_USE = "Nothing else uses this account, so it is removed and its password deleted from the hub. What was filed from its mail stays, and the account itself stays with your provider.";
 
-/** One account: its kind, its switches, what receipts came to, its calendars when on, and Remove. */
-function AccountRow({ a, on, busy, run, cal, setCal, viaGoogle }: {
-  a: InternetAccount; on: (m: string) => boolean; busy: boolean; run: Run; cal: CalendarSyncView | null; setCal: (v: CalendarSyncView) => void; viaGoogle: boolean;
+/** What Read only stops, said under its switch. */
+export const READ_ONLY_NOTE = "Aeneas only reads this account: no drafts saved, no mail moved, flagged or marked read there, and no calendar event changed. Mail's Done, Delete, Pin and replies are off for its mail.";
+
+/** Whether an account has a Read only switch: iCloud and app-password accounts on a hub that knows it (a Google sign-in can only read). */
+export const hasReadOnlySwitch = (a: Pick<InternetAccount, "kind" | "read_only">) => a.kind !== "google" && typeof a.read_only === "boolean";
+
+/**
+ * One account: its kind; what it brings in (Mail, Calendars, and Reminders on the first iCloud account); Read only; the
+ * Aeneas modules that read it (Receipts, with what it filed and Read now); its calendars when on; and Remove.
+ */
+function AccountRow({ a, on, busy, run, cal, setCal, viaGoogle, reading, reminders }: {
+  a: InternetAccount; on: (m: string) => boolean; busy: boolean; run: Run; cal: CalendarSyncView | null; setCal: (v: CalendarSyncView) => void; viaGoogle: boolean; reading: boolean;
+  reminders: { on: boolean; set: (v: boolean) => void } | null;
 }) {
   const client = engine.client;
   const kind = a.kind === "imap" ? `${a.host}:${a.port}` : KIND[a.kind];
-  const set = (body: { inbox?: boolean; receipts?: boolean }) => {
+  const set = (body: { inbox?: boolean; receipts?: boolean; read_only?: boolean }) => {
     if (lastUseOff(a.features, body) && !confirm(`Turn ${body.inbox === false ? "Mail" : "Receipts"} off for ${a.email}? ${LAST_USE}`)) return;
     // The hub's own sentence when it removed the account with its last use.
     void run(async () => { const r = await client!.setAccountFeatures(a.key, body); return r.removed ? r.message : undefined; });
@@ -463,26 +516,47 @@ function AccountRow({ a, on, busy, run, cal, setCal, viaGoogle }: {
     if (want) void run(async () => { setCal(await client!.linkCalendars(a.email)); return "Choose the calendars to keep in step."; });
     else if (confirm(`Stop keeping ${a.email}'s calendars in step? Its events stay in the app as they are; repeating ones are taken out.${lastUseOff(a.features, { calendars: false }) ? ` ${LAST_USE}` : ""}`)) void run(async () => (await client!.stopCalendars(a.email)).message);
   };
+  const mail = on("mail_inbox") && a.features.inbox !== null;
+  const calendars = on("calendars") && a.features.calendars !== null;
+  const modules = on("mail") && a.features.receipts !== null;
+  const waiting = a.receipts?.to_read ?? 0;
   return (
-    <div className="col" style={{ gap: 4, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+    <div className="col account-row">
       <div><strong>{a.email}</strong> <span className="muted small">{kind}{a.user && a.user !== a.email ? `, signs in as ${a.user}` : ""}</span></div>
-      <div className="row wrap" style={{ gap: 16 }}>
-        {on("mail_inbox") && a.features.inbox !== null && (
-          <label className="toggle-row"><input type="checkbox" checked={a.features.inbox} disabled={busy || !client} onChange={(e) => set({ inbox: e.target.checked })} /> <span>Mail</span></label>
-        )}
-        {on("mail") && a.features.receipts !== null && (
-          <label className="toggle-row"><input type="checkbox" checked={a.features.receipts} disabled={busy || !client || a.kind === "google" || viaGoogle} onChange={(e) => set({ receipts: e.target.checked })} /> <span>Receipts</span></label>
-        )}
-        {on("calendars") && a.features.calendars !== null && (
-          <label className="toggle-row"><input type="checkbox" checked={a.features.calendars} disabled={busy || !client} onChange={(e) => toggleCalendars(e.target.checked)} /> <span>Calendars</span></label>
-        )}
-      </div>
+      {(mail || calendars || reminders) && (
+        <div className="row wrap" role="group" aria-label={`What ${a.email} brings in`} style={{ gap: 16 }}>
+          {mail && <label className="toggle-row"><input type="checkbox" checked={a.features.inbox!} disabled={busy || !client} onChange={(e) => set({ inbox: e.target.checked })} /> <span>Mail</span></label>}
+          {calendars && <label className="toggle-row"><input type="checkbox" checked={a.features.calendars!} disabled={busy || !client} onChange={(e) => toggleCalendars(e.target.checked)} /> <span>Calendars</span></label>}
+          {reminders && <label className="toggle-row"><input type="checkbox" checked={reminders.on} disabled={busy || !client} onChange={(e) => reminders.set(e.target.checked)} /> <span>Reminders <span className="muted small">(synced by your iPhone and Mac)</span></span></label>}
+        </div>
+      )}
+      {reminders?.on && <div className="muted small">{REMINDERS_NOTE}{a.read_only ? " Read only does not reach them: your iPhone and Mac write them through Apple's own Reminders." : ""}</div>}
       {a.kind === "google" && on("mail_inbox") && (
         <div className="muted small">Signed in with Google, the hub may only read this mail, so it can't show in Mail. To see it in Mail, add it again as Google with an app password; Receipts goes on reading it here.</div>
       )}
-      {viaGoogle && on("mail") && <div className="muted small">Receipts for this address are read through its Sign in with Google link, so each mail is filed once.</div>}
-      {on("mail") && a.features.receipts && a.receipts && (
-        <div className="small">{mailLine(a.receipts)} <span className="muted">Last checked {when(a.last_sync)}.</span></div>
+      {hasReadOnlySwitch(a) ? (
+        <>
+          <label className="toggle-row"><input type="checkbox" checked={!!a.read_only} disabled={busy || !client} onChange={(e) => set({ read_only: e.target.checked })} /> <span>Read only</span></label>
+          {a.read_only && <div className="muted small">{READ_ONLY_NOTE}</div>}
+        </>
+      ) : a.kind === "google" && <div className="muted small">Read only: Sign in with Google lets the hub read mail and nothing else.</div>}
+      {modules && (
+        <div className="col account-modules" role="group" aria-label={`Aeneas modules that read ${a.email}`}>
+          <div className="muted small">Aeneas modules that read this account</div>
+          <label className="toggle-row">
+            <input type="checkbox" checked={a.features.receipts!} disabled={busy || !client || a.kind === "google" || viaGoogle} onChange={(e) => set({ receipts: e.target.checked })} />
+            <span>Receipts <span className="muted small">files renewals, bills and vet visits from its mail</span></span>
+          </label>
+          {viaGoogle && <div className="muted small">Receipts for this address are read through its Sign in with Google link, so each mail is filed once.</div>}
+          {a.features.receipts && a.receipts && (
+            <div className="row wrap" style={{ gap: 8 }}>
+              <span className="small grow">{mailLine(a.receipts)} <span className="muted">Last checked {when(a.last_sync)}.</span></span>
+              <button type="button" className="small" disabled={busy || !client || reading} onClick={() => void run(async () => { await client!.readMailNow(a.key); return "Reading the waiting mail now. It stops for any chat."; })}>
+                {reading ? "Reading" : `Read now${waiting ? ` (${waiting} waiting)` : ""}`}
+              </button>
+            </div>
+          )}
+        </div>
       )}
       {a.last_error && <div className="error small">{a.last_error}</div>}
       {calendar && a.features.calendars && <CalendarChoices a={calendar} busy={busy} run={run} setCal={setCal} />}
@@ -515,13 +589,15 @@ function CalendarChoices({ a, busy, run, setCal }: { a: CalendarAccount; busy: b
           </label>
         ))}
       </div>
-      <label className="col small" style={{ gap: 2 }}>
-        New events made in Aeneas go to
-        <select value={a.target ?? ""} disabled={busy} onChange={(e) => void run(async () => { setCal(await client!.chooseCalendars(a.email, { target: e.target.value || null })); })}>
-          <option value="">Keep them in the app</option>
-          {a.calendars.filter((c) => c.writable).map((c) => <option key={c.url} value={c.url}>{c.name}</option>)}
-        </select>
-      </label>
+      {a.read_only ? <div className="muted small">Read only: new events made in Aeneas stay in the app, and changes to these events stay in iCloud's version.</div> : (
+        <label className="col small" style={{ gap: 2 }}>
+          New events made in Aeneas go to
+          <select value={a.target ?? ""} disabled={busy} onChange={(e) => void run(async () => { setCal(await client!.chooseCalendars(a.email, { target: e.target.value || null })); })}>
+            <option value="">Keep them in the app</option>
+            {a.calendars.filter((c) => c.writable).map((c) => <option key={c.url} value={c.url}>{c.name}</option>)}
+          </select>
+        </label>
+      )}
       <div className="muted small">Last synced {when(a.last_sync)}; it syncs every 5 minutes, and soon after you change an event. Work events never leave the hub.</div>
       {/* The account's own calendar error (its last sync's), unless Sync now just said the same below. */}
       {a.last_error && a.last_error !== synced?.text && <div className="error small">{a.last_error}</div>}
@@ -552,13 +628,18 @@ export function syncNowResult(results: { account: string; error?: string }[], em
   return other?.error ? { ok: false, text: `${other.account}: ${other.error}` } : { ok: true, text: "Synced." };
 }
 
-/** Adding an account: iCloud (an app-specific password), Google (an app password, or Sign in with Google for receipts), or another provider. */
+/**
+ * Adding an account: iCloud (an app-specific password), Google (an app password: Mail and Receipts with one password,
+ * nothing to set up at Google), or another provider. Sign in with Google, which reads mail for Receipts only, is offered
+ * once the hub's own Google app is set under Keys.
+ */
 function AddAccount({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
   const mail = on("mail") || on("mail_inbox");
-  const kinds = (["icloud", "google", "imap"] as const).filter((k) => k === "icloud" || mail);
+  const kinds = (["icloud", "google", "imap"] as const).filter((k) => (k === "icloud" ? mail || on("calendars") : mail));
   const [kind, setKind] = useState<(typeof kinds)[number]>("icloud");
+  if (!kinds.length) return <div className="muted small account-row">To add an account, turn on Mail, Mail receipts or Calendar accounts in <a href="#/settings/modules">Settings, Modules</a>.</div>;
   return (
-    <div className="col" style={{ gap: 6, borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+    <div className="col account-row" style={{ gap: 6 }}>
       <strong>Add an account</strong>
       {kinds.length > 1 && (
         <div className="row wrap" role="radiogroup" aria-label="Kind of account">
@@ -571,9 +652,9 @@ function AddAccount({ c, on, reload }: { c: ConnectionsView; on: (m: string) => 
       {kind === "google" && (
         <>
           <ImapForm preset="gmail" reload={reload} />
-          {on("mail") && c.google && (
+          {on("mail") && c.google?.app && (
             <details>
-              <summary className="small">Or sign in with Google instead (Receipts only)</summary>
+              <summary className="small">Or sign in with Google instead (Receipts only, reads only)</summary>
               <GoogleSignIn c={c.google} reload={reload} />
             </details>
           )}
@@ -665,7 +746,7 @@ function GoogleSignIn({ c, reload }: { c: GoogleConnection; reload: () => void }
     }, 3000);
     return () => clearInterval(t);
   }, [waiting, client, reload, linked]);
-  if (!c.app) return <OwnKeyGuide service="google" onDone={reload} />;
+  if (!c.app) return null;
   return (
     <div className="col" style={{ gap: 4 }}>
       <div className="muted small">Google is asked to let the hub read mail only: it never sends, changes or deletes any, and so this way the account can't show in Mail.</div>
@@ -1054,6 +1135,36 @@ function PasswordManager({ c, reload }: { c: PasswordManagerView; reload: () => 
   );
 }
 
+/**
+ * Keys (since 2026-11-24, gnomecannon/aeneas#10, #25): the hub's own app keys that a service needs before anyone can
+ * sign in, each made once with its guide on the service's own site. Kept here, apart from the accounts and services,
+ * since they are set up once and then rarely looked at. A key shows only while its module is on.
+ */
+function Keys({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
+  const keys = [
+    on("mail") && c.google && { service: "google" as const, name: "Google app", what: "for Sign in with Google, which reads mail for Receipts only. Not needed for Google accounts added with an app password.", set: c.google.app },
+    on("wiki") && c.atlassian && { service: "atlassian" as const, name: "Atlassian app", what: "for Confluence in the wiki.", set: c.atlassian.app },
+    on("games") && { service: "steam" as const, name: "Steam key", what: "for Steam playtime in Games.", set: c.steam.hub_key },
+  ].filter((k): k is { service: "google" | "atlassian" | "steam"; name: string; what: string; set: boolean } => !!k);
+  if (!keys.length) return null;
+  return (
+    <section className="card col" id="keys">
+      <h2>Keys</h2>
+      <div className="muted small">Your hub's own app keys, for services that need one before anyone can sign in. Each is made once by you on the service's own site; there is no server of ours in between.</div>
+      {keys.map((k) => (
+        <div key={k.service} className="col account-row">
+          <div><strong>{k.name}</strong> <span className="muted small">{k.what}</span></div>
+          {k.set ? <div className="small">Set.</div> : <OwnKeyGuide service={k.service} onDone={reload} />}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/**
+ * Settings, Connections, grouped (gnomecannon/aeneas#25): the accounts first, then the services each module links, by
+ * kind (games and films, the wiki, health, machines, the calendar feed), then the keys they need.
+ */
 export function ConnectionsPage() {
   const { on } = useModules();
   const [c, reload, loadErr] = useConnections();
@@ -1064,13 +1175,15 @@ export function ConnectionsPage() {
       {engine.client && !c && loadErr && <div className="error">{loadErr} <button type="button" className="small" onClick={reload}>Try again</button></div>}
       {c && (
         <>
-          {(on("mail") || on("mail_inbox") || on("calendars")) && <InternetAccounts c={c} on={on} reload={reload} />}
+          <InternetAccounts c={c} on={on} reload={reload} />
+          <h2 className="conn-group">Services</h2>
           {on("games") && <Steam c={c.steam} reload={reload} />}
           {on("films") && <Letterboxd c={c.letterboxd} reload={reload} />}
           {on("wiki") && c.atlassian && <Confluence c={c.atlassian} reload={reload} />}
-          {on("homelab") && c.password_manager && <PasswordManager c={c.password_manager} reload={reload} />}
           {on("health") && <Health c={c.health} />}
+          {on("homelab") && c.password_manager && <PasswordManager c={c.password_manager} reload={reload} />}
           <CalendarFeed />
+          <Keys c={c} on={on} reload={reload} />
         </>
       )}
     </SubPage>

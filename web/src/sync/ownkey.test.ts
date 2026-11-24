@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { HubClient, OWN_KEY_SAVE, type Connections } from "./api";
-import { connectionsSummary, lastUseOff, olderHubAccounts, syncNowResult } from "../views/settings/Connections";
+import { atlassianSignedIn, connectionsSummary, hasReadOnlySwitch, lastUseOff, olderHubAccounts, syncNowResult } from "../views/settings/Connections";
+import { listedHere, modulesSummary } from "../views/settings/Modules";
+import { readOnlyBox, writableBoxes } from "../lib/mail";
 
 describe("guided setup", () => {
   it("sends a guide's fields only to the hub's own setup routes, iCloud Mail's link included", () => {
@@ -108,5 +110,108 @@ describe("internet accounts", () => {
     expect(src).toContain("{a.last_error && a.last_error !== synced?.text && <div className=\"error small\">{a.last_error}</div>}");
     expect(src).toContain("<Status msg={synced} />");
     expect(src).toContain("{calErr && <div className=\"error small\" role=\"alert\">The calendars could not be read: {calErr}</div>}");
+  });
+});
+
+describe("Confluence Reconnect (gnomecannon/aeneas#24)", () => {
+  const linked = { connected: true as const, app: true as const, site_name: "example-studio", site_url: "https://example-studio.atlassian.net", spaces: ["STARFALL"], last_sync: null, last_error: null, pages: 3 };
+  it("waits for the sign-in to land: a link Atlassian ended is connected, but not signed in until Reconnect clears it", () => {
+    expect(atlassianSignedIn({ ...linked, expired: true, last_error: "Atlassian ended the sign-in." })).toBe(false);
+    expect(atlassianSignedIn({ ...linked, expired: false })).toBe(true);
+    expect(atlassianSignedIn(linked)).toBe(true);
+    expect(atlassianSignedIn({ connected: false, app: true })).toBe(false);
+    expect(atlassianSignedIn(undefined)).toBe(false);
+  });
+  it("offers Reconnect, never only Unlink, for a link whose sign-in ended", () => {
+    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
+    const ended = src.slice(src.indexOf("{expired ? ("), src.indexOf(") : c.connected ? ("));
+    expect(ended).toContain('"Reconnect"');
+    expect(ended).toContain("onClick={signIn}");
+    expect(ended).toContain("The pages already in the wiki stay.");
+  });
+});
+
+describe("Settings, Connections reworked (gnomecannon/aeneas#10, #25)", () => {
+  const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
+  const page = src.slice(src.indexOf("export function ConnectionsPage()"));
+
+  it("has a Read only switch on iCloud and app-password accounts, sent to the hub, and none on a Google sign-in", async () => {
+    expect(hasReadOnlySwitch({ kind: "icloud", read_only: false })).toBe(true);
+    expect(hasReadOnlySwitch({ kind: "imap", read_only: true })).toBe(true);
+    expect(hasReadOnlySwitch({ kind: "gmail", read_only: false })).toBe(true);
+    expect(hasReadOnlySwitch({ kind: "google", read_only: true })).toBe(false);
+    // A hub older than Read only does not say: no switch the hub would not keep.
+    expect(hasReadOnlySwitch({ kind: "icloud" })).toBe(false);
+    const sent: unknown[] = [];
+    const c = new HubClient({ hubUrl: "http://hub.test", token: "t" }, (async (_u: RequestInfo | URL, init?: RequestInit) => { sent.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ inbox: true, receipts: true, read_only: true }), { status: 200 }); }) as typeof fetch);
+    expect((await c.setAccountFeatures("imap:robin@larkspur.example", { read_only: true })).read_only).toBe(true);
+    expect(sent).toEqual([{ read_only: true }]);
+  });
+
+  it("reads one account with its own Read now, and every account without one", async () => {
+    const sent: Array<{ url: string; body: unknown }> = [];
+    const c = new HubClient({ hubUrl: "http://hub.test", token: "t" }, (async (u: RequestInfo | URL, init?: RequestInit) => { sent.push({ url: String(u), body: JSON.parse(String(init?.body)) }); return new Response("{}", { status: 200 }); }) as typeof fetch);
+    await c.readMailNow("icloud:robin@northwind.example");
+    await c.readMailNow();
+    expect(sent).toEqual([{ url: "http://hub.test/connections/google/sync", body: { account: "icloud:robin@northwind.example" } }, { url: "http://hub.test/connections/google/sync", body: {} }]);
+    expect(src).toContain("client!.readMailNow(a.key)");
+  });
+
+  it("puts Receipts under the account's Aeneas modules, and Apple Reminders' module switch on the iCloud account", () => {
+    const row = src.slice(src.indexOf("function AccountRow("), src.indexOf("/** An iCloud account's calendars"));
+    expect(row.indexOf("Aeneas modules that read")).toBeLessThan(row.indexOf("<span>Receipts"));
+    expect(row.indexOf("<span>Mail</span>")).toBeLessThan(row.indexOf("Aeneas modules that read"));
+    expect(src).toContain("setModules({ apple_reminders: v })");
+    expect(src).toContain('a.key === remindersAt ? { on: remindersOn, set: setReminders } : null');
+  });
+
+  it("groups the page: accounts, then services by kind, then the keys they need, with no key guide left inside a service", () => {
+    const order = ["<InternetAccounts", "Services", "<Steam", "<Letterboxd", "<Confluence", "<Health", "<PasswordManager", "<CalendarFeed", "<Keys"].map((x) => page.indexOf(x));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    const steam = src.slice(src.indexOf("function Steam("), src.indexOf("function NeedsKey("));
+    const confluence = src.slice(src.indexOf("function Confluence("), src.indexOf("/** What one mailbox's mail came to"));
+    expect(steam).not.toContain("OwnKeyGuide");
+    expect(confluence).not.toContain("OwnKeyGuide");
+    expect(src).toContain('<OwnKeyGuide service={k.service} onDone={reload} />');
+  });
+
+  it("offers Google with an app password first, and Sign in with Google only once the Google app is set under Keys", () => {
+    const add = src.slice(src.indexOf("function AddAccount("), src.indexOf("function ImapForm("));
+    expect(add.indexOf('<ImapForm preset="gmail"')).toBeLessThan(add.indexOf("<GoogleSignIn"));
+    expect(add).toContain('on("mail") && c.google?.app && (');
+    expect(src).not.toContain('<OwnKeyGuide service="google"');
+  });
+});
+
+describe("Read only mailboxes on the Mail screen (gnomecannon/aeneas#10)", () => {
+  const boxes = [{ email: "robin@northwind.example", last_refresh: null, last_error: null, more: false, read_only: true }, { email: "robin@larkspur.example", last_refresh: null, last_error: null, more: false }];
+  it("knows which mail is in a Read only mailbox, and writes new mail only from the others", () => {
+    expect(readOnlyBox(boxes, "Robin@Northwind.example")).toBe(true);
+    expect(readOnlyBox(boxes, "robin@larkspur.example")).toBe(false);
+    expect(writableBoxes(boxes).map((b) => b.email)).toEqual(["robin@larkspur.example"]);
+  });
+  it("offers no Done, Pin, Delete, Spam, Move to, reply or draft for it", () => {
+    const mail = fs.readFileSync(path.join(__dirname, "../views/Mail.tsx"), "utf8");
+    for (const fn of ["function PinButton(", "function DoneButton(", "function FolderActions("]) {
+      const body = mail.slice(mail.indexOf(fn), mail.indexOf("\n}\n", mail.indexOf(fn)));
+      expect(body, fn).toContain("readOnlyBox(boxes,");
+    }
+    const move = mail.slice(mail.indexOf("function MoveButtons("), mail.indexOf("function MoveMenu("));
+    expect(move).toContain("if (box?.read_only) return null;");
+    expect(mail).toContain("const write = asked && !readOnlyBox(boxes, m.mailbox);");
+    expect(mail).toContain("const boxes = writableBoxes(linked);");
+  });
+});
+
+describe("Settings, Modules leaves out a switch that lives elsewhere", () => {
+  it("counts and lists every module but Apple Reminders, whose switch is on the iCloud account", () => {
+    const list = [
+      { id: "renewals", title: "Renewals", summary: "", group: "Plan", on: true },
+      { id: "apple_reminders", title: "Apple Reminders", summary: "", group: "On your devices", on: true, switch_in: "connections" as const },
+      { id: "mail", title: "Mail receipts", summary: "", group: "Life admin", on: false },
+    ];
+    expect(listedHere(list).map((m) => m.id)).toEqual(["renewals", "mail"]);
+    expect(modulesSummary(list)).toBe("1 of 2 on");
   });
 });
