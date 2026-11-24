@@ -236,7 +236,7 @@ test("tool guide: no line for web search or machines when this hub does not offe
   assert.doesNotMatch(none, /run_command/);
 });
 
-test("Mail and Mail receipts name every kind of mailbox the hub links, not iCloud alone (gnomecannon/aeneas#22)", () => {
+test("Mail and Receipts and renewals name every kind of mailbox the hub links, not iCloud alone (gnomecannon/aeneas#22)", () => {
   for (const id of ["mail", "mail_inbox"] as const) {
     const m = MODULES.find((x) => x.id === id)!;
     for (const text of [m.summary, m.reads ?? "", m.setup?.needs ?? ""]) {
@@ -254,5 +254,27 @@ test("modules: Apple Reminders is switched on the iCloud account in Settings, Co
   try {
     const list = ((await (await t.api("/modules")).json()) as { modules: { id: string; switch_in?: string }[] }).modules;
     assert.deepEqual(list.filter((m) => m.switch_in).map((m) => [m.id, m.switch_in]), [["apple_reminders", "connections"]]);
+  } finally { t.cleanup(); }
+});
+
+test("modules: Receipts and renewals is shown under Mail, and each keeps a switch of its own", async () => {
+  const t = makeHub();
+  try {
+    type Row = { id: string; title: string; summary: string; group: string; on: boolean; under?: string };
+    const list = async () => ((await (await t.api("/modules")).json()) as { modules: Row[] }).modules;
+    const pair = async () => (await list()).filter((m) => m.id === "mail" || m.id === "mail_inbox").map((m) => [m.id, m.on]);
+    const all = await list();
+    assert.deepEqual(all.filter((m) => m.under).map((m) => [m.id, m.under]), [["mail", "mail_inbox"]]);
+    const receipts = all.find((m) => m.id === "mail")!;
+    assert.equal(receipts.title, "Receipts and renewals", "named for purchases, not read receipts");
+    assert.match(receipts.summary, /Works with the Mail screen off\./);
+    assert.equal(receipts.group, all.find((m) => m.id === "mail_inbox")!.group, "the same area, so clients can show it under Mail");
+    // One level only: a module shown under another is never the parent of one.
+    for (const m of MODULES) if (m.under) assert.ok(MODULES.some((p) => p.id === m.under && !p.under), m.id);
+    // Only shown there: on the hub the two stay apart, so receipts are filed with the Mail screen off.
+    await t.api("/modules", { method: "PUT", json: { mail_inbox: false } });
+    assert.deepEqual(await pair(), [["mail", true], ["mail_inbox", false]]);
+    await t.api("/modules", { method: "PUT", json: { mail: false, mail_inbox: true } });
+    assert.deepEqual(await pair(), [["mail", false], ["mail_inbox", true]]);
   } finally { t.cleanup(); }
 });

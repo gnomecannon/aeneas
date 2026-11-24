@@ -23,7 +23,7 @@ import { newEventIcs, parseObject, updatedEventIcs, type EventTimes } from "./ca
  *
  * Only title, start, end, all-day and place are synced. Everything else in a server event (notes, alerts, invitees, its
  * time zone) stays as it is there. The hub talks only to iCloud's calendar servers (caldav.ts), with the account's
- * app-specific password, the same one Mail receipts uses for that address.
+ * app-specific password, the same one Receipts and renewals uses for that address.
  */
 
 export interface CalendarConf {
@@ -312,7 +312,7 @@ function saveConf(hub: Hub, email: string, fields: Partial<CalendarConf>) {
 
 export interface CalendarAccountView {
   email: string;
-  /** Mail receipts reads this account too. */
+  /** Receipts and renewals reads this account too. */
   mail: boolean;
   /** Read only (Internet Accounts): the hub reads its calendars and writes none of them, so new events stay in the app. */
   read_only: boolean;
@@ -341,8 +341,8 @@ export function calendarSyncActive(hub: Hub): boolean {
 }
 
 /**
- * Start calendar sync for an iCloud address: an account Mail receipts already uses needs no password; another needs
- * an app-specific password, checked with iCloud by finding its calendars.
+ * Start calendar sync for an iCloud address: an account Receipts and renewals already uses needs no password;
+ * another needs an app-specific password, checked with iCloud by finding its calendars.
  */
 export async function linkCalendarAccount(hub: Hub, body: Record<string, unknown>): Promise<ReturnType<typeof calendarView>> {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -388,8 +388,8 @@ export function chooseCalendars(hub: Hub, email: string, body: Record<string, un
 
 /**
  * Stop calendar sync for an address. Its events stay in the app as they are (no longer linked to anything that
- * changes them); the occurrences of repeating events go. The password goes too unless Mail receipts or the Mail
- * screen still reads the address (mailUsed: either one keeps it).
+ * changes them); the occurrences of repeating events go. The password goes too unless Receipts and renewals or the
+ * Mail screen still reads the address (mailUsed: either one keeps it).
  */
 export function unlinkCalendarAccount(hub: Hub, email: string): ReturnType<typeof calendarView> & { message: string } {
   const a = (hub.connections.get().icloud ?? []).find((x) => x.email === email);

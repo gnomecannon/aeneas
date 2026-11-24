@@ -19,6 +19,20 @@ describe("Today says each thing once", () => {
     // On a phone the cards are one column and the Schedule comes right after Needs you.
     expect(fs.readFileSync(path.join(__dirname, "../lib/todayBoard.ts"), "utf8")).toContain('return [["needs", "schedule", "todo", "sofar", "coming"]];');
   });
+  it("says Tech once, as one folded line above Needs you: no Tech pill at the top and no Tech rows in Needs you", () => {
+    // Folded whenever Today opens: plain screen state, never saved.
+    expect(src).toContain("const [techOpen, setTechOpen] = useState(false);");
+    expect(src).not.toMatch(/localStorage|sessionStorage/);
+    // The whole line is one button that says whether it is open.
+    expect(src).toMatch(/<button type="button" className="tech-line" aria-expanded=\{open\}/);
+    expect(src).not.toContain("className={`today-tech");
+    expect(src).not.toContain("Tech: {light.label}");
+    // At the top of the Needs you slot, so the columns stay as they were.
+    expect(src.indexOf("<TechCard ")).toBeGreaterThan(src.indexOf("needs: ("));
+    expect(src.indexOf("<TechCard ")).toBeLessThan(src.indexOf('aria-label="Needs you"'));
+    expect(src).not.toMatch(/needsYou\(\{[^}]*looks/);
+    expect(src).not.toContain('case "tech"');
+  });
   it("has no capture box: Capture is in the sidebar and the tab bar on every screen (gnomecannon/aeneas#21)", () => {
     expect(src).not.toContain("quick-capture");
     expect(src).not.toMatch(/placeholder="Capture/);

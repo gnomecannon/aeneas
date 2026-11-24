@@ -75,8 +75,9 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
   if (service === "icloud") {
     // Apple has no sign-in for mail, so this is the person's own password for one app, not a sign-in: the guide says
     // what it can do and how to end it, and the hub checks it with iCloud when it is saved. What the hub does with the
-    // mail depends on the modules that are on: Mail receipts only reads, while the Mail screen changes what the owner
-    // does there (the guide said "only reads" while the Mail screen moved and flagged mail; gnomecannon/aeneas#22).
+    // mail depends on the modules that are on: Receipts and renewals only reads, while the Mail screen changes what the
+    // owner does there (the guide said "only reads" while the Mail screen moved and flagged mail;
+    // gnomecannon/aeneas#22).
     const { does, uses } = icloudUse(hub.modules.on("mail"), hub.modules.on("mail_inbox"));
     return {
       service, title: "An app-specific password, for iCloud Mail", minutes: "5", done: view.icloud.accounts.length > 0,
@@ -120,8 +121,8 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
 }
 
 /**
- * What the iCloud Mail guide says the hub does with the mail, by the modules that are on (`receipts`: Mail receipts,
- * `inbox`: the Mail screen): what happens after the check, and what the password is used for.
+ * What the iCloud Mail guide says the hub does with the mail, by the modules that are on (`receipts`: Receipts and
+ * renewals, `inbox`: the Mail screen): what happens after the check, and what the password is used for.
  */
 export function icloudUse(receipts: boolean, inbox: boolean): { does: string; uses: string } {
   const does = [inbox && "brings its Inbox into Mail", receipts && "reads your receipts, renewals and vet mail"].filter(Boolean).join(" and ") || "reads your mail";

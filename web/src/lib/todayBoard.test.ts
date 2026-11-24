@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { Entity } from "@everythingapp/shared";
 import { takesTime, timeline, wholeDay, type RuleType, type TimelineItem } from "./planner";
 import { cameDue, daysUntil, durationWords, freeLine, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines } from "./todayBoard";
-import type { Look } from "./tech";
 
 let n = 0;
 function e(kind: string, fields: Record<string, unknown>, over: Partial<Entity> = {}): Entity {
@@ -81,15 +80,12 @@ describe("needsYou", () => {
   const due = (t: Entity, when: string) => ({ entity: t, at: when, key: `${t.id}:${when}` });
   it("lists only what waits on the owner, in the order to take it", () => {
     const vet = e("task", { title: "Call the vet", remind_at: iso(16, 8) });
-    const look: Look = { key: "mon-1", thing: "nas01", title: "nas01 SMB down", detail: "connect timeout", monitorId: "m1" };
-    const acked: Look = { key: "inc-2", thing: "core", title: "core ping down", acknowledged: true };
     const car = e("watch", { title: "car registration", due: "2026-11-20" });
     const spotify = e("watch", { title: "Spotify", due: "2026-11-25", autopay: true, cost: 11.99 });
     const job = e("application", { company: "Globex", next_step: "send references", next_at: new Date(2026, 10, 21, 9).toISOString() });
-    const out = needsYou({ reminders: [due(vet, iso(16, 8))], looks: [look, acked], watches: [car, spotify], followUps: [job], meds: [{ name: "Claritin", takenAt: null }, { name: "Vitamin D", takenAt: iso(8) }], unsorted: 2, now });
+    const out = needsYou({ reminders: [due(vet, iso(16, 8))], watches: [car, spotify], followUps: [job], meds: [{ name: "Claritin", takenAt: null }, { name: "Vitamin D", takenAt: iso(8) }], unsorted: 2, now });
     expect(out.map((x) => [x.kind, x.title, x.detail])).toEqual([
       ["reminder", "Call the vet", "Reminder, 4:08 PM, 23 min ago"],
-      ["tech", "nas01 SMB down", "connect timeout"],
       ["renewal", "Renew car registration", "2 days overdue"],
       ["followup", "Follow up with Globex", "send references, late"],
       ["med", "Claritin", "Not logged today"],
@@ -100,7 +96,7 @@ describe("needsYou", () => {
     const passport = e("watch", { title: "passport", due: "2026-11-22" });
     const renew = e("task", { title: "Renew: passport", remind_at: iso(9), linked_id: passport.id });
     const netflix = e("watch", { title: "Netflix", due: "2026-11-22", autopay: true });
-    const out = needsYou({ reminders: [due(renew, iso(9))], looks: [], watches: [passport, netflix], followUps: [], meds: [], unsorted: 0, now });
+    const out = needsYou({ reminders: [due(renew, iso(9))], watches: [passport, netflix], followUps: [], meds: [], unsorted: 0, now });
     expect(out.map((x) => [x.kind, x.title, x.detail])).toEqual([["renewal", "Renew passport", "Due today"]]);
   });
   it("says the day a reminder came due when that was not today", () => {
@@ -112,7 +108,13 @@ describe("needsYou", () => {
     expect(cameDue(new Date(2026, 10, 21, 23, 30).toISOString(), new Date(2026, 10, 22, 0, 30))).toBe("Nov 21 at 11:30 PM, yesterday");
   });
   it("is empty when nothing waits", () => {
-    expect(needsYou({ reminders: [], looks: [], watches: [], followUps: [], meds: [], unsorted: 0, now })).toEqual([]);
+    expect(needsYou({ reminders: [], watches: [], followUps: [], meds: [], unsorted: 0, now })).toEqual([]);
+  });
+  it("has nothing of Tech: what needs a look there is Tech's own card above Needs you", () => {
+    const look = { key: "mon-1", thing: "nas01", title: "nas01 SMB down", detail: "connect timeout", severity: "major", monitorId: "m1" };
+    // @ts-expect-error Needs you takes no looks any more.
+    const out = needsYou({ reminders: [], looks: [look], watches: [], followUps: [], meds: [], unsorted: 0, now });
+    expect(out).toEqual([]);
   });
   it("counts days by the local calendar", () => {
     expect(daysUntil("2026-11-25", now)).toBe(3);

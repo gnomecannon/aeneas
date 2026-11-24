@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { HubClient, OWN_KEY_SAVE, type Connections } from "./api";
-import { atlassianSignedIn, connectionsSummary, hasReadOnlySwitch, lastUseOff, olderHubAccounts, syncNowResult } from "../views/settings/Connections";
-import { listedHere, modulesSummary } from "../views/settings/Modules";
+import { APP_KEYS, APP_KEYS_INTRO, appKeys, atlassianSignedIn, connectionsSummary, hasReadOnlySwitch, lastUseOff, olderHubAccounts, syncNowResult } from "../views/settings/Connections";
+import { listedHere, modulesSummary, nestedOrder } from "../views/settings/Modules";
 import { readOnlyBox, writableBoxes } from "../lib/mail";
 
 describe("guided setup", () => {
@@ -157,26 +157,26 @@ describe("Settings, Connections reworked (gnomecannon/aeneas#10, #25)", () => {
     expect(src).toContain("client!.readMailNow(a.key)");
   });
 
-  it("puts Receipts under the account's Aeneas modules, and Apple Reminders' module switch on the iCloud account", () => {
+  it("puts Receipts and renewals under the account's Aeneas modules, and Apple Reminders' module switch on the iCloud account", () => {
     const row = src.slice(src.indexOf("function AccountRow("), src.indexOf("/** An iCloud account's calendars"));
-    expect(row.indexOf("Aeneas modules that read")).toBeLessThan(row.indexOf("<span>Receipts"));
+    expect(row.indexOf("Aeneas modules that read")).toBeLessThan(row.indexOf("<span>Receipts and renewals"));
     expect(row.indexOf("<span>Mail</span>")).toBeLessThan(row.indexOf("Aeneas modules that read"));
     expect(src).toContain("setModules({ apple_reminders: v })");
     expect(src).toContain('a.key === remindersAt ? { on: remindersOn, set: setReminders } : null');
   });
 
-  it("groups the page: accounts, then services by kind, then the keys they need, with no key guide left inside a service", () => {
-    const order = ["<InternetAccounts", "Services", "<Steam", "<Letterboxd", "<Confluence", "<Health", "<PasswordManager", "<CalendarFeed", "<Keys"].map((x) => page.indexOf(x));
+  it("groups the page: accounts, then services by kind, then the app keys they need, with no key guide left inside a service", () => {
+    const order = ["<InternetAccounts", "Services", "<Steam", "<Letterboxd", "<Confluence", "<Health", "<PasswordManager", "<CalendarFeed", "<AppKeys"].map((x) => page.indexOf(x));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     const steam = src.slice(src.indexOf("function Steam("), src.indexOf("function NeedsKey("));
     const confluence = src.slice(src.indexOf("function Confluence("), src.indexOf("/** What one mailbox's mail came to"));
     expect(steam).not.toContain("OwnKeyGuide");
     expect(confluence).not.toContain("OwnKeyGuide");
-    expect(src).toContain('<OwnKeyGuide service={k.service} onDone={reload} />');
+    expect(src).toContain('<OwnKeyGuide service={k.service} onDone={reload} start={k.added ? { label: "Replace" } : { label: "Set it up", primary: true }} />');
   });
 
-  it("offers Google with an app password first, and Sign in with Google only once the Google app is set under Keys", () => {
+  it("offers Google with an app password first, and Sign in with Google only once the Google app is added under App keys", () => {
     const add = src.slice(src.indexOf("function AddAccount("), src.indexOf("function ImapForm("));
     expect(add.indexOf('<ImapForm preset="gmail"')).toBeLessThan(add.indexOf("<GoogleSignIn"));
     expect(add).toContain('on("mail") && c.google?.app && (');
@@ -209,9 +209,82 @@ describe("Settings, Modules leaves out a switch that lives elsewhere", () => {
     const list = [
       { id: "renewals", title: "Renewals", summary: "", group: "Plan", on: true },
       { id: "apple_reminders", title: "Apple Reminders", summary: "", group: "On your devices", on: true, switch_in: "connections" as const },
-      { id: "mail", title: "Mail receipts", summary: "", group: "Life admin", on: false },
+      { id: "mail", title: "Receipts and renewals", summary: "", group: "Life admin", on: false },
     ];
     expect(listedHere(list).map((m) => m.id)).toEqual(["renewals", "mail"]);
     expect(modulesSummary(list)).toBe("1 of 2 on");
+  });
+});
+
+describe("Settings, Modules shows Receipts and renewals under Mail", () => {
+  const mod = (id: string, under?: string, on = true) => ({ id, title: id, summary: "", group: "Life admin", on, ...(under ? { under } : {}) });
+  const ids = (rows: { m: { id: string }; sub: boolean }[]) => rows.map(({ m, sub }) => (sub ? `  ${m.id}` : m.id));
+
+  it("puts a module right after the one it sits under, indented, with that one off too", () => {
+    const list = [mod("games"), mod("mail", "mail_inbox"), mod("jobs"), mod("mail_inbox", undefined, false)];
+    expect(ids(nestedOrder(list))).toEqual(["games", "jobs", "mail_inbox", "  mail"]);
+    expect(nestedOrder(list)).toHaveLength(list.length);
+  });
+
+  it("shows it as a normal row where the hub put it when the module it sits under is not in the list", () => {
+    expect(ids(nestedOrder([mod("mail", "mail_inbox"), mod("games")]))).toEqual(["mail", "games"]);
+    // One level only, and two that name each other both show, as normal rows.
+    expect(ids(nestedOrder([mod("a"), mod("b", "a"), mod("c", "b")]))).toEqual(["a", "  b", "c"]);
+    expect(ids(nestedOrder([mod("a", "b"), mod("b", "a")]))).toEqual(["a", "b"]);
+  });
+
+  it("indents it in the picker and names the area's modules in the order they show", () => {
+    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Modules.tsx"), "utf8");
+    const picker = src.slice(src.indexOf("export function ModulePicker()"), src.indexOf("/** Settings, Modules. */"));
+    expect(picker).toContain("const mods = nestedOrder(list.filter((m) => m.group === g));");
+    expect(picker).toContain('className={sub ? "module-sub" : undefined}');
+    expect(picker).toContain("{mods.map(({ m }) => m.title).join(\", \")}");
+    expect(fs.readFileSync(path.join(__dirname, "../styles.css"), "utf8")).toMatch(/\.module-sub \{[^}]*margin-left[^}]*border-left/);
+  });
+});
+
+describe("Settings, Connections, App keys", () => {
+  const base = { letterboxd: { connected: false as const }, health: { last_import: null, samples: 0, total: 0 } };
+  const c = { ...base, steam: { connected: false as const, hub_key: true }, atlassian: { connected: false as const, app: false }, google: { app: true, accounts: [] } };
+
+  it("shows a key only while its module is on, with whether the hub has it", () => {
+    expect(appKeys(c, () => true).map((k) => [k.name, k.added])).toEqual([["Google app", true], ["Atlassian app", false], ["Steam key", true]]);
+    expect(appKeys(c, (m) => m !== "wiki").map((k) => k.service)).toEqual(["google", "steam"]);
+    expect(appKeys(c, () => false)).toEqual([]);
+    // A hub too old to say whether it has a Google or Atlassian app shows neither.
+    expect(appKeys({ steam: { connected: false, hub_key: false } }, () => true).map((k) => [k.service, k.added])).toEqual([["steam", false]]);
+  });
+
+  it("says why keys are asked for, and each says what it is, what uses it and what works without it", () => {
+    expect(APP_KEYS_INTRO).toMatch(/^These are optional\./);
+    expect(APP_KEYS_INTRO).toContain("Aeneas has no server of its own");
+    for (const k of APP_KEYS) {
+      for (const text of [APP_KEYS_INTRO, k.purpose, k.what, k.why, k.uses, k.without, k.replacing]) {
+        expect(text.length, k.name).toBeGreaterThan(0);
+        expect(text, k.name).not.toMatch(/[\u2013\u2014!]/);
+      }
+    }
+    const google = APP_KEYS.find((k) => k.service === "google")!;
+    expect(google.what).toContain("gmail.readonly");
+    expect(google.without).toContain("app password");
+    expect(APP_KEYS.find((k) => k.service === "steam")!.without).toContain("Steam password changes");
+  });
+
+  it("says the same on the iPhone, iPad and Mac", () => {
+    const swift = fs.readFileSync(path.join(__dirname, "../../../apple/Packages/EACore/Sources/EACore/AppKeys.swift"), "utf8");
+    for (const text of [APP_KEYS_INTRO, ...APP_KEYS.flatMap((k) => [k.name, k.by, k.purpose, k.what, k.why, k.uses, k.without, k.replacing])]) expect(swift).toContain(`"${text}"`);
+  });
+
+  it("draws each row as a status and what it is for, opens what it is in place, and always has a button", () => {
+    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
+    const row = src.slice(src.indexOf("function AppKeyRow("), src.indexOf("/**\n * Settings, Connections, grouped"));
+    expect(row).toContain("Added</span>");
+    expect(row).toContain('<span className="muted small">Not added</span>');
+    expect(row).toContain('className="ok small"');
+    expect(row).toContain('className="info-btn" aria-expanded={open}');
+    expect(row).toContain("<strong>Why {k.by} asks for it:</strong>");
+    expect(row).not.toMatch(/>Set\.?</);
+    expect(src).toContain('<h2>App keys</h2>');
+    expect(src).toContain('Go to App keys');
   });
 });

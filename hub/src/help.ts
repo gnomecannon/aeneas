@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { HUB_DIR } from "./config.js";
 import type { ModuleView } from "./modules.js";
-import { MODULES } from "./modules.js";
+import { MODULES, moduleDef } from "./modules.js";
 import { questionWords } from "./reference/assistant.js";
 import { fold } from "./reference/search.js";
 
@@ -86,6 +86,7 @@ export function moduleSections(modules?: Pick<ModuleView, "id" | "on">[]): HelpS
         m.permissions?.length && `What each Apple device asks for while it is on: ${m.permissions.join(", ")}.`,
         m.setup && `Setup takes about ${m.setup.minutes} minutes: ${m.setup.needs}. The guide is in Settings, Connections.`,
         `Listed under ${m.group}.`,
+        m.under && `In Settings, Modules it sits under ${moduleDef(m.under).title}, with a switch of its own.`,
       ].filter(Boolean).join("\n"),
     })),
   ];

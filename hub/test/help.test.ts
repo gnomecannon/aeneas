@@ -39,9 +39,10 @@ test("help: questions find the right section, the module list says what is on, a
   assert.match(pair.sections[0].heading, /Add another device/);
   const mods = moduleSections([{ id: "music", on: true }, { id: "mail", on: false }]);
   const music = mods.find((m) => m.heading === "Modules > Music")!.text;
-  const mail = mods.find((m) => m.heading === "Modules > Mail receipts")!.text;
+  const mail = mods.find((m) => m.heading === "Modules > Receipts and renewals")!.text;
   assert.match(music, /This hub has it switched on \(Settings, Modules\)\./);
   assert.match(mail, /This hub has it switched off \(Settings, Modules\)\./);
+  assert.match(mail, /In Settings, Modules it sits under Mail, with a switch of its own\./);
   for (const t of [music, mail]) assert.doesNotMatch(t, /\b(on|off) (on|off)\b/, t);
   assert.equal(searchHelp("zzqx florble", { root: ROOT }).sections.length, 0);
   const whole = searchHelp("calendar", { root: ROOT, section: "Mail" });

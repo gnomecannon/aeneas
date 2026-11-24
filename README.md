@@ -123,11 +123,12 @@ sudo) rights on the machine, you included, can open it: tell them before they st
 **After setup.** Updating, backups and a second copy off the hub's disk, restoring, moving to a new machine,
 removing a device, uninstalling and fixing problems: `docs/running-your-hub.md`.
 
-**Advanced additions.** Services that need your own key or app come with a step-by-step guide in Settings,
-Connections, Keys, with the values to copy filled in and a check at the end: Steam playtime (about 2 minutes), Confluence
-(about 10) and Sign in with Google for Gmail receipts (10 to 15; to read the steps before you install, see
-[docs/gmail-setup.md](docs/gmail-setup.md)). Mail accounts (iCloud Mail, Gmail or another mail server) need only an app
-password, about 5 minutes each.
+**Advanced additions.** A few services let a program in only once it is registered with them, and Aeneas has no
+server of its own, so for these your hub holds your own registration, an app key. They are optional, and each comes
+with a step-by-step guide in Settings, Connections, App keys, with the values to copy filled in and a check at the end:
+Steam playtime (about 2 minutes), Confluence (about 10) and Sign in with Google for Receipts and renewals from Gmail (10
+to 15; to read the steps before you install, see [docs/gmail-setup.md](docs/gmail-setup.md)). Mail accounts (iCloud
+Mail, Gmail or another mail server) need only an app password, about 5 minutes each.
 Each module says before you turn it on whether it needs one.
 
 ## Layout

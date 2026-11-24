@@ -22,10 +22,10 @@ export type { InboxMail, MailAddress, MoveRef } from "./inbox-source.js";
  * change that.
  *
  * Reading changes nothing: every folder is opened with EXAMINE and message parts are fetched with BODY.PEEK (nothing is
- * marked read). For Mail receipts that is all there is: mail is read in memory and never stored, as for Gmail. For the
- * Mail screen, what is read is the Inbox and the other folders' mail (listInboxICloud, listFoldersICloud: text parts,
- * capped, and the pictures a mail's HTML shows from inside it), which mail-inbox.ts keeps, and an attachment when the
- * owner opens or downloads one (attachmentsICloud, attachmentICloud: kept nowhere).
+ * marked read). For Receipts and renewals that is all there is: mail is read in memory and never stored, as for Gmail.
+ * For the Mail screen, what is read is the Inbox and the other folders' mail (listInboxICloud, listFoldersICloud: text
+ * parts, capped, and the pictures a mail's HTML shows from inside it), which mail-inbox.ts keeps, and an attachment
+ * when the owner opens or downloads one (attachmentsICloud, attachmentICloud: kept nowhere).
  *
  * The Mail screen's writes, each fenced in a function of its own that checks the message is still the one the hub kept
  * (its folder not reset, its Message-ID read again) and can ask the server for nothing else (ImapMover, ImapDrafter):
@@ -38,12 +38,12 @@ export type { InboxMail, MailAddress, MoveRef } from "./inbox-source.js";
  *
  * Other mail accounts (since 2026-11-22): the same code reads any mailbox the owner links with a server, a port, a
  * username and an app password (`imap:` accounts, `connections.imap`), Gmail as a preset (imap.gmail.com). The Mail
- * screen reads them, and Mail receipts when that switch is on for the account (imapSource); calendars are iCloud's
- * only. The fences above hold for them too; on top: TLS on connect always (no plain or STARTTLS port), certificates
- * checked against the server's name, and the server's addresses looked up and refused when one is on the owner's own
- * network (a mistyped or planted server cannot point the hub inside the home), the connection then made to a checked
- * address. Brand logos stay iCloud's only: they trust a verdict iCloud writes on each mail, which another server does
- * not write and a sender could forge there.
+ * screen reads them, and Receipts and renewals when that switch is on for the account (imapSource); calendars are
+ * iCloud's only. The fences above hold for them too; on top: TLS on connect always (no plain or STARTTLS port),
+ * certificates checked against the server's name, and the server's addresses looked up and refused when one is on the
+ * owner's own network (a mistyped or planted server cannot point the hub inside the home), the connection then made to
+ * a checked address. Brand logos stay iCloud's only: they trust a verdict iCloud writes on each mail, which another
+ * server does not write and a sender could forge there.
  */
 
 const HOST = "imap.mail.me.com";
@@ -75,7 +75,7 @@ export interface ICloudAccount {
    * an Apple Account locked) until the mailbox is linked again or the owner presses Read now, which tries once.
    */
   refused_at?: string | null;
-  /** Whether its mail is read (Mail receipts). Absent is yes: accounts linked before calendars were. */
+  /** Whether its mail is read (Receipts and renewals). Absent is yes: accounts linked before calendars were. */
   mail?: boolean;
   /**
    * Whether its Inbox shows on the Mail screen (Internet Accounts, since 2026-11-22). Absent follows `mail`, as before:
@@ -273,12 +273,12 @@ export interface ImapAccount extends ICloudAccount {
 
 /** Whether a mailbox's Inbox shows on the Mail screen. */
 export const inboxOn = (a: { inbox?: boolean; mail?: boolean }) => a.inbox ?? a.mail !== false;
-/** Whether Mail receipts reads a mailbox. */
+/** Whether Receipts and renewals reads a mailbox. */
 export const receiptsOn = (a: { mail?: boolean }) => a.mail !== false;
 /**
- * Whether anything reads a mailbox's mail: Mail receipts or the Mail screen. While either does (or calendar sync uses
- * the account), its password stays on the hub; every way of unlinking asks this, so none takes the password from under
- * the other.
+ * Whether anything reads a mailbox's mail: Receipts and renewals or the Mail screen. While either does (or calendar
+ * sync uses the account), its password stays on the hub; every way of unlinking asks this, so none takes the password
+ * from under the other.
  */
 export const mailUsed = (a: { inbox?: boolean; mail?: boolean }) => receiptsOn(a) || inboxOn(a);
 
@@ -294,16 +294,19 @@ function account(hub: Hub, key: string): ICloudAccount & Partial<ImapAccount> {
 }
 
 /**
- * Whether anything on the hub still uses a linked account's password: the Mail screen, Mail receipts (not for another
- * mail account whose address is also signed in with Google: its receipts are read there, never with this password),
- * or calendar sync. When the last of them is switched off the account is removed (routes/imports.ts), since a password
- * is kept only while something uses it.
+ * Whether anything on the hub still uses a linked account's password: the Mail screen, Receipts and renewals (not for
+ * another mail account whose address is also signed in with Google: its receipts are read there, never with this
+ * password), or calendar sync. When the last of them is switched off the account is removed (routes/imports.ts), since
+ * a password is kept only while something uses it.
  */
 export function accountUsed(hub: Hub, key: string): boolean {
   const a = account(hub, key);
   return inboxOn(a) || (receiptsOn(a) && !readByGoogle(hub, key)) || !!a.calendar;
 }
-/** Another mail account whose address is also signed in with Google: Mail receipts reads it there (imapSource.accounts). */
+/**
+ * Another mail account whose address is also signed in with Google: Receipts and renewals reads it there
+ * (imapSource.accounts).
+ */
 const readByGoogle = (hub: Hub, key: string) => isImapKey(key) && !!hub.connections.get().google?.some((g) => g.email === key.slice(IMAP_PREFIX.length));
 
 function saveAccount(hub: Hub, key: string, fields: Partial<ICloudAccount>) {
@@ -493,11 +496,11 @@ const VIEW_MARKS = ["\\All", "\\Flagged", "\\Important"];
 export const isView = (f: ImapFolder) => VIEW_MARKS.some((m) => f.specialUse === m || f.flags.has(m));
 
 /**
- * The folders Mail receipts reads: every one but Junk, Trash, Drafts and Sent, ones that cannot be opened, and views
- * (a mail under three Gmail labels was queued and read by the model three times, and again from All Mail). With
- * `allMail` (a Gmail account), only All Mail when the server lists it: there each mail is once, archived mail too, and
- * Spam and Trash are not in it. The owner's own sent mail is in it; the search words decide what is read, as they do
- * for a mailbox signed in with Google.
+ * The folders Receipts and renewals reads: every one but Junk, Trash, Drafts and Sent, ones that cannot be opened,
+ * and views (a mail under three Gmail labels was queued and read by the model three times, and again from All Mail).
+ * With `allMail` (a Gmail account), only All Mail when the server lists it: there each mail is once, archived mail too,
+ * and Spam and Trash are not in it. The owner's own sent mail is in it; the search words decide what is read, as they
+ * do for a mailbox signed in with Google.
  */
 export function mailFolders(folders: ImapFolder[], opts: { allMail?: boolean } = {}): ImapFolder[] {
   const open = folders.filter((f) => !f.flags.has("\\Noselect") && !f.flags.has("\\NonExistent"));
@@ -1506,8 +1509,8 @@ export const imapInbox: InboxSource = {
 };
 
 /**
- * Other mail accounts as a Mail receipts source (since 2026-11-22): one app password serves the Mail screen and
- * receipts. An address also signed in with Google is read for receipts there only, so its mail is filed once.
+ * Other mail accounts as a Receipts and renewals source (since 2026-11-22): one app password serves the Mail screen
+ * and receipts. An address also signed in with Google is read for receipts there only, so its mail is filed once.
  */
 export const imapSource: MailSource = {
   kind: "imap",
@@ -1528,9 +1531,9 @@ export const imapSource: MailSource = {
 };
 
 /**
- * An account's switches (Internet Accounts, since 2026-11-22): `receipts` (Mail receipts reads it), `inbox` (the Mail
- * screen shows it) and `read_only` (since 2026-11-24: the hub writes nothing to it), each only when given. The account
- * stays linked whatever is off; Remove unlinks it.
+ * An account's switches (Internet Accounts, since 2026-11-22): `receipts` (Receipts and renewals reads it), `inbox`
+ * (the Mail screen shows it) and `read_only` (since 2026-11-24: the hub writes nothing to it), each only when given.
+ * The account stays linked whatever is off; Remove unlinks it.
  */
 export function setMailboxFeatures(hub: Hub, key: string, body: Record<string, unknown>): { receipts: boolean; inbox: boolean; read_only: boolean } {
   const a = account(hub, key);

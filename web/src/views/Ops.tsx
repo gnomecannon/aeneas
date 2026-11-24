@@ -6,7 +6,7 @@ import { useEntities, useEntity } from "../sync/hooks";
 import { createEntity, updateEntity } from "../sync/edits";
 import { usePoll } from "../lib/usePoll";
 import { go, replace } from "../lib/router";
-import { checksLine, identityLine, machineBars, machineSections, needsALook, readingLabel, readingValue, techLight, thingStatus, type Look, type Thing } from "../lib/tech";
+import { TONE_DOT, checksLine, identityLine, lookTone, machineBars, machineSections, needsALook, readingLabel, readingValue, techLight, thingStatus, type Look, type Thing } from "../lib/tech";
 import { MachinesSettings } from "./settings/HubPrivacy";
 import { MachinesStart } from "./settings/MachinesSetup";
 import { doneWithFirstSteps, justSwitchedOn, useModules } from "../lib/modules";
@@ -184,7 +184,7 @@ export function NeedsALook({ looks, things, onChanged }: { looks: Look[]; things
         <div key={l.key} className={`look-row ${l.acknowledged ? "acked" : ""}`}>
           <div className="grow" style={{ minWidth: 0 }}>
             <div className="look-title">
-              <span className={`dot ${l.acknowledged ? "unknown" : "down"}`} aria-hidden="true" />
+              <span className={`dot ${TONE_DOT[lookTone(l)]}`} aria-hidden="true" />
               <span>{l.title}</span>
               {l.thing && (
                 <a href={`#/hosts/${encodeURIComponent(l.thing)}`} className={`small ${by.get(l.thing)?.kind === "place" ? "" : "mono"}`}>

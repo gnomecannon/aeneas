@@ -65,7 +65,11 @@ export function identityLine(t: Thing): string {
 /** "Computer", "Printer"...; "Not identified" when the hub is not sure. */
 export const kindName = (t: Thing) => CATEGORIES.find((c) => c.category === t.category)?.one ?? "Not identified";
 
-export type Tone = "ok" | "danger" | "muted";
+/** Green when fine, yellow when only small things need a look, red when something is down, grey otherwise. */
+export type Tone = "ok" | "warn" | "danger" | "muted";
+
+/** The dot for a tone, in the theme's status colors (styles.css `.dot`). */
+export const TONE_DOT: Record<Tone, string> = { ok: "up", warn: "warn", danger: "down", muted: "unknown" };
 
 /** The host a check is about when it names none: the machine or address in its target (as the hub reads it). */
 export function targetHost(type: string, target: string): string {
@@ -142,12 +146,20 @@ export function machineBars(t: Thing, sensors: Map<string, SensorRow>): Bar[] {
   return out;
 }
 
+/**
+ * How much a look weighs: major for something that is down (a check, with or without its incident, and the hub's own
+ * backup), minor for a reading out of bounds or silent. The light is red while a major one is not yet acknowledged,
+ * yellow while only minor ones are.
+ */
+export type Severity = "major" | "minor";
+
 export interface Look {
   key: string;
   /** The thing it is on, for its page. */
   thing: string;
   title: string;
   detail?: string;
+  severity: Severity;
   /** A check that is down: Propose a fix asks about this monitor. */
   monitorId?: string;
   /** Its open incident, for Acknowledge. */
@@ -159,7 +171,8 @@ export interface Look {
 
 /**
  * Everything that needs a look now, worst first: checks that are down (one row per incident: a machine that stopped
- * answering takes its services with it), readings out of bounds or silent, and the hub's own backup.
+ * answering takes its services with it), readings out of bounds or silent, and the hub's own backup. A check that is
+ * down and the hub's backup are major, a reading is minor.
  */
 export function needsALook(
   things: Thing[],
@@ -182,13 +195,13 @@ export function needsALook(
     out.push({
       key: `inc-${inc.id}`, thing: t?.name ?? "", title: `${f.name} down`,
       detail: [f.last_error, f.also_down?.length ? `also down with it: ${f.also_down.join(", ")}` : ""].filter(Boolean).join("; "),
-      monitorId: f.monitor_id, incident: inc, acknowledged: !!f.acknowledged_at,
+      severity: "major", monitorId: f.monitor_id, incident: inc, acknowledged: !!f.acknowledged_at,
     });
   }
   for (const m of monitors) {
     const f = m.fields as MonitorF;
     if (covered.has(m.id) || !on(m) || monitorState(f) !== "down") continue;
-    out.push({ key: `mon-${m.id}`, thing: thingOfMonitor.get(m.id)?.name ?? "", title: `${f.name} down`, detail: f.last_error, monitorId: m.id });
+    out.push({ key: `mon-${m.id}`, thing: thingOfMonitor.get(m.id)?.name ?? "", title: `${f.name} down`, detail: f.last_error, severity: "major", monitorId: m.id });
   }
   for (const s of sensors) {
     if (!alerting(s)) continue;
@@ -200,36 +213,49 @@ export function needsALook(
       ? `${label}${where}: ${s.last_at ? `no reading for ${Math.max(1, Math.round((now.getTime() - Date.parse(s.last_at)) / 3600_000))} h` : "no reading yet"}`
       : `${label}${where} at ${readingValue(s)}`;
     const bound = state === "high" && s.max != null ? `alerts above ${s.max}${s.unit === "%" ? "%" : ` ${s.unit}`}` : state === "low" && s.min != null ? `alerts below ${s.min}${s.unit === "%" ? "%" : ` ${s.unit}`}` : "";
-    out.push({ key: `sensor-${s.name}`, thing: t?.name ?? "", title, detail: bound, sensor: s.name });
+    out.push({ key: `sensor-${s.name}`, thing: t?.name ?? "", title, detail: bound, severity: "minor", sensor: s.name });
   }
   const bad = hubBackup.filter((l) => !l.ok);
   if (bad.length) {
     const hubThing = things.find((t) => t.hub);
-    out.push({ key: "hub-backup", thing: hubThing?.name ?? "", title: "This hub's backup needs a look", detail: bad.map((l) => `${l.label}: ${l.text}`).join("; ") });
+    out.push({ key: "hub-backup", thing: hubThing?.name ?? "", title: "This hub's backup needs a look", detail: bad.map((l) => `${l.label}: ${l.text}`).join("; "), severity: "major" });
   }
   // Not yet acknowledged first; the hub's order otherwise.
   return out.map((l, i) => ({ l, i })).sort((a, b) => Number(!!a.l.acknowledged) - Number(!!b.l.acknowledged) || a.i - b.i).map((x) => x.l);
 }
 
-/** The light at the top of Tech: what needs a look, or that all is well and how much is watched. */
-export function techLight(looks: Look[], things: Thing[], monitors: OpsMonitor[], sensors: SensorRow[]): { tone: Tone; label: string; detail: string } {
-  const open = looks.filter((l) => !l.acknowledged).length;
+/** A look's own color: red when major, yellow when minor, grey once acknowledged. */
+export const lookTone = (l: Look): Tone => (l.acknowledged ? "muted" : l.severity === "major" ? "danger" : "warn");
+
+/** What is watched, in one line: "3 machines, 4 checks, 5 readings"; empty when nothing is. */
+export function watchedLine(things: Thing[], monitors: OpsMonitor[], sensors: SensorRow[]): string {
   const machines = things.filter((t) => t.kind === "machine").length;
   const checks = monitors.filter(on).length;
-  const watched = [
+  return [
     machines ? `${machines} machine${machines === 1 ? "" : "s"}` : "",
     checks ? `${checks} check${checks === 1 ? "" : "s"}` : "",
     sensors.length ? `${sensors.length} reading${sensors.length === 1 ? "" : "s"}` : "",
   ].filter(Boolean).join(", ");
+}
+
+/**
+ * The light at the top of Tech, and Today's Tech line: red while a major look (something down) is not yet
+ * acknowledged, yellow while only minor ones are (readings), grey once every look is acknowledged, green when there
+ * is none, with how much is watched.
+ */
+export function techLight(looks: Look[], things: Thing[], monitors: OpsMonitor[], sensors: SensorRow[]): { tone: Tone; label: string; detail: string } {
+  const open = looks.filter((l) => !l.acknowledged);
+  const watched = watchedLine(things, monitors, sensors);
   if (looks.length) {
-    const acked = looks.length - open;
+    const acked = looks.length - open.length;
+    if (!open.length) return { tone: "muted", label: `${acked} acknowledged`, detail: watched };
     return {
-      tone: open ? "danger" : "muted",
-      label: open ? `${open} thing${open === 1 ? "" : "s"} need${open === 1 ? "s" : ""} a look` : `${acked} acknowledged`,
-      detail: [open && acked ? `${acked} acknowledged` : "", watched].filter(Boolean).join("; "),
+      tone: open.some((l) => l.severity === "major") ? "danger" : "warn",
+      label: `${open.length} thing${open.length === 1 ? "" : "s"} need${open.length === 1 ? "s" : ""} a look`,
+      detail: [acked ? `${acked} acknowledged` : "", watched].filter(Boolean).join("; "),
     };
   }
-  if (!checks && !sensors.length) return { tone: "muted", label: "Nothing watched yet", detail: "" };
+  if (!monitors.some(on) && !sensors.length) return { tone: "muted", label: "Nothing watched yet", detail: "" };
   return { tone: "ok", label: "All good", detail: watched };
 }
 

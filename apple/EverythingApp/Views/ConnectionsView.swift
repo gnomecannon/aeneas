@@ -3,10 +3,10 @@ import AuthenticationServices
 import EACore
 
 /// Settings, Connections, grouped as on every device (gnomecannon/aeneas#10, #25): Internet Accounts first (iCloud,
-/// Google and other mail accounts, each with Mail, Calendars, Reminders, Read only and Receipts), then the services by
-/// kind (Steam and Letterboxd, Confluence, Apple Health, the password manager, the calendar feed), then Keys, the
-/// hub's own app keys those services need. Linked data lands in Renewals, Pet, Games, Wiki, Films and Logs on its
-/// own, where the assistant reads it too.
+/// Google and other mail accounts, each with Mail, Calendars, Reminders, Read only and Receipts and renewals), then the
+/// services by kind (Steam and Letterboxd, Confluence, Apple Health, the password manager, the calendar feed), then App
+/// keys, the hub's own registrations those services need. Linked data lands in Renewals, Pet, Games, Wiki, Films and
+/// Logs on its own, where the assistant reads it too.
 struct ConnectionsSettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -41,8 +41,8 @@ struct ConnectionsSettingsView: View {
                 if model.isOn(.health) { health(c.health) }
                 if model.isOn(.homelab), let pm = c.password_manager { PasswordManagerSection(view: pm, reload: { await load() }) }
                 calendarFeed
-                // The keys those services need, set once.
-                KeysSection(c: c, reload: { await load() })
+                // The app keys those services need, each made once, with what it is and why it is asked for.
+                AppKeysSection(store: store, reload: { await load() })
             } else if let loadError = store.loadError {
                 Text(loadError).foregroundStyle(.dangerText)
             } else {
@@ -80,7 +80,7 @@ struct ConnectionsSettingsView: View {
                 Button { signInWithSteam() } label: { Label(busy == "steam" ? "Waiting for Steam" : "Sign in with Steam", systemImage: "person.badge.key") }
                     .disabled(busy != nil)
             } else {
-                Text("Signing in needs the hub's own Steam key first, set once under Keys at the end of this page.").foregroundStyle(.secondary)
+                Text("Signing in needs the hub's own Steam key first, added once under App keys at the end of this page.").foregroundStyle(.secondary)
             }
             note("steam")
         } header: {
@@ -153,7 +153,7 @@ struct ConnectionsSettingsView: View {
                 Button { signInWithAtlassian() } label: { Label(busy == "atlassian" ? "Waiting for Atlassian" : "Sign in with Atlassian", systemImage: "person.badge.key") }
                     .disabled(busy != nil)
             } else {
-                Text("Signing in needs the hub's own Atlassian app first, set once under Keys at the end of this page.").foregroundStyle(.secondary)
+                Text("Signing in needs the hub's own Atlassian app first, added once under App keys at the end of this page.").foregroundStyle(.secondary)
             }
             note("atlassian")
         } header: {

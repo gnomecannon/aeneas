@@ -4,8 +4,9 @@ import EACore
 
 /// Settings, Connections, Internet Accounts on the iPhone, iPad and Mac (gnomecannon/aeneas#10, #23), as in the web,
 /// Windows and Android apps: every iCloud, Google and other mail account, each opened to what it brings in (Mail,
-/// Calendars, and Reminders on the first iCloud account), Read only, the Aeneas modules that read it (Receipts, with
-/// Read now), its calendars and Remove; and Add Account (iCloud, Google with an app password, or another provider).
+/// Calendars, and Reminders on the first iCloud account), Read only, the Aeneas modules that read it (Receipts and
+/// renewals, with Read now), its calendars and Remove; and Add Account (iCloud, Google with an app password, or another
+/// provider).
 /// The Apple apps had only iCloud Mail and Sign in with Google, so accounts added elsewhere could not be seen,
 /// switched or removed here, and a hub reached by Direct link has no browser to fall back on.
 
@@ -52,7 +53,7 @@ struct InternetAccountsSection: View {
                 if canAdd {
                     PageLink { AddAccountView(store: store, reload: reload) } label: { Label("Add Account", systemImage: "plus.circle") }
                 } else {
-                    Text("To add an account, turn on Mail, Mail receipts or Calendar accounts in Settings, Modules.").font(.footnote).foregroundStyle(.secondary)
+                    Text("To add an account, turn on Mail, Receipts and renewals, or Calendar accounts in Settings, Modules.").font(.footnote).foregroundStyle(.secondary)
                 }
             } else if let c = store.c {
                 // A hub from before Internet Accounts: its accounts to look at, and what to do.
@@ -166,7 +167,7 @@ struct AccountSettingsView: View {
     struct Change: Identifiable { let id = UUID(); var what: String; var inbox: Bool?; var receipts: Bool? }
 
     private var account: InternetAccount? { store.c?.internet?.first { $0.key == key } }
-    /// Receipts for this address are read through its Sign in with Google link.
+    /// Receipts and renewals reads this address through its Sign in with Google link.
     private var viaGoogle: Bool { guard let a = account, a.kind != "google" else { return false }; return store.c?.internet?.contains { $0.kind == "google" && $0.email == a.email } ?? false }
     private static let lastUseText = "Nothing else uses this account, so it is removed and its password deleted from the hub. What was filed from its mail stays, and the account itself stays with your provider."
 
@@ -226,7 +227,7 @@ struct AccountSettingsView: View {
             if let message { Text(message.text).font(.footnote).foregroundStyle(message.ok ? AnyShapeStyle(.secondary) : AnyShapeStyle(.dangerText)) }
         } footer: {
             if a.kind == "google" {
-                Text("Signed in with Google, the hub may read this mail and nothing else, so it can't show in Mail. To see it in Mail, add it again as Google with an app password; Receipts goes on reading it here.")
+                Text("Signed in with Google, the hub may read this mail and nothing else, so it can't show in Mail. To see it in Mail, add it again as Google with an app password; Receipts and renewals goes on reading it here.")
             } else if a.read_only == true {
                 Text(InternetAccount.readOnlyNote)
             }
@@ -234,9 +235,9 @@ struct AccountSettingsView: View {
         .themedRow()
         if model.isOn(.mail) && a.features.receipts != nil {
             SwiftUI.Section {
-                Toggle(isOn: Binding(get: { a.features.receipts == true }, set: { v in change("Receipts", a, receipts: v) })) {
+                Toggle(isOn: Binding(get: { a.features.receipts == true }, set: { v in change("Receipts and renewals", a, receipts: v) })) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Receipts")
+                        Text("Receipts and renewals")
                         Text("Files renewals, bills and vet visits from its mail").font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -254,8 +255,8 @@ struct AccountSettingsView: View {
                 Text("Aeneas modules that read this account")
             } footer: {
                 Text(viaGoogle
-                     ? "Receipts for this address are read through its Sign in with Google link, so each mail is filed once."
-                     : "Receipts: the hub checks for new mail every 15 minutes and reads it \(ConnectionsSettingsView.readTimes(store.c?.google?.times)) when no game is using the GPU. For receipts, folders are opened read-only and nothing is marked read; the mail itself is never kept.")
+                     ? "Receipts and renewals reads this address through its Sign in with Google link, so each mail is filed once."
+                     : "Receipts and renewals: the hub checks for new mail every 15 minutes and reads it \(ConnectionsSettingsView.readTimes(store.c?.google?.times)) when no game is using the GPU. For receipts, folders are opened read-only and nothing is marked read; the mail itself is never kept.")
             }
             .themedRow()
         }
@@ -268,7 +269,7 @@ struct AccountSettingsView: View {
         .themedRow()
     }
 
-    /// Mail or Receipts on or off; the last use of the account asks first, since the hub then removes it.
+    /// Mail or Receipts and renewals on or off; the last use of the account asks first, since the hub then removes it.
     private func change(_ what: String, _ a: InternetAccount, inbox: Bool? = nil, receipts: Bool? = nil) {
         if a.features.lastUseOff(inbox: inbox, receipts: receipts) { lastUse = Change(what: what, inbox: inbox, receipts: receipts); return }
         set(inbox: inbox, receipts: receipts)
@@ -387,9 +388,9 @@ struct AccountCalendarsSection: View {
     }
 }
 
-/// Add Account: iCloud (an app-specific password), Google (an app password: Mail and Receipts with one password,
-/// nothing to set up at Google), or another provider. Sign in with Google, which reads mail for Receipts only, is
-/// offered once the hub's own Google app is set under Keys.
+/// Add Account: iCloud (an app-specific password), Google (an app password: Mail and Receipts and renewals with one
+/// password, nothing to set up at Google), or another provider. Sign in with Google, which reads mail for Receipts and
+/// renewals only, is offered once the hub's own Google app is added under App keys.
 struct AddAccountView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -466,7 +467,7 @@ struct AddAccountView: View {
                 case .icloud:
                     Text("Apple has no sign-in for mail or calendars, so the hub uses an app-specific password: at account.apple.com, open Sign-In and Security, App-Specific Passwords, and make one named Aeneas. It is kept only on your hub.")
                 case .google:
-                    Text("Turn on 2-Step Verification for your Google Account, then make an app password named Aeneas. Google shows it once, as 16 letters. One app password gives both Mail and Receipts, and nothing is set up at Google.")
+                    Text("Turn on 2-Step Verification for your Google Account, then make an app password named Aeneas. Google shows it once, as 16 letters. One app password works for Mail and for Receipts and renewals, and nothing is set up at Google.")
                 case .other:
                     Text("Your provider's help pages give its IMAP server and port, and where to make an app password. The hub connects with TLS only (most often port 993), and only to servers on the internet, never one on your own network.")
                 }
@@ -483,7 +484,7 @@ struct AddAccountView: View {
                     Button { signInWithGoogle() } label: { Label(busy ? "Waiting for Google" : "Sign in with Google", systemImage: "envelope.badge.person.crop") }
                         .disabled(busy)
                 } header: {
-                    Text("Or, for Receipts only")
+                    Text("Or, for Receipts and renewals only")
                 } footer: {
                     Text("Google lets the hub read mail and nothing else this way, so the account can't show in Mail.")
                 }
@@ -549,48 +550,96 @@ struct AddAccountView: View {
     }
 }
 
-/// Keys: the hub's own app keys a service needs before anyone can sign in (Google app for Sign in with Google,
-/// Atlassian app for Confluence, Steam key), each made once with its guide. Apart from the accounts and services, at
-/// the end, since they are set up once and then rarely looked at; each shows only while its module is on.
-struct KeysSection: View {
+/// App keys (called Keys until 2026-11-24): the hub's own registrations a service needs before anyone can sign in
+/// (Google app for Sign in with Google, Atlassian app for Confluence, Steam key), each made once with its guide. Apart
+/// from the accounts and services, at the end, since they are made once and then rarely looked at; each shows only
+/// while its module is on. Each row says what it is for and whether the hub has it, as a status, and opens its own page
+/// (a saved key was drawn as "Set", which read like a button and did nothing when tapped).
+struct AppKeysSection: View {
     @EnvironmentObject var model: AppModel
-    let c: Connections
+    @ObservedObject var store: ConnectionsStore
     let reload: () async -> Void
 
-    private struct Key: Identifiable { var service: String; var name: String; var what: String; var set: Bool; var id: String { service } }
-
-    private var keys: [Key] {
-        [
-            model.isOn(.mail) ? c.google.map { Key(service: "google", name: "Google app", what: "For Sign in with Google, which reads mail for Receipts only. Not needed for Google accounts added with an app password.", set: $0.app) } : nil,
-            model.isOn(.wiki) ? c.atlassian.map { Key(service: "atlassian", name: "Atlassian app", what: "For Confluence in the wiki.", set: $0.app == true || $0.connected) } : nil,
-            model.isOn(.games) ? Key(service: "steam", name: "Steam key", what: "For Steam playtime in Games.", set: c.steam.hub_key == true) : nil,
-        ].compactMap { $0 }
-    }
+    private var keys: [AppKey.Shown] { store.c.map { c in AppKey.shown(in: c) { model.isOn($0) } } ?? [] }
 
     var body: some View {
         if !keys.isEmpty {
             SwiftUI.Section {
+                // Why these are asked for, before the rows: optional, and each only for the feature it names.
+                Text(AppKey.intro).font(.footnote).foregroundStyle(.secondary)
                 ForEach(keys) { k in
-                    if k.set {
+                    PageLink { AppKeyView(key: k.key, store: store, reload: reload) } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            LabeledContent(k.name, value: "Set")
-                            Text(k.what).font(.caption).foregroundStyle(.secondary)
-                        }
-                    } else {
-                        PageLink { OwnKeyGuideView(service: k.service) { Task { await reload() } } } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Set up the \(k.name)")
-                                Text(k.what).font(.caption).foregroundStyle(.secondary)
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(k.key.name)
+                                Spacer()
+                                AppKeyStatus(added: k.added).font(.callout)
                             }
+                            Text(k.key.purpose).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
             } header: {
-                Text("Keys")
-            } footer: {
-                Text("Your hub's own app keys, for services that need one before anyone can sign in. Each is made once by you on the service's own site, with a guide; there is no server of ours in between.")
+                Text("App keys")
             }
             .themedRow()
+        }
+    }
+}
+
+/// One app key's own page: whether the hub has it, what it is, why the service asks for it, what in Aeneas uses it and
+/// what works without it, and one action that opens the guide: Set it up, or Replace with a new key (the guide's last
+/// step saves the new one in place of the old).
+struct AppKeyView: View {
+    @EnvironmentObject var model: AppModel
+    let key: AppKey
+    @ObservedObject var store: ConnectionsStore
+    let reload: () async -> Void
+
+    /// From the hub's latest answer, so the page says Added as soon as the guide has saved the key.
+    private var added: Bool { store.c.flatMap { c in key.added(in: c) { model.isOn($0) } } ?? false }
+
+    var body: some View {
+        Form {
+            SwiftUI.Section {
+                LabeledContent("Status") { AppKeyStatus(added: added) }
+            } footer: {
+                Text(key.purpose)
+            }
+            .themedRow()
+            explained("What it is", key.what)
+            explained("Why \(key.by) asks for it", key.why)
+            explained("What uses it", key.uses)
+            explained("Without it", key.without)
+            SwiftUI.Section {
+                PageLink { OwnKeyGuideView(service: key.service) { Task { await reload() } } } label: {
+                    Label(added ? "Replace with a new key" : "Set it up", systemImage: added ? "arrow.triangle.2.circlepath" : "key")
+                }
+            } footer: {
+                if added { Text(key.replacing) }
+            }
+            .themedRow()
+        }
+        .formStyle(.grouped)
+        .themedScreen()
+        .navigationTitle(key.name)
+    }
+
+    private func explained(_ title: String, _ text: String) -> some View {
+        SwiftUI.Section { Text(text) } header: { Text(title) }
+            .themedRow()
+    }
+}
+
+/// An app key's state as a status, not a verb: Added, with a checkmark in the theme's ok color, or Not added.
+struct AppKeyStatus: View {
+    let added: Bool
+
+    var body: some View {
+        if added {
+            Label("Added", systemImage: "checkmark.circle.fill").foregroundStyle(.okText)
+        } else {
+            Text("Not added").foregroundStyle(.secondary)
         }
     }
 }

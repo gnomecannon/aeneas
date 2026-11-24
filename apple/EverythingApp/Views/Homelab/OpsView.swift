@@ -442,10 +442,11 @@ struct CheckProgress: View {
 // MARK: Rows
 
 extension TechTone {
-    /// Fine or a problem in the theme's status colors; muted has none and shows in gray.
+    /// Fine, needs a look or a problem in the theme's status colors; muted has none and shows in gray.
     var status: StatusTone? {
         switch self {
         case .ok: return .ok
+        case .warn: return .warn
         case .danger: return .danger
         case .muted: return nil
         }
@@ -453,6 +454,7 @@ extension TechTone {
     var symbol: String {
         switch self {
         case .ok: return MonitorStatus.up.symbol
+        case .warn: return "exclamationmark.circle.fill"
         case .danger: return "exclamationmark.triangle.fill"
         case .muted: return MonitorStatus.unknown.symbol
         }
@@ -502,8 +504,9 @@ struct LookRow: View {
         let acked = look.incident.flatMap { $0.string("acknowledged_at") }
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: look.acknowledged ? MonitorStatus.unknown.symbol : "exclamationmark.triangle.fill")
-                    .foregroundStyle(look.acknowledged ? AnyShapeStyle(.gray) : AnyShapeStyle(.dangerText))
+                // Red when something is down, yellow for a reading, gray once acknowledged (TechLook.tone).
+                Image(systemName: look.tone.symbol)
+                    .foregroundStyle(look.tone.status.text(else: .gray))
                 Text(StyleGuard.dashes(look.title)).font(.body.weight(.semibold))
                 Spacer(minLength: 6)
                 if let thing {

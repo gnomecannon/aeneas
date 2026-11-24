@@ -1,6 +1,6 @@
 # Aeneas for iPhone, iPad, Mac and Apple Watch
 
-The app is called Aeneas (on the App Store: Aeneas: Mind Workbench). The project, targets, schemes and folders keep the working name EverythingApp, which existing installs and settings depend on.
+The app is called Aeneas (on the App Store: Aeneas: Mind Workbench) and is built as Aeneas.app. The project, targets, schemes, folders and the app's Swift module keep the working name EverythingApp, which existing installs and settings depend on.
 
 One SwiftUI codebase. The contract in `packages/shared/CONTRACT.md` is the source of truth; this client implements it as written.
 

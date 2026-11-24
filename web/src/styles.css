@@ -20,6 +20,7 @@
   /* A fill words sit on (a task being done), and the words on it. */
   --ok-strong: #2b7047;
   --on-ok: #ffffff;
+  --on-warn: #2e1f00;
   --gutter: 16px;
   --radius: 6px;
   --rail: 200px;
@@ -108,6 +109,7 @@
     --warn-text: #e0a84a;
     --ok-strong: #6cc08a;
     --on-ok: #10301c;
+    --on-warn: #2e1f00;
     color-scheme: dark;
   }
 }
@@ -156,6 +158,7 @@
   --warn-text: #e0a84a;
   --ok-strong: #6cc08a;
   --on-ok: #10301c;
+  --on-warn: #2e1f00;
   color-scheme: dark;
 }
 
@@ -514,9 +517,6 @@ table.proof .narrow { display: none; }
 .today-title h1 { margin: 0; }
 .today-date { color: var(--text-2); }
 .today-meta { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; }
-.today-tech { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); border: 1px solid var(--border); border-radius: 14px; padding: 2px 10px; background: var(--surface); }
-.today-tech:hover { text-decoration: none; border-color: var(--muted); }
-.today-tech.tone-danger { border-color: var(--danger); }
 /* The one sentence: what is on now, or what is next. The largest words on the screen. */
 .today-now { font-size: 26px; line-height: 1.25; font-weight: 400; margin: 2px 0 2px; overflow-wrap: anywhere; }
 .today-now strong { font-weight: 700; }
@@ -541,13 +541,31 @@ table.proof .narrow { display: none; }
 .need:first-child { border-top: 0; padding-top: 0; }
 .need:last-child { padding-bottom: 0; }
 .need .num { width: 24px; height: 24px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; }
-.need.tech .num, .need.late .num { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.need.late .num { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
 .need-title { font-weight: 600; overflow-wrap: anywhere; }
 .need-detail { font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
 .need.late .need-detail { color: var(--danger-text); }
 .need-actions { display: flex; gap: 6px 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 .need-actions a.small { padding: 0 4px; }
 .need-actions .row { margin: 0 !important; }
+/* Tech: one line in the light's color, folded each time Today opens; the whole line opens it. Its name reads as the
+   other cards' names, what the light says in the status color as words. */
+.today .tech > h2 { margin: 0; }
+.tech-line { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; width: 100%; min-height: 24px; cursor: pointer; }
+.tech-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius); }
+.tech-label { font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; overflow-wrap: anywhere; }
+.tech.tone-ok .tech-label { color: var(--ok-text); }
+.tech.tone-warn .tech-label { color: var(--warn-text); }
+.tech.tone-danger .tech-label { color: var(--danger-text); }
+.tech.tone-muted .tech-label { color: var(--muted); }
+.tech-line .chev { flex: none; margin: 0 4px 0 auto; width: 7px; height: 7px; border: solid var(--muted); border-width: 0 2px 2px 0; transform: rotate(-45deg); }
+.tech-line[aria-expanded="true"] .chev { transform: rotate(45deg); }
+.tech-line:hover .chev { border-color: var(--text); }
+.tech-looks { list-style: none; margin: 10px 0 0; padding: 0; }
+.tech-look { display: grid; grid-template-columns: 9px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+.tech-look > .dot { margin-top: 6px; }
+.tech-look.acked .need-title { color: var(--muted); font-weight: 400; }
+.tech-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 10px 0 0; padding-top: 10px; border-top: 1px solid var(--border); }
 
 .today .allday { list-style: none; margin: 0 0 8px; padding: 0; }
 .today .allday li { padding: 2px 0; overflow-wrap: anywhere; }
@@ -820,6 +838,7 @@ details.music-project h3 { margin-top: 6px; }
 .ops-light .label { font-size: 30px; font-weight: 700; line-height: 1.15; }
 .ops-light .detail { font-size: 19px; font-weight: 600; }
 .ops-light.tone-ok { background: var(--ok); }
+.ops-light.tone-warn { background: var(--warn); color: var(--on-warn); }
 .ops-light.tone-danger { background: var(--danger); }
 .ops-light.tone-muted { background: var(--muted); }
 /* dense: a card opened to full width does not leave a hole where it was. */
@@ -1760,6 +1779,8 @@ details.module-group > summary::before { content: "\25B8"; display: inline-block
 details.module-group[open] > summary::before { content: "\25BE"; }
 details.module-group > summary .muted.small { margin-left: 1em; }
 details.module-more > summary { padding: 2px 0; }
+/* A module shown under another (Receipts and renewals under Mail): indented, with a light rule at its left. */
+.module-sub { margin-left: 18px; padding-left: 10px; border-left: 2px solid var(--border); }
 
 /* How devices reach the hub (settings/Link.tsx) and its comparison page. */
 .link-choice { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }

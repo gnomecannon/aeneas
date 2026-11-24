@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Entity } from "@everythingapp/shared";
 import type { SensorRow } from "../sync/api";
 import type { OpsMonitor } from "./ops";
-import { checksLine, identityLine, machineBars, machineFromInput, machineSections, needsALook, readingLabel, readingValue, targetHost, techLight, thingStatus, type Thing } from "./tech";
+import { TONE_DOT, checksLine, identityLine, lookTone, machineBars, machineFromInput, machineSections, needsALook, readingLabel, readingValue, targetHost, techLight, thingStatus, watchedLine, type Thing } from "./tech";
 
 const now = new Date("2026-11-19T21:00:00Z");
 const ent = (id: string, kind: string, fields: Record<string, unknown>): Entity =>
@@ -112,7 +112,35 @@ describe("Tech things", () => {
       ["desk-pc", "Ollama down", "o1"],
     ]);
     expect(looks[1].detail).toBe("alerts above 90%");
+    // Down (a check, the hub's own backup) is major; a reading out of bounds or silent is minor.
+    expect(looks.map((l) => l.severity)).toEqual(["major", "minor", "minor", "major", "major"]);
+    expect(looks.map(lookTone)).toEqual(["danger", "warn", "warn", "danger", "muted"]);
     expect(techLight(looks, things, monitors, sensors)).toEqual({ tone: "danger", label: "4 things need a look", detail: "1 acknowledged; 3 machines, 4 checks, 5 readings" });
     expect(techLight([], things, monitors, sensors)).toEqual({ tone: "ok", label: "All good", detail: "3 machines, 4 checks, 5 readings" });
+  });
+
+  it("lights red while something down is not acknowledged, yellow while only readings need a look, grey once all are acknowledged, green when none do", () => {
+    const things = [core, deskPc, pve2, garage];
+    const up = monitors.filter((m) => m.id !== "x1");
+    const inc = ent("i1", "incident", { monitor_id: "x1", name: "pve2 Proxmox", opened_at: "2026-11-19T20:00:00Z" });
+    const acked = ent("i2", "incident", { monitor_id: "o1", name: "Ollama", opened_at: "2026-11-19T19:00:00Z", acknowledged_at: "2026-11-19T19:30:00Z" });
+    const stale = sensor("garage_freezer", { unit: "°F", state: "stale", last_at: "2026-11-19T15:00:00Z" });
+    const light = (incidents: typeof inc[], ss: SensorRow[], ms = up, backup: { label: string; ok: boolean; text: string }[] = []) =>
+      techLight(needsALook(things, ms, incidents, ss, backup, now), things, ms, ss);
+    // Readings only: yellow, worded as red is.
+    expect(light([], sensors)).toEqual({ tone: "warn", label: "1 thing needs a look", detail: "3 machines, 3 checks, 5 readings" });
+    expect(light([], [...sensors.slice(0, 4), stale])).toEqual({ tone: "warn", label: "2 things need a look", detail: "3 machines, 3 checks, 5 readings" });
+    // Something down that was acknowledged leaves the reading yellow.
+    expect(light([acked], sensors)).toEqual({ tone: "warn", label: "1 thing needs a look", detail: "1 acknowledged; 3 machines, 3 checks, 5 readings" });
+    // Anything down not yet acknowledged is red: an incident, a check down without one, the hub's own backup.
+    expect(light([inc], sensors).tone).toBe("danger");
+    expect(light([], sensors, monitors)).toEqual({ tone: "danger", label: "2 things need a look", detail: "3 machines, 4 checks, 5 readings" });
+    expect(light([], [], up, [{ label: "Nightly copy", ok: false, text: "none in 30 h" }])).toEqual({ tone: "danger", label: "1 thing needs a look", detail: "3 machines, 3 checks" });
+    // Every look acknowledged: grey; none: green; nothing checked or read: grey.
+    expect(light([acked], [])).toEqual({ tone: "muted", label: "1 acknowledged", detail: "3 machines, 3 checks" });
+    expect(light([], [])).toEqual({ tone: "ok", label: "All good", detail: "3 machines, 3 checks" });
+    expect(techLight([], [], [], [])).toEqual({ tone: "muted", label: "Nothing watched yet", detail: "" });
+    expect(watchedLine([garage], [], [sensors[4]])).toBe("1 reading");
+    expect(Object.entries(TONE_DOT)).toEqual([["ok", "up"], ["warn", "warn"], ["danger", "down"], ["muted", "unknown"]]);
   });
 });

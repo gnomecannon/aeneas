@@ -42,7 +42,7 @@ test("other accounts: only a server name, a TLS port and an app password are tak
   try {
     fake([]);
     await t.api("/modules", { method: "PUT", json: { mail_inbox: false, mail: false } });
-    assert.equal((await link(t, { email: "robin@fastmail.example", host: "imap.fastmail.example", password: PASSWORD })).status, 404, "Mail and Mail receipts are off");
+    assert.equal((await link(t, { email: "robin@fastmail.example", host: "imap.fastmail.example", password: PASSWORD })).status, 404, "Mail and Receipts and renewals are off");
     await on(t);
     for (const [body, why] of [
       [{ email: "not an address", host: "imap.fastmail.example", password: PASSWORD }, "an address"],

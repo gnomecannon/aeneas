@@ -2,9 +2,10 @@ import SwiftUI
 import EACore
 
 /// Today as a status board, in the order its owner asked every report to take: at the top what is on now and how long
-/// it has left; then what needs you (actions only, numbered, each with its buttons), the schedule (what is left),
-/// things to do, today so far (what is done and was said), and what is coming that needs nothing from you. One column
-/// on an iPhone, up to five across a wide window. The rules are EACore's `TodayBoard`, the same as the web app's.
+/// it has left; then Tech's light as one folded line and what needs you (actions only, numbered, each with its
+/// buttons), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
+/// that needs nothing from you. One column on an iPhone, up to five across a wide window. The rules are EACore's
+/// `TodayBoard` and `Tech`, the same as the web app's.
 ///
 /// The day is drawn once, as the Schedule card's list: a strip of it across the top said the same again
 /// (gnomecannon/aeneas#15). Capturing is the Capture tab's, one press away on every screen; a box for it here said
@@ -14,7 +15,7 @@ import EACore
 struct TodayBoardView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
-    /// Tech's board, for what needs a look: the same list as the Overview's, so the two never disagree.
+    /// Tech's board, for what needs a look: the same list and light as the Overview's, so the two never disagree.
     @ObservedObject private var feed = OpsBoardFeed.shared
     @Environment(\.scenePhase) private var scenePhase
 
@@ -25,6 +26,8 @@ struct TodayBoardView: View {
     /// The screen's own width: it decides how many columns there are.
     @State private var width: CGFloat = 0
     @State private var acking: Entity?
+    /// Tech's card is folded each time Today opens: the screen's own state, never saved.
+    @State private var techOpen = false
 
     /// How wide one column of cards is at the width the screen has now.
     private var columnWidth: CGFloat {
@@ -43,6 +46,9 @@ struct TodayBoardView: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .sheet(item: $acking) { inc in AckSheet(incident: inc) }
+        // Tech folds again when Today is left (another tab, a page opened over it), so Today always opens with it
+        // folded: the iPhone keeps a tab's screen, and its state, while another tab shows.
+        .onDisappear { techOpen = false }
         // Tech's board once a minute while the screen can be seen; a window put away stops asking the hub.
         .task(id: scenePhase.refreshes) {
             guard scenePhase.refreshes, model.isOn(.homelab) else { return }
@@ -82,7 +88,13 @@ struct TodayBoardView: View {
     private func section(_ s: TodayBoard.Section, events: [Entity], spans: [TodayBoard.Span], now: Date) -> some View {
         switch s {
         // Each card has a name the screen can be scrolled to (`-EAScrollTo`, TodayView).
-        case .needs: needsCard(now: now).id("needs")
+        case .needs:
+            // Tech sits at the top of the Needs you slot, as one line until pressed.
+            VStack(alignment: .leading, spacing: 16) {
+                if showsTech { techCard }
+                needsCard(now: now)
+            }
+            .id("needs")
         case .schedule: scheduleCard(events: events, spans: spans, now: now).id("timeline")
         case .todo: todoCard().id("todo")
         case .sofar: soFarCard(now: now).id("sofar")
@@ -92,7 +104,7 @@ struct TodayBoardView: View {
 
     /// One card of the board: its name, a count beside it, and what it holds.
     private func card<Content: View>(_ title: String, count: String? = nil, waiting: Bool = false, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        box {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title).font(.headline)
                 if let count {
@@ -108,9 +120,14 @@ struct TodayBoardView: View {
             .accessibilityAddTraits(.isHeader)
             content()
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// The box every card is drawn in.
+    private func box<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) { content() }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
     }
 
     /// A small heading inside a card.
@@ -126,26 +143,13 @@ struct TodayBoardView: View {
             .symbolRenderingMode(.hierarchical)
     }
 
-    // MARK: the top: now, free time, Tech
+    // MARK: the top: now and free time
 
-    @ViewBuilder
     private func head(_ spans: [TodayBoard.Span], now: Date) -> some View {
-        let lines = VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
             nowLine(TodayBoard.nowLine(spans, now: now))
             if let free = TodayBoard.freeLine(spans, now: now) {
                 Text(free).font(.subheadline).foregroundStyle(.secondary)
-            }
-        }
-        if width >= 680 {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                lines
-                Spacer(minLength: 8)
-                techLight
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
-                lines
-                techLight
             }
         }
     }
@@ -167,6 +171,8 @@ struct TodayBoardView: View {
             .accessibilityAddTraits(.isHeader)
     }
 
+    // MARK: Tech
+
     private var monitors: [Entity] { engine.list(.monitor) }
     private var sensors: [Entity] { model.isOn(.sensors) ? engine.list(.sensor) : [] }
     private var things: [TechThing] {
@@ -179,24 +185,92 @@ struct TodayBoardView: View {
         return Tech.needsALook(things: things, monitors: monitors, incidents: open, sensors: sensors, hubBackup: feed.board?.hub_backup ?? [])
     }
 
-    /// Tech's light, small: green "All good" or what needs a look. It opens the Overview.
-    @ViewBuilder
-    private var techLight: some View {
-        if model.isOn(.homelab), !(things.isEmpty && monitors.isEmpty) {
-            let light = Tech.light(looks: looks, things: things, monitors: monitors, sensors: sensors)
-            Button { model.section = .ops } label: {
-                HStack(spacing: 6) {
-                    Circle().fill(light.tone.status.fill(else: .gray)).frame(width: 9, height: 9)
-                    Text("Tech: \(light.label)").font(.subheadline.weight(.medium))
-                        .foregroundStyle(light.tone.status.text(else: .primary))
+    /// Tech shows with Machines on, once there is a check or a thing to show.
+    private var showsTech: Bool { model.isOn(.homelab) && !(things.isEmpty && monitors.isEmpty) }
+
+    /// Tech in one line: a dot in the light's color (green, yellow, red or gray), "Tech" and what the light says,
+    /// folded each time Today opens. A press on the line opens it: what needs a look, each with Propose a fix,
+    /// Acknowledge and Open as Needs you had them, then the acknowledged ones, then Open Tech and what is watched.
+    private var techCard: some View {
+        let things = self.things, monitors = self.monitors, sensors = self.sensors, looks = self.looks
+        let light = Tech.light(looks: looks, things: things, monitors: monitors, sensors: sensors)
+        let watched = Tech.watched(things: things, monitors: monitors, sensors: sensors)
+        return box {
+            Button { techOpen.toggle() } label: {
+                // Plain colors: inside a button the hierarchical .primary and .secondary would take the tint.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "circle.fill").font(.system(size: 10)).foregroundStyle(light.tone.status.fill(else: .gray))
+                    Text("Tech").font(.headline).foregroundStyle(Color.primary)
+                    Text(light.label).font(.subheadline.weight(.semibold)).foregroundStyle(light.tone.status.text(else: .secondary))
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color.secondary)
+                        .rotationEffect(.degrees(techOpen ? 90 : 0))
                 }
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Color.secondary.opacity(0.10), in: Capsule())
-                .contentShape(Capsule())
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(light.detail)
-            .accessibilityHint("Opens the Tech Overview")
+            .accessibilityLabel("Tech, \(light.label)")
+            .accessibilityValue(techOpen ? "Open" : "Folded")
+            .accessibilityHint(techOpen ? "Folds it to one line" : "Shows what needs a look")
+            .accessibilityAddTraits(.isHeader)
+            if techOpen {
+                // Tech.needsALook lists the ones not yet acknowledged first.
+                ForEach(looks) { look in
+                    Divider()
+                    techRow(look)
+                }
+                Divider()
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Button("Open Tech") { model.section = .ops }.buttonStyle(.borderless).font(.subheadline)
+                    if !watched.isEmpty { Text(watched).font(.caption).foregroundStyle(.secondary) }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    /// One thing that needs a look: a dot in its color (red when down, yellow for a reading, gray once acknowledged),
+    /// what it is, and the buttons that settle it here. An acknowledged one says when, and its note.
+    private func techRow(_ look: TechLook) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(look.tone.status.fill(else: .gray))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(StyleGuard.dashes(look.title))
+                    .font(look.acknowledged ? Font.body : Font.body.weight(.semibold))
+                    .foregroundStyle(look.acknowledged ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let d = look.detail, !d.isEmpty {
+                    Text(StyleGuard.dashes(d)).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                }
+                if look.acknowledged, let inc = look.incident, let at = inc.string("acknowledged_at") {
+                    Text(MonitorText.acked(at, note: inc.string("ack_note"))).font(.caption).foregroundStyle(.secondary)
+                }
+                FlowLayout(spacing: 8) { techActions(look) }
+                    .controlSize(.small)
+                    .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(look.acknowledged ? "\(look.title), acknowledged" : look.title)
+    }
+
+    /// The buttons Needs you had for a look: Propose a fix and Acknowledge while it is not acknowledged, and Open.
+    @ViewBuilder
+    private func techActions(_ look: TechLook) -> some View {
+        if !look.acknowledged {
+            if look.monitorId != nil || look.sensor != nil { ProposeFixButton(monitorId: look.monitorId, sensor: look.sensor) }
+            if let inc = look.incident { Button("Acknowledge") { acking = inc }.buttonStyle(.themedProminent) }
+        }
+        if look.thing.isEmpty {
+            Button("Open") { model.section = .ops }.buttonStyle(.borderless)
+        } else {
+            PageLink("Open") { HostDetailView(host: look.thing) }.buttonStyle(.borderless)
         }
     }
 
@@ -205,7 +279,7 @@ struct TodayBoardView: View {
     private func needs(now: Date) -> [TodayBoard.Need] {
         let tasks = engine.list(.task)
         return TodayBoard.needsYou(
-            reminders: Mail.dueReminders(tasks, now: now), tasks: tasks, looks: looks,
+            reminders: Mail.dueReminders(tasks, now: now), tasks: tasks,
             watches: model.isOn(.renewals) ? today.watches_due_soon : [],
             followUps: model.isOn(.jobs) ? TodayExtras.followUpsDue(engine.list(.application), now: now) : [],
             meds: model.isOn(.health) ? TodayExtras.regularMeds(engine.logs(type: .med, days: 9), now: now) : [],
@@ -265,14 +339,6 @@ struct TodayBoardView: View {
                     .accessibilityLabel("Snooze \(r.title) for 1 hour")
             }
             Button("Open") { model.open(itemId: r.id) }.buttonStyle(.borderless)
-        case .tech(let look):
-            if look.monitorId != nil || look.sensor != nil { ProposeFixButton(monitorId: look.monitorId, sensor: look.sensor) }
-            if let inc = look.incident { Button("Acknowledge") { acking = inc }.buttonStyle(.themedProminent) }
-            if look.thing.isEmpty {
-                Button("Open") { model.section = .ops }.buttonStyle(.borderless)
-            } else {
-                PageLink("Open") { HostDetailView(host: look.thing) }.buttonStyle(.borderless)
-            }
         case .renewal(let w, _, _):
             Button("Renewed") { Task { await engine.renewWatch(w.id) } }.buttonStyle(.themedProminent)
                 .accessibilityLabel("Mark \(w.str("title")) renewed")

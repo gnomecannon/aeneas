@@ -10,7 +10,7 @@ public struct HubCalendars: Decodable, Equatable, Sendable {
     public struct Account: Decodable, Equatable, Sendable, Identifiable {
         public var id: String { email }
         public var email: String
-        /// Mail receipts reads this address too, with the same app-specific password.
+        /// Receipts and renewals reads this address too, with the same app-specific password.
         public var mail: Bool
         /// Read only (Internet Accounts): its calendars are read and never written; new events stay in the app. Nil
         /// from an older hub.

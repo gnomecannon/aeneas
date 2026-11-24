@@ -58,14 +58,12 @@ if [ "$ok" != 1 ]; then
   KEEP=1
   die "Apple has not finished notarizing after 90 minutes. Once it has, finish with:
   xcodebuild -exportNotarizedApp -archivePath \"$WORK/ea.xcarchive\" -exportPath \"$WORK/final\"
-(then rename EverythingApp.app to Aeneas.app and zip it as this script does)"
+(then zip Aeneas.app as this script does)"
 fi
-SRC="$WORK/final/EverythingApp.app"
-[ -d "$SRC" ] || die "the notarized export has no EverythingApp.app"
-# The bundle keeps its working name inside (executable, identifiers); the folder people see is Aeneas.app. A bundle's
-# folder name is not part of its signature, so the rename leaves the signature and the stapled ticket intact.
+# The app is built as Aeneas.app (since 1.0.17). An archive from before is EverythingApp.app inside and is renamed: a
+# bundle's folder name is not part of its signature, so the rename leaves the signature and the stapled ticket intact.
 APP="$WORK/final/Aeneas.app"
-mv "$SRC" "$APP"
+[ -d "$APP" ] || { [ -d "$WORK/final/EverythingApp.app" ] && mv "$WORK/final/EverythingApp.app" "$APP"; } || die "the notarized export has no Aeneas.app"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
 xcrun stapler validate "$APP" >/dev/null || die "no notarization ticket is stapled to the app"

@@ -65,6 +65,28 @@ function ModuleToggle({ m, busy, onFlip }: { m: ModuleInfo; busy: boolean; onFli
  */
 export const listedHere = (list: ModuleInfo[]) => list.filter((m) => !m.switch_in);
 
+/**
+ * One area's modules in the order they show: a module with `under` (since 2026-11-24: Receipts and renewals under
+ * Mail) right after the module it sits under, marked `sub` to be drawn indented. It keeps its own switch, so it shows
+ * whether that module is on or off. One level only: a module whose parent is not in the list (an older hub, another
+ * area, a switch kept elsewhere), or whose parent sits under another itself, shows as a normal row where the hub put
+ * it.
+ */
+export function nestedOrder(mods: ModuleInfo[]): { m: ModuleInfo; sub: boolean }[] {
+  const byId = new Map(mods.map((m) => [m.id, m]));
+  const parentOf = (m: ModuleInfo) => {
+    const p = m.under && m.under !== m.id ? byId.get(m.under) : undefined;
+    return p && !(p.under && byId.has(p.under)) ? p : undefined;
+  };
+  const out: { m: ModuleInfo; sub: boolean }[] = [];
+  for (const m of mods) {
+    if (parentOf(m)) continue;
+    out.push({ m, sub: false });
+    for (const s of mods) if (parentOf(s) === m) out.push({ m: s, sub: true });
+  }
+  return out;
+}
+
 /** "4 of 17 on", for the Settings menu row. */
 export function modulesSummary(list: ModuleInfo[] | null): string {
   if (!list) return "Choose what this app keeps track of";
@@ -92,16 +114,16 @@ export function ModulePicker() {
   return (
     <div className="col">
       {groups.map((g) => {
-        const mods = list.filter((m) => m.group === g);
-        const on = mods.filter((m) => m.on).length;
+        const mods = nestedOrder(list.filter((m) => m.group === g));
+        const on = mods.filter(({ m }) => m.on).length;
         return (
           <details key={g} className="card col module-group">
             <summary>
               <strong>{GROUP_TITLE[g] ?? g}</strong> <span className="muted small">{on} of {mods.length} on</span>
-              <div className="muted small">{mods.map((m) => m.title).join(", ")}</div>
+              <div className="muted small">{mods.map(({ m }) => m.title).join(", ")}</div>
             </summary>
-            {mods.map((m) => (
-              <div key={m.id}>
+            {mods.map(({ m, sub }) => (
+              <div key={m.id} className={sub ? "module-sub" : undefined}>
                 <ModuleToggle m={m} busy={busy === m.id} onFlip={(v) => void flip(m.id, v)} />
                 {m.on && m.id === "homelab" && justSwitchedOn(m.id) && <MachinesStart onDone={() => doneWithFirstSteps(m.id)} />}
               </div>

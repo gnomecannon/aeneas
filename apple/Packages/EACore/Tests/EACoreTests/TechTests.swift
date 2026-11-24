@@ -146,6 +146,9 @@ final class TechTests: XCTestCase {
         XCTAssertEqual(looks[1].detail, "alerts above 90%")
         XCTAssertEqual(looks[3].detail, "Nightly copy: none in 30 h")
         XCTAssertEqual(looks.map(\.acknowledged), [false, false, false, false, true])
+        // Down (a check, the hub's own backup) is major; a reading out of bounds or silent is minor.
+        XCTAssertEqual(looks.map(\.severity), [.major, .minor, .minor, .major, .major])
+        XCTAssertEqual(looks.map(\.tone), [.danger, .warn, .warn, .danger, .muted])
 
         XCTAssertEqual(Tech.light(looks: looks, things: things, monitors: monitors, sensors: sensors),
                        TechLight(tone: .danger, label: "4 things need a look", detail: "1 acknowledged; 3 machines, 4 checks, 5 readings"))
@@ -153,6 +156,34 @@ final class TechTests: XCTestCase {
                        TechLight(tone: .ok, label: "All good", detail: "3 machines, 4 checks, 5 readings"))
         XCTAssertEqual(Tech.light(looks: [], things: [], monitors: [], sensors: []), TechLight(tone: .muted, label: "Nothing watched yet", detail: ""))
         XCTAssertEqual(Tech.light(looks: [looks[4]], things: things, monitors: monitors, sensors: []).label, "1 acknowledged")
+    }
+
+    func testLightsRedWhileSomethingDownIsNotAcknowledgedYellowWhileOnlyReadingsNeedALookGreyOnceAllAreAcknowledged() {
+        let things = [server, deskPc, pve2, garage]
+        let up = monitors.filter { $0.id != "x1" }
+        let inc = ent("i1", .incident, ["monitor_id": .string("x1"), "name": .string("pve2 Proxmox"), "opened_at": .string("2026-11-19T20:00:00Z")])
+        let acked = ent("i2", .incident, ["monitor_id": .string("o1"), "name": .string("Ollama"), "opened_at": .string("2026-11-19T19:00:00Z"), "acknowledged_at": .string("2026-11-19T19:30:00Z")])
+        let stale = sensor("garage_freezer", ["unit": .string("°F"), "state": .string("stale"), "last_at": .string("2026-11-19T15:00:00Z")])
+        func light(_ incidents: [Entity], _ ss: [Entity], _ ms: [Entity]? = nil, backup: [HubBackupLine] = []) -> TechLight {
+            let ms = ms ?? up
+            return Tech.light(looks: Tech.needsALook(things: things, monitors: ms, incidents: incidents, sensors: ss, hubBackup: backup, now: now),
+                              things: things, monitors: ms, sensors: ss)
+        }
+        // Readings only: yellow, worded as red is.
+        XCTAssertEqual(light([], sensors), TechLight(tone: .warn, label: "1 thing needs a look", detail: "3 machines, 3 checks, 5 readings"))
+        XCTAssertEqual(light([], Array(sensors.prefix(4)) + [stale]), TechLight(tone: .warn, label: "2 things need a look", detail: "3 machines, 3 checks, 5 readings"))
+        // Something down that was acknowledged leaves the reading yellow.
+        XCTAssertEqual(light([acked], sensors), TechLight(tone: .warn, label: "1 thing needs a look", detail: "1 acknowledged; 3 machines, 3 checks, 5 readings"))
+        // Anything down not yet acknowledged is red: an incident, a check down without one, the hub's own backup.
+        XCTAssertEqual(light([inc], sensors).tone, .danger)
+        XCTAssertEqual(light([], sensors, monitors), TechLight(tone: .danger, label: "2 things need a look", detail: "3 machines, 4 checks, 5 readings"))
+        XCTAssertEqual(light([], [], backup: [HubBackupLine(label: "Nightly copy", ok: false, at: nil, text: "none in 30 h")]),
+                       TechLight(tone: .danger, label: "1 thing needs a look", detail: "3 machines, 3 checks"))
+        // Every look acknowledged: grey; none: green; nothing checked or read: grey.
+        XCTAssertEqual(light([acked], []), TechLight(tone: .muted, label: "1 acknowledged", detail: "3 machines, 3 checks"))
+        XCTAssertEqual(light([], []), TechLight(tone: .ok, label: "All good", detail: "3 machines, 3 checks"))
+        XCTAssertEqual(Tech.light(looks: [], things: [], monitors: [], sensors: []), TechLight(tone: .muted, label: "Nothing watched yet", detail: ""))
+        XCTAssertEqual(Tech.watched(things: [garage], monitors: [], sensors: [sensors[4]]), "1 reading")
     }
 
     /// A check that went down with its machine is the machine's incident: one row, not two.

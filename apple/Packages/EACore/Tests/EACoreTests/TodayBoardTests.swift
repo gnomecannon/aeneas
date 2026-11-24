@@ -89,20 +89,19 @@ final class TodayBoardTests: XCTestCase {
         return Entity(id: id, kind: .watch, fields: f)
     }
 
+    /// Tech's looks are not rows here: they are Tech's own card above Needs you (`Tech.light`), so `needsYou` takes none.
     func testNeedsYouListsOnlyWhatWaitsOnTheOwnerInTheOrderToTakeIt() {
         let now = at(15)
         let reminders = [Mail.DueReminder(id: "t1", title: "Call the vet", at: at(14, 20), friction: "none"), Mail.DueReminder(id: "t2", title: "Stretch", at: at(14, 59, day: 22).addingTimeInterval(40), friction: "none")]
-        let looks = [TechLook(key: "m:1", thing: "nas01", title: "nas01 SMB down", detail: "connect timeout", monitorId: "m1", incident: nil, sensor: nil, acknowledged: false),
-                     TechLook(key: "m:2", thing: "hub", title: "hub disk full", detail: nil, monitorId: nil, incident: nil, sensor: nil, acknowledged: true)]
         let watches = [watch("w1", "Plex Pass", due: "2026-11-18"), watch("w2", "Spotify", due: "2026-11-25", autopay: true), watch("w3", "Domain", due: "2026-11-26"), watch("w4", "Passport", due: "2026-11-22")]
         let app = Entity(id: "a1", kind: .application, fields: ["company": "Northwind", "next_step": "Send references", "next_at": .string(ISO.string(at(17)))])
         let lateApp = Entity(id: "a2", kind: .application, fields: ["company": "Harbor", "next_at": .string(ISO.string(at(9, day: 20)))])
         let meds = [TodayExtras.Med(name: "Claritin", takenAt: nil), TodayExtras.Med(name: "Zyrtec", takenAt: at(8))]
-        let needs = TodayBoard.needsYou(reminders: reminders, looks: looks, watches: watches, followUps: [app, lateApp], meds: meds, unsorted: 2, now: now, calendar: cal, clock: clock)
-        XCTAssertEqual(needs.map(\.id), ["r:t1", "r:t2", "t:m:1", "w:w1", "w:w3", "w:w4", "a:a1", "a:a2", "m:claritin", "unsorted"])
-        XCTAssertEqual(needs.map(\.title), ["Call the vet", "Stretch", "nas01 SMB down", "Renew Plex Pass", "Renew Domain", "Renew Passport", "Follow up with Northwind", "Follow up with Harbor", "Claritin", "2 captures could not be filed"])
-        XCTAssertEqual(needs.map(\.detail), ["Reminder, 14:20, 40 min ago", "Reminder, 14:59", "connect timeout", "4 days overdue", "Due in 4 days", "Due today", "Send references, today, 17:00", "late", "Not logged today", "Waiting in Unsorted Info"])
-        XCTAssertEqual(needs.map(\.late), [false, false, false, true, false, false, false, true, false, false])
+        let needs = TodayBoard.needsYou(reminders: reminders, watches: watches, followUps: [app, lateApp], meds: meds, unsorted: 2, now: now, calendar: cal, clock: clock)
+        XCTAssertEqual(needs.map(\.id), ["r:t1", "r:t2", "w:w1", "w:w3", "w:w4", "a:a1", "a:a2", "m:claritin", "unsorted"])
+        XCTAssertEqual(needs.map(\.title), ["Call the vet", "Stretch", "Renew Plex Pass", "Renew Domain", "Renew Passport", "Follow up with Northwind", "Follow up with Harbor", "Claritin", "2 captures could not be filed"])
+        XCTAssertEqual(needs.map(\.detail), ["Reminder, 14:20, 40 min ago", "Reminder, 14:59", "4 days overdue", "Due in 4 days", "Due today", "Send references, today, 17:00", "late", "Not logged today", "Waiting in Unsorted Info"])
+        XCTAssertEqual(needs.map(\.late), [false, false, true, false, false, false, true, false, false])
     }
 
     func testAReminderFromAnEarlierDaySaysTheDayNotOnlyHours() {
@@ -119,7 +118,7 @@ final class TodayBoardTests: XCTestCase {
         let task = Entity(id: "t9", kind: .task, fields: ["title": "Renew: Plex Pass", "linked_id": "w1"])
         let auto = Entity(id: "t8", kind: .task, fields: ["title": "Renew: Spotify", "linked_id": "w2"])
         let reminders = [Mail.DueReminder(id: "t9", title: "Renew: Plex Pass", at: at(9), friction: "none"), Mail.DueReminder(id: "t8", title: "Renew: Spotify", at: at(9), friction: "none")]
-        let needs = TodayBoard.needsYou(reminders: reminders, tasks: [task, auto], looks: [], watches: [watch("w1", "Plex Pass", due: "2026-11-18"), watch("w2", "Spotify", due: "2026-11-20", autopay: true)],
+        let needs = TodayBoard.needsYou(reminders: reminders, tasks: [task, auto], watches: [watch("w1", "Plex Pass", due: "2026-11-18"), watch("w2", "Spotify", due: "2026-11-20", autopay: true)],
                                         followUps: [], meds: [], unsorted: 0, now: now, calendar: cal, clock: clock)
         // The autopay renewal is not listed; a reminder someone set for it by hand still is.
         XCTAssertEqual(needs.map(\.id), ["r:t8", "w:w1"])
@@ -129,14 +128,14 @@ final class TodayBoardTests: XCTestCase {
         // gnomecannon/aeneas#14: a charge on autopay pays itself, so Today, and another day swiped to, never lists it.
         let watches = [watch("w1", "Plex Pass", due: "2026-11-18"), watch("w2", "Spotify", due: "2026-11-20", autopay: true), watch("w3", "Domain", due: "2026-11-30")]
         XCTAssertEqual(TodayBoard.toRenew(watches).map(\.id), ["w1", "w3"])
-        let needs = TodayBoard.needsYou(reminders: [], looks: [], watches: watches, followUps: [], meds: [], unsorted: 0, now: at(15), calendar: cal, clock: clock)
+        let needs = TodayBoard.needsYou(reminders: [], watches: watches, followUps: [], meds: [], unsorted: 0, now: at(15), calendar: cal, clock: clock)
         XCTAssertEqual(needs.map(\.id), ["w:w1", "w:w3"])
         XCTAssertEqual(needs.first.map { if case .renewal(_, _, let overdue) = $0 { overdue } else { false } }, true)
     }
 
     func testNeedsYouIsEmptyWhenNothingWaitsAndCountsOneOfEach() {
-        XCTAssertTrue(TodayBoard.needsYou(reminders: [], looks: [], watches: [], followUps: [], meds: [], unsorted: 0, now: at(15), calendar: cal, clock: clock).isEmpty)
-        let one = TodayBoard.needsYou(reminders: [], looks: [], watches: [watch("w", "X", due: "2026-11-23"), watch("v", "Y", due: "2026-11-21")], followUps: [], meds: [], unsorted: 1, now: at(15), calendar: cal, clock: clock)
+        XCTAssertTrue(TodayBoard.needsYou(reminders: [], watches: [], followUps: [], meds: [], unsorted: 0, now: at(15), calendar: cal, clock: clock).isEmpty)
+        let one = TodayBoard.needsYou(reminders: [], watches: [watch("w", "X", due: "2026-11-23"), watch("v", "Y", due: "2026-11-21")], followUps: [], meds: [], unsorted: 1, now: at(15), calendar: cal, clock: clock)
         XCTAssertEqual(one.map(\.detail), ["Due in 1 day", "1 day overdue", "Waiting in Unsorted Info"])
         XCTAssertEqual(one.last?.title, "1 capture could not be filed")
     }

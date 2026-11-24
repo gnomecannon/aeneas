@@ -29,6 +29,8 @@ import EACore
 ///   -EAPrintWindows YES        prints the number of every window of the app (sheets too) once the screen has loaded
 ///   -EASettingsWindow <page>   a Settings page (theme, appColors, calendarColors...) in a window of its own (640x860,
 ///                              or the size -EAWindowSize gives)
+///   -EAAppKey <service>        an app key's page from Settings, Connections, App keys (google, atlassian or steam) in
+///                              a window of its own (640x860, or the size -EAWindowSize gives)
 ///   -EAWideLayouts NO          every screen keeps its narrow layout however wide the window is (WideLayout in
 ///                              UI.swift), to compare a wide window with and without the wide layouts
 ///   -EAWideFrom <points>       the width a screen is wide from, instead of 1040 (also on the iPhone and iPad)
@@ -106,6 +108,15 @@ enum DebugHooksMac {
         if let page = d.string(forKey: "EASettingsWindow").flatMap(SettingsPage.init(rawValue:)) {
             let size = d.string(forKey: "EAWindowSize").flatMap(parse) ?? NSSize(width: 640, height: 860)
             Task { await screenWindow(model, title: "Settings", size: size) { NavigationStack { page.view } } }
+        }
+        if let service = d.string(forKey: "EAAppKey"), let key = AppKey.all.first(where: { $0.service == service }) {
+            let size = d.string(forKey: "EAWindowSize").flatMap(parse) ?? NSSize(width: 640, height: 860)
+            Task {
+                let store = ConnectionsStore()
+                let reload = { await store.load(model.engine.client, calendarsOn: false) }
+                await reload()
+                await screenWindow(model, title: key.name, size: size) { NavigationStack { AppKeyView(key: key, store: store, reload: reload) } }
+            }
         }
         if let name = d.string(forKey: "EAMachine"), !name.isEmpty {
             Task {

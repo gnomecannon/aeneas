@@ -67,7 +67,7 @@ test("guides: the iCloud Mail guide says what the hub does with the mail by the 
       const g = (await (await t.api("/connections/guides/icloud")).json()) as Guide & { after: string };
       return { after: g.after, what: g.steps[0].text };
     };
-    // Mail receipts alone: the hub only reads.
+    // Receipts and renewals alone: the hub only reads.
     t.hub.modules.set({ mail: true, mail_inbox: false });
     let g = await guide();
     assert.match(g.after, /reads your receipts, renewals and vet mail/);

@@ -17,7 +17,7 @@ import { SOURCE, ackReminder, completeTask, snoozeFor } from "../sync/actions";
 import { DIARY_DAY_START, diaryToday, followUpsDue, regularMeds } from "../lib/today";
 import { freeLine, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines, type Need, type TodaySection } from "../lib/todayBoard";
 import { dueReminders, hasReminder } from "../lib/reminders";
-import { needsALook, techLight } from "../lib/tech";
+import { TONE_DOT, lookTone, needsALook, techLight, watchedLine, type Look, type Tone } from "../lib/tech";
 import type { OpsData } from "../lib/ops";
 import type { SensorRow } from "../sync/api";
 import { AckControl, ProposeFix } from "./Ops";
@@ -58,9 +58,9 @@ function useWidth<T extends HTMLElement>(): [RefObject<T>, number] {
 
 /**
  * The day as a status board, in the order its owner asked every report to take: at the top what is on now and how
- * long it has left; then what needs you (actions only, numbered, each with its button), the schedule (what is left),
- * things to do, today so far (what is done and was said), and what is coming that needs nothing from you. One column
- * on a phone, up to five across a wide window (lib/todayBoard.ts).
+ * long it has left; then Tech's light as one folded line and what needs you (actions only, numbered, each with its
+ * button), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
+ * that needs nothing from you. One column on a phone, up to five across a wide window (lib/todayBoard.ts).
  *
  * The day is drawn once, as the Schedule card's list: a strip of it across the top said the same again
  * (gnomecannon/aeneas#15). Capturing is the Capture screen's, one press away on every screen; a box for it here said
@@ -90,7 +90,8 @@ export function Today() {
   const dates = useMemo(() => datesSoon(people, new Date(), 14), [people, today]);
   const meds = useMemo(() => (on("health") ? regularMeds(logs, new Date()) : []), [logs, today, on]);
 
-  // Tech: the same list as the Overview's "needs a look", so the two never disagree.
+  // Tech: the same list and light as the Overview's, so the two never disagree. Its card is folded each time Today
+  // opens: the state is the screen's own, never saved.
   const techOn = on("homelab"), sensorsOn = on("sensors");
   const ops = usePoll<OpsData | null>((c) => (techOn ? c.ops() : Promise.resolve(null)), 60_000);
   const sens = usePoll<SensorRow[]>((c) => (sensorsOn ? c.sensors() : Promise.resolve([])), 60_000);
@@ -99,6 +100,8 @@ export function Today() {
     [ops.data, sens.data],
   );
   const light = (techOn && ops.data) || (sensorsOn && sens.data) ? techLight(looks, ops.data?.things ?? [], ops.data?.monitors ?? [], sens.data ?? []) : null;
+  const watched = watchedLine(ops.data?.things ?? [], ops.data?.monitors ?? [], sens.data ?? []);
+  const [techOpen, setTechOpen] = useState(false);
 
   const [slot, setSlot] = useState<{ start: string; hours: number } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -118,8 +121,8 @@ export function Today() {
 
   const due = useMemo(() => dueReminders(allTasks.filter(hasReminder), now), [allTasks, now]);
   const needs = useMemo(
-    () => needsYou({ reminders: due, looks, watches: on("renewals") ? t?.watches_due_soon ?? [] : [], followUps, meds, unsorted: t?.captures_unprocessed ?? 0, now }),
-    [due, looks, t, followUps, meds, now, on],
+    () => needsYou({ reminders: due, watches: on("renewals") ? t?.watches_due_soon ?? [] : [], followUps, meds, unsorted: t?.captures_unprocessed ?? 0, now }),
+    [due, t, followUps, meds, now, on],
   );
   const open = useMemo(() => openTasks(allTasks), [allTasks]);
   const { current } = useMemo(() => pickCurrent(allTasks.filter((x) => x.fields.status === "doing" || x.fields.status === "next")), [allTasks]);
@@ -184,14 +187,6 @@ export function Today() {
             <a className="small" href={`#/tasks?focus=${n.reminder.entity.id}`}>Open</a>
           </>
         );
-      case "tech":
-        return (
-          <>
-            {(n.look.monitorId || n.look.sensor) && <ProposeFix monitorId={n.look.monitorId} sensor={n.look.sensor} />}
-            {n.look.incident && <AckControl inc={n.look.incident} onChanged={async () => { await ops.reload(); }} />}
-            <a className="small" href={n.look.thing ? `#/hosts/${encodeURIComponent(n.look.thing)}` : "#/ops"}>Open</a>
-          </>
-        );
       case "renewal":
         return (
           <>
@@ -213,27 +208,33 @@ export function Today() {
   };
 
   const sections: Record<TodaySection, ReactNode> = {
+    // Tech sits at the top of the Needs you slot, as one line until pressed.
     needs: (
-      <section className={`card tcard needs${needs.length ? " has" : ""}`} aria-label="Needs you">
-        <h2>Needs you {needs.length > 0 && <span className="count" aria-label={`${needs.length} waiting`}>{needs.length}</span>}</h2>
-        {needs.length === 0 ? (
-          <p className="today-clear"><span className="dot up" aria-hidden="true" /> Nothing needs you right now.</p>
-        ) : (
-          <ol className="need-list">
-            {needs.map((n, i) => (
-              <li key={n.key} className={`need ${n.kind}${(n.kind === "renewal" && n.overdue) || (n.kind === "followup" && n.late) ? " late" : ""}`}>
-                <span className="num" aria-hidden="true">{i + 1}</span>
-                <div className="need-body">
-                  <div className="need-title">{n.title}</div>
-                  {n.detail && <div className="need-detail">{n.detail}</div>}
-                  <div className="need-actions">{needActions(n)}</div>
-                  {rowErr?.key === n.key && <div className="error" role="alert">{rowErr.text}</div>}
-                </div>
-              </li>
-            ))}
-          </ol>
+      <>
+        {light && (
+          <TechCard light={light} looks={looks} watched={watched} open={techOpen} onToggle={() => setTechOpen((o) => !o)} onChanged={async () => { await ops.reload(); }} />
         )}
-      </section>
+        <section className={`card tcard needs${needs.length ? " has" : ""}`} aria-label="Needs you">
+          <h2>Needs you {needs.length > 0 && <span className="count" aria-label={`${needs.length} waiting`}>{needs.length}</span>}</h2>
+          {needs.length === 0 ? (
+            <p className="today-clear"><span className="dot up" aria-hidden="true" /> Nothing needs you right now.</p>
+          ) : (
+            <ol className="need-list">
+              {needs.map((n, i) => (
+                <li key={n.key} className={`need ${n.kind}${(n.kind === "renewal" && n.overdue) || (n.kind === "followup" && n.late) ? " late" : ""}`}>
+                  <span className="num" aria-hidden="true">{i + 1}</span>
+                  <div className="need-body">
+                    <div className="need-title">{n.title}</div>
+                    {n.detail && <div className="need-detail">{n.detail}</div>}
+                    <div className="need-actions">{needActions(n)}</div>
+                    {rowErr?.key === n.key && <div className="error" role="alert">{rowErr.text}</div>}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      </>
     ),
     schedule: (
       <section className="card tcard schedule" aria-label="Schedule">
@@ -357,11 +358,6 @@ export function Today() {
           <span className="today-date">{dateWords}</span>
         </div>
         <div className="today-meta">
-          {light && (
-            <a href="#/ops" className={`today-tech tone-${light.tone}`} title={light.detail || undefined}>
-              <span className={`dot ${light.tone === "ok" ? "up" : light.tone === "danger" ? "down" : "unknown"}`} aria-hidden="true" /> Tech: {light.label}
-            </a>
-          )}
           <span className="muted small">
             {poll.source === "local" ? "local copy, hub unreachable" : poll.at ? `checked ${relative(poll.at.toISOString())}` : ""}
             {poll.busy ? ", loading" : ""}
@@ -391,5 +387,61 @@ export function Today() {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * Tech on Today: one line with a dot in the light's color (green, yellow, red or grey), "Tech" and what the light
+ * says. A press on the line opens it: what needs a look, each with Propose a fix, Acknowledge and Open as Needs you
+ * had them, then the acknowledged ones, then Open Tech and what is watched.
+ */
+function TechCard({ light, looks, watched, open, onToggle, onChanged }: {
+  light: { tone: Tone; label: string; detail: string };
+  looks: Look[];
+  watched: string;
+  open: boolean;
+  onToggle: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  return (
+    <section className={`card tcard tech tone-${light.tone}`} aria-label="Tech">
+      <h2>
+        <button type="button" className="tech-line" aria-expanded={open} aria-controls={open ? "today-tech" : undefined} aria-label={`Tech, ${light.label}`} title={light.detail || undefined} onClick={onToggle}>
+          <span className={`dot ${TONE_DOT[light.tone]}`} aria-hidden="true" />
+          <span>Tech</span>
+          <span className="tech-label">{light.label}</span>
+          <span className="chev" aria-hidden="true" />
+        </button>
+      </h2>
+      {open && (
+        <div id="today-tech">
+          {looks.length > 0 && (
+            <ul className="tech-looks">
+              {/* needsALook lists the ones not yet acknowledged first. */}
+              {looks.map((l) => (
+                <li key={l.key} className={`tech-look${l.acknowledged ? " acked" : ""}`}>
+                  <span className={`dot ${TONE_DOT[lookTone(l)]}`} aria-hidden="true" />
+                  <div className="need-body">
+                    <div className="need-title">{l.title}</div>
+                    {l.detail && <div className="need-detail">{l.detail}</div>}
+                    {/* Acknowledged: when, and the note; the buttons that settle it are for the ones not acknowledged. */}
+                    {l.acknowledged && l.incident && <AckControl inc={l.incident} onChanged={onChanged} />}
+                    <div className="need-actions">
+                      {!l.acknowledged && (l.monitorId || l.sensor) && <ProposeFix monitorId={l.monitorId} sensor={l.sensor} />}
+                      {!l.acknowledged && l.incident && <AckControl inc={l.incident} onChanged={onChanged} />}
+                      <a className="small" href={l.thing ? `#/hosts/${encodeURIComponent(l.thing)}` : "#/ops"}>Open</a>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="tech-foot">
+            <a href="#/ops" className="small">Open Tech</a>
+            {watched && <span className="muted small">{watched}</span>}
+          </p>
+        </div>
+      )}
+    </section>
   );
 }

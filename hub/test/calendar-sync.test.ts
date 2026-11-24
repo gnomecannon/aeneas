@@ -85,7 +85,8 @@ test("calendar sync: links an iCloud address, finds its event calendars, and the
     assert.equal(chosen.status, 200);
     assert.equal((await mods()).active, true);
     assert.equal((await t.api("/calendars/icloud/you%40icloud.com", { method: "PUT", json: { target: HOLIDAYS } })).status, 422, "a read-only calendar takes no new events");
-    // The address was linked for calendars only: Mail receipts does not read it, and the password never comes back.
+    // The address was linked for calendars only: Receipts and renewals does not read it, and the password never comes
+    // back.
     assert.deepEqual(icloudSource.accounts(t.hub), []);
     assert.doesNotMatch(JSON.stringify(await (await t.api("/calendars")).json()), /abcd|efgh/);
     assert.doesNotMatch(JSON.stringify(await (await t.api("/connections")).json()), /abcd-efgh/);

@@ -126,6 +126,8 @@ export function themeVars(t: ThemeColors): Record<string, string> {
     "--warn-text": readable(t.warn ?? base.warn, t.text, 4.5, on),
     "--ok-strong": t.ok ?? base.ok,
     "--on-ok": onAccent(t.ok ?? base.ok, ink),
+    // Words on a yellow fill (Tech's light when only small things need a look).
+    "--on-warn": onAccent(t.warn ?? base.warn, ink),
     // Mail: the list sits on the theme's page, each mail and bundle is one of its cards, and the bundle colors as
     // words are moved toward the theme's text color wherever they would not read.
     "--mail-page": t.background,

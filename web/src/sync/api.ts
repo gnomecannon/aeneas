@@ -26,6 +26,11 @@ export interface ModuleInfo {
   reads?: string; permissions?: ModulePermission[]; setup?: { minutes: string; needs: string };
   /** Where its switch is when not in Settings, Modules: `connections` (Apple Reminders, on the iCloud account). */
   switch_in?: "connections";
+  /**
+   * The module it is shown under in Settings, Modules, as a sub-option with its own switch (since 2026-11-24:
+   * Receipts and renewals under Mail). Shown only: each works with the other off. Absent on older hubs.
+   */
+  under?: string;
 }
 
 /**
@@ -292,7 +297,7 @@ export type ImapLink = { email: string; password: string; user?: string } & ({ p
 /** Calendar sync on the hub (Calendar accounts): an iCloud address, its calendars and the one new events go to. */
 export interface CalendarAccount {
   email: string;
-  /** Mail receipts reads this address too. */
+  /** Receipts and renewals reads this address too. */
   mail: boolean;
   /** Read only: its calendars are read and never written; new events stay in the app. Absent on older hubs. */
   read_only?: boolean;
@@ -761,8 +766,9 @@ export class HubClient {
     return this.req<ImapConnection>("PUT", "/connections/imap", link);
   }
   /**
-   * Switch what an account does: `inbox` (shown in Mail) and `receipts` (read for Mail receipts). Switching off the
-   * last thing it does removes the account, password and all: the answer then has `removed` and the hub's `message`.
+   * Switch what an account does: `inbox` (shown in Mail) and `receipts` (read for Receipts and renewals). Switching off
+   * the last thing it does removes the account, password and all: the answer then has `removed` and the hub's
+   * `message`.
    */
   setAccountFeatures(key: string, body: { inbox?: boolean; receipts?: boolean; read_only?: boolean }) {
     return this.req<{ inbox: boolean; receipts: boolean; read_only?: boolean; removed?: boolean; message?: string }>("PUT", `/connections/accounts/${encodeURIComponent(key)}`, body);
@@ -781,7 +787,7 @@ export class HubClient {
   calendarSync() {
     return this.req<CalendarSyncView>("GET", "/calendars");
   }
-  /** Keep an iCloud address's calendars in step; the password may be left out when Mail receipts already has it. */
+  /** Keep an iCloud address's calendars in step; the password may be left out when Receipts and renewals has it. */
   linkCalendars(email: string, password?: string) {
     return this.req<CalendarSyncView>("PUT", "/calendars/icloud", { email, ...(password ? { password } : {}) });
   }

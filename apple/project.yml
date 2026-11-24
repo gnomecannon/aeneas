@@ -21,7 +21,7 @@ settings:
     CODE_SIGN_IDENTITY: "Apple Development"
     SWIFT_VERSION: "5.0"
     SWIFT_STRICT_CONCURRENCY: minimal
-    MARKETING_VERSION: "1.0.16"
+    MARKETING_VERSION: "1.0.17"
     CURRENT_PROJECT_VERSION: "1"
     VERSIONING_SYSTEM: apple-generic
     # The Mac app is for Apple silicon: iroh's Mac library (Direct link) comes for arm64 only.
@@ -140,7 +140,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(EA_BUNDLE_PREFIX).everythingapp
-        PRODUCT_NAME: EverythingApp
+        # The app people see is Aeneas.app, its process Aeneas (the Mac showed EverythingApp in Finder, the Dock,
+        # Activity Monitor and Privacy settings). The Swift module keeps the working name: type names that macOS and
+        # iOS keep between launches (App Intents, archived objects) stay the same, and so do the tests' imports.
+        PRODUCT_NAME: Aeneas
+        PRODUCT_MODULE_NAME: EverythingApp
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         "LD_RUNPATH_SEARCH_PATHS[sdk=iphone*]": "$(inherited) @executable_path/Frameworks"
         "LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]": "$(inherited) @executable_path/../Frameworks"

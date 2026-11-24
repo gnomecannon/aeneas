@@ -5,13 +5,13 @@
  * Today is a status report of the day in the order its owner asked every report to take: what needs you (actions
  * only, numbered), what is on now and what is left (the schedule), what is done (today so far), then what is coming
  * and needs nothing from you. An automatic record (a charge on autopay) is never an action, and Today does not list
- * it at all: it pays itself (gnomecannon/aeneas#14); Renewals shows it.
+ * it at all: it pays itself (gnomecannon/aeneas#14); Renewals shows it. What needs a look in Tech is Tech's own card
+ * above Needs you (lib/tech.ts `techLight`), never a row of Needs you.
  */
 import type { Entity } from "@everythingapp/shared";
 import type { TimelineItem } from "./planner";
 import { localDate, takesTime, wholeDay } from "./planner";
 import type { DueReminder } from "./reminders";
-import type { Look } from "./tech";
 import { fmtDate, fmtTime } from "./time";
 
 const MIN = 60_000;
@@ -76,7 +76,6 @@ export function freeLine(items: TimelineItem[], now: Date): string | null {
 
 export type Need =
   | { key: string; kind: "reminder"; title: string; detail: string; reminder: DueReminder }
-  | { key: string; kind: "tech"; title: string; detail: string; look: Look }
   | { key: string; kind: "renewal"; title: string; detail: string; watch: Entity; overdue: boolean }
   | { key: string; kind: "followup"; title: string; detail: string; app: Entity; late: boolean }
   | { key: string; kind: "med"; title: string; detail: string; med: string }
@@ -84,13 +83,12 @@ export type Need =
 
 /**
  * Everything waiting on the owner right now, in the order to take it: reminders whose time has come (oldest first),
- * things in Tech that need a look and are not acknowledged, renewals the owner has to make (never the ones on
- * autopay), job follow ups due, regular meds not yet logged today, and captures the assistant could not file.
- * A renewal's own reminder says the same as the renewal, so only the renewal is listed.
+ * renewals the owner has to make (never the ones on autopay), job follow ups due, regular meds not yet logged today,
+ * and captures the assistant could not file. A renewal's own reminder says the same as the renewal, so only the
+ * renewal is listed. Tech's looks are not here: Tech's card above Needs you holds them.
  */
 export function needsYou(input: {
   reminders: DueReminder[];
-  looks: Look[];
   watches: Entity[];
   followUps: Entity[];
   meds: { name: string; takenAt: string | null }[];
@@ -104,10 +102,6 @@ export function needsYou(input: {
   for (const r of input.reminders) {
     if (renewing.has(String(r.entity.fields.linked_id ?? ""))) continue;
     out.push({ key: `r:${r.key}`, kind: "reminder", title: String(r.entity.fields.title ?? ""), detail: `Reminder, ${cameDue(r.at, now)}`, reminder: r });
-  }
-  for (const l of input.looks) {
-    if (l.acknowledged) continue;
-    out.push({ key: `t:${l.key}`, kind: "tech", title: l.title, detail: l.detail ?? "", look: l });
   }
   for (const w of toRenew) {
     const days = daysUntil(String(w.fields.due ?? ""), now);

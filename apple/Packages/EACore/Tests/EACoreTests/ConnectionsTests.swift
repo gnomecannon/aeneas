@@ -47,7 +47,7 @@ final class ConnectionsTests: XCTestCase {
         let a = try XCTUnwrap(c.internet)
         XCTAssertEqual(a.map(\.id), ["icloud:jamie@example.com", "imap:robin@example.org", "alex@example.com"])
         XCTAssertEqual(a[0].receipts?.summary, "Filed 2 renewals from 3 messages read, 1 still to read.")
-        XCTAssertEqual(a[0].summary(mail: true, calendars: true, receipts: true, reminders: true), "Mail, Reminders, Receipts")
+        XCTAssertEqual(a[0].summary(mail: true, calendars: true, receipts: true, reminders: true), "Mail, Reminders, Receipts and renewals")
         XCTAssertEqual(a[1].kindLabel, "imap.example.org:993")
         XCTAssertEqual(a[1].summary(mail: true, calendars: true, receipts: true, reminders: false), "Mail, read only")
         XCTAssertEqual(a.map(\.hasReadOnlySwitch), [true, true, false])

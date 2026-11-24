@@ -1,4 +1,4 @@
-# EverythingApp web client and Windows desktop wrapper
+# Aeneas web client and desktop wrapper
 
 One codebase, two targets:
 
@@ -51,7 +51,7 @@ Serve `dist/` from the hub or any static host. Every path in the bundle is relat
 
 ### PWA
 
-- `public/manifest.webmanifest`: name EverythingApp, short name Everything, `display: standalone`, `start_url: ./#/now`, `scope: ./`, icons 192 and 512 (plus a maskable 512) from `public/icons/`, colours from the design tokens.
+- `public/manifest.webmanifest`: name and short name Aeneas, `display: standalone`, `start_url: ./#/now`, `scope: ./`, icons 192 and 512 (plus a maskable 512) from `public/icons/`, colours from the design tokens.
 - `sw/sw.js` is the service worker source. The `ea-service-worker` plugin in `vite.config.ts` writes `dist/sw.js` with the precache list (index.html, every hashed asset, manifest, icons) and a version hash. Navigations and `index.html` are network first with the cached copy as the offline fallback; hashed assets are cache first; manifest and icons are cache first with a background refresh; nothing outside the mount (`/sync`, `/live`, `/health`, every API route) is intercepted.
 - Updates: a newer worker installs and waits, the client shows an "Update available" toast, Reload posts `SKIP_WAITING` and the page reloads once the new worker controls it. The worker also checks for updates when the tab becomes visible and hourly.
 - `src/pwa.ts` registers `./sw.js` with scope `./` (so `/app/sw.js` with scope `/app/` on the hub), captures `beforeinstallprompt` for the Install button in Settings, and exposes the shell version and a manifest check that Settings shows under App.

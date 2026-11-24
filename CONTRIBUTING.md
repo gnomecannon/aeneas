@@ -1,11 +1,11 @@
-# Contributing to EverythingApp
+# Contributing to Aeneas
 
 Changes are welcome: bug fixes, new modules, translations, docs. Read `packages/shared/CONTRACT.md` first; it is the
 rulebook every part of the app follows (privacy, permissions, the shape of every route).
 
 ## What you agree to when you contribute
 
-EverythingApp is licensed under the GNU Affero General Public License, version 3 only (`LICENSE`). The project's
+Aeneas is licensed under the GNU Affero General Public License, version 3 only (`LICENSE`). The project's
 maintainer (gnomecannon) also publishes the Apple apps on the App Store, whose terms add restrictions the AGPL does
 not allow. So every contribution comes with one extra permission. By sending a pull request, a patch or any other
 contribution, you agree that:

@@ -116,12 +116,12 @@ function Steam({ c, reload }: { c: ConnectionsView["steam"]; reload: () => void 
   );
 }
 
-/** A service that needs the hub's own key before anyone can sign in: where that is set (Keys, at the end of the page). */
+/** A service that needs the hub's own key before anyone can sign in: where it is added (App keys, at the end). */
 function NeedsKey({ what }: { what: string }) {
   return (
     <div className="col">
-      <div className="muted small">Signing in needs {what} first, set once under Keys at the end of this page.</div>
-      <div><button type="button" onClick={() => document.getElementById("keys")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Go to Keys</button></div>
+      <div className="muted small">Signing in needs {what} first, added once under App keys at the end of this page.</div>
+      <div><button type="button" onClick={() => document.getElementById("app-keys")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Go to App keys</button></div>
     </div>
   );
 }
@@ -374,8 +374,8 @@ type Run = (f: () => Promise<string | void>) => Promise<void>;
 /**
  * Internet Accounts (since 2026-11-22, reworked 2026-11-24 for gnomecannon/aeneas#10): every mail and calendar account
  * in one place. Each account has what it brings in switched on or off (Mail, Calendars, and on the iCloud account
- * Reminders, which the iPhone and Mac sync), Read only, the Aeneas modules that read it (Receipts, with Read now), its
- * calendars, and Remove. Then one way to add an account: iCloud, Google or another provider.
+ * Reminders, which the iPhone and Mac sync), Read only, the Aeneas modules that read it (Receipts and renewals, with
+ * Read now), its calendars, and Remove. Then one way to add an account: iCloud, Google or another provider.
  */
 function InternetAccounts({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
   const ready = useHubReady();
@@ -438,7 +438,7 @@ function InternetAccounts({ c, on, reload }: { c: ConnectionsView; on: (m: strin
       )}
       {receipts && (
         <div className="muted small">
-          Receipts: the hub checks for new mail every 15 minutes and reads it {google?.times?.length ? `at ${google.times.map(clock).join(", ")}` : "at set times"} when no game is using the GPU; Read now reads it right away.{google?.waiting_for_gpu && <> Waiting: {google.waiting_for_gpu}.</>} For receipts, folders are opened read-only and nothing is marked read; the mail itself is never kept.
+          Receipts and renewals: the hub checks for new mail every 15 minutes and reads it {google?.times?.length ? `at ${google.times.map(clock).join(", ")}` : "at set times"} when no game is using the GPU; Read now reads it right away.{google?.waiting_for_gpu && <> Waiting: {google.waiting_for_gpu}.</>} For receipts, folders are opened read-only and nothing is marked read; the mail itself is never kept.
         </div>
       )}
       {!older && <AddAccount c={c} on={on} reload={() => { reload(); loadCal(); }} />}
@@ -491,7 +491,8 @@ export const hasReadOnlySwitch = (a: Pick<InternetAccount, "kind" | "read_only">
 
 /**
  * One account: its kind; what it brings in (Mail, Calendars, and Reminders on the first iCloud account); Read only; the
- * Aeneas modules that read it (Receipts, with what it filed and Read now); its calendars when on; and Remove.
+ * Aeneas modules that read it (Receipts and renewals, with what it filed and Read now); its calendars when on; and
+ * Remove.
  */
 function AccountRow({ a, on, busy, run, cal, setCal, viaGoogle, reading, reminders }: {
   a: InternetAccount; on: (m: string) => boolean; busy: boolean; run: Run; cal: CalendarSyncView | null; setCal: (v: CalendarSyncView) => void; viaGoogle: boolean; reading: boolean;
@@ -500,7 +501,7 @@ function AccountRow({ a, on, busy, run, cal, setCal, viaGoogle, reading, reminde
   const client = engine.client;
   const kind = a.kind === "imap" ? `${a.host}:${a.port}` : KIND[a.kind];
   const set = (body: { inbox?: boolean; receipts?: boolean; read_only?: boolean }) => {
-    if (lastUseOff(a.features, body) && !confirm(`Turn ${body.inbox === false ? "Mail" : "Receipts"} off for ${a.email}? ${LAST_USE}`)) return;
+    if (lastUseOff(a.features, body) && !confirm(`Turn ${body.inbox === false ? "Mail" : "Receipts and renewals"} off for ${a.email}? ${LAST_USE}`)) return;
     // The hub's own sentence when it removed the account with its last use.
     void run(async () => { const r = await client!.setAccountFeatures(a.key, body); return r.removed ? r.message : undefined; });
   };
@@ -532,7 +533,7 @@ function AccountRow({ a, on, busy, run, cal, setCal, viaGoogle, reading, reminde
       )}
       {reminders?.on && <div className="muted small">{REMINDERS_NOTE}{a.read_only ? " Read only does not reach them: your iPhone and Mac write them through Apple's own Reminders." : ""}</div>}
       {a.kind === "google" && on("mail_inbox") && (
-        <div className="muted small">Signed in with Google, the hub may only read this mail, so it can't show in Mail. To see it in Mail, add it again as Google with an app password; Receipts goes on reading it here.</div>
+        <div className="muted small">Signed in with Google, the hub may only read this mail, so it can't show in Mail. To see it in Mail, add it again as Google with an app password; Receipts and renewals goes on reading it here.</div>
       )}
       {hasReadOnlySwitch(a) ? (
         <>
@@ -545,9 +546,9 @@ function AccountRow({ a, on, busy, run, cal, setCal, viaGoogle, reading, reminde
           <div className="muted small">Aeneas modules that read this account</div>
           <label className="toggle-row">
             <input type="checkbox" checked={a.features.receipts!} disabled={busy || !client || a.kind === "google" || viaGoogle} onChange={(e) => set({ receipts: e.target.checked })} />
-            <span>Receipts <span className="muted small">files renewals, bills and vet visits from its mail</span></span>
+            <span>Receipts and renewals <span className="muted small">files renewals, bills and vet visits from its mail</span></span>
           </label>
-          {viaGoogle && <div className="muted small">Receipts for this address are read through its Sign in with Google link, so each mail is filed once.</div>}
+          {viaGoogle && <div className="muted small">Receipts and renewals reads this address through its Sign in with Google link, so each mail is filed once.</div>}
           {a.features.receipts && a.receipts && (
             <div className="row wrap" style={{ gap: 8 }}>
               <span className="small grow">{mailLine(a.receipts)} <span className="muted">Last checked {when(a.last_sync)}.</span></span>
@@ -629,15 +630,15 @@ export function syncNowResult(results: { account: string; error?: string }[], em
 }
 
 /**
- * Adding an account: iCloud (an app-specific password), Google (an app password: Mail and Receipts with one password,
- * nothing to set up at Google), or another provider. Sign in with Google, which reads mail for Receipts only, is offered
- * once the hub's own Google app is set under Keys.
+ * Adding an account: iCloud (an app-specific password), Google (an app password: Mail and Receipts and renewals with
+ * one password, nothing to set up at Google), or another provider. Sign in with Google, which reads mail for Receipts
+ * and renewals only, is offered once the hub's own Google app is added under App keys.
  */
 function AddAccount({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
   const mail = on("mail") || on("mail_inbox");
   const kinds = (["icloud", "google", "imap"] as const).filter((k) => (k === "icloud" ? mail || on("calendars") : mail));
   const [kind, setKind] = useState<(typeof kinds)[number]>("icloud");
-  if (!kinds.length) return <div className="muted small account-row">To add an account, turn on Mail, Mail receipts or Calendar accounts in <a href="#/settings/modules">Settings, Modules</a>.</div>;
+  if (!kinds.length) return <div className="muted small account-row">To add an account, turn on Mail, Receipts and renewals, or Calendar accounts in <a href="#/settings/modules">Settings, Modules</a>.</div>;
   return (
     <div className="col account-row" style={{ gap: 6 }}>
       <strong>Add an account</strong>
@@ -654,7 +655,7 @@ function AddAccount({ c, on, reload }: { c: ConnectionsView; on: (m: string) => 
           <ImapForm preset="gmail" reload={reload} />
           {on("mail") && c.google?.app && (
             <details>
-              <summary className="small">Or sign in with Google instead (Receipts only, reads only)</summary>
+              <summary className="small">Or sign in with Google instead (Receipts and renewals only, reads only)</summary>
               <GoogleSignIn c={c.google} reload={reload} />
             </details>
           )}
@@ -690,7 +691,7 @@ function ImapForm({ preset, reload }: { preset: "gmail" | "imap"; reload: () => 
     <form className="col" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
       <div className="muted small">
         {preset === "gmail"
-          ? <>Turn on 2-Step Verification for your Google Account, then make an app password named Aeneas at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a>. Google shows it once, as 16 letters. One app password gives both Mail and Receipts.</>
+          ? <>Turn on 2-Step Verification for your Google Account, then make an app password named Aeneas at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a>. Google shows it once, as 16 letters. One app password works for Mail and for Receipts and renewals.</>
           : <>Your provider's help pages give its IMAP server and port, and where to make an app password. The hub connects with TLS only (most often port 993), and only to servers on the internet, never one on your own network.</>}
       </div>
       <label className="col small" style={{ gap: 2 }}>
@@ -763,7 +764,7 @@ function GoogleSignIn({ c, reload }: { c: GoogleConnection; reload: () => void }
   );
 }
 
-/** An iCloud account for calendars only (Mail and Mail receipts off): its address and an app-specific password. */
+/** An iCloud account for calendars only (Mail and Receipts and renewals off): its address and app-specific password. */
 function ICloudCalendarLink({ reload }: { reload: () => void }) {
   const client = engine.client;
   const [busy, setBusy] = useState(false);
@@ -1136,34 +1137,126 @@ function PasswordManager({ c, reload }: { c: PasswordManagerView; reload: () => 
 }
 
 /**
- * Keys (since 2026-11-24, gnomecannon/aeneas#10, #25): the hub's own app keys that a service needs before anyone can
- * sign in, each made once with its guide on the service's own site. Kept here, apart from the accounts and services,
- * since they are set up once and then rarely looked at. A key shows only while its module is on.
+ * An app key: the hub's own registration with a service that lets a program in only once it is registered there, made
+ * once by the owner on that service's site with the hub's guide (`service`). What it is, why the service asks for it,
+ * what in Aeneas uses it and what works without it, said where it is listed (the Apple apps' AppKey, kept the same).
  */
-function Keys({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
-  const keys = [
-    on("mail") && c.google && { service: "google" as const, name: "Google app", what: "for Sign in with Google, which reads mail for Receipts only. Not needed for Google accounts added with an app password.", set: c.google.app },
-    on("wiki") && c.atlassian && { service: "atlassian" as const, name: "Atlassian app", what: "for Confluence in the wiki.", set: c.atlassian.app },
-    on("games") && { service: "steam" as const, name: "Steam key", what: "for Steam playtime in Games.", set: c.steam.hub_key },
-  ].filter((k): k is { service: "google" | "atlassian" | "steam"; name: string; what: string; set: boolean } => !!k);
+export interface AppKey {
+  service: "google" | "atlassian" | "steam";
+  name: string;
+  /** The service it is registered with. */
+  by: string;
+  /** One line on what it is for, beside its name. */
+  purpose: string;
+  what: string;
+  why: string;
+  uses: string;
+  without: string;
+  /** What Replace does, for a key the hub has. */
+  replacing: string;
+}
+
+/** What App keys says above its rows (the Apple apps' AppKey.intro, kept the same). */
+export const APP_KEYS_INTRO = "These are optional. A few services let a program in only once it is registered with them. Aeneas has no server of its own, so your hub holds its own registration, made once by you on that service's site. Each one is used only for the feature it names, and nothing else needs one.";
+
+/** Every app key, in the order they show (the Apple apps' AppKey.all, kept the same). */
+export const APP_KEYS: AppKey[] = [
+  {
+    service: "google", name: "Google app", by: "Google",
+    purpose: "For Sign in with Google, which reads Gmail for Receipts and renewals.",
+    what: "An OAuth client you make in your own Google Cloud project. It tells Google which program is asking, and that it may only read Gmail (the gmail.readonly permission).",
+    why: "Google lets a program use Sign in with Google only once it is registered. Aeneas has no registration with Google, so your hub uses yours, with you as its only user.",
+    uses: "Sign in with Google, offered when you add a Google account under Internet Accounts. It reads Gmail read-only, for Receipts and renewals, and never sends, changes or deletes mail.",
+    without: "Gmail accounts added with an app password do not need it: they work for Mail and for Receipts and renewals.",
+    replacing: "The guide ends by saving the new one in place of the old. Mailboxes signed in through the old one then need Sign in with Google again.",
+  },
+  {
+    service: "atlassian", name: "Atlassian app", by: "Atlassian",
+    purpose: "For Confluence pages in the Wiki.",
+    what: "An OAuth 2.0 app you make in Atlassian's developer console, allowed only to read Confluence.",
+    why: "Atlassian lets a program sign in to Confluence only once it is registered there. Aeneas has no registration with Atlassian, so your hub uses yours.",
+    uses: "Sign in with Atlassian, under Confluence in Settings, Connections, so the spaces you pick show in the Wiki, where the assistant can search them.",
+    without: "The Wiki still shows a repository's docs, and nothing else uses it.",
+    replacing: "The guide ends by saving the new one in place of the old. Confluence then needs Reconnect, to sign in through the new one.",
+  },
+  {
+    service: "steam", name: "Steam key", by: "Steam",
+    purpose: "For Steam playtime in Games.",
+    what: "A Steam Web API key, which you register at steamcommunity.com/dev/apikey.",
+    why: "Steam gives a program your games and playtime only when it asks with a key. Aeneas has no key of its own, so your hub uses yours.",
+    uses: "Reading your Steam games and playtime for Games, once you sign in with Steam under Steam in Settings, Connections.",
+    without: "Games still keeps the games you add by hand. A key stops working when your Steam password changes: then replace it with a new one.",
+    replacing: "The guide ends by saving the new key in place of the old, once Steam accepts it.",
+  },
+];
+
+/**
+ * The app keys to show, each with whether the hub has it: a key only while its module is on (Receipts and renewals,
+ * Wiki, Games), and Google's and Atlassian's only from a hub that says.
+ */
+export function appKeys(c: Pick<ConnectionsView, "google" | "atlassian" | "steam">, on: (m: string) => boolean): Array<AppKey & { added: boolean }> {
+  const added: Record<AppKey["service"], boolean | null> = {
+    google: on("mail") && c.google ? c.google.app : null,
+    atlassian: on("wiki") && c.atlassian ? c.atlassian.app : null,
+    steam: on("games") ? c.steam.hub_key : null,
+  };
+  return APP_KEYS.flatMap((k) => {
+    const a = added[k.service];
+    return a === null ? [] : [{ ...k, added: a }];
+  });
+}
+
+/**
+ * App keys (called Keys until 2026-11-24, gnomecannon/aeneas#10, #25): the hub's own registrations a service needs
+ * before anyone can sign in, apart from the accounts and services since they are made once and then rarely looked at.
+ * Each row says what it is for and whether the hub has it as a status, opens what it is and why it is asked for in
+ * place (the ⓘ, as in Settings, Modules), and has one button: the guide to set it up, or Replace for one the hub has.
+ */
+function AppKeys({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
+  const keys = appKeys(c, on);
   if (!keys.length) return null;
   return (
-    <section className="card col" id="keys">
-      <h2>Keys</h2>
-      <div className="muted small">Your hub's own app keys, for services that need one before anyone can sign in. Each is made once by you on the service's own site; there is no server of ours in between.</div>
-      {keys.map((k) => (
-        <div key={k.service} className="col account-row">
-          <div><strong>{k.name}</strong> <span className="muted small">{k.what}</span></div>
-          {k.set ? <div className="small">Set.</div> : <OwnKeyGuide service={k.service} onDone={reload} />}
-        </div>
-      ))}
+    <section className="card col" id="app-keys">
+      <h2>App keys</h2>
+      <div className="muted small">{APP_KEYS_INTRO}</div>
+      {keys.map((k) => <AppKeyRow key={k.service} k={k} reload={reload} />)}
     </section>
+  );
+}
+
+/** One app key: its name, its state, what it is for, what it is (in place) and Set it up or Replace. */
+function AppKeyRow({ k, reload }: { k: AppKey & { added: boolean }; reload: () => void }) {
+  const [open, setOpen] = useState(false);
+  const info = `app-key-${k.service}-info`;
+  return (
+    <div className="col account-row">
+      <div className="row" style={{ flexWrap: "nowrap", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div className="col grow" style={{ gap: 2 }}>
+          <div>
+            <strong>{k.name}</strong>{" "}
+            {k.added ? <span className="ok small"><span aria-hidden="true">{"\u2713"} </span>Added</span> : <span className="muted small">Not added</span>}
+          </div>
+          <div className="muted small">{k.purpose}</div>
+        </div>
+        <button type="button" className="info-btn" aria-expanded={open} aria-controls={info} aria-label={`About the ${k.name}`} onClick={() => setOpen(!open)}>ⓘ</button>
+      </div>
+      {open && (
+        <div id={info} className="link-info module-info">
+          <div><strong>What it is:</strong> {k.what}</div>
+          <div><strong>Why {k.by} asks for it:</strong> {k.why}</div>
+          <div><strong>What uses it:</strong> {k.uses}</div>
+          <div><strong>Without it:</strong> {k.without}</div>
+          {k.added && <div><strong>Replacing it:</strong> {k.replacing}</div>}
+        </div>
+      )}
+      <OwnKeyGuide service={k.service} onDone={reload} start={k.added ? { label: "Replace" } : { label: "Set it up", primary: true }} />
+    </div>
   );
 }
 
 /**
  * Settings, Connections, grouped (gnomecannon/aeneas#25): the accounts first, then the services each module links, by
- * kind (games and films, the wiki, health, machines, the calendar feed), then the keys they need.
+ * kind (games and films, the wiki, health, machines, the calendar feed), then the app keys they need.
  */
 export function ConnectionsPage() {
   const { on } = useModules();
@@ -1183,7 +1276,7 @@ export function ConnectionsPage() {
           {on("health") && <Health c={c.health} />}
           {on("homelab") && c.password_manager && <PasswordManager c={c.password_manager} reload={reload} />}
           <CalendarFeed />
-          <Keys c={c} on={on} reload={reload} />
+          <AppKeys c={c} on={on} reload={reload} />
         </>
       )}
     </SubPage>

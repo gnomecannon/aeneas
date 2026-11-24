@@ -33,7 +33,7 @@ export function importRoutes() {
     const r = await steamReturn(c.get("hub"), c.req.query());
     if (r.client === "apple") return c.redirect(`everythingapp://steam?${new URLSearchParams(r.ok ? { linked: "1", message: r.message } : { error: r.message })}`);
     const esc = r.message.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
-    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Steam</title><body style="font:16px system-ui;margin:40px auto;max-width:420px;padding:0 16px"><h1>${r.ok ? "Steam linked" : "Steam not linked"}</h1><p>${esc}</p><p>You can close this tab and go back to EverythingApp.</p></body>`);
+    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Steam</title><body style="font:16px system-ui;margin:40px auto;max-width:420px;padding:0 16px"><h1>${r.ok ? "Steam linked" : "Steam not linked"}</h1><p>${esc}</p><p>You can close this tab and go back to Aeneas.</p></body>`);
   });
   r.post("/connections/steam/sync", async (c) => c.json(await syncSteam(c.get("hub"))));
   r.delete("/connections/steam", (c) => c.json(disconnectSteam(c.get("hub"))));
@@ -48,7 +48,7 @@ export function importRoutes() {
     const r = await atlassianReturn(c.get("hub"), c.req.query());
     if (r.client === "apple") return c.redirect(`everythingapp://atlassian?${new URLSearchParams(r.ok ? { linked: "1", message: r.message } : { error: r.message })}`);
     const esc = r.message.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
-    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Confluence</title><body style="font:16px system-ui;margin:40px auto;max-width:420px;padding:0 16px"><h1>${r.ok ? "Confluence linked" : "Confluence not linked"}</h1><p>${esc}</p><p>You can close this tab and go back to EverythingApp.</p></body>`);
+    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Confluence</title><body style="font:16px system-ui;margin:40px auto;max-width:420px;padding:0 16px"><h1>${r.ok ? "Confluence linked" : "Confluence not linked"}</h1><p>${esc}</p><p>You can close this tab and go back to Aeneas.</p></body>`);
   });
   r.get("/connections/atlassian/spaces", async (c) => c.json(await atlassianSpaces(c.get("hub"))));
   r.put("/connections/atlassian/spaces", async (c) => c.json(await setAtlassianSpaces(c.get("hub"), await readJsonObject(c))));
@@ -70,7 +70,7 @@ export function importRoutes() {
     const r = await googleReturn(hub, c.req.query(), (email) => { void listMail(hub, email).catch((e) => console.error(`[mail] ${mailboxLabel(hub, email)}: ${errCode(e)}`)); });
     if (r.client === "apple") return c.redirect(`everythingapp://google?${new URLSearchParams(r.ok ? { linked: "1", message: r.message } : { error: r.message })}`);
     const esc = r.message.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]!);
-    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Gmail</title><body style="font:16px system-ui;margin:40px auto;max-width:420px;padding:0 16px"><h1>${r.ok ? "Gmail linked" : "Gmail not linked"}</h1><p>${esc}</p><p>You can close this tab and go back to EverythingApp.</p></body>`);
+    return c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Gmail</title><body style="font:16px system-ui;margin:40px auto;max-width:420px;padding:0 16px"><h1>${r.ok ? "Gmail linked" : "Gmail not linked"}</h1><p>${esc}</p><p>You can close this tab and go back to Aeneas.</p></body>`);
   });
   r.post("/connections/google/sync", async (c) => c.json(await readMailNow(c.get("hub"), readNowAccount(await readJsonObject(c).catch(() => ({}))))));
   r.delete("/connections/google/:email", async (c) => c.json(await disconnectGoogle(c.get("hub"), decodeURIComponent(c.req.param("email")).toLowerCase())));
@@ -78,7 +78,7 @@ export function importRoutes() {
   // iCloud Mail (icloud.ts): an app-specific password, checked with iCloud once and kept sealed; never returned.
   r.put("/connections/icloud", async (c) => {
     const hub = c.get("hub");
-    // The path answers while Mail receipts or the Mail screen is on: a new link starts only the ones that are on.
+    // It answers while Receipts and renewals or the Mail screen is on: a new link starts only the ones that are on.
     return c.json(await linkICloud(hub, await readJsonObject(c), (account) => {
       if (hub.modules.on("mail")) void icloudSource.list(hub, account).catch((e) => console.error(`[mail] ${mailboxLabel(hub, account)}: ${errCode(e)}`));
       if (hub.modules.on("mail_inbox")) void refreshMail(hub).catch((e) => console.error(`[mail-inbox] ${errCode(e)}`));
@@ -86,7 +86,7 @@ export function importRoutes() {
   });
   r.post("/connections/icloud/sync", async (c) => {
     const hub = c.get("hub");
-    if (!hub.modules.on("mail")) throw new StoreError(404, "Mail receipts is off. Turn it on in Settings, Modules.");
+    if (!hub.modules.on("mail")) throw new StoreError(404, "Receipts and renewals is off. Turn it on in Settings, Modules.");
     return c.json(await readMailNow(hub, readNowAccount(await readJsonObject(c).catch(() => ({})))));
   });
   r.delete("/connections/icloud/:email", (c) => {
@@ -101,17 +101,18 @@ export function importRoutes() {
   // password checked with the server once and kept sealed; never returned.
   r.put("/connections/imap", async (c) => {
     const hub = c.get("hub");
-    if (!hub.modules.on("mail_inbox") && !hub.modules.on("mail")) throw new StoreError(404, "Mail and Mail receipts are off. Turn one on in Settings, Modules.");
+    if (!hub.modules.on("mail_inbox") && !hub.modules.on("mail")) throw new StoreError(404, "Neither Mail nor Receipts and renewals is on. Turn one on in Settings, Modules.");
     return c.json(await linkImap(hub, await readJsonObject(c), (account) => {
       if (hub.modules.on("mail_inbox")) void refreshMail(hub).catch((e) => console.error(`[mail-inbox] ${errCode(e)}`));
       if (hub.modules.on("mail") && imapSource.accounts(hub).includes(account)) void imapSource.list(hub, account).catch((e) => console.error(`[mail] ${errCode(e)}`));
     }));
   });
   // Internet Accounts (since 2026-11-22): one account's switches. Mail off takes its mail off the Mail screen at once;
-  // Receipts off drops what was waiting to be read (what was filed stays). The last use switched off removes the
-  // account, password and all (`removed` and a `message` in the answer): a password is kept only while something
-  // uses it. (It stayed on the hub with every switch off, against what the contract and the guide say.) Read only
-  // (since 2026-11-24) stops every write to the account, here on the hub (icloud.ts refuseIfReadOnly, calendar-sync.ts).
+  // Receipts and renewals off drops what was waiting to be read (what was filed stays). The last use switched off
+  // removes the account, password and all (`removed` and a `message` in the answer): a password is kept only while
+  // something uses it. (It stayed on the hub with every switch off, against what the contract and the guide say.) Read
+  // only (since 2026-11-24) stops every write to the account, here on the hub (icloud.ts refuseIfReadOnly,
+  // calendar-sync.ts).
   r.put("/connections/accounts/:key", async (c) => {
     const hub = c.get("hub");
     const key = decodeURIComponent(c.req.param("key")).toLowerCase();

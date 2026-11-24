@@ -80,7 +80,8 @@ const mockMachines: { name: string; ssh?: string; os?: string; local?: boolean }
 
 function mockModules() {
   return MODULES.map((m) => ({ id: m.id, title: m.title, summary: m.summary, group: m.group, on: mockModuleOn.get(m.id) ?? m.default,
-    ...(m.reads ? { reads: m.reads } : {}), ...(m.permissions ? { permissions: m.permissions } : {}), ...(m.setup ? { setup: m.setup } : {}) }));
+    ...(m.reads ? { reads: m.reads } : {}), ...(m.permissions ? { permissions: m.permissions } : {}), ...(m.setup ? { setup: m.setup } : {}),
+    ...(m.under ? { under: m.under } : {}) }));
 }
 
 const PORT = Number(process.env.EA_PORT ?? 8787);

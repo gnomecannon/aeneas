@@ -440,9 +440,9 @@ export function mailTimeReached(times: string[], since: Date, now: Date): boolea
  * time, newest first, only while no chat is using the model.
  */
 /**
- * How a log line names a linked mailbox: its number among the mailboxes Mail receipts reads ("mailbox 2"), never the
- * address. One that Mail receipts does not read is "a mailbox" and its kind: the Mail screen logs with this too, and a
- * mailbox only it reads was called "a mailbox no longer linked".
+ * How a log line names a linked mailbox: its number among the mailboxes Receipts and renewals reads ("mailbox 2"),
+ * never the address. One that Receipts and renewals does not read is "a mailbox" and its kind: the Mail screen logs
+ * with this too, and a mailbox only it reads was called "a mailbox no longer linked".
  */
 export function mailboxLabel(hub: Hub, account: string): string {
   const i = mailAccounts(hub).findIndex((a) => a.account === account);
@@ -457,7 +457,7 @@ export function startMailJob(hub: Hub): () => void {
   let lastList = 0;
   const listAll = async () => {
     lastList = Date.now();
-    // Mail receipts switched off (Settings, Modules): no mailbox is listed.
+    // Receipts and renewals switched off (Settings, Modules): no mailbox is listed.
     if (!hub.modules.on("mail")) return;
     for (const { source, account } of mailAccounts(hub)) {
       await source.list(hub, account).then(

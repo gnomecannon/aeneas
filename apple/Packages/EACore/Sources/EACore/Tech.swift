@@ -117,9 +117,17 @@ public struct MachineSection: Equatable, Identifiable, Sendable {
     public init(title: String, things: [TechThing]) { self.title = title; self.things = things }
 }
 
-/// How something is doing, as a color word: red with what is wrong, green when fine, grey before anything is known.
+/// How something is doing, as a color word: red with what is wrong, yellow when only small things need a look, green
+/// when fine, grey before anything is known.
 public enum TechTone: String, Sendable {
-    case ok, danger, muted
+    case ok, warn, danger, muted
+}
+
+/// How much a look weighs: major for something that is down (a check, with or without its incident, and the hub's own
+/// backup), minor for a reading out of bounds or silent. The light is red while a major one is not yet acknowledged,
+/// yellow while only minor ones are.
+public enum TechSeverity: String, Sendable {
+    case major, minor
 }
 
 public struct TechStatus: Equatable, Sendable {
@@ -154,7 +162,11 @@ public struct TechLook: Equatable, Identifiable, Sendable {
     /// A reading out of bounds or silent: Propose a fix asks about this sensor.
     public var sensor: String?
     public var acknowledged: Bool
+    public var severity: TechSeverity
     public var id: String { key }
+
+    /// Its own color: red when major, yellow when minor, grey once acknowledged.
+    public var tone: TechTone { acknowledged ? .muted : severity == .major ? .danger : .warn }
 }
 
 /// The light at the top of Tech.
@@ -325,7 +337,8 @@ public enum Tech {
     // MARK: What needs a look
 
     /// Everything that needs a look now, worst first: checks that are down (one row per incident: a machine that
-    /// stopped answering takes its services with it), readings out of bounds or silent, and the hub's own backup.
+    /// stopped answering takes its services with it), readings out of bounds or silent, and the hub's own backup. A
+    /// check that is down and the hub's backup are major, a reading is minor.
     public static func needsALook(things: [TechThing], monitors: [Entity], incidents: [Entity], sensors: [Entity],
                                   hubBackup: [HubBackupLine] = [], now: Date = Date()) -> [TechLook] {
         var thingOfMonitor: [String: TechThing] = [:]
@@ -344,12 +357,12 @@ public enum Tech {
             let detail = [inc.str("last_error"), also.isEmpty ? "" : "also down with it: \(also.joined(separator: ", "))"].filter { !$0.isEmpty }.joined(separator: "; ")
             out.append(TechLook(key: "inc-\(inc.id)", thing: thingOfMonitor[monitorId]?.name ?? "", title: "\(inc.str("name")) down",
                                 detail: detail.isEmpty ? nil : detail, monitorId: monitorId, incident: inc, sensor: nil,
-                                acknowledged: !(inc.string("acknowledged_at") ?? "").isEmpty))
+                                acknowledged: !(inc.string("acknowledged_at") ?? "").isEmpty, severity: .major))
         }
         for m in monitors where !covered.contains(m.id) && isOn(m) && isDown(m) {
             let err = m.str("last_error")
             out.append(TechLook(key: "mon-\(m.id)", thing: thingOfMonitor[m.id]?.name ?? "", title: "\(m.str("name")) down",
-                                detail: err.isEmpty ? nil : err, monitorId: m.id, incident: nil, sensor: nil, acknowledged: false))
+                                detail: err.isEmpty ? nil : err, monitorId: m.id, incident: nil, sensor: nil, acknowledged: false, severity: .major))
         }
         for s in sensors where alerting(s, now: now) {
             let name = s.str("name"), unit = s.str("unit")
@@ -372,35 +385,43 @@ public enum Tech {
             let bound = state == .high ? s.number("max").map { "alerts above \(number($0))\(unitText)" }
                 : state == .low ? s.number("min").map { "alerts below \(number($0))\(unitText)" } : nil
             out.append(TechLook(key: "sensor-\(name)", thing: t?.name ?? "", title: title, detail: bound, monitorId: nil, incident: nil,
-                                sensor: name, acknowledged: false))
+                                sensor: name, acknowledged: false, severity: .minor))
         }
         let bad = hubBackup.filter { !$0.ok }
         if !bad.isEmpty {
             out.append(TechLook(key: "hub-backup", thing: things.first { $0.hub }?.name ?? "", title: "This hub's backup needs a look",
                                 detail: bad.map { "\($0.label): \($0.text)" }.joined(separator: "; "), monitorId: nil, incident: nil,
-                                sensor: nil, acknowledged: false))
+                                sensor: nil, acknowledged: false, severity: .major))
         }
         // Not yet acknowledged first; the order above otherwise.
         return out.enumerated().sorted { ($0.element.acknowledged ? 1 : 0, $0.offset) < ($1.element.acknowledged ? 1 : 0, $1.offset) }.map(\.element)
     }
 
-    /// The light at the top of Tech: what needs a look, or that all is well and how much is watched.
-    public static func light(looks: [TechLook], things: [TechThing], monitors: [Entity], sensors: [Entity]) -> TechLight {
+    /// What is watched, in one line: "3 machines, 4 checks, 5 readings"; empty when nothing is.
+    public static func watched(things: [TechThing], monitors: [Entity], sensors: [Entity]) -> String {
         func n(_ c: Int, _ word: String) -> String { "\(c) \(word)\(c == 1 ? "" : "s")" }
-        let open = looks.filter { !$0.acknowledged }.count
         let machines = things.filter { $0.kind == .machine }.count
         let checks = monitors.filter(isOn).count
-        let watched = [machines > 0 ? n(machines, "machine") : "", checks > 0 ? n(checks, "check") : "", sensors.isEmpty ? "" : n(sensors.count, "reading")]
+        return [machines > 0 ? n(machines, "machine") : "", checks > 0 ? n(checks, "check") : "", sensors.isEmpty ? "" : n(sensors.count, "reading")]
             .filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
+    /// The light at the top of Tech, and Today's Tech line: red while a major look (something down) is not yet
+    /// acknowledged, yellow while only minor ones are (readings), grey once every look is acknowledged, green when
+    /// there is none, with how much is watched.
+    public static func light(looks: [TechLook], things: [TechThing], monitors: [Entity], sensors: [Entity]) -> TechLight {
+        let open = looks.filter { !$0.acknowledged }
+        let watched = Self.watched(things: things, monitors: monitors, sensors: sensors)
         if !looks.isEmpty {
-            let acked = looks.count - open
+            let acked = looks.count - open.count
+            if open.isEmpty { return TechLight(tone: .muted, label: "\(acked) acknowledged", detail: watched) }
             return TechLight(
-                tone: open > 0 ? .danger : .muted,
-                label: open > 0 ? "\(n(open, "thing")) need\(open == 1 ? "s" : "") a look" : "\(acked) acknowledged",
-                detail: [open > 0 && acked > 0 ? "\(acked) acknowledged" : "", watched].filter { !$0.isEmpty }.joined(separator: "; ")
+                tone: open.contains { $0.severity == .major } ? .danger : .warn,
+                label: "\(open.count) thing\(open.count == 1 ? "" : "s") need\(open.count == 1 ? "s" : "") a look",
+                detail: [acked > 0 ? "\(acked) acknowledged" : "", watched].filter { !$0.isEmpty }.joined(separator: "; ")
             )
         }
-        if checks == 0 && sensors.isEmpty { return TechLight(tone: .muted, label: "Nothing watched yet", detail: "") }
+        if !monitors.contains(where: isOn) && sensors.isEmpty { return TechLight(tone: .muted, label: "Nothing watched yet", detail: "") }
         return TechLight(tone: .ok, label: "All good", detail: watched)
     }
 

@@ -5,8 +5,8 @@ import { ACCOUNT, ago, done, EMAIL, fake, linked, PASSWORD, type Msg } from "./f
 import { setMailboxFeatures } from "../src/imports/icloud.js";
 import { deleteMailbox } from "../src/mail-inbox.js";
 
-// One account, three uses: Mail receipts (`mail`), the Mail screen (`inbox`) and calendar sync (`calendar`). Its
-// password stays on the hub while any of them uses it, and every way of unlinking takes the kept mail with it.
+// One account, three uses: Receipts and renewals (`mail`), the Mail screen (`inbox`) and calendar sync (`calendar`).
+// Its password stays on the hub while any of them uses it, and every way of unlinking takes the kept mail with it.
 // Made-up account and mail.
 
 const CAL = { calendars: [], chosen: [], target: null };

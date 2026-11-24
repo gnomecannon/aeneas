@@ -37,12 +37,16 @@ struct ModulesSettingsView: View {
                 SwiftUI.Section {
                     DisclosureGroup(isExpanded: expandedBinding(g.title)) {
                         ForEach(g.modules) { m in
+                            // A sub-option (Receipts and renewals under Mail) is indented under the module above it,
+                            // with a switch of its own that works while that one is off.
+                            let indent: CGFloat = g.isNested(m) ? 20 : 0
                             Toggle(isOn: binding(m)) { ModuleRow(m: m, on: binding(m).wrappedValue) }
                                 .toggleStyle(.switch)
                                 .disabled(pending[m.id] != nil)
+                                .padding(.leading, indent)
                             // Under the switch that did not change: the screen's top can be out of sight.
                             if let refused, refused.id == m.id {
-                                Text(refused.text).font(.caption).foregroundStyle(.warnText)
+                                Text(refused.text).font(.caption).foregroundStyle(.warnText).padding(.leading, indent)
                             }
                         }
                     } label: {

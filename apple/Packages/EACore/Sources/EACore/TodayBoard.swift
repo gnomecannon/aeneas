@@ -6,7 +6,8 @@ import Foundation
 /// Today is a status report of the day in the order its owner asked every report to take: what needs you (actions
 /// only, numbered), what is on now and what is left (the schedule), what is done (today so far), then what is coming
 /// and needs nothing from you. An automatic record (a charge on autopay) is never an action, and Today does not list
-/// it at all: it pays itself (gnomecannon/aeneas#14); Renewals shows it.
+/// it at all: it pays itself (gnomecannon/aeneas#14); Renewals shows it. What needs a look in Tech is Tech's own card
+/// above Needs you (`Tech.light`), never a row of Needs you.
 public enum TodayBoard {
     /// How a time of day is written ("3:00 PM"): the device's own short style on screen, a fixed one in tests.
     public typealias Clock = @Sendable (Date) -> String
@@ -142,7 +143,6 @@ public enum TodayBoard {
     /// One thing waiting on the owner, with what the row needs to act on it.
     public enum Need: Equatable, Identifiable, Sendable {
         case reminder(Mail.DueReminder, detail: String)
-        case tech(TechLook)
         case renewal(Entity, detail: String, overdue: Bool)
         case followUp(Entity, detail: String, late: Bool)
         case med(String)
@@ -151,7 +151,6 @@ public enum TodayBoard {
         public var id: String {
             switch self {
             case .reminder(let r, _): return "r:" + r.id
-            case .tech(let l): return "t:" + l.key
             case .renewal(let w, _, _): return "w:" + w.id
             case .followUp(let a, _, _): return "a:" + a.id
             case .med(let name): return "m:" + name.lowercased()
@@ -162,7 +161,6 @@ public enum TodayBoard {
         public var title: String {
             switch self {
             case .reminder(let r, _): return r.title
-            case .tech(let l): return l.title
             case .renewal(let w, _, _): return "Renew \(w.str("title"))"
             case .followUp(let a, _, _): return "Follow up with \(a.str("company"))"
             case .med(let name): return name
@@ -173,7 +171,6 @@ public enum TodayBoard {
         public var detail: String {
             switch self {
             case .reminder(_, let d), .renewal(_, let d, _), .followUp(_, let d, _): return d
-            case .tech(let l): return l.detail ?? ""
             case .med: return "Not logged today"
             case .unsorted: return "Waiting in Unsorted Info"
             }
@@ -190,11 +187,11 @@ public enum TodayBoard {
     }
 
     /// Everything waiting on the owner right now, in the order to take it: reminders whose time has come (oldest
-    /// first), things in Tech that need a look and are not acknowledged, renewals the owner has to make (never the
-    /// ones on autopay), job follow ups due, regular meds not yet logged today, and captures the assistant could not
-    /// file. A renewal's own reminder says the same as the renewal, so only the renewal is listed (`tasks` are the
-    /// tasks the reminders belong to, for the item each is about).
-    public static func needsYou(reminders: [Mail.DueReminder], tasks: [Entity] = [], looks: [TechLook], watches: [Entity], followUps: [Entity],
+    /// first), renewals the owner has to make (never the ones on autopay), job follow ups due, regular meds not yet
+    /// logged today, and captures the assistant could not file. A renewal's own reminder says the same as the
+    /// renewal, so only the renewal is listed (`tasks` are the tasks the reminders belong to, for the item each is
+    /// about). Tech's looks are not here: Tech's card above Needs you holds them.
+    public static func needsYou(reminders: [Mail.DueReminder], tasks: [Entity] = [], watches: [Entity], followUps: [Entity],
                                 meds: [TodayExtras.Med], unsorted: Int, now: Date, calendar: Calendar = .current, clock: Clock = deviceClock) -> [Need] {
         var out: [Need] = []
         let toRenew = toRenew(watches)
@@ -204,7 +201,6 @@ public enum TodayBoard {
             if let linked = about[r.id], renewing.contains(linked) { continue }
             out.append(.reminder(r, detail: "Reminder, " + cameDue(r.at, now: now, calendar: calendar, clock: clock)))
         }
-        for l in looks where !l.acknowledged { out.append(.tech(l)) }
         for w in toRenew {
             let days = daysUntil(w.str("due"), now: now, calendar: calendar)
             let detail = days == 0 ? "Due today" : days < 0 ? "\(-days) day\(days == -1 ? "" : "s") overdue" : "Due in \(days) day\(days == 1 ? "" : "s")"

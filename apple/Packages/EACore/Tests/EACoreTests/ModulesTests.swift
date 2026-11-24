@@ -36,6 +36,47 @@ final class ModulesTests: XCTestCase {
         XCTAssertEqual(g[2].modules.map(\.id), ["pet", "garden"])
     }
 
+    func testASubOptionComesRightAfterTheModuleItSitsUnder() throws {
+        let json = """
+        {"modules": [
+          {"id": "games", "title": "Games", "group": "Life admin", "on": true},
+          {"id": "mail", "title": "Receipts and renewals", "group": "Life admin", "on": true, "under": "mail_inbox"},
+          {"id": "jobs", "title": "Job search", "group": "Life admin", "on": false},
+          {"id": "mail_inbox", "title": "Mail", "group": "Life admin", "on": false},
+          {"id": "web", "title": "Web lookups", "group": "Assistant", "on": true}
+        ]}
+        """
+        let m = try JSONCoding.decode(ModulesResponse.self, from: json).modules
+        XCTAssertEqual(m[1].under, "mail_inbox")
+        XCTAssertNil(m[0].under)
+        let g = m.grouped
+        XCTAssertEqual(g.map(\.title), ["Life admin", "Assistant"])
+        XCTAssertEqual(g[0].modules.map(\.id), ["games", "jobs", "mail_inbox", "mail"], "right after Mail, with Mail off too")
+        XCTAssertEqual(g[0].nested, ["mail"])
+        XCTAssertTrue(g[0].isNested(m[1]))
+        XCTAssertFalse(g[0].isNested(m[3]))
+        XCTAssertEqual(g[1].modules.map(\.id), ["web"])
+        // Kept in the cache with `under`, so the list draws the same before the hub answers.
+        XCTAssertEqual(try JSONCoding.decode([ModuleInfo].self, from: try JSONCoding.data(m))[1].under, "mail_inbox")
+    }
+
+    func testASubOptionWithoutItsModuleInTheAreaIsANormalRow() {
+        // An older hub's list, or the module it sits under in another area: where the hub put it, not indented.
+        let alone = [ModuleInfo(id: "mail", title: "Receipts and renewals", group: "Life admin", on: true, under: "mail_inbox"), ModuleInfo(id: "games", title: "Games", group: "Life admin", on: true)]
+        XCTAssertEqual(alone.grouped[0].modules.map(\.id), ["mail", "games"])
+        XCTAssertTrue(alone.grouped[0].nested.isEmpty)
+        let apart = [ModuleInfo(id: "mail_inbox", title: "Mail", group: "Plan", on: true), ModuleInfo(id: "mail", title: "Receipts and renewals", group: "Life admin", on: true, under: "mail_inbox")]
+        XCTAssertEqual(apart.grouped.map { $0.modules.map(\.id) }, [["mail_inbox"], ["mail"]])
+        XCTAssertTrue(apart.grouped.allSatisfy { $0.nested.isEmpty })
+        // One level only, and two that name each other both show, as normal rows.
+        let chain = [ModuleInfo(id: "a", title: "A", group: "G", on: true), ModuleInfo(id: "b", title: "B", group: "G", on: true, under: "a"), ModuleInfo(id: "c", title: "C", group: "G", on: true, under: "b")]
+        XCTAssertEqual(chain.grouped[0].modules.map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(chain.grouped[0].nested, ["b"])
+        let loop = [ModuleInfo(id: "a", title: "A", group: "G", on: true, under: "b"), ModuleInfo(id: "b", title: "B", group: "G", on: true, under: "a")]
+        XCTAssertEqual(loop.grouped[0].modules.map(\.id), ["a", "b"])
+        XCTAssertTrue(loop.grouped[0].nested.isEmpty)
+    }
+
     func testAThinEntryStillDecodes() throws {
         let m = try JSONCoding.decode(ModuleInfo.self, from: #"{"id": "quiz", "on": false}"#)
         XCTAssertEqual(m, ModuleInfo(id: "quiz", title: "quiz", summary: "", group: "", on: false))
@@ -103,7 +144,7 @@ final class ModulesTests: XCTestCase {
     func testTheHubKeepingCalendarsIsReadFromTheCalendarsModule() throws {
         let json = """
         {"modules": [{"id": "calendars", "title": "Calendar accounts", "summary": "", "group": "Plan", "on": true, "active": true},
-                     {"id": "mail", "title": "Mail receipts", "summary": "", "group": "Life admin", "on": true}]}
+                     {"id": "mail", "title": "Receipts and renewals", "summary": "", "group": "Life admin", "on": true}]}
         """
         let m = try JSONCoding.decode(ModulesResponse.self, from: json).modules
         XCTAssertEqual(m[0].active, true)

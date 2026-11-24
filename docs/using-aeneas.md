@@ -33,12 +33,14 @@ Today is the day as a status board, the same on every device. From the top:
 
 - **The line at the top** says what is on now and how long it has left ("Dentist cleaning until 4:00 PM, 46 min
   left"), else what is next and how long until it, else that nothing else is scheduled. Under it is the free time
-  now or next. With Machines on, Tech's light sits beside it: green when all is good, and a press opens the Tech
-  Overview.
+  now or next.
+- **Tech** (with Machines on) is one line above Needs you: a green dot and "All good", a yellow dot and "2 things
+  need a look" when only readings are out of bounds or silent, or a red dot when a check is down or the hub's backup
+  needs a look. It is folded each time you open Today. Press it to see each one with Propose a fix, Acknowledge and
+  Open, then the ones you acknowledged, and Open Tech.
 - **Needs you** lists only what waits on you, numbered in the order to take it, each with its buttons: reminders
-  that have come due, machines and checks that need a look, renewals to renew, job follow-ups, a medicine not logged
-  today, and captures the assistant could not file. A charge on autopay is not on Today at all: it pays itself, and
-  Renewals lists it.
+  that have come due, renewals to renew, job follow-ups, a medicine not logged today, and captures the assistant could
+  not file. A charge on autopay is not on Today at all: it pays itself, and Renewals lists it.
 - **Schedule** names the all-day things first (events, and a plan rule for the whole day), then the day in time
   order with Schedule here on free time, then the people in today's plans with what you have noted about them.
 - **To do** shows the task you are doing, or the first one in Next, with its buttons, then your other open tasks:
@@ -139,8 +141,9 @@ Mail is read on the hub, not on the devices. Accounts are linked in Settings, Co
 device: iCloud, Google with an app password, or another mail server. Their mail then shows in Mail on every device.
 Two modules use them.
 
-**Mail receipts.** The hub reads only mail that looks like receipts, renewal notices or vet mail, files them as
-renewals and pet visits, and does not keep the mail itself.
+**Receipts and renewals** (in Settings, Modules under Mail, with a switch of its own). The hub reads only mail that
+looks like purchase receipts, renewal notices or vet mail, files them as renewals and pet visits, and does not keep
+the mail itself. It works with the Mail screen off.
 
 **Mail** (the Mail screen, in the web, Windows, Android, iPhone, iPad and Mac apps, not on the Apple Watch). Your
 Inbox by day, for each mailbox you link: iCloud Mail, Gmail, or another mail server that takes an app password. Kinds
@@ -223,17 +226,18 @@ Linking a mailbox:
   Contacts and Calendars; Aeneas uses it for mail, and for calendars only when Calendar accounts is on.
 - **Gmail on the Mail screen** needs an app password you make in your Google Account (16 letters; Google offers it
   once 2-Step Verification is on). Add the account under Internet Accounts as Google, with an app password. The same
-  password feeds Mail receipts, and nothing needs setting up at Google.
+  password feeds Receipts and renewals, and nothing needs setting up at Google.
 - **Gmail for receipts only** can use Sign in with Google instead: your own Google app, allowed only to read mail,
   and the hub reached through Tailscale (Google returns only to an https name). The steps are in
-  [gmail-setup.md](gmail-setup.md) and in the guide under Settings, Connections, Keys. Signed in this way, the hub may
-  only read, so that account does not show on the Mail screen.
+  [gmail-setup.md](gmail-setup.md) and in the guide under Settings, Connections, App keys. Signed in this way, the hub
+  may only read, so that account does not show on the Mail screen.
 - **Another mail server** needs its IMAP server's name, your username and an app password from your provider. The
   hub links only servers on the internet, over an encrypted connection (port 993 as a rule).
 - Each account has switches for what it brings in (Mail, Calendars, and on your iCloud account Reminders, which your
-  iPhone and Mac sync), then the Aeneas modules that read it (Receipts, with Read now), and Remove account, which takes
-  its password and its mail off the hub. A password stays on the hub only while Mail, Receipts or Calendars uses it:
-  switching off the last one removes the account, and the app asks first.
+  iPhone and Mac sync), then the Aeneas modules that read it (Receipts and renewals, with Read now), and Remove
+  account, which takes its password and its mail off the hub. A password stays on the hub only while something uses
+  it (Mail, Receipts and renewals or Calendars): switching off the last one removes the account, and the app asks
+  first.
 - **Read only**, on each account, keeps Aeneas from changing anything in it: no drafts saved, no mail moved, flagged
   or marked read there, and no calendar event written. The hub itself refuses those changes, and Mail offers no Done,
   Delete, Pin or replies for that account's mail. Reminders are not covered: your iPhone and Mac write them through
@@ -307,7 +311,11 @@ its CPU, memory and fullest disk), each service on the internet you check, and e
 Machines (and Sensors, for the readings) in Settings, Modules; add the computers the hub may reach with Add machine, and
 a ping, port, web address, certificate, name lookup or backup check with Add check.
 
-- **Propose a fix** sits on anything red: a check that is down or a reading out of bounds. The assistant looks into it
+The light at the top, the same as Today's Tech line, is red while a check is down or the hub's backup needs a look,
+yellow while only readings are out of bounds or silent, gray once you have acknowledged each one, and green when all is
+good.
+
+- **Propose a fix** sits on a check that is down and on a reading out of bounds or silent. The assistant looks into it
   with read-only commands and proposes one change, which runs only when you approve it in that chat.
 - **A machine's page** (tap its card) has its checks, its readings with graphs and alert limits, its History, its fix
   notes and its snippets. At the top it says what kind of device it is (Computer, Network device, Printer, Camera or

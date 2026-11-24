@@ -466,7 +466,8 @@ extension HubClient {
 
 // MARK: Internet Accounts
 
-/// What Mail receipts came to for one mailbox: messages listed, still to read, read, and the records filed from them.
+/// What Receipts and renewals came to for one mailbox: messages listed, still to read, read, and the records filed
+/// from them.
 public struct MailCounts: Decodable, Equatable, Sendable {
     public var listed: Int?
     public var to_read: Int?
@@ -519,7 +520,7 @@ public struct InternetAccount: Decodable, Equatable, Sendable, Identifiable {
     public var last_error: String?
     public var features: Features
     public var read_only: Bool?
-    /// What Mail receipts came to, while it reads the account.
+    /// What Receipts and renewals came to, while it reads the account.
     public var receipts: MailCounts?
     public var id: String { key }
 
@@ -540,13 +541,13 @@ public struct InternetAccount: Decodable, Equatable, Sendable, Identifiable {
     /// An iCloud or app-password account on a hub that knows Read only (a Google sign-in can only read).
     public var hasReadOnlySwitch: Bool { kind != "google" && read_only != nil }
 
-    /// What it brings in, for its line in the list: "Mail, Calendars, Receipts, read only".
+    /// What it brings in, for its line in the list: "Mail, Calendars, Receipts and renewals, read only".
     public func summary(mail: Bool, calendars: Bool, receipts: Bool, reminders: Bool) -> String {
         let parts = [
             mail && features.inbox == true ? "Mail" : nil,
             calendars && features.calendars == true ? "Calendars" : nil,
             reminders ? "Reminders" : nil,
-            receipts && features.receipts == true ? "Receipts" : nil,
+            receipts && features.receipts == true ? "Receipts and renewals" : nil,
         ].compactMap { $0 }
         let what = parts.isEmpty ? "Nothing switched on" : parts.joined(separator: ", ")
         return read_only == true ? "\(what), read only" : what
@@ -582,7 +583,7 @@ extension HubClient {
         return (try? JSONCoding.decode(Answer.self, from: data))?.message ?? "Removed."
     }
 
-    /// iCloud Mail: an app-specific password, checked with iCloud once (Mail and Mail receipts both read it).
+    /// iCloud Mail: an app-specific password, checked with iCloud once (Mail and Receipts and renewals both read it).
     public func linkICloudMail(email: String, password: String) async throws {
         struct B: Encodable { var email: String; var password: String }
         _ = try await post("connections/icloud", B(email: email, password: password), as: JSONValue.self, method: "PUT")

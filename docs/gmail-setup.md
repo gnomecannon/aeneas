@@ -1,11 +1,11 @@
 # Gmail setup
 
-The Mail receipts module reads Gmail messages that look like receipts, renewal notices or vet mail, and your own
-model files them as renewals and pet visits. It only reads: it never sends, changes or deletes mail, and the mail
-itself is not kept.
+The Receipts and renewals module reads Gmail messages that look like purchase receipts, renewal notices or vet mail,
+and your own model files them as renewals and pet visits. It only reads: it never sends, changes or deletes mail, and
+the mail itself is not kept.
 
-This page is for reading ahead. In the app, Settings, Connections, Keys, Google app shows the same steps one at a
-time, with your hub's own addresses filled in, and checks the result at the end. Once it is set, Add an account,
+This page is for reading ahead. In the app, Settings, Connections, App keys, Google app shows the same steps one at
+a time, with your hub's own addresses filled in, and checks the result at the end. Once it is added, Add an account,
 Google offers Sign in with Google.
 
 You need this page only for Sign in with Google. Gmail on the Mail screen, and Gmail for receipts without a Google app
@@ -25,7 +25,8 @@ and nothing passes through a server of the project's: the hub talks to Google di
 - **Your hub reached through Tailscale.** Google sends people back only to an https address, and it does not accept an
   IP address, so Gmail needs the hub's Tailscale name (an https `ts.net` address), and the device you sign in on must
   reach the hub through it. A hub reached only over home Wi-Fi or Direct link cannot use Gmail.
-- **The Mail receipts module on**, with Renewals or Pet on as well: mail is filed only into modules that are on.
+- **The Receipts and renewals module on**, with Renewals or Pet on as well: mail is filed only into modules that are
+  on.
 - **Your hub's address** as the app shows it in Settings, Connection, for example `https://hub.example.ts.net:8787`.
   Steps 3 and 6 use it. Below, `<hub>` stands for it.
 

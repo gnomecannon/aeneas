@@ -12,7 +12,12 @@ type Msg = { ok: boolean; text: string } | null;
  */
 const MADE = { google: "Google app", atlassian: "Atlassian app", steam: "Steam key", icloud: "app-specific password" } satisfies Record<OwnKeyService, string>;
 
-export function OwnKeyGuide({ service, onDone }: { service: OwnKeyService; onDone: () => void }) {
+/**
+ * `start` (Settings, Connections, App keys): the folded guide is only this button, since the row around it already says
+ * what the key is: "Set it up" for a key the hub does not have, "Replace" for one it has. Saving at the last step puts
+ * the new one in place of the old (the hub's routes replace).
+ */
+export function OwnKeyGuide({ service, onDone, start }: { service: OwnKeyService; onDone: () => void; start?: { label: string; primary?: boolean } }) {
   const client = engine.client;
   const [guide, setGuide] = useState<Guide | null>(null);
   const [open, setOpen] = useState(false);
@@ -25,6 +30,7 @@ export function OwnKeyGuide({ service, onDone }: { service: OwnKeyService; onDon
   useEffect(() => { if (open && !guide) void client?.ownKeyGuide(service).then(setGuide).catch((e) => setMsg({ ok: false, text: errorText(e) })); }, [open, guide, client, service]);
   if (!client) return null;
   if (!open) {
+    if (start) return <div><button type="button" className={start.primary ? "primary" : undefined} onClick={() => setOpen(true)}>{start.label}</button></div>;
     return (
       <div className="col">
         <div className="muted small"><strong>Advanced setup.</strong> This needs your own {MADE[service]}, made once by you on the service's own site; there is no server of ours in between. A guide takes you through it.</div>

@@ -22,15 +22,19 @@ public struct ModuleInfo: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// Where its switch is when not in Settings, Modules (since 2026-11-24): "connections", for Apple Reminders, whose
     /// switch is on the iCloud account in Settings, Connections (gnomecannon/aeneas#10). Nil for every other module.
     public var switch_in: String?
+    /// The module it is shown under in Settings, Modules, as a sub-option with its own switch (since 2026-11-24:
+    /// Receipts and renewals under Mail). Only where it is shown: each works with the other off. Nil for every other
+    /// module, and from older hubs.
+    public var under: String?
 
     public struct AdvancedSetup: Codable, Equatable, Hashable, Sendable {
         public var minutes: String
         public var needs: String
     }
 
-    public init(id: String, title: String, summary: String = "", group: String = "", on: Bool, reads: String? = nil, permissions: [String]? = nil, setup: AdvancedSetup? = nil, active: Bool? = nil) {
+    public init(id: String, title: String, summary: String = "", group: String = "", on: Bool, reads: String? = nil, permissions: [String]? = nil, setup: AdvancedSetup? = nil, active: Bool? = nil, under: String? = nil) {
         self.id = id; self.title = title; self.summary = summary; self.group = group; self.on = on
-        self.reads = reads; self.permissions = permissions; self.setup = setup; self.active = active
+        self.reads = reads; self.permissions = permissions; self.setup = setup; self.active = active; self.under = under
     }
 
     // Only id and on are needed to hide things; the rest falls back so a thinner answer still decodes.
@@ -46,6 +50,7 @@ public struct ModuleInfo: Codable, Equatable, Hashable, Sendable, Identifiable {
         setup = try? c.decodeIfPresent(AdvancedSetup.self, forKey: .setup)
         active = try? c.decodeIfPresent(Bool.self, forKey: .active)
         switch_in = try? c.decodeIfPresent(String.self, forKey: .switch_in)
+        under = try? c.decodeIfPresent(String.self, forKey: .under)
     }
 }
 
@@ -152,7 +157,8 @@ extension Array where Element == ModuleInfo {
     /// two places.
     public var listedInModules: [ModuleInfo] { filter { $0.switch_in == nil } }
 
-    /// Grouped for Settings, groups and modules in the hub's order (a module switched elsewhere left out).
+    /// Grouped for Settings, groups and modules in the hub's order (a module switched elsewhere left out), but for a
+    /// module shown under another (`under`), which comes right after that one (ModuleGroup.nesting).
     public var grouped: [ModuleGroup] {
         var order: [String] = []
         var by: [String: [ModuleInfo]] = [:]
@@ -160,7 +166,7 @@ extension Array where Element == ModuleInfo {
             if by[m.group] == nil { order.append(m.group) }
             by[m.group, default: []].append(m)
         }
-        return order.map { ModuleGroup(title: $0, modules: by[$0] ?? []) }
+        return order.map { ModuleGroup.nesting(title: $0, modules: by[$0] ?? []) }
     }
 }
 
@@ -179,8 +185,38 @@ extension Array where Element == AlertInfo {
 /// Modules that share a Library area, for the Settings list.
 public struct ModuleGroup: Equatable, Sendable, Identifiable {
     public var title: String
+    /// In the order they show: a sub-option right after the module it sits under.
     public var modules: [ModuleInfo]
+    /// The modules shown as a sub-option of the module above them, drawn indented (`under`, since 2026-11-24).
+    public var nested: Set<String> = []
     public var id: String { title }
+
+    /// Whether a module is shown indented, as a sub-option of the module above it.
+    public func isNested(_ m: ModuleInfo) -> Bool { nested.contains(m.id) }
+
+    /// One area's modules with each one that has `under` moved right after the module it sits under, and marked nested.
+    /// It keeps its own switch, so it shows whether that module is on or off. One level only: a module whose parent is
+    /// not in the area (an older hub, another area, a switch kept elsewhere), or whose parent sits under another
+    /// itself, stays a normal row where the hub put it (the web's nestedOrder, kept the same).
+    static func nesting(title: String, modules: [ModuleInfo]) -> ModuleGroup {
+        var byId: [String: ModuleInfo] = [:]
+        for m in modules where byId[m.id] == nil { byId[m.id] = m }
+        func parent(_ m: ModuleInfo) -> String? {
+            guard let p = m.under, p != m.id, let pm = byId[p] else { return nil }
+            if let pp = pm.under, byId[pp] != nil { return nil }
+            return p
+        }
+        var out: [ModuleInfo] = []
+        var nested: Set<String> = []
+        for m in modules where parent(m) == nil {
+            out.append(m)
+            for s in modules where parent(s) == m.id {
+                out.append(s)
+                nested.insert(s.id)
+            }
+        }
+        return ModuleGroup(title: title, modules: out, nested: nested)
+    }
 }
 
 /// `GET /feeds`: keys that open one door each, for a calendar subscription and sensor boards (never the hub token).

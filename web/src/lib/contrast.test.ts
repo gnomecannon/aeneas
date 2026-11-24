@@ -84,6 +84,9 @@ describe("design token contrast", () => {
     it(`${name}: primary button text reads on the accent`, () => {
       expect(contrast(t["accent-text"], t.accent)).toBeGreaterThanOrEqual(4.5);
     });
+    it(`${name}: the words on Tech's yellow light read on it`, () => {
+      expect(contrast(t["on-warn"], t.warn)).toBeGreaterThanOrEqual(4.5);
+    });
 
     // The Mail screen (Mail.tsx). Its fills carry white; its words sit on the page, a mail's row, a row being pointed at
     // (the row under a thin veil) and the side list.
@@ -178,6 +181,14 @@ describe("design token contrast", () => {
       }
       expect(contrast(v["--muted"], v["--mail-item"]), `${theme.name}: a past trip's name`).toBeGreaterThanOrEqual(4.5);
       expect(contrast(v["--muted"], v["--surface-2"]), `${theme.name}: a past trip's icon`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("in every built-in theme the words on Tech's yellow light read on it", () => {
+    expect(css).toContain(".ops-light.tone-warn { background: var(--warn); color: var(--on-warn); }");
+    for (const theme of APP_THEMES) {
+      const v = themeVars(theme);
+      expect(contrast(v["--on-warn"], v["--warn"]), theme.name).toBeGreaterThanOrEqual(4.5);
     }
   });
 
