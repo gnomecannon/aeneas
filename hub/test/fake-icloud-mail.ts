@@ -32,6 +32,8 @@ export interface Msg {
   seen?: boolean;
   /** Flagged (Apple Mail's flag; a pin on the Mail screen). */
   flagged?: boolean;
+  /** Gmail's own id of the message, as the Gmail API writes it (hex); a `gmail` server gives it in decimal (X-GM-MSGID). */
+  gmailId?: string;
   /**
    * Attachments (only with `plain`): parts 2, 3, … after the text. `inlineId` makes one a picture shown inside the mail
    * (with a Content-ID, beside the text in a multipart/related, as mail apps build it); `photoId` gives an attached
@@ -95,8 +97,15 @@ const inRange = (range: string, uid: number, highest: number) => range.split(","
   return uid >= Math.min(from, to) && uid <= Math.max(from, to);
 });
 
-/** `closed`: folders the server lists and will not open (it answers NO). */
-export function fake(messages: Msg[], opts: { password?: string; noMove?: boolean; noAppendUid?: boolean; closed?: string[] } = {}) {
+/** Gmail's id of a message as its IMAP server gives it: the Gmail API's hex id, in decimal. */
+const decimalId = (hex: string) => BigInt(`0x${hex}`).toString();
+
+/**
+ * `closed`: folders the server lists and will not open (it answers NO). `gmail`: the server names each message by
+ * Gmail's own id (X-GM-EXT-1), gives it with every FETCH and searches by it. `days`: SINCE is read as a day, as an IMAP
+ * server reads it: every message from that day's start (in UTC here), not from the moment asked.
+ */
+export function fake(messages: Msg[], opts: { password?: string; noMove?: boolean; noAppendUid?: boolean; closed?: string[]; gmail?: boolean; days?: boolean } = {}) {
   const seen = { connects: 0, logouts: 0, calls: [] as string[], opened: [] as { path: string; readOnly: unknown }[], fetches: [] as unknown[], searches: [] as Record<string, unknown>[], moves: [] as { from: string; uid: number; to: string }[], flags: [] as { uid: number; flags: string[]; add: boolean }[], appends: [] as { path: string; raw: string; flags: string[] }[], downloads: [] as string[], ranges: [] as { folder: string | null; range: string }[] };
   const logins: ImapLogin[] = [];
   const factory = (login: ImapLogin): ImapClient => {
@@ -121,8 +130,10 @@ export function fake(messages: Msg[], opts: { password?: string; noMove?: boolea
       },
       async search(q) {
         seen.calls.push("search"); seen.searches.push(q);
+        if (typeof q.emailId === "string") return opts.gmail ? messages.filter((m) => m.folder === open && m.gmailId && decimalId(m.gmailId) === q.emailId).map((m) => m.uid) : [];
         const since = q.all ? new Date(0) : q.since as Date;
-        return messages.filter((m) => m.folder === open && m.at >= since).map((m) => m.uid);
+        const from = opts.days && !q.all ? new Date(Date.UTC(since.getUTCFullYear(), since.getUTCMonth(), since.getUTCDate())) : since;
+        return messages.filter((m) => m.folder === open && m.at >= from).map((m) => m.uid);
       },
       async fetchOne(uid, query, o) {
         seen.calls.push("fetchOne"); seen.fetches.push({ query, o });
@@ -148,7 +159,9 @@ export function fake(messages: Msg[], opts: { password?: string; noMove?: boolea
         seen.calls.push("fetch"); seen.ranges.push({ folder: open, range });
         const here = messages.filter((x) => x.folder === open);
         const highest = Math.max(0, ...here.map((x) => x.uid));
-        for (const m of here.filter((x) => inRange(range, x.uid, highest))) yield { uid: m.uid, flags: new Set([...(m.seen ? ["\\Seen"] : []), ...(m.flagged ? ["\\Flagged"] : [])]) };
+        for (const m of here.filter((x) => inRange(range, x.uid, highest))) {
+          yield { uid: m.uid, flags: new Set([...(m.seen ? ["\\Seen"] : []), ...(m.flagged ? ["\\Flagged"] : [])]), internalDate: m.at, ...(opts.gmail && m.gmailId ? { emailId: decimalId(m.gmailId) } : {}) };
+        }
       },
       ...({
         async messageFlagsAdd(uid: string, flags: string[]) {
@@ -170,7 +183,7 @@ export function fake(messages: Msg[], opts: { password?: string; noMove?: boolea
           messages.push({ uid, folder: path, at: new Date(), seen: flags.includes("\\Seen"), ...parsedDraft(content.toString()) });
           return opts.noAppendUid ? { destination: path } : { destination: path, uid, uidValidity: 7n };
         },
-        capabilities: new Map<string, unknown>(opts.noMove ? [] : [["MOVE", true], ["UIDPLUS", true]]),
+        capabilities: new Map<string, unknown>([...(opts.noMove ? [] : [["MOVE", true], ["UIDPLUS", true]] as const), ...(opts.gmail ? [["X-GM-EXT-1", true]] as const : [])]),
         /** MOVE: the message goes to the destination folder under the next UID there. */
         async messageMove(uid: string, destination: string) {
           seen.calls.push("messageMove"); seen.moves.push({ from: open!, uid: Number(uid), to: destination });

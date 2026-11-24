@@ -308,7 +308,7 @@ struct MailSettingsSheet: View {
                             Text(m.last_refresh.flatMap(ISO.date).map { "Refreshed \($0.shortDateTime)" } ?? "Not refreshed yet")
                                 .font(.footnote).foregroundStyle(.secondary)
                             if m.read_only == true {
-                                Text("Read only: Aeneas changes nothing in it (Settings, Connections).").font(.footnote).foregroundStyle(.secondary)
+                                Text("Read only: Aeneas changes nothing in it (Settings, Accounts).").font(.footnote).foregroundStyle(.secondary)
                             }
                             if let e = m.last_error { Text(verbatim: e).font(.footnote).foregroundStyle(.dangerText) }
                         }

@@ -5,7 +5,8 @@ import type { Hub } from "./hub.js";
 /**
  * An iCalendar feed of the personal plan, for subscribing from any calendar app (Apple Calendar, Google, Outlook):
  * scheduled task blocks, personal events, pending reminders and renewal due dates, from 30 days back to 180 ahead.
- * Work items are left out: they already come from the work calendar.
+ * Work items are left out: they already come from the work calendar. So is every event kept in step with a calendar
+ * the person already has (inACalendar): subscribed to in the same calendar app, it showed twice.
  */
 
 const DAY = 86_400_000;
@@ -55,6 +56,17 @@ export function fold(line: string): string {
 
 interface Item { uid: string; title: string; start: string; end?: string; allDay?: boolean; note?: string; updated: string }
 
+/**
+ * An event that is in one of the person's own calendars already: the hub keeps it in step with a calendar server
+ * (`caldav`, and `source: caldav` for the occurrences of a repeating one), a device copied it to or brought it in from
+ * Apple Calendar (`apple` with an id), or a device imported it from the phone's calendars (`source: eventkit`). An
+ * event that lives only in Aeneas is none of these.
+ */
+export function inACalendar(e: Entity): boolean {
+  const apple = e.fields.apple as { id?: unknown } | null | undefined;
+  return !!e.fields.caldav || (typeof apple?.id === "string" && apple.id !== "") || e.fields.source === "eventkit" || e.fields.source === "caldav";
+}
+
 export function calendarFeed(hub: Hub, now: Date = new Date()): string {
   const from = new Date(now.getTime() - 30 * DAY).toISOString();
   const to = new Date(now.getTime() + 180 * DAY).toISOString();
@@ -62,19 +74,19 @@ export function calendarFeed(hub: Hub, now: Date = new Date()): string {
   const personal = (e: Entity) => e.space !== "work";
   const items: Item[] = [];
 
-  for (const t of hub.store.list({ kind: "task", limit: 1_000_000 }).filter(personal)) {
+  for (const t of hub.store.list({ kind: "task", limit: 1_000_000, shown: true }).filter(personal)) {
     const b = t.fields.block as { start?: string; end?: string } | undefined;
     if (b?.start && b.end && within(b.start)) items.push({ uid: t.id, title: `${t.fields.status === "done" ? "Done: " : ""}${String(t.fields.title)}`, start: b.start, end: b.end, note: t.fields.notes as string | undefined, updated: t.updated_at });
   }
   for (const e of hub.store.list({ kind: "event", limit: 1_000_000 }).filter(personal)) {
-    if (!within(e.fields.start)) continue;
+    if (!within(e.fields.start) || inACalendar(e)) continue;
     items.push({ uid: e.id, title: String(e.fields.title), start: String(e.fields.start), end: String(e.fields.end), allDay: !!e.fields.all_day, note: e.fields.location as string | undefined, updated: e.updated_at });
   }
   for (const { t, eff } of pendingReminders(hub.store)) {
     if (!within(eff) || !personal(t)) continue;
     items.push({ uid: `${t.id}-remind`, title: `Reminder: ${String(t.fields.title)}`, start: eff, end: new Date(new Date(eff).getTime() + 15 * 60_000).toISOString(), updated: t.updated_at });
   }
-  for (const t of hub.store.list({ kind: "task", limit: 1_000_000 }).filter(personal)) {
+  for (const t of hub.store.list({ kind: "task", limit: 1_000_000, shown: true }).filter(personal)) {
     if (t.fields.status === "done" || typeof t.fields.due !== "string" || !within(t.fields.due)) continue;
     // A due date with no time is a day, not 7 PM the evening before.
     if (/^\d{4}-\d{2}-\d{2}$/.test(t.fields.due)) items.push({ uid: `${t.id}-due`, title: `Due: ${String(t.fields.title)}`, start: t.fields.due, allDay: true, updated: t.updated_at });

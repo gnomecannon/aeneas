@@ -16,6 +16,8 @@ struct MailView: View {
     @StateObject private var store = MailStore()
     @ObservedObject private var writing = MailWriting.shared
     @State private var place: Mail.Place = .inbox
+    /// Add an account, from the screen with no mailbox linked.
+    @State private var addingAccount = false
     @State private var query = ""
     @State private var pinnedOnly = false
     /// Bundles opened in place in the Inbox, as `<day>:<bundle>`.
@@ -138,6 +140,7 @@ struct MailView: View {
         }
         .sheet(isPresented: $showSettings) { MailSettingsSheet(store: store) }
         .sheet(isPresented: $showKeys) { MailKeysSheet() }
+        .sheet(isPresented: $addingAccount) { AddAccountSheet { _ in await store.refresh() } }
         #if os(iOS)
         .sheet(isPresented: $composingNew) {
             NavigationStack {
@@ -388,10 +391,13 @@ struct MailView: View {
         }
     }
 
+    /// No mailbox linked: Add an account opens Settings, Accounts' Add account here, so the Mail screen leads straight
+    /// to it (it pointed at Settings, which took Modules, Connections and Add Account to get there).
     private var noMailbox: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(Mail.noMailboxText)
-            Button("Open Settings") { model.section = .settings }
+            Button("Add an account") { addingAccount = true }
+                .buttonStyle(.themedProminent)
         }
     }
 

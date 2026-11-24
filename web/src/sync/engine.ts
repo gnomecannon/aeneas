@@ -1,7 +1,7 @@
 import { plainError } from "../lib/errors";
 import type { Entity, Patch } from "@everythingapp/shared";
 import { db as defaultDb, EADatabase, META, getMeta, setMeta, type OutboxItem, type RejectedEdit } from "./db";
-import { HubClient, HubError, isDeviceKey, readSse, type AlertInfo, type FetchLike, type ModuleInfo } from "./api";
+import { HubClient, HubError, isDeviceKey, readSse, type AlertInfo, type FetchLike, type ModuleInfo, type SourcesView } from "./api";
 import { applyPatchLocal, mergeIncoming, planFlush, rejectedIds } from "./merge";
 import { celebrate } from "../feel/events";
 import { hubFetch } from "./direct";
@@ -70,6 +70,7 @@ export class SyncEngine {
   private notifyListeners = new Set<(n: NotifyEvent) => void>();
   private moduleListeners = new Set<(m: ModuleInfo[]) => void>();
   private alertListeners = new Set<(a: AlertInfo[]) => void>();
+  private sourcesListeners = new Set<(v: SourcesView) => void>();
   private fetchImpl: FetchLike;
   private platform: () => string;
   private deviceName: () => string;
@@ -118,6 +119,12 @@ export class SyncEngine {
   onAlerts(fn: (a: AlertInfo[]) => void): () => void {
     this.alertListeners.add(fn);
     return () => this.alertListeners.delete(fn);
+  }
+
+  /** The sources setting changed on the hub (`event: sources` on /live): the whole setting. */
+  onSources(fn: (v: SourcesView) => void): () => void {
+    this.sourcesListeners.add(fn);
+    return () => this.sourcesListeners.delete(fn);
   }
 
   onNotify(fn: (n: NotifyEvent) => void): () => void {
@@ -619,6 +626,10 @@ export class SyncEngine {
             if (Array.isArray(r.alerts)) for (const l of this.alertListeners) l(r.alerts);
           }).catch(() => undefined);
         }
+        // The same for the sources setting (which Reminders lists are on).
+        if (this.sourcesListeners.size) {
+          this.client!.sources().then((v) => { for (const l of this.sourcesListeners) l(v); }).catch(() => undefined);
+        }
         // A stream can die without closing (sleep, network change): after 70 s of silence, open a new one.
         watchdog = setInterval(() => {
           if (Date.now() - this.liveHeard > 70_000) {
@@ -641,6 +652,13 @@ export class SyncEngine {
               const d = JSON.parse(ev.data) as { modules?: ModuleInfo[]; alerts?: AlertInfo[] };
               if (Array.isArray(d.modules)) for (const l of this.moduleListeners) l(d.modules);
               if (Array.isArray(d.alerts)) for (const l of this.alertListeners) l(d.alerts);
+            } catch {
+              /* ignore malformed */
+            }
+          } else if (ev.event === "sources") {
+            try {
+              const d = JSON.parse(ev.data) as SourcesView;
+              if (Array.isArray(d.lists)) for (const l of this.sourcesListeners) l(d);
             } catch {
               /* ignore malformed */
             }

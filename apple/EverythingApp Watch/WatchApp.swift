@@ -229,6 +229,8 @@ final class AppModel: ObservableObject {
         }
         if before.isOn(.notifications) != list.isOn(.notifications) { await engine.replanNotifications() }
         await engine.applyAlerts(r.alerts)
+        // Which Reminders lists are on: the Watch hides the tasks of a list that is off, as every device does.
+        await engine.refreshSources()
     }
 
     private func offerPermissions(for list: [ModuleInfo]) async {

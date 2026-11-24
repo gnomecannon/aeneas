@@ -36,6 +36,7 @@ import { WorkKey } from "./workkey.js";
 import { listBackups, sealWorkInBackups } from "./backup.js";
 import { BackupKey, BackupKeyError } from "./backupkey.js";
 import { FeelStore } from "./feel.js";
+import { SourcesStore, sourcesChanged, tellSources } from "./sources.js";
 import { DashboardStore } from "./dashboard.js";
 import { LayoutStore } from "./layouts.js";
 import { ConnectionStore } from "./imports/connections.js";
@@ -73,6 +74,8 @@ export interface Hub {
   work: WorkSpace;
   /** Shapes and tap notes, one setting for every device. */
   feel: FeelStore;
+  /** Which Apple Reminders lists, calendars and Contacts come in from the devices, one setting for every device (sources.ts). */
+  sources: SourcesStore;
   /** Dashboard tiles, one board for every device. */
   dashboard: DashboardStore;
   layouts: LayoutStore;
@@ -173,8 +176,10 @@ export function createHub(cfg: Config): Hub {
     hub.connections.update((c) => { c.helper_vault = { password, created_at: nowIso() }; });
     return password;
   });
-  const hub: Hub = { helpers, cfg, db, chatDb, mailDb, bus, store, vault, ai, map, devices, deviceKeys: new DeviceKeys(path.join(cfg.dataDir, "device-keys.json")), work: new WorkSpace(path.join(cfg.dataDir, "work-space.json")), feel: new FeelStore(path.join(cfg.dataDir, "feel.json")), dashboard: new DashboardStore(path.join(cfg.dataDir, "dashboard.json")), layouts: new LayoutStore(path.join(cfg.dataDir, "layouts")), startedAt: nowIso(), tlsProbe: (url) => probeTls(url), checkers: { ...defaultCheckers, backup: backupChecker(sshRunner, cfg.backupJobs) }, connections: new ConnectionStore(path.join(cfg.dataDir, "connections.json"), secretBox), secretBox, profile: new ProfileStore(path.join(cfg.dataDir, "profile.json"), cfg.ownerName), wiki: new WikiStore(path.join(cfg.dataDir, "wiki.json")), feedKeys: new FeedKeys(path.join(cfg.dataDir, "feed-keys.json")), backupKey: new BackupKey(cfg.backupKeyFile, path.join(cfg.dataDir, "backup-recovery.json")),alerts: new AlertStore(path.join(cfg.dataDir, "alerts.json")), modules: new ModuleStore(path.join(cfg.dataDir, "modules.json"), { preset: cfg.modulesPreset, existing: () => store.hasOwnerData() }), fetch: (input, init) => fetch(input, init), close: () => { db.close(); chatDb.close(); mailDb.close(); } };
+  const hub: Hub = { helpers, cfg, db, chatDb, mailDb, bus, store, vault, ai, map, devices, deviceKeys: new DeviceKeys(path.join(cfg.dataDir, "device-keys.json")), work: new WorkSpace(path.join(cfg.dataDir, "work-space.json")), feel: new FeelStore(path.join(cfg.dataDir, "feel.json")), sources: new SourcesStore(path.join(cfg.dataDir, "sources.json")), dashboard: new DashboardStore(path.join(cfg.dataDir, "dashboard.json")), layouts: new LayoutStore(path.join(cfg.dataDir, "layouts")), startedAt: nowIso(), tlsProbe: (url) => probeTls(url), checkers: { ...defaultCheckers, backup: backupChecker(sshRunner, cfg.backupJobs) }, connections: new ConnectionStore(path.join(cfg.dataDir, "connections.json"), secretBox), secretBox, profile: new ProfileStore(path.join(cfg.dataDir, "profile.json"), cfg.ownerName), wiki: new WikiStore(path.join(cfg.dataDir, "wiki.json")), feedKeys: new FeedKeys(path.join(cfg.dataDir, "feed-keys.json")), backupKey: new BackupKey(cfg.backupKeyFile, path.join(cfg.dataDir, "backup-recovery.json")),alerts: new AlertStore(path.join(cfg.dataDir, "alerts.json")), modules: new ModuleStore(path.join(cfg.dataDir, "modules.json"), { preset: cfg.modulesPreset, existing: () => store.hasOwnerData() }), fetch: (input, init) => fetch(input, init), close: () => { db.close(); chatDb.close(); mailDb.close(); } };
   keepSeqMark(store, path.join(cfg.dataDir, "sync-mark.json"));
+  // Tasks in an Apple Reminders list that is switched off are hidden from every list people and the assistant see.
+  store.shows = (e) => hub.sources.shows(e);
   // The Mail screen switched off: its mail goes at once (its data is not kept for later, unlike other modules').
   hub.modules.onChange((_, off) => {
     if (!off.includes("mail_inbox")) return;
@@ -235,9 +240,13 @@ export function createHub(cfg: Config): Hub {
   bus.on("change", (e) => {
     if (e.kind !== "device") return;
     const d = store.get(e.id);
-    if (!d?.deleted_at) return;
-    try { removeDevice(hub, e.id); } catch (err) { console.error(`[devices] removing ${e.id.slice(0, 8)} failed: ${errCode(err)}`); }
+    if (d?.deleted_at) { try { removeDevice(hub, e.id); } catch (err) { console.error(`[devices] removing ${e.id.slice(0, 8)} failed: ${errCode(err)}`); } }
+    // A device paired, removed or renamed: a Personal or Work choice may wait for it (an app from before 1.0.18) or no
+    // longer, and the tasks move before it reads them.
+    sourcesChanged(hub);
   });
+  // The hub's own iCloud calendars on or off: which calendars it keeps in step, so none of them can be work.
+  hub.modules.onChange((on, off) => { if (on.includes("calendars") || off.includes("calendars")) tellSources(hub); });
   installWatchHooks(hub);
   installMonitorHooks(hub);
   installHistory(hub);

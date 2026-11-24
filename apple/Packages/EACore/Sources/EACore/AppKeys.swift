@@ -30,11 +30,13 @@ public struct AppKey: Equatable, Sendable, Identifiable {
         public var id: String { key.service }
     }
 
-    /// Whether this hub has it; nil while it is not shown (its module off, or a hub too old to say).
+    /// Whether this hub has it; nil while it is not shown (its module off, or a hub too old to say). The Google app
+    /// serves only the older Google sign-in (no app offers a new one since 2026-11-24): it shows only while a mailbox
+    /// is still signed in that way.
     public func added(in c: Connections, isOn: (AppModule) -> Bool) -> Bool? {
         guard isOn(module) else { return nil }
         switch service {
-        case "google": return c.google.map(\.app)
+        case "google": return c.google.flatMap { $0.accounts.isEmpty ? nil : $0.app }
         case "atlassian": return c.atlassian.map { $0.app == true || $0.connected }
         default: return c.steam.hub_key == true
         }
@@ -50,12 +52,12 @@ public struct AppKey: Equatable, Sendable, Identifiable {
 
     public static let google = AppKey(
         service: "google", name: "Google app", by: "Google", module: .mail,
-        purpose: "For Sign in with Google, which reads Gmail for Receipts and renewals.",
-        what: "An OAuth client you make in your own Google Cloud project. It tells Google which program is asking, and that it may only read Gmail (the gmail.readonly permission).",
-        why: "Google lets a program use Sign in with Google only once it is registered. Aeneas has no registration with Google, so your hub uses yours, with you as its only user.",
-        uses: "Sign in with Google, offered when you add a Google account under Internet Accounts. It reads Gmail read-only, for Receipts and renewals, and never sends, changes or deletes mail.",
-        without: "Gmail accounts added with an app password do not need it: they work for Mail and for Receipts and renewals.",
-        replacing: "The guide ends by saving the new one in place of the old. Mailboxes signed in through the old one then need Sign in with Google again."
+        purpose: "For the older Google sign-in, which reads Gmail for Receipts and renewals.",
+        what: "An OAuth client made in your own Google Cloud project. It tells Google which program is asking, and that it may only read Gmail (the gmail.readonly permission).",
+        why: "Google lets a program sign in to Gmail only once it is registered. Aeneas has no registration with Google, so your hub uses yours, with you as its only user.",
+        uses: "Only the older Google sign-in, which no app offers any more. It reads Gmail read-only, for Receipts and renewals, and never sends, changes or deletes mail. The hub deletes this key once no address uses that sign-in.",
+        without: "Gmail accounts added with an app password do not need it: they work for Mail and for Receipts and renewals. Adding an app password for an address on the older sign-in moves its receipts there.",
+        replacing: "The guide ends by saving the new one in place of the old. The older sign-in cannot be made again, so its addresses then stop reading: add an app password for each instead."
     )
 
     public static let atlassian = AppKey(

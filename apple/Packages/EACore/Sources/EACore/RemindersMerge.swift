@@ -10,6 +10,11 @@ public struct ReminderItem: Equatable, Sendable {
     public var localId: String
     public var listId: String
     public var listTitle: String
+    /// Its list's key in the sources setting (`SourceKey`), the same on every device; empty when not known.
+    public var listKey: String
+    /// Its list is synced: on in the sources setting. An item in a list that is off is neither read nor written.
+    public var listOn: Bool
+    /// Its tasks are in the work space: the list's space in the sources setting (the account's own by default).
     public var isWork: Bool
     public var title: String
     public var notes: String?
@@ -20,9 +25,9 @@ public struct ReminderItem: Equatable, Sendable {
     public var doneAt: String?
     public var modified: Date?
 
-    public init(externalId: String, localId: String, listId: String, listTitle: String, isWork: Bool = false, title: String, notes: String? = nil,
-                due: String? = nil, remindAt: String? = nil, repeatRule: String? = nil, done: Bool = false, doneAt: String? = nil, modified: Date? = nil) {
-        self.externalId = externalId; self.localId = localId; self.listId = listId; self.listTitle = listTitle; self.isWork = isWork
+    public init(externalId: String, localId: String, listId: String, listTitle: String, listKey: String = "", listOn: Bool = true, isWork: Bool = false, title: String,
+                notes: String? = nil, due: String? = nil, remindAt: String? = nil, repeatRule: String? = nil, done: Bool = false, doneAt: String? = nil, modified: Date? = nil) {
+        self.externalId = externalId; self.localId = localId; self.listId = listId; self.listTitle = listTitle; self.listKey = listKey; self.listOn = listOn; self.isWork = isWork
         self.title = title; self.notes = notes; self.due = due; self.remindAt = remindAt; self.repeatRule = repeatRule
         self.done = done; self.doneAt = doneAt; self.modified = modified
     }
@@ -138,8 +143,18 @@ public enum RemindersMerge {
     ///     the iPhone and Mac never both add the same one).
     ///   - workOff: the work space is off, so work lists are left alone.
     ///   - writableLists: the names of the lists this device can move an item into; nil when not known (any).
+    ///   - shows: whether a task shows in the app (`TaskVisibility`): a task in a list that is off is left as it is,
+    ///     never deleted, added or written.
+    ///   - newTasksList: the name of the list tasks made in the app go to on this device (Settings, "New tasks go to");
+    ///     nil means the default list.
+    ///   - defaultListOn: whether this device's default list is on; when it is off and no list is named for new tasks,
+    ///     a task made in the app stays out of Apple Reminders.
+    ///   - moveDeletes: whether an item whose task was moved to Work while its list is personal may be deleted. Off
+    ///     while this device could not read the sources setting from the hub this run: the hub may have moved a whole
+    ///     list's tasks to Work, and a list's space is known only from it.
     public static func plan(items: [ReminderItem], tasks: [Entity], state: [String: SyncedReminder], presentLists: Set<String>,
-                            createsInApple: Bool, workOff: Bool, writableLists: Set<String>? = nil, now: Date = Date()) -> RemindersPlan {
+                            createsInApple: Bool, workOff: Bool, writableLists: Set<String>? = nil, shows: (Entity) -> Bool = { _ in true },
+                            newTasksList: String? = nil, defaultListOn: Bool = true, moveDeletes: Bool = true, now: Date = Date()) -> RemindersPlan {
         var out = RemindersPlan()
         var byLink: [String: Entity] = [:]
         var byId: [String: Entity] = [:]
@@ -158,13 +173,33 @@ public enum RemindersMerge {
         func linkId(_ t: Entity) -> String { t.fields["apple"]?.objectValue?["id"]?.stringValue ?? "" }
         func plain(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
+        func linkOf(_ item: ReminderItem) -> JSONValue {
+            var o: [String: JSONValue] = ["id": .string(item.externalId), "list": .string(item.listId), "list_title": .string(item.listTitle)]
+            if !item.listKey.isEmpty { o["list_key"] = .string(item.listKey) }
+            return .object(o)
+        }
+
         // The same order on every run and every device, so a title meets the same task everywhere.
         for item in items.sorted(by: { $0.externalId < $1.externalId }) {
-            if item.isWork && workOff { continue }
             // An item whose server id changed after its first save keeps its record by this device's id.
             let key = state[item.externalId] != nil ? item.externalId : (byLocal[item.localId] ?? item.externalId)
             seen.insert(key)
             let prior = state[key]
+            if !item.listOn || (item.isWork && workOff) {
+                // A list that is off (or a Work list while the work space is off): nothing is read from it or written to
+                // it, and its tasks stay as they are. Its record stays too, so once it is on again it carries on from
+                // where both sides last agreed, with no doubles.
+                if let prior { out.state[key] = prior }
+                // Only the task's link learns the list's key (or the list an item was moved to in Apple Reminders), so
+                // every device and the hub can tell it is in a list that is off.
+                if let t = byLink[item.externalId] ?? byLink[key], !t.isDeleted, !item.listKey.isEmpty {
+                    let a = t.fields["apple"]?.objectValue
+                    if (a?["list_key"]?.stringValue ?? "").isEmpty || (a?["list_title"]?.stringValue ?? "") != item.listTitle {
+                        out.taskPatches.append(Patch(id: t.id, kind: .task, ts: ts, fields: ["apple": linkOf(item)]))
+                    }
+                }
+                continue
+            }
             var task = byLink[item.externalId] ?? byLink[key]
             if task == nil, let t = prior.flatMap({ byId[$0.taskId] }) {
                 // The record's task, unless it is linked to another item now: then the record came from two items
@@ -184,8 +219,9 @@ public enum RemindersMerge {
                 let space: Space = item.isWork ? .work : .personal
                 // A task made inside a list carries a link with no id yet ({ id: "", list_title }): it is not linked
                 // either. Left out, the Mac made a second task for the iPhone's new item, in Inbox.
+                // A task in a list that is off is left as it is, so it is no match either.
                 task = tasks.filter { t in
-                    t.kind == .task && !t.isDeleted && linkId(t).isEmpty && t.space == space && t.str("status") != "done"
+                    t.kind == .task && !t.isDeleted && linkId(t).isEmpty && t.space == space && t.str("status") != "done" && shows(t)
                         && !taken.contains(t.id) && !recorded.contains(t.id) && !title.isEmpty && plain(t.str("title")) == title
                         && (ISO.date(t.created_at).map { now.timeIntervalSince($0) < 86400 } ?? false)
                 }.min { ($0.created_at, $0.id) < ($1.created_at, $1.id) }
@@ -193,7 +229,7 @@ public enum RemindersMerge {
             }
             if let t = task { taken.insert(t.id) }
             let a = fields(of: item)
-            let link: JSONValue = .object(["id": .string(item.externalId), "list": .string(item.listId), "list_title": .string(item.listTitle)])
+            let link = linkOf(item)
 
             guard let t = task else {
                 // New in Apple Reminders: bring it in, unless it was finished long ago.
@@ -220,7 +256,7 @@ public enum RemindersMerge {
                 continue
             }
 
-            if t.space == .work, !item.isWork, t.field_ts["space"] != nil {
+            if moveDeletes, t.space == .work, !item.isWork, t.field_ts["space"] != nil {
                 // Moved to Work in the app (a move leaves its stamp) while its item is in a personal list: work tasks
                 // stay out of personal lists, so the item goes, as a deleted personal task's does, and so does the tie.
                 out.appleDeletes.append(item.localId)
@@ -287,7 +323,10 @@ public enum RemindersMerge {
                 } else {
                     patch["apple"] = link
                 }
-            } else if currentLink?["id"]?.stringValue != item.externalId || taskList != item.listTitle {
+            } else if currentLink?["id"]?.stringValue != item.externalId || taskList != item.listTitle
+                        || (!item.listKey.isEmpty && (currentLink?["list_key"]?.stringValue ?? "").isEmpty) {
+                // A link with no list key yet gets one. One with another key is left: another device may name the same
+                // list's account differently, and rewriting it on every run would make the two take turns.
                 patch["apple"] = link
             }
             if !patch.isEmpty { out.taskPatches.append(Patch(id: t.id, kind: .task, ts: ts, fields: patch)) }
@@ -304,6 +343,8 @@ public enum RemindersMerge {
             // Finished in the app (on another device, while this one was away): a finished item drops out of what
             // Apple returns after two weeks, which is not a deletion. Its record is forgotten instead.
             if t.str("status") == "done" { continue }
+            // In a list that is off: left as it is, and its record kept for when the list is on again.
+            if !shows(t) { out.state[key] = rec; continue }
             let listId = t.fields["apple"]?.objectValue?["list"]?.stringValue ?? ""
             if t.space == .work && workOff { continue }
             if presentLists.contains(listId) || listId.isEmpty {
@@ -314,16 +355,19 @@ public enum RemindersMerge {
         }
 
         // Open tasks made in the app go to Apple Reminders, from one device only: into the list they were made in
-        // (a work task only when it names a work list), else personal ones into the default list.
+        // (a work task only when it names a work list), else personal ones into the list chosen for new tasks, else the
+        // default list while it is on. A task in a list that is off stays out.
         if createsInApple {
             // A task matched to an Apple item above has its item already.
             let linkedNow = Set(out.state.values.map(\.taskId))
-            for t in tasks where t.kind == .task && !t.isDeleted && t.str("status") != "done" && !linkedNow.contains(t.id) {
+            for t in tasks where t.kind == .task && !t.isDeleted && t.str("status") != "done" && !linkedNow.contains(t.id) && shows(t) {
                 let link = t.fields["apple"]?.objectValue
                 guard (link?["id"]?.stringValue ?? "").isEmpty else { continue }
                 let list = link?["list_title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
                 if t.space == .work && list == nil { continue }
-                out.appleCreates.append(.init(taskId: t.id, fields: fields(of: t), listTitle: list, isWork: t.space == .work))
+                let into = list ?? (t.space == .work ? nil : newTasksList)
+                if into == nil && !defaultListOn { continue }
+                out.appleCreates.append(.init(taskId: t.id, fields: fields(of: t), listTitle: into, isWork: t.space == .work))
             }
         }
         return out

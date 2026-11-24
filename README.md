@@ -72,9 +72,9 @@ About 15 minutes in all, plus the model download (about 1.5 GB on a computer wit
 4. On the Welcome page, press Make a pairing code and scan the QR code with the phone's camera (on a Mac, open the
    link). Each device gets its own key, and scanning lets it check the hub's certificate.
 
-**Away from home.** Direct link and Tailscale both work away from home; Home Wi-Fi only does not. Sign in with Google
-(Gmail for receipts) and Confluence need the hub's Tailscale address, because Google and Atlassian send you back only
-to an https name. Gmail with an app password does not.
+**Away from home.** Direct link and Tailscale both work away from home; Home Wi-Fi only does not. Confluence needs the
+hub's Tailscale address, because Atlassian sends you back only to an https name. Mail accounts, Gmail among them, do
+not: they use an app password.
 
 **A Windows PC as the hub.** A gaming PC with a good graphics card makes a fast hub (tested on Windows 11 Pro 24H2,
 build 26200, with an RTX 4090). What is different there:
@@ -126,9 +126,8 @@ removing a device, uninstalling and fixing problems: `docs/running-your-hub.md`.
 **Advanced additions.** A few services let a program in only once it is registered with them, and Aeneas has no
 server of its own, so for these your hub holds your own registration, an app key. They are optional, and each comes
 with a step-by-step guide in Settings, Connections, App keys, with the values to copy filled in and a check at the end:
-Steam playtime (about 2 minutes), Confluence (about 10) and Sign in with Google for Receipts and renewals from Gmail (10
-to 15; to read the steps before you install, see [docs/gmail-setup.md](docs/gmail-setup.md)). Mail accounts (iCloud
-Mail, Gmail or another mail server) need only an app password, about 5 minutes each.
+Steam playtime (about 2 minutes) and Confluence (about 10). Mail accounts (iCloud Mail, Gmail or another mail server)
+need only an app password, about 5 minutes each.
 Each module says before you turn it on whether it needs one.
 
 ## Layout

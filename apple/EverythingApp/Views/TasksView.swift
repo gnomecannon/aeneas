@@ -521,7 +521,7 @@ struct TaskEditView: View {
                             dismiss()
                         }
                     } footer: {
-                        Text(t.space == .work && t.tiedToApple ? "Work. It is in a work Reminders account, so it stays in Work." : t.space == .work ? "Work." : "Personal.")
+                        Text(t.space == .work && t.tiedToApple ? "Work. It is in a work Reminders list, so it stays in Work." : t.space == .work ? "Work." : "Personal.")
                     }
                 }
             }

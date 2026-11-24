@@ -178,7 +178,7 @@ public struct MailMailbox: Codable, Equatable, Hashable, Sendable {
     public var more: Bool
     public var provider: String?
     public var kind: String?
-    /// Read only (Settings, Connections, since 2026-11-24): the hub refuses every change to it, so the screen offers
+    /// Read only (Settings, Accounts, since 2026-11-24): the hub refuses every change to it, so the screen offers
     /// none. Nil from an older hub.
     public var read_only: Bool?
 
@@ -407,17 +407,18 @@ public enum Mail {
     /// `aeneas-fold` (hub/src/mail-html.ts QUOTE_SELECTOR and web/src/lib/mail.ts, kept the same).
     public static let quoteSelector = ".gmail_quote, blockquote[type=\"cite\"], .moz-cite-prefix, .yahoo_quoted, #divRplyFwdMsg, #divRplyFwdMsg ~ *"
 
-    /// Where every kind of mailbox is added: Internet Accounts, on every device since 2026-11-24 (gnomecannon/aeneas#23
-    /// and #10; the Apple apps had only iCloud Mail and Sign in with Google, and sent people to another app for Gmail).
-    public static let otherAccountsWhere = "iCloud, Gmail and other mail accounts are added in Settings, Connections, Internet Accounts, with an app password."
-    /// The Mail screen with no mailbox linked: where each kind of mailbox is linked.
+    /// Where every kind of mailbox is added: Settings, Accounts, on every device (gnomecannon/aeneas#23 and #10; the
+    /// Apple apps had only iCloud Mail and Sign in with Google, and sent people to another app for Gmail).
+    public static let otherAccountsWhere = "iCloud, Gmail and other mail accounts are added in Settings, Accounts, with an app password."
+    /// The Mail screen with no mailbox linked, above Add an account: where each kind of mailbox is linked (web
+    /// NO_MAILBOX, kept the same).
     public static let noMailboxText = "No mailbox is linked yet. \(otherAccountsWhere) Their mail then shows here."
 
     /// Whether the mailbox a mail is in is Read only: its Done, Pin and other changes are not offered (web readOnlyBox).
     public static func readOnly(_ boxes: [MailMailbox], _ email: String?) -> Bool { mailboxOf(boxes, email)?.read_only == true }
     /// Said when a change is held back from a Read only mailbox (the hub's own words for it, kept the same).
     public static func readOnlyText(_ email: String?) -> String {
-        "\(email ?? "This mailbox") is set to Read only in Settings, Connections, so Aeneas changes nothing in it. Switch Read only off there to do this."
+        "\(email ?? "This mailbox") is set to Read only in Settings, Accounts, so Aeneas changes nothing in it. Switch Read only off there to do this."
     }
 
     /// Unread: the hub says it has not been read.

@@ -1,6 +1,8 @@
 #if DEBUG && os(iOS)
 import Foundation
 import EventKit
+import SwiftUI
+import UIKit
 import EACore
 
 /// Simulator test hooks, Debug builds only. Launch arguments:
@@ -26,6 +28,18 @@ import EACore
 ///   -EAMailPlace <place>         with -EASection mail: inbox, snoozed, done or bundle:<id> (MailView.debugLaunch)
 ///   -EAMailOpen <words>          with -EASection mail, the first thread whose subject has the words opens
 ///   -EAMailSelect <n>            with -EASection mail, the first n mail rows are selected
+///   -EASourcesPage <page>        a page of Settings, Accounts, From this iPhone over the screen shown: reminders
+///                                (DeviceRemindersView) or calendars (DeviceCalendarsView)
+///   -EASettingsPage <page>       with -EASection settings, a Settings page opens (SettingsPage): accounts (Settings,
+///                                Accounts), addAccount (Add account), calendar (From this iPhone, Calendars)...
+///   -EAAccount <address>         with -EASettingsPage accounts, that account's page opens once the accounts load
+///   -EAAccountsScroll <part>     with -EASettingsPage accounts, the page opens scrolled to device (From this iPhone)
+///                                or work; with -EAAccount too, signin scrolls that account's page to Sign-in
+///   -EABarOpen YES               the bottom bar's second row shows open at launch (PhoneRoot)
+///   -EABarCount <3|4|5>          the bottom bar shows that many screens across, as choosing it in Theme, Bottom bar
+///                                does (rows cut to it); -EASettingsPage bottomBar opens that page
+///   -EABarReset YES              the bottom bar goes back to its default first, as Reset in Theme, Bottom bar does (a
+///                                count cut by -EABarCount stays cut otherwise)
 @MainActor
 enum DebugHooks {
     /// The machine page `-EAMachine` asked for opens once, not again each time the Overview shows.
@@ -46,15 +60,39 @@ enum DebugHooks {
         if d.bool(forKey: "EAHumSample") { await humSample(model) }
         if let name = d.string(forKey: "EAWatchCaptureFile") { watchCaptureFile(name) }
         if d.bool(forKey: "EAMachinesStart") { model.machinesStart = true }
+        if let page = d.string(forKey: "EASourcesPage") { sourcesPage(model, page) }
     }
 
-    /// `-EAAppTheme <id>` and `-EAAppearance <light|dark>`: the theme and Classic's appearance, as Settings sets them.
+    /// `-EASourcesPage reminders|calendars`: the page over the screen shown, as a sheet of its own.
+    static func sourcesPage(_ model: AppModel, _ page: String) {
+        let content: AnyView
+        switch page {
+        case "reminders": content = AnyView(NavigationStack { DeviceRemindersView() })
+        case "calendars": content = AnyView(NavigationStack { DeviceCalendarsView() })
+        default: return
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            let host = UIHostingController(rootView: content.themedRoot().environmentObject(model).environmentObject(model.engine))
+            let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+            guard var top = (windows.first { $0.isKeyWindow } ?? windows.first)?.rootViewController else { return }
+            while let shown = top.presentedViewController { top = shown }
+            top.present(host, animated: false)
+        }
+    }
+
+    /// `-EAAppTheme <id>` and `-EAAppearance <light|dark>`: the theme and Classic's appearance, as Settings sets them;
+    /// `-EABarReset` and `-EABarCount <n>`: the bottom bar's default and its count, as Theme, Bottom bar sets them.
     static func applyTheme() {
         let d = UserDefaults.standard
         var patch: [String: JSONValue] = [:]
         if let t = d.string(forKey: "EAAppTheme"), !t.isEmpty { patch["app_theme"] = .string(t) }
         if let a = d.string(forKey: "EAAppearance"), ["system", "light", "dark"].contains(a) { patch["appearance"] = .string(a) }
         if !patch.isEmpty { FeelController.shared.change(patch) }
+        let feel = FeelController.shared
+        if d.bool(forKey: "EABarReset"), feel.settings.shownBar != .standard { feel.setBar(.standard) }
+        let n = d.integer(forKey: "EABarCount")
+        if BarSetting.counts.contains(n), feel.settings.shownBar.count != n { feel.setBar(feel.settings.shownBar.withLibrary.withCount(n)) }
     }
 
     /// A spoken capture as if it had come from the Watch: `-EAWatchCaptureFile <name>` takes that file from this app's

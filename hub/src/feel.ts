@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { defaultBar, readBar, type Bar } from "@everythingapp/shared";
 import type { Hub } from "./hub.js";
 import { StoreError } from "./store.js";
 
@@ -68,6 +69,9 @@ export const CalendarColorEntry = z.object({
 });
 export type CalendarColorEntry = z.infer<typeof CalendarColorEntry>;
 
+/** What a bottom bar must be, said to a request that sends another. */
+const BAR_RULES = "count is 3, 4 or 5; first and second are lists of at most count screen ids; a screen has one place";
+
 export const Feel = z.object({
   motion: z.boolean(),
   /** A built-in palette name or `custom:<palette id>`. */
@@ -96,6 +100,11 @@ export const Feel = z.object({
   app_themes: z.array(CustomAppTheme).max(20),
   appearance: z.enum(["system", "light", "dark"]),
   calendars: z.array(CalendarColorEntry).max(200),
+  /**
+   * The bottom bar of the phone layout (since 2026-11-24): how many screens across and which, in two rows. The rules
+   * are `readBar`'s in @everythingapp/shared, the same ones the apps draw and edit by.
+   */
+  bar: z.custom<Bar>((v) => readBar(v) !== null, BAR_RULES),
 });
 export type Feel = z.infer<typeof Feel>;
 
@@ -120,6 +129,7 @@ export const DEFAULT_FEEL: Feel = {
   app_themes: [],
   appearance: "system",
   calendars: [],
+  bar: defaultBar(),
 };
 
 /**
@@ -138,6 +148,8 @@ function normalize(raw: Record<string, unknown>): Record<string, unknown> {
   if (typeof out.theme !== "string" || !paletteOk(out.theme)) out.theme = DEFAULT_FEEL.theme;
   const appOk = (t: string) => APP_THEMES.some((a) => a.id === t) || (t.startsWith("custom:") && out.app_themes.some((a: any) => `custom:${a.id}` === t));
   if (typeof out.app_theme !== "string" || !appOk(out.app_theme)) out.app_theme = DEFAULT_FEEL.app_theme;
+  // A file from before the bottom bar, or one whose bar breaks a rule: the default bar, and the rest of the file stands.
+  out.bar = readBar(out.bar) ?? defaultBar();
   return out;
 }
 
@@ -152,12 +164,14 @@ export class FeelStore {
       const raw = JSON.parse(fs.readFileSync(this.file, "utf8")) as Record<string, unknown>;
       return Feel.parse(normalize(raw));
     } catch {
-      return { ...DEFAULT_FEEL };
+      return { ...DEFAULT_FEEL, bar: defaultBar() };
     }
   }
 
   /** Merge a partial update; anything invalid is refused whole. Ids inside a list must be unique. */
   set(patch: Record<string, unknown>): Feel {
+    // A bar that breaks a rule is refused here: past this point it would quietly become the default bar.
+    if ("bar" in patch && readBar(patch.bar) === null) throw new StoreError(422, `bar: ${BAR_RULES}`);
     const merged = { ...this.get(), ...patch } as Record<string, unknown>;
     const next = Feel.safeParse(normalize(merged));
     if (!next.success) throw new StoreError(422, next.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));

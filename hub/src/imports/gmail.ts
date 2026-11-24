@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { nowIso } from "@everythingapp/shared";
 import type { Hub } from "../hub.js";
 import { StoreError } from "../store.js";
+import type { Connections } from "./connections.js";
 import type { FetchedMail, MailSource } from "./mail-sources.js";
 import { bodyText } from "./mail-text.js";
 import { fetchWithTimeout } from "./util.js";
@@ -12,6 +13,12 @@ import { fetchWithTimeout } from "./util.js";
  * visit. mail-filer.ts reads each one with the local model, so renewals, inventory and the pet's records fill themselves.
  * Mail is read in memory and never stored: the hub keeps each message's id, date and what was filed from it. The hub's
  * own Google app (client id and secret) is what a released service keeps on its server; members never handle a key.
+ *
+ * Retired on 2026-11-24: a Google account is added with an app password (icloud.ts linkImap), which serves the Mail
+ * screen and receipts with one password, and no app offers Sign in with Google any more. Everything here stays for the
+ * addresses signed in before, so their receipts go on being read. An address that also has an app password is one
+ * account: the hub merges the sign-in into it by itself (icloud.ts mergeGoogleSignIns), and a sign-in for such an
+ * address is not kept.
  */
 
 const AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -73,7 +80,7 @@ export async function checkGoogleApp(hub: Hub): Promise<{ ok: boolean; message: 
     r = await fetchWithTimeout(hub.fetch, TOKEN_URL, "Google", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "authorization_code", code: "4/everythingapp-check", client_id: app.client_id, client_secret: app.client_secret, redirect_uri: "https://localhost/check" }).toString() });
   } catch { return { ok: false, message: "Google could not be reached from the hub. Check the hub's internet connection and try again." }; }
   const j = (await r.json().catch(() => ({}))) as { error?: string };
-  if (j.error === "invalid_grant") return { ok: true, message: "Google knows this app. Now sign in with Google." };
+  if (j.error === "invalid_grant") return { ok: true, message: "Google knows this app. The older Google sign-in reads receipts through it." };
   if (j.error === "invalid_client" || j.error === "unauthorized_client") return { ok: false, message: "Google does not know this Client ID and secret together. Copy both again from Clients in the Google Cloud console (the secret is shown when the client is made, or under Client secrets)." };
   return { ok: false, message: `Google answered ${r.status}${j.error ? ` (${j.error})` : ""}. Check the Client ID and secret and try again.` };
 }
@@ -134,6 +141,12 @@ export async function googleReturn(hub: Hub, query: Record<string, string>, read
     const profile = (await r.json().catch(() => ({}))) as { emailAddress?: string };
     if (!r.ok || !profile.emailAddress) return fail(`Gmail did not say which mailbox this is (${r.status}).`);
     const email = profile.emailAddress.toLowerCase();
+    // An address added with an app password is read with that, for Mail and for receipts. A Google sign-in beside it
+    // would make two accounts of one address again, each reading its mail: this one is handed back to Google.
+    if (hub.connections.get().imap?.some((a) => a.email === email)) {
+      await revokeGoogle(hub, t.refresh);
+      return fail(`${email} is already added with an app password, which reads its mail for Receipts and renewals too. The Google sign-in was not kept.`);
+    }
     let again = false;
     hub.connections.update((c) => {
       const list = (c.google ??= []);
@@ -159,6 +172,12 @@ function saveAccount(hub: Hub, email: string, fields: Partial<GoogleAccount>) {
   hub.connections.update((c) => { const a = c.google?.find((x) => x.email === email); if (a) Object.assign(a, fields); });
 }
 
+/**
+ * What an older sign-in that Google ended says. No app offers Sign in with Google any more, so the way on is an app
+ * password for the address, which takes over its receipts (icloud.ts mergeGoogleSignIns).
+ */
+export const signInEnded = (email: string) => `The Google sign-in for ${email} has ended. Add an app password for this address in Settings, Accounts, and its receipts carry on from where the sign-in stopped.`;
+
 /** A current access token for a mailbox, refreshed when within two minutes of expiring. Google keeps the refresh token. */
 async function accessToken(hub: Hub, email: string): Promise<string> {
   const a = account(hub, email);
@@ -169,7 +188,7 @@ async function accessToken(hub: Hub, email: string): Promise<string> {
   try {
     t = await tokenCall(hub, { grant_type: "refresh_token", client_id: app.client_id, client_secret: app.client_secret, refresh_token: a.refresh_token });
   } catch (e) {
-    if (e instanceof StoreError && e.status === 422) throw new StoreError(409, `Google sign-in for ${email} expired: sign in again`);
+    if (e instanceof StoreError && e.status === 422) throw new StoreError(409, signInEnded(email));
     throw e;
   }
   saveAccount(hub, email, { access_token: t.access, expires_at: t.expires_at, ...(t.refresh ? { refresh_token: t.refresh } : {}) });
@@ -180,7 +199,7 @@ async function accessToken(hub: Hub, email: string): Promise<string> {
 export async function gmailGet(hub: Hub, email: string, pathAndQuery: string): Promise<any> {
   const token = await accessToken(hub, email);
   const r = await fetchWithTimeout(hub.fetch, `${API}${pathAndQuery}`, "Gmail", { headers: { authorization: `Bearer ${token}`, accept: "application/json" } }, 30_000);
-  if (r.status === 401) throw new StoreError(409, `Google sign-in for ${email} expired: sign in again`);
+  if (r.status === 401) throw new StoreError(409, signInEnded(email));
   if (r.status === 403) throw new StoreError(422, `Gmail refused for ${email}: the sign-in does not allow reading mail`);
   if (r.status === 404) throw new StoreError(404, "that message is gone");
   if (!r.ok) throw new StoreError(502, `Gmail answered ${r.status}`);
@@ -215,6 +234,9 @@ export async function listMail(hub: Hub, email: string, now: Date = new Date()):
     saveAccount(hub, email, { last_sync: nowIso(), last_error: (e as Error).message });
     throw e;
   }
+  // The sign-in went while Gmail answered (removed, or merged into the address's app-password account): nothing is
+  // queued under an account that is no longer there.
+  if (!hub.connections.get().google?.some((x) => x.email === email)) return { listed: 0, queued: 0 };
   // Gmail lists newest first; the queue's numbering then runs oldest to newest.
   const insert = hub.db.prepare("INSERT OR IGNORE INTO mail (account, id, state) VALUES (?, ?, 'queued')");
   let queued = 0;
@@ -240,12 +262,43 @@ export function mailCounts(hub: Hub, email: string) {
   return { listed: rows.reduce((n, r) => n + r.n, 0), to_read: by.queued ?? 0, read: (by.filed ?? 0) + (by.skipped ?? 0), failed: by.failed ?? 0, filed: kinds };
 }
 
+/**
+ * Tell Google to end a sign-in (its refresh token, which ends the access tokens made from it). The best the hub can
+ * do: an answer that does not come in 10 seconds, or any failure, is let go, since the tokens are deleted from the hub
+ * either way and nobody else holds them.
+ */
+export async function revokeGoogle(hub: Hub, refreshToken: string): Promise<void> {
+  if (!refreshToken) return;
+  await fetchWithTimeout(hub.fetch, REVOKE_URL, "Google", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: refreshToken }).toString() }, 10_000).catch(() => null);
+}
+
+/**
+ * Take a sign-in out of the kept sign-ins. With the last one the hub's own Google app goes too: no new sign-in is
+ * offered, so nothing would use it again (one set in hub.env is the owner's to take out).
+ */
+export function dropGoogleSignIn(c: Connections, email: string) {
+  c.google = (c.google ?? []).filter((x) => x.email !== email);
+  if (!c.google.length) delete c.google_app;
+}
+
+/**
+ * A Google app no sign-in uses is deleted when the hub starts (since 2026-11-24): no app offers the sign-in or shows
+ * the key any more, and while the key is there the hub's privacy page, which names the owner, answers without a token
+ * (app.ts). True when one was deleted.
+ */
+export function dropUnusedGoogleApp(hub: Hub): boolean {
+  const c = hub.connections.get();
+  if (!c.google_app || c.google?.length) return false;
+  hub.connections.update((x) => { if (!x.google?.length) delete x.google_app; });
+  return true;
+}
+
 /** Unlink a mailbox: Google is told to drop the sign-in, the tokens and the mailbox's queue go; filed records stay. */
 export async function disconnectGoogle(hub: Hub, email: string) {
   const a = account(hub, email);
-  await fetchWithTimeout(hub.fetch, REVOKE_URL, "Google", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ token: a.refresh_token }).toString() }).catch(() => null);
+  await revokeGoogle(hub, a.refresh_token);
   hub.db.prepare("DELETE FROM mail WHERE account = ?").run(email);
-  hub.connections.update((c) => { c.google = (c.google ?? []).filter((x) => x.email !== email); });
+  hub.connections.update((c) => dropGoogleSignIn(c, email));
   return hub.connections.view().google;
 }
 

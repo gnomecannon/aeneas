@@ -3,25 +3,28 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { makeHub } from "./helpers.js";
-import { guideFor } from "../src/guides.js";
-import { GMAIL_SCOPE } from "../src/imports/gmail.js";
+import { HELP_DOCS } from "../src/help.js";
 
-// docs/gmail-setup.md lets people read the Gmail steps before they install; the app's guide is the one they follow.
-// The two must say the same thing.
-const DOC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "docs", "gmail-setup.md");
+// Sign in with Google is retired (2026-11-24): docs/gmail-setup.md stays only for links made before, says so and points
+// to the app password steps, and no other page teaches the sign-in or sends people to that page for it.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const read = (f: string) => fs.readFileSync(path.join(ROOT, f), "utf8");
 
-test("the public Gmail setup page has the app guide's steps, permission and return address", () => {
-  const doc = fs.readFileSync(DOC, "utf8");
-  const t = makeHub();
-  try {
-    const guide = guideFor(t.hub, "google", "https://hub.example.ts.net:8787");
-    // Every step but the last ("Paste them here", which only makes sense inside the app).
-    for (const step of guide.steps.slice(0, -1)) assert.ok(doc.includes(`**${step.title}.**`), `the page lacks the step "${step.title}"`);
-    for (const step of guide.steps) for (const link of step.link ? [step.link.url] : []) assert.ok(doc.includes(link), `the page lacks ${link}`);
-    assert.ok(doc.includes(GMAIL_SCOPE));
-    const ret = guide.steps.flatMap((s) => s.copy ?? []).find((c) => c.label === "Authorized redirect URI")!.value;
-    assert.ok(doc.includes(ret.replace("https://hub.example.ts.net:8787", "<hub>")), "the return address");
-    assert.ok(doc.includes("every 7 days") && doc.includes("Go to Aeneas"));
-  } finally { t.cleanup(); }
+test("the Gmail setup page says Sign in with Google is no longer offered and gives the app password steps", () => {
+  const doc = read("docs/gmail-setup.md");
+  assert.match(doc, /Sign in with Google is no longer offered/);
+  assert.ok(doc.includes("https://myaccount.google.com/apppasswords"));
+  assert.match(doc, /Settings, Accounts, Add account, choose Google/);
+  assert.match(doc, /Add an app password/, "what an address signed in before does");
+  for (const gone of ["Google Cloud project.", "Authorized redirect URI", "/connections/google/return", "every 7 days"]) assert.ok(!doc.includes(gone), `still teaches the sign-in: ${gone}`);
+  assert.ok(doc.split("\n").length < 30, "a short page");
+});
+
+test("no page or help text sends people to Sign in with Google", () => {
+  assert.ok(!(HELP_DOCS as readonly string[]).includes("docs/gmail-setup.md"), "the assistant answers from the Mail section instead");
+  for (const f of ["README.md", "docs/using-aeneas.md", "docs/privacy-network.md", "docs/connections.md", "docs/running-your-hub.md"]) {
+    const text = read(f);
+    assert.ok(!text.includes("gmail-setup.md"), `${f} links the retired page`);
+    assert.ok(!/can use Sign in with Google|offers Sign in with Google|Sign in with Google \(Gmail for receipts\)/.test(text), `${f} offers Sign in with Google`);
+  }
 });

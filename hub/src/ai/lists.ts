@@ -9,10 +9,10 @@ export const listOf = (t: Entity): string | null => {
   return typeof a?.list_title === "string" && a.list_title ? a.list_title : null;
 };
 
-/** Reminders list names in a space, most used first. */
+/** Reminders list names in a space, most used first. A list that is switched off (Settings, Accounts) is not one. */
 export function taskLists(store: Store, space: "personal" | "work" = "personal"): string[] {
   const n = new Map<string, number>();
-  for (const t of store.list({ kind: "task", space, limit: 100000 })) { const l = listOf(t); if (l) n.set(l, (n.get(l) ?? 0) + 1); }
+  for (const t of store.list({ kind: "task", space, limit: 100000, shown: true })) { const l = listOf(t); if (l) n.set(l, (n.get(l) ?? 0) + 1); }
   return [...n].sort((x, y) => y[1] - x[1]).map(([l]) => l);
 }
 
@@ -52,7 +52,7 @@ export const wordsOf = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/
 export function sameOpenTask(store: Store, title: string, space: "personal" | "work" = "personal"): Entity | null {
   const want = wordsOf(title);
   if (!want.size) return null;
-  for (const t of store.list({ kind: "task", space, limit: 100000 })) {
+  for (const t of store.list({ kind: "task", space, limit: 100000, shown: true })) {
     if (t.deleted_at || t.fields.status === "done") continue;
     const have = wordsOf(String(t.fields.title ?? ""));
     if (!have.size) continue;

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { HubClient, OWN_KEY_SAVE, type Connections } from "./api";
-import { APP_KEYS, APP_KEYS_INTRO, appKeys, atlassianSignedIn, connectionsSummary, hasReadOnlySwitch, lastUseOff, olderHubAccounts, syncNowResult } from "../views/settings/Connections";
+import { APP_KEYS, APP_KEYS_INTRO, appKeys, atlassianSignedIn, connectionsSummary } from "../views/settings/Connections";
+import { accountsSummary, googleRemovedNote, hasReadOnlySwitch, lastUseOff, OLDER_GOOGLE_NOTE, olderHubAccounts, syncNowResult } from "../views/settings/Accounts";
 import { listedHere, modulesSummary, nestedOrder } from "../views/settings/Modules";
 import { readOnlyBox, writableBoxes } from "../lib/mail";
 
@@ -13,10 +14,13 @@ describe("guided setup", () => {
     for (const p of ["/connections/icloud/sync", "/connections/icloud/x", "/connections/icloudx", "/setup/pair", "https://evil.example/connections/icloud", "//evil.example/connections/icloud", "/connections/icloud?to=x"]) expect(OWN_KEY_SAVE.test(p)).toBe(false);
   });
 
-  it("names iCloud Mail among the linked accounts", () => {
-    const c = { steam: { connected: false, hub_key: false }, letterboxd: { connected: false }, health: { last_import: null, samples: 0, total: 0 }, icloud: { accounts: [{ email: "robin@icloud.example" }] } } as unknown as Connections;
-    expect(connectionsSummary(c)).toBe("iCloud Mail");
-    expect(connectionsSummary(null)).toContain("iCloud Mail");
+  it("names the linked accounts in Accounts, and only services in Connections", () => {
+    const c = { steam: { connected: false, hub_key: false }, letterboxd: { connected: true }, health: { last_import: null, samples: 0, total: 0 }, icloud: { accounts: [{ email: "robin@icloud.example" }] } } as unknown as Connections;
+    expect(accountsSummary(c)).toBe("robin@icloud.example");
+    expect(accountsSummary({ ...c, internet: [{ email: "robin@icloud.example" }, { email: "robin@gmail.example" }] } as unknown as Connections)).toBe("robin@icloud.example and 1 more");
+    expect(accountsSummary({ ...c, internet: [] } as unknown as Connections)).toBe("No accounts yet");
+    expect(connectionsSummary(c)).toBe("Letterboxd");
+    expect(connectionsSummary(null)).not.toMatch(/iCloud|Gmail|Health/);
   });
 });
 
@@ -41,9 +45,9 @@ describe("internet accounts", () => {
     ]);
     // Remove account asks for that and nothing else: stopping the calendars first took the account away, and the
     // unlink that followed failed.
-    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
-    const remove = src.slice(src.indexOf("const remove = () => {"), src.indexOf("const toggleCalendars"));
-    expect(remove).toContain("void run(async () => (await client!.removeAccount(a.key)).message);");
+    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Accounts.tsx"), "utf8");
+    const remove = src.slice(src.indexOf("const remove = () => {"), src.indexOf("const calendar = cal?.accounts"));
+    expect(remove).toContain("(await client!.removeAccount(a.key)).message");
     expect(remove).not.toMatch(/stopCalendars|disconnect/);
   });
 
@@ -63,8 +67,9 @@ describe("internet accounts", () => {
     const fetchImpl = (async () => new Response(JSON.stringify({ inbox: false, receipts: false, removed: true, message: "Nothing on the hub uses this account now. The account is removed." }), { status: 200 })) as typeof fetch;
     const r = await new HubClient({ hubUrl: "http://hub.test", token: "t" }, fetchImpl).setAccountFeatures("imap:robin@larkspur.example", { inbox: false });
     expect([r.removed, r.message]).toEqual([true, "Nothing on the hub uses this account now. The account is removed."]);
-    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
-    expect(src).toContain("if (lastUseOff(a.features, body) && !confirm(");
+    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Accounts.tsx"), "utf8");
+    expect(src).toContain("const last = lastUseOff(a.features, { [f]: false });");
+    expect(src).toContain("if (last && !confirm(");
     expect(src).toContain("return r.removed ? r.message : undefined;");
   });
 
@@ -92,21 +97,24 @@ describe("internet accounts", () => {
     expect(list.map((a) => [a.email, a.kind, !!a.receipts, !!a.calendars, a.errors])).toEqual([
       ["robin@northwind.example", "iCloud", true, true, ["The password was refused."]],
       ["robin@fabrikam.example", "iCloud", false, true, []],
-      ["robin@larkspur.example", "Google, signed in with Google", true, false, ["Sign in again."]],
+      ["robin@larkspur.example", "Google, older sign-in", true, false, ["Sign in again."]],
     ]);
     expect(olderHubAccounts(base as unknown as Connections, null)).toEqual([]);
     // A hub with Internet Accounts is not an older hub, with no account or with some.
     expect(olderHubAccounts({ ...older, internet: [] } as unknown as Connections, cal)).toBeNull();
-    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
+    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Accounts.tsx"), "utf8");
     expect(src).toContain("This hub is older than the app. Update the hub in <a href=\"#/settings/about\">Settings, About</a>, then add, change or remove accounts here.");
-    expect(src).toContain("{!older && <AddAccount c={c} on={on}");
+    // Add account only on a hub that has accounts to add to.
+    const newer = src.slice(src.indexOf("<nav className=\"col accounts-list\""), src.indexOf("{ACCOUNTS_FOOTER}"));
+    expect(newer).toContain('href="#/settings/accounts/add"');
+    expect(src.slice(src.indexOf("{older ? ("), src.indexOf("<nav className=\"col accounts-list\""))).not.toContain("accounts/add");
   });
 
   it("says what Sync now came to under its button, and shows an account's own calendar error", () => {
     expect(syncNowResult([{ account: "robin@northwind.example" }, { account: "robin@larkspur.example" }], "robin@northwind.example")).toEqual({ ok: true, text: "Synced." });
     expect(syncNowResult([{ account: "Robin@northwind.example", error: "The password was refused." }], "robin@northwind.example")).toEqual({ ok: false, text: "The password was refused." });
     expect(syncNowResult([{ account: "robin@northwind.example" }, { account: "robin@larkspur.example", error: "The server did not answer." }], "robin@northwind.example")).toEqual({ ok: false, text: "robin@larkspur.example: The server did not answer." });
-    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
+    const src = fs.readFileSync(path.join(__dirname, "../views/settings/Accounts.tsx"), "utf8");
     expect(src).toContain("{a.last_error && a.last_error !== synced?.text && <div className=\"error small\">{a.last_error}</div>}");
     expect(src).toContain("<Status msg={synced} />");
     expect(src).toContain("{calErr && <div className=\"error small\" role=\"alert\">The calendars could not be read: {calErr}</div>}");
@@ -131,9 +139,10 @@ describe("Confluence Reconnect (gnomecannon/aeneas#24)", () => {
   });
 });
 
-describe("Settings, Connections reworked (gnomecannon/aeneas#10, #25)", () => {
-  const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
-  const page = src.slice(src.indexOf("export function ConnectionsPage()"));
+describe("Settings, Connections reworked (gnomecannon/aeneas#10, #25), its accounts in Settings, Accounts since 2026-11-24", () => {
+  const conn = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
+  const src = fs.readFileSync(path.join(__dirname, "../views/settings/Accounts.tsx"), "utf8");
+  const page = conn.slice(conn.indexOf("export function ConnectionsPage()"));
 
   it("has a Read only switch on iCloud and app-password accounts, sent to the hub, and none on a Google sign-in", async () => {
     expect(hasReadOnlySwitch({ kind: "icloud", read_only: false })).toBe(true);
@@ -157,30 +166,51 @@ describe("Settings, Connections reworked (gnomecannon/aeneas#10, #25)", () => {
     expect(src).toContain("client!.readMailNow(a.key)");
   });
 
-  it("puts Receipts and renewals under the account's Aeneas modules, and Apple Reminders' module switch on the iCloud account", () => {
-    const row = src.slice(src.indexOf("function AccountRow("), src.indexOf("/** An iCloud account's calendars"));
-    expect(row.indexOf("Aeneas modules that read")).toBeLessThan(row.indexOf("<span>Receipts and renewals"));
-    expect(row.indexOf("<span>Mail</span>")).toBeLessThan(row.indexOf("Aeneas modules that read"));
-    expect(src).toContain("setModules({ apple_reminders: v })");
-    expect(src).toContain('a.key === remindersAt ? { on: remindersOn, set: setReminders } : null');
+  it("lists an account's switches in one place, Mail, Receipts and renewals, Calendars and Read only, with no Reminders switch on it (gnomecannon/aeneas#30)", () => {
+    const page = src.slice(src.indexOf("function AccountPage("), src.indexOf("/** Sign-in: the app password"));
+    const at = ['label="Mail"', 'label="Receipts and renewals"', 'label="Calendars"', 'label="Read only"'].map((x) => page.indexOf(x));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    for (const text of [src, conn]) {
+      expect(text).not.toContain("apple_reminders");
+      expect(text).not.toContain("Reminders on your iPhone and Mac");
+    }
   });
 
-  it("groups the page: accounts, then services by kind, then the app keys they need, with no key guide left inside a service", () => {
-    const order = ["<InternetAccounts", "Services", "<Steam", "<Letterboxd", "<Confluence", "<Health", "<PasswordManager", "<CalendarFeed", "<AppKeys"].map((x) => page.indexOf(x));
+  it("keeps only services in Connections, then the app keys they need, with no key guide left inside a service", () => {
+    const order = ["<Steam", "<Letterboxd", "<Confluence", "<PasswordManager", "<CalendarFeed", "<AppKeys"].map((x) => page.indexOf(x));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    const steam = src.slice(src.indexOf("function Steam("), src.indexOf("function NeedsKey("));
-    const confluence = src.slice(src.indexOf("function Confluence("), src.indexOf("/** What one mailbox's mail came to"));
+    for (const gone of ["<InternetAccounts", "<Health", "Internet Accounts", "AddAccount"]) expect(conn).not.toContain(gone);
+    const steam = conn.slice(conn.indexOf("function Steam("), conn.indexOf("function NeedsKey("));
+    const confluence = conn.slice(conn.indexOf("function Confluence("), conn.indexOf("/** The plan as a calendar"));
     expect(steam).not.toContain("OwnKeyGuide");
     expect(confluence).not.toContain("OwnKeyGuide");
-    expect(src).toContain('<OwnKeyGuide service={k.service} onDone={reload} start={k.added ? { label: "Replace" } : { label: "Set it up", primary: true }} />');
+    expect(conn).toContain('<OwnKeyGuide service={k.service} onDone={reload} start={k.added ? { label: "Replace" } : { label: "Set it up", primary: true }} />');
   });
 
-  it("offers Google with an app password first, and Sign in with Google only once the Google app is added under App keys", () => {
-    const add = src.slice(src.indexOf("function AddAccount("), src.indexOf("function ImapForm("));
-    expect(add.indexOf('<ImapForm preset="gmail"')).toBeLessThan(add.indexOf("<GoogleSignIn"));
-    expect(add).toContain('on("mail") && c.google?.app && (');
+  it("adds Google with an app password only, and offers one, with the address filled in, to an account on the older Google sign-in", () => {
+    const add = src.slice(src.indexOf("function AddAccountPage("));
+    expect(add).toContain('"App password (16 letters)"');
+    expect(add).toContain('<a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">Open Google\'s page</a>');
+    for (const text of [src, conn]) for (const gone of ["GoogleSignIn", "googleSignIn", '"Sign in with Google"', "Or sign in with Google"]) expect(text).not.toContain(gone);
+    expect(fs.readFileSync(path.join(__dirname, "api.ts"), "utf8")).not.toContain("/connections/google/signin");
     expect(src).not.toContain('<OwnKeyGuide service="google"');
+    const signIn = src.slice(src.indexOf("function SignIn("), src.indexOf("/** An iCloud account's calendars"));
+    expect(signIn).toContain("<div className=\"muted small\">{OLDER_GOOGLE_NOTE}</div>");
+    expect(signIn).toContain("#/settings/accounts/add?kind=google&email=${encodeURIComponent(a.email)}");
+    expect(signIn).toContain(">Add an app password</button>");
+    expect(src).toContain("{a.google_removed_at && <div className=\"muted small\">{googleRemovedNote(fmtDate(a.google_removed_at))}</div>}");
+    expect(src).not.toContain("viaGoogle");
+    expect(add).toContain('startKind === "google"');
+    expect(OLDER_GOOGLE_NOTE).toMatch(/^This address uses the older Google sign-in, which reads receipts only\. Add an app password/);
+    expect(googleRemovedNote("Nov 24")).toBe("The older Google sign-in for this address was removed on Nov 24. Receipts and renewals carries on with this app password, from where the sign-in stopped.");
+    for (const text of [OLDER_GOOGLE_NOTE, googleRemovedNote("Nov 24")]) expect(text).not.toMatch(/[\u2013\u2014!]/);
+    // The same words on the iPhone, iPad and Mac.
+    const swift = fs.readFileSync(path.join(__dirname, "../../../apple/Packages/EACore/Sources/EACore/HubClient+Connections.swift"), "utf8");
+    expect(swift).toContain(`"${OLDER_GOOGLE_NOTE}"`);
+    expect(swift).toContain(`"${googleRemovedNote("\\(day)")}"`);
+    expect(swift).toContain('case "google": return "Google, older sign-in"');
   });
 });
 
@@ -205,7 +235,7 @@ describe("Read only mailboxes on the Mail screen (gnomecannon/aeneas#10)", () =>
 });
 
 describe("Settings, Modules leaves out a switch that lives elsewhere", () => {
-  it("counts and lists every module but Apple Reminders, whose switch is on the iCloud account", () => {
+  it("counts and lists every module but one an older hub says is switched elsewhere (Apple Reminders, on hubs of 1.0.17)", () => {
     const list = [
       { id: "renewals", title: "Renewals", summary: "", group: "Plan", on: true },
       { id: "apple_reminders", title: "Apple Reminders", summary: "", group: "On your devices", on: true, switch_in: "connections" as const },
@@ -245,12 +275,15 @@ describe("Settings, Modules shows Receipts and renewals under Mail", () => {
 
 describe("Settings, Connections, App keys", () => {
   const base = { letterboxd: { connected: false as const }, health: { last_import: null, samples: 0, total: 0 } };
-  const c = { ...base, steam: { connected: false as const, hub_key: true }, atlassian: { connected: false as const, app: false }, google: { app: true, accounts: [] } };
+  const signedIn = [{ email: "robin@larkspur.example", linked_at: "2026-10-01T00:00:00Z", last_sync: null, last_error: null, listed: 0, to_read: 0, read: 0, failed: 0, filed: { renewals: 0, pet: 0, events: 0 } }];
+  const c = { ...base, steam: { connected: false as const, hub_key: true }, atlassian: { connected: false as const, app: false }, google: { app: true, accounts: signedIn } };
 
   it("shows a key only while its module is on, with whether the hub has it", () => {
     expect(appKeys(c, () => true).map((k) => [k.name, k.added])).toEqual([["Google app", true], ["Atlassian app", false], ["Steam key", true]]);
     expect(appKeys(c, (m) => m !== "wiki").map((k) => k.service)).toEqual(["google", "steam"]);
     expect(appKeys(c, () => false)).toEqual([]);
+    // The Google app serves only the older Google sign-in: with no mailbox signed in that way, it is not shown.
+    expect(appKeys({ ...c, google: { app: true, accounts: [] } }, () => true).map((k) => k.service)).toEqual(["atlassian", "steam"]);
     // A hub too old to say whether it has a Google or Atlassian app shows neither.
     expect(appKeys({ steam: { connected: false, hub_key: false } }, () => true).map((k) => [k.service, k.added])).toEqual([["steam", false]]);
   });
@@ -277,7 +310,7 @@ describe("Settings, Connections, App keys", () => {
 
   it("draws each row as a status and what it is for, opens what it is in place, and always has a button", () => {
     const src = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
-    const row = src.slice(src.indexOf("function AppKeyRow("), src.indexOf("/**\n * Settings, Connections, grouped"));
+    const row = src.slice(src.indexOf("function AppKeyRow("), src.indexOf("/**\n * Settings, Connections (gnomecannon"));
     expect(row).toContain("Added</span>");
     expect(row).toContain('<span className="muted small">Not added</span>');
     expect(row).toContain('className="ok small"');

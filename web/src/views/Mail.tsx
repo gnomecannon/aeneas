@@ -192,6 +192,8 @@ interface Typed {
   dirty: boolean;
 }
 const NEW_MAIL = "new";
+/** The Mail screen with no mailbox linked, above Add an account (EACore Mail.noMailboxText, kept the same). */
+export const NO_MAILBOX = "No mailbox is linked yet. iCloud, Gmail and other mail accounts are added in Settings, Accounts, with an app password. Their mail then shows here.";
 /**
  * What is being written on the Mail screen, kept here and not in the writing box: which box is open under each mail
  * (by the mail's id; a new mail under NEW_MAIL), and what each box holds (`reply:<id>`, shared by Reply and Reply all,
@@ -713,7 +715,12 @@ export function Mail() {
           {multiSnooze && chosen.length > 0 && <MultiSnooze count={chosen.length} pick={(until) => void snoozeAll(chosen.filter((t) => t.state !== "done"), until)} close={() => setMultiSnooze(false)} />}
           {!list.data && list.error ? <div className="error">{list.error}</div>
             : !list.data ? <div className="muted small">Loading</div>
-            : !list.data.mailboxes.length ? <div className="empty">Link a mailbox in <a href="#/settings/connections">Settings, Connections</a> to see your mail here.</div>
+            : !list.data.mailboxes.length ? (
+              <div className="empty col" style={{ alignItems: "center", gap: 10 }}>
+                <span>{NO_MAILBOX}</span>
+                <button type="button" className="primary" onClick={() => { location.hash = "#/settings/accounts/add"; }}>Add an account</button>
+              </div>
+            )
             : editing
               ? <BundleForm key={editing === "new" ? "new" : editing.id} start={editing === "new" ? null : editing} close={() => setEditing(null)}
                   saved={async (id) => { setEditing(null); await list.reload(); if (id) go(`b:${id}` as MailView); else go("inbox"); }} />
@@ -930,7 +937,7 @@ function Mailboxes({ data, showKeys }: { data: MailList; showKeys: () => void })
         <div className="mailx-info">
           {data.mailboxes.map((m) => (
             <div key={m.email}>
-              <span className="muted">{m.email}: {m.last_refresh ? `refreshed ${fmtDateTime(m.last_refresh)}` : "not refreshed yet"}{m.read_only ? ". Read only: Aeneas changes nothing in it (Settings, Connections)" : ""}</span>
+              <span className="muted">{m.email}: {m.last_refresh ? `refreshed ${fmtDateTime(m.last_refresh)}` : "not refreshed yet"}{m.read_only ? ". Read only: Aeneas changes nothing in it (Settings, Accounts)" : ""}</span>
               {m.last_error && <div className="error">{m.last_error}</div>}
             </div>
           ))}

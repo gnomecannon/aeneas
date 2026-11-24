@@ -4,6 +4,7 @@ import EACore
 /// People: the owner's contacts (two-way with Apple Contacts) and everything remembered about each of them.
 struct PeopleView: View {
     @EnvironmentObject var engine: SyncEngine
+    @EnvironmentObject var model: AppModel
     @State private var query = ""
     @State private var adding = false
 
@@ -19,7 +20,7 @@ struct PeopleView: View {
         WideReader(macOnly: true) { wide in
             if wide { cards } else { list }
         }
-        .overlay { if shown.isEmpty { EmptyState(text: query.isEmpty ? "No people yet. Turn on Sync Apple Contacts in Settings, People." : "No matches") } }
+        .overlay { if shown.isEmpty { EmptyState(text: query.isEmpty ? "No people yet. Switch Contacts on in Settings, Accounts, or tap + to add someone." : "No matches") } }
         .searchable(text: $query, prompt: "Search people")
         .navigationTitle("People")
         .toolbar { ToolbarItem(placement: .primaryAction) { Button { adding = true } label: { Label("Add", systemImage: "plus") } } }
@@ -37,8 +38,26 @@ extension PeopleView {
         }
     }
 
+    /// Which device mirrors Apple Contacts, with the way to Settings, Accounts, where the switch is (it was in Settings,
+    /// People until 2026-11-24).
+    @ViewBuilder private var contactsLine: some View {
+        if model.isOn(.contacts), query.isEmpty {
+            let device = engine.sources?.contacts
+            let mine = device?.device != nil && device?.device == engine.config.deviceId
+            let other = device?.device.flatMap { $0 == engine.config.deviceId ? nil : (device?.name ?? "") }
+            PageLink { AccountsSettingsView() } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Apple Contacts").font(.subheadline)
+                    Text("\(AccountTexts.contactsSummary(device: other, mine: mine, here: "this \(deviceKind)")). Switched in Settings, Accounts.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     private var list: some View {
         List {
+            contactsLine
             ForEach(shown) { p in
                 PageLink { PersonDetailView(personId: p.id) } label: { name(p) }
                     .deleteSwipe(p.id, label: "Remove")
@@ -51,6 +70,7 @@ extension PeopleView {
     /// person; Remove is in the right-click menu, as on a row.
     private var cards: some View {
         WidePage {
+            contactsLine.buttonStyle(.plain)
             CardGrid {
                 ForEach(shown) { p in
                     PageLink { PersonDetailView(personId: p.id) } label: { name(p).gridCard() }
@@ -277,32 +297,5 @@ struct PersonEditView: View {
             else { f = f.filter { $0.value != .null }; _ = await engine.create(kind: .person, fields: f) }
             dismiss()
         }
-    }
-}
-
-/// Settings, People: whether this device mirrors Apple Contacts.
-struct PeopleSettingsView: View {
-    @AppStorage(ContactsSync.enabledKey) private var enabled = false
-    @ObservedObject private var sync = ContactsSync.shared
-    @State private var note: String?
-
-    var body: some View {
-        Form {
-            SwiftUI.Section {
-                Toggle("Sync Apple Contacts on this device", isOn: $enabled)
-                    .onChange(of: enabled) { _, on in
-                        guard on else { return }
-                        Task {
-                            if await sync.requestAccess() { note = nil; await sync.runNow(reason: "turned on") }
-                            else { enabled = false; note = "Contacts access was not allowed. Allow it in System Settings, Privacy, Contacts." }
-                        }
-                    }
-            } footer: {
-                Text("Turn this on for one device only, ideally the Mac. Contacts are copied both ways: details the assistant saves reach Apple Contacts, and edits there reach the app. Removing someone here never deletes their contact card.")
-            }
-            if let s = sync.lastSummary, enabled { SwiftUI.Section("Last sync") { Text(s).font(.callout); if let r = sync.lastRun { Text(r.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary) } } }
-            if let e = sync.lastError ?? note { SwiftUI.Section { Text(e).foregroundStyle(.warnText) } }
-        }
-        .navigationTitle("People")
     }
 }

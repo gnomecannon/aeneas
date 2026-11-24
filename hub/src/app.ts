@@ -346,7 +346,7 @@ ${p.contact ? `<h2>Contact</h2>\n<p>${esc(p.contact)}</p>` : ""}
   });
   app.notFound((c) => c.json({ error: "not found" }, 404));
 
-  // Live events: change, notify, ping.
+  // Live events: change, notify, modules, sources, ping.
   app.get("/live", (c) => {
     // A device on its own key is that key's device; the query only names one for a device on the main key.
     const keyed = c.get("auth") === "device" ? c.get("device_id") : undefined;
@@ -369,6 +369,8 @@ ${p.contact ? `<h2>Contact</h2>\n<p>${esc(p.contact)}</p>` : ""}
       const sendModules = () => push("modules", { modules: hub.modules.list(), alerts: hub.alerts.list() });
       const offModules = hub.modules.onChange(sendModules);
       const offAlerts = hub.alerts.onChange(sendModules);
+      // The sources setting changed (a choice, a list a device sees, a device updated): the whole setting.
+      const offSources = hub.sources.onChange((view) => push("sources", view));
       // Removed while connected: the stream ends now, not when the device next reconnects.
       const offRevoke = keyed ? hub.deviceKeys.onRevoke((ids) => { if (ids.includes(keyed)) { open = false; wake?.(); try { stream.abort(); } catch { /* already gone */ } } }) : () => {};
       const ping = setInterval(() => push("ping", { time: nowIso() }), 25000);
@@ -390,6 +392,7 @@ ${p.contact ? `<h2>Contact</h2>\n<p>${esc(p.contact)}</p>` : ""}
         offNotify();
         offModules();
         offAlerts();
+        offSources();
         offRevoke();
       }
     });

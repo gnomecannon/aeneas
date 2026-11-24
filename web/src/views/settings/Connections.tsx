@@ -1,22 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { engine } from "../../sync/engine";
-import type { AtlassianConnection, AtlassianSpace, CalendarSyncView, Connections as ConnectionsView, GmailAccount, GoogleConnection, CalendarAccount, InternetAccount, KeePassEntry, PasswordManagerProvider, PasswordManagerStatus, PasswordManagerView } from "../../sync/api";
+import type { AtlassianConnection, AtlassianSpace, Connections as ConnectionsView, KeePassEntry, PasswordManagerProvider, PasswordManagerStatus, PasswordManagerView } from "../../sync/api";
 import { spacesChanged } from "../../lib/wiki";
 import { fmtDateTime } from "../../lib/time";
 import { META } from "../../sync/db";
 import { useHubReady, useMeta, useSyncState } from "../../sync/hooks";
 import { SubPage, errorText } from "./common";
 import { isTauri, openExternal } from "../../tauri/bridge";
-import { setModules, useModules } from "../../lib/modules";
+import { useModules } from "../../lib/modules";
 import { OwnKeyGuide } from "./OwnKeyGuide";
 
 type Msg = { ok: boolean; text: string } | null;
 
-/** One line for the Settings list: which accounts are linked. */
+/**
+ * One line for the Settings list: which services are linked (mail and calendar accounts are in Settings, Accounts
+ * since 2026-11-24).
+ */
 export function connectionsSummary(c: ConnectionsView | null): string {
-  if (!c) return "Gmail, iCloud Mail, Steam, Letterboxd, Confluence, Apple Health";
-  const on = [c.google?.accounts.length && "Gmail", c.icloud?.accounts.length && "iCloud Mail", c.imap?.accounts.length && "Other mail", c.steam.connected && "Steam", c.letterboxd.connected && "Letterboxd", c.atlassian?.connected && "Confluence", c.health.last_import && "Apple Health"].filter(Boolean);
-  return on.length ? on.join(", ") : "None linked yet";
+  if (!c) return "Steam, Letterboxd, Confluence, password manager, calendar link";
+  const on = [c.steam.connected && "Steam", c.letterboxd.connected && "Letterboxd", c.atlassian?.connected && "Confluence", c.password_manager?.linked && "Password manager"].filter(Boolean);
+  return on.length ? on.join(", ") : "Steam, Letterboxd, Confluence, password manager, calendar link";
 }
 
 /**
@@ -342,459 +345,6 @@ function Confluence({ c, reload }: { c: AtlassianConnection; reload: () => void 
   );
 }
 
-/** What one mailbox's mail came to, in a line. */
-/** "17:00" as "5 PM", "12:00" as "noon". */
-function clock(hm: string): string {
-  const [h, m] = hm.split(":").map(Number);
-  if (h === 12 && m === 0) return "noon";
-  return `${h % 12 || 12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
-}
-
-export function mailLine(a: Pick<GmailAccount, "filed" | "to_read" | "read">): string {
-  const n = (x: number, one: string, many: string) => (x === 1 ? `1 ${one}` : `${x} ${many}`);
-  const filed = [a.filed.renewals && n(a.filed.renewals, "renewal", "renewals"), a.filed.pet && n(a.filed.pet, "pet record", "pet records"), a.filed.events && n(a.filed.events, "appointment", "appointments")].filter(Boolean);
-  const left = a.to_read ? `, ${a.to_read} still to read` : "";
-  return `${filed.length ? `Filed ${filed.join(", ")}` : "Nothing filed yet"} from ${n(a.read, "message", "messages")} read${left}.`;
-}
-
-function Health({ c }: { c: ConnectionsView["health"] }) {
-  return (
-    <section className="card col">
-      <h2>Apple Health</h2>
-      <div>{c.last_import ? `${c.total} readings from Health, last sent ${when(c.last_import)}.` : "Nothing from Health yet."}</div>
-      <div className="muted small">Health lives on the iPhone: turn it on in the iPhone app, Settings, Connections. It works both ways: weight, blood pressure, sleep, steps, workouts, caffeine and mood come in as logs, and what you log here (weight, blood pressure, caffeine, mood, timed activities) goes into Health. Browse it all under Health.</div>
-    </section>
-  );
-}
-
-/** Each kind of account in words (another server is named by its address). */
-const KIND: Record<InternetAccount["kind"], string> = { icloud: "iCloud", google: "Google, signed in with Google", gmail: "Google, with an app password", imap: "" };
-type Run = (f: () => Promise<string | void>) => Promise<void>;
-
-/**
- * Internet Accounts (since 2026-11-22, reworked 2026-11-24 for gnomecannon/aeneas#10): every mail and calendar account
- * in one place. Each account has what it brings in switched on or off (Mail, Calendars, and on the iCloud account
- * Reminders, which the iPhone and Mac sync), Read only, the Aeneas modules that read it (Receipts and renewals, with
- * Read now), its calendars, and Remove. Then one way to add an account: iCloud, Google or another provider.
- */
-function InternetAccounts({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
-  const ready = useHubReady();
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<Msg>(null);
-  const [cal, setCal] = useState<CalendarSyncView | null>(null);
-  // Why the calendars could not be read, said here: without them an account's calendars and their errors do not show.
-  const [calErr, setCalErr] = useState("");
-  const calendarsOn = on("calendars");
-  const loadCal = useCallback(() => {
-    if (calendarsOn) void engine.client?.calendarSync().then((v) => { setCal(v); setCalErr(""); }, (e) => { setCal(null); setCalErr(errorText(e)); });
-  }, [calendarsOn]);
-  useEffect(loadCal, [loadCal, ready]);
-  const run: Run = async (f) => {
-    setBusy(true);
-    setMsg(null);
-    try { const t = await f(); if (t) setMsg({ ok: true, text: t }); } catch (e) { setMsg({ ok: false, text: errorText(e) }); } finally { reload(); loadCal(); setBusy(false); }
-  };
-  // An older hub has no Internet Accounts (no `internet` in its answer): its accounts are listed, to look at only.
-  const older = olderHubAccounts(c, cal);
-  const accounts = c.internet ?? [];
-  const google = c.google;
-  const receipts = on("mail") && accounts.some((a) => a.features.receipts);
-  // Apple Reminders' switch (the module's own, moved here) sits on the first iCloud account, or on its own line.
-  const remindersOn = on("apple_reminders");
-  const remindersAt = accounts.find((a) => a.kind === "icloud")?.key;
-  const setReminders = (v: boolean) => void run(async () => { await setModules({ apple_reminders: v }); });
-  return (
-    <section className="card col">
-      <h2>Internet Accounts</h2>
-      <div className="muted small">
-        Your iCloud, Google and other mail accounts, and what each brings into Aeneas, switched on or off here. Passwords stay on your hub and are never shown again.
-      </div>
-      {calErr && <div className="error small" role="alert">The calendars could not be read: {calErr}</div>}
-      {accounts.map((a) => (
-        <AccountRow key={a.key} a={a} on={on} busy={busy} run={run} cal={cal} setCal={setCal} reading={!!google?.reading}
-          reminders={a.key === remindersAt ? { on: remindersOn, set: setReminders } : null}
-          viaGoogle={a.kind !== "google" && accounts.some((g) => g.kind === "google" && g.email === a.email)} />
-      ))}
-      {older && (
-        <>
-          <div className="warn small">This hub is older than the app. Update the hub in <a href="#/settings/about">Settings, About</a>, then add, change or remove accounts here.</div>
-          {older.map((a) => (
-            <div key={`${a.kind}:${a.email}`} className="col account-row">
-              <div><strong>{a.email}</strong> <span className="muted small">{a.kind}</span></div>
-              {on("mail") && a.receipts && <div className="small">{mailLine(a.receipts)} <span className="muted">Last checked {when(a.receipts.last_sync)}.</span></div>}
-              {a.calendars && <div className="small">Its calendars are kept in step. <span className="muted">Last synced {when(a.calendars.last_sync)}.</span></div>}
-              {a.errors.map((e) => <div key={e} className="error small">{e}</div>)}
-            </div>
-          ))}
-          {!older.length && <div className="muted small">No accounts yet.</div>}
-        </>
-      )}
-      {!older && !accounts.length && <div className="muted small">No accounts yet.</div>}
-      {!remindersAt && (
-        <div className="col account-row">
-          <label className="toggle-row"><input type="checkbox" checked={remindersOn} disabled={busy || !engine.client} onChange={(e) => setReminders(e.target.checked)} /> <span>Reminders on your iPhone and Mac</span></label>
-          <div className="muted small">{REMINDERS_NOTE} Once you add your iCloud account, this switch is on it.</div>
-        </div>
-      )}
-      {receipts && (
-        <div className="muted small">
-          Receipts and renewals: the hub checks for new mail every 15 minutes and reads it {google?.times?.length ? `at ${google.times.map(clock).join(", ")}` : "at set times"} when no game is using the GPU; Read now reads it right away.{google?.waiting_for_gpu && <> Waiting: {google.waiting_for_gpu}.</>} For receipts, folders are opened read-only and nothing is marked read; the mail itself is never kept.
-        </div>
-      )}
-      {!older && <AddAccount c={c} on={on} reload={() => { reload(); loadCal(); }} />}
-      <Status msg={msg} />
-    </section>
-  );
-}
-
-/** What the Reminders switch does, said beside it. */
-const REMINDERS_NOTE = "Your iPhone and Mac keep Apple Reminders and Tasks the same, both ways, every list. iCloud does not give Reminders to servers, so the hub never reads them itself.";
-
-/** An account as an older hub knows it: what it is, what receipts came to, its calendar sync, and its errors. */
-export interface OlderAccount { email: string; kind: string; receipts?: GmailAccount; calendars?: Pick<CalendarAccount, "last_sync">; errors: string[] }
-
-/**
- * The accounts of a hub from before Internet Accounts (its answer has no `internet` list), from the fields it does
- * send: iCloud mailboxes, mailboxes signed in with Google, and the iCloud addresses whose calendars are kept in step.
- * One entry per address and kind, with its errors. Null for a hub that has Internet Accounts.
- */
-export function olderHubAccounts(c: Pick<ConnectionsView, "internet" | "icloud" | "google">, cal: Pick<CalendarSyncView, "accounts"> | null): OlderAccount[] | null {
-  if (c.internet) return null;
-  const out: OlderAccount[] = [];
-  for (const a of c.icloud?.accounts ?? []) out.push({ email: a.email, kind: "iCloud", receipts: a, errors: a.last_error ? [a.last_error] : [] });
-  for (const a of cal?.accounts ?? []) {
-    const known = out.find((x) => x.kind === "iCloud" && x.email.toLowerCase() === a.email.toLowerCase());
-    if (known) { known.calendars = a; if (a.last_error && !known.errors.includes(a.last_error)) known.errors.push(a.last_error); }
-    else out.push({ email: a.email, kind: "iCloud", calendars: a, errors: a.last_error ? [a.last_error] : [] });
-  }
-  for (const a of c.google?.accounts ?? []) out.push({ email: a.email, kind: KIND.google, receipts: a, errors: a.last_error ? [a.last_error] : [] });
-  return out;
-}
-
-/**
- * Whether a change to an account's switches turns off the last thing it does. The hub then removes the account and
- * deletes its password (a password is kept only while something uses it), so the app asks first.
- */
-export function lastUseOff(f: InternetAccount["features"], change: { inbox?: boolean; receipts?: boolean; calendars?: boolean }): boolean {
-  if (change.inbox !== false && change.receipts !== false && change.calendars !== false) return false;
-  const next = { ...f, ...change };
-  return !next.inbox && !next.receipts && !next.calendars;
-}
-/** What the app asks before the last switch goes off. */
-const LAST_USE = "Nothing else uses this account, so it is removed and its password deleted from the hub. What was filed from its mail stays, and the account itself stays with your provider.";
-
-/** What Read only stops, said under its switch. */
-export const READ_ONLY_NOTE = "Aeneas only reads this account: no drafts saved, no mail moved, flagged or marked read there, and no calendar event changed. Mail's Done, Delete, Pin and replies are off for its mail.";
-
-/** Whether an account has a Read only switch: iCloud and app-password accounts on a hub that knows it (a Google sign-in can only read). */
-export const hasReadOnlySwitch = (a: Pick<InternetAccount, "kind" | "read_only">) => a.kind !== "google" && typeof a.read_only === "boolean";
-
-/**
- * One account: its kind; what it brings in (Mail, Calendars, and Reminders on the first iCloud account); Read only; the
- * Aeneas modules that read it (Receipts and renewals, with what it filed and Read now); its calendars when on; and
- * Remove.
- */
-function AccountRow({ a, on, busy, run, cal, setCal, viaGoogle, reading, reminders }: {
-  a: InternetAccount; on: (m: string) => boolean; busy: boolean; run: Run; cal: CalendarSyncView | null; setCal: (v: CalendarSyncView) => void; viaGoogle: boolean; reading: boolean;
-  reminders: { on: boolean; set: (v: boolean) => void } | null;
-}) {
-  const client = engine.client;
-  const kind = a.kind === "imap" ? `${a.host}:${a.port}` : KIND[a.kind];
-  const set = (body: { inbox?: boolean; receipts?: boolean; read_only?: boolean }) => {
-    if (lastUseOff(a.features, body) && !confirm(`Turn ${body.inbox === false ? "Mail" : "Receipts and renewals"} off for ${a.email}? ${LAST_USE}`)) return;
-    // The hub's own sentence when it removed the account with its last use.
-    void run(async () => { const r = await client!.setAccountFeatures(a.key, body); return r.removed ? r.message : undefined; });
-  };
-  // Its calendars, whatever capitals the two lists write the address with: without them its calendar error would not show.
-  const calendar = cal?.accounts.find((x) => x.email.toLowerCase() === a.email.toLowerCase());
-  const remove = () => {
-    if (!confirm(`Remove ${a.email}? Its password is deleted from the hub, and so is its mail on the Mail screen${a.features.calendars ? "; its calendars stop syncing" : ""}. What was filed from its mail stays, and the account itself stays with your provider.`)) return;
-    // One request removes the account whole, whatever its kind: the hub stops its calendars, takes its mail off the
-    // Mail screen and deletes its password together, so no step can fail after another already removed the account.
-    void run(async () => (await client!.removeAccount(a.key)).message);
-  };
-  const toggleCalendars = (want: boolean) => {
-    if (want) void run(async () => { setCal(await client!.linkCalendars(a.email)); return "Choose the calendars to keep in step."; });
-    else if (confirm(`Stop keeping ${a.email}'s calendars in step? Its events stay in the app as they are; repeating ones are taken out.${lastUseOff(a.features, { calendars: false }) ? ` ${LAST_USE}` : ""}`)) void run(async () => (await client!.stopCalendars(a.email)).message);
-  };
-  const mail = on("mail_inbox") && a.features.inbox !== null;
-  const calendars = on("calendars") && a.features.calendars !== null;
-  const modules = on("mail") && a.features.receipts !== null;
-  const waiting = a.receipts?.to_read ?? 0;
-  return (
-    <div className="col account-row">
-      <div><strong>{a.email}</strong> <span className="muted small">{kind}{a.user && a.user !== a.email ? `, signs in as ${a.user}` : ""}</span></div>
-      {(mail || calendars || reminders) && (
-        <div className="row wrap" role="group" aria-label={`What ${a.email} brings in`} style={{ gap: 16 }}>
-          {mail && <label className="toggle-row"><input type="checkbox" checked={a.features.inbox!} disabled={busy || !client} onChange={(e) => set({ inbox: e.target.checked })} /> <span>Mail</span></label>}
-          {calendars && <label className="toggle-row"><input type="checkbox" checked={a.features.calendars!} disabled={busy || !client} onChange={(e) => toggleCalendars(e.target.checked)} /> <span>Calendars</span></label>}
-          {reminders && <label className="toggle-row"><input type="checkbox" checked={reminders.on} disabled={busy || !client} onChange={(e) => reminders.set(e.target.checked)} /> <span>Reminders <span className="muted small">(synced by your iPhone and Mac)</span></span></label>}
-        </div>
-      )}
-      {reminders?.on && <div className="muted small">{REMINDERS_NOTE}{a.read_only ? " Read only does not reach them: your iPhone and Mac write them through Apple's own Reminders." : ""}</div>}
-      {a.kind === "google" && on("mail_inbox") && (
-        <div className="muted small">Signed in with Google, the hub may only read this mail, so it can't show in Mail. To see it in Mail, add it again as Google with an app password; Receipts and renewals goes on reading it here.</div>
-      )}
-      {hasReadOnlySwitch(a) ? (
-        <>
-          <label className="toggle-row"><input type="checkbox" checked={!!a.read_only} disabled={busy || !client} onChange={(e) => set({ read_only: e.target.checked })} /> <span>Read only</span></label>
-          {a.read_only && <div className="muted small">{READ_ONLY_NOTE}</div>}
-        </>
-      ) : a.kind === "google" && <div className="muted small">Read only: Sign in with Google lets the hub read mail and nothing else.</div>}
-      {modules && (
-        <div className="col account-modules" role="group" aria-label={`Aeneas modules that read ${a.email}`}>
-          <div className="muted small">Aeneas modules that read this account</div>
-          <label className="toggle-row">
-            <input type="checkbox" checked={a.features.receipts!} disabled={busy || !client || a.kind === "google" || viaGoogle} onChange={(e) => set({ receipts: e.target.checked })} />
-            <span>Receipts and renewals <span className="muted small">files renewals, bills and vet visits from its mail</span></span>
-          </label>
-          {viaGoogle && <div className="muted small">Receipts and renewals reads this address through its Sign in with Google link, so each mail is filed once.</div>}
-          {a.features.receipts && a.receipts && (
-            <div className="row wrap" style={{ gap: 8 }}>
-              <span className="small grow">{mailLine(a.receipts)} <span className="muted">Last checked {when(a.last_sync)}.</span></span>
-              <button type="button" className="small" disabled={busy || !client || reading} onClick={() => void run(async () => { await client!.readMailNow(a.key); return "Reading the waiting mail now. It stops for any chat."; })}>
-                {reading ? "Reading" : `Read now${waiting ? ` (${waiting} waiting)` : ""}`}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-      {a.last_error && <div className="error small">{a.last_error}</div>}
-      {calendar && a.features.calendars && <CalendarChoices a={calendar} busy={busy} run={run} setCal={setCal} />}
-      <div><button type="button" className="ghost danger" disabled={busy || !client} onClick={remove}>Remove account</button></div>
-    </div>
-  );
-}
-
-/** An iCloud account's calendars: which to keep in step, where new events go, and Sync now. */
-function CalendarChoices({ a, busy, run, setCal }: { a: CalendarAccount; busy: boolean; run: Run; setCal: (v: CalendarSyncView) => void }) {
-  const client = engine.client;
-  // What Sync now came to, said right under its button.
-  const [synced, setSynced] = useState<Msg>(null);
-  const chosen = a.calendars.filter((c) => c.chosen);
-  const toggle = (url: string, on: boolean) => void run(async () => {
-    const next = on ? [...chosen.map((c) => c.url), url] : chosen.map((c) => c.url).filter((u) => u !== url);
-    setCal(await client!.chooseCalendars(a.email, { chosen: next, ...(!on && a.target === url ? { target: null } : {}) }));
-  });
-  return (
-    <div className="col" style={{ gap: 4, paddingLeft: 8 }}>
-      <div className="col" role="group" aria-label={`Calendars of ${a.email}`} style={{ gap: 0 }}>
-        <div className="muted small">Calendars to keep in step</div>
-        {a.calendars.map((c) => (
-          <label key={c.url} className="toggle-row">
-            <input type="checkbox" checked={c.chosen} disabled={busy} onChange={(e) => toggle(c.url, e.target.checked)} />
-            <span>
-              {c.color && <span aria-hidden="true" style={{ display: "inline-block", width: 10, height: 10, borderRadius: 5, background: c.color, marginRight: 6 }} />}
-              {c.name}{!c.writable && <span className="muted small"> read only</span>}
-            </span>
-          </label>
-        ))}
-      </div>
-      {a.read_only ? <div className="muted small">Read only: new events made in Aeneas stay in the app, and changes to these events stay in iCloud's version.</div> : (
-        <label className="col small" style={{ gap: 2 }}>
-          New events made in Aeneas go to
-          <select value={a.target ?? ""} disabled={busy} onChange={(e) => void run(async () => { setCal(await client!.chooseCalendars(a.email, { target: e.target.value || null })); })}>
-            <option value="">Keep them in the app</option>
-            {a.calendars.filter((c) => c.writable).map((c) => <option key={c.url} value={c.url}>{c.name}</option>)}
-          </select>
-        </label>
-      )}
-      <div className="muted small">Last synced {when(a.last_sync)}; it syncs every 5 minutes, and soon after you change an event. Work events never leave the hub.</div>
-      {/* The account's own calendar error (its last sync's), unless Sync now just said the same below. */}
-      {a.last_error && a.last_error !== synced?.text && <div className="error small">{a.last_error}</div>}
-      <div>
-        <button type="button" disabled={busy || !chosen.length} onClick={() => { setSynced(null); void run(async () => {
-          try {
-            const r = await client!.syncCalendarsNow();
-            setCal(r);
-            setSynced(syncNowResult(r.results, a.email));
-          } catch (e) { setSynced({ ok: false, text: errorText(e) }); }
-        }); }}>
-          {busy ? "Syncing" : "Sync now"}
-        </button>
-      </div>
-      <Status msg={synced} />
-    </div>
-  );
-}
-
-/**
- * What Sync now came to for one account, from the hub's per-account results: its own error; else, when another
- * account's sync failed, that (named); else Synced.
- */
-export function syncNowResult(results: { account: string; error?: string }[], email: string): { ok: boolean; text: string } {
-  const mine = results.find((x) => x.error && x.account.toLowerCase() === email.toLowerCase());
-  if (mine?.error) return { ok: false, text: mine.error };
-  const other = results.find((x) => x.error);
-  return other?.error ? { ok: false, text: `${other.account}: ${other.error}` } : { ok: true, text: "Synced." };
-}
-
-/**
- * Adding an account: iCloud (an app-specific password), Google (an app password: Mail and Receipts and renewals with
- * one password, nothing to set up at Google), or another provider. Sign in with Google, which reads mail for Receipts
- * and renewals only, is offered once the hub's own Google app is added under App keys.
- */
-function AddAccount({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
-  const mail = on("mail") || on("mail_inbox");
-  const kinds = (["icloud", "google", "imap"] as const).filter((k) => (k === "icloud" ? mail || on("calendars") : mail));
-  const [kind, setKind] = useState<(typeof kinds)[number]>("icloud");
-  if (!kinds.length) return <div className="muted small account-row">To add an account, turn on Mail, Receipts and renewals, or Calendar accounts in <a href="#/settings/modules">Settings, Modules</a>.</div>;
-  return (
-    <div className="col account-row" style={{ gap: 6 }}>
-      <strong>Add an account</strong>
-      {kinds.length > 1 && (
-        <div className="row wrap" role="radiogroup" aria-label="Kind of account">
-          {kinds.map((k) => (
-            <label key={k} className="toggle-row"><input type="radio" name="add-account" checked={kind === k} onChange={() => setKind(k)} /> <span>{k === "icloud" ? "iCloud" : k === "google" ? "Google" : "Another provider"}</span></label>
-          ))}
-        </div>
-      )}
-      {kind === "icloud" && (mail ? <OwnKeyGuide service="icloud" onDone={reload} /> : <ICloudCalendarLink reload={reload} />)}
-      {kind === "google" && (
-        <>
-          <ImapForm preset="gmail" reload={reload} />
-          {on("mail") && c.google?.app && (
-            <details>
-              <summary className="small">Or sign in with Google instead (Receipts and renewals only, reads only)</summary>
-              <GoogleSignIn c={c.google} reload={reload} />
-            </details>
-          )}
-        </>
-      )}
-      {kind === "imap" && <ImapForm preset="imap" reload={reload} />}
-    </div>
-  );
-}
-
-/** Gmail or another IMAP server, linked with an app password; the hub checks it with the server once. */
-function ImapForm({ preset, reload }: { preset: "gmail" | "imap"; reload: () => void }) {
-  const client = engine.client;
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<Msg>(null);
-  const [email, setEmail] = useState("");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("993");
-  const [user, setUser] = useState("");
-  const [password, setPassword] = useState("");
-  const ready = !!email.trim() && !!password.trim() && (preset === "gmail" || !!host.trim());
-  const submit = async () => {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const base = { email: email.trim(), password: password.trim(), ...(user.trim() ? { user: user.trim() } : {}) };
-      await client!.linkImap(preset === "gmail" ? { ...base, preset } : { ...base, preset, host: host.trim(), port: Number(port) || 993 });
-      setPassword("");
-      setMsg({ ok: true, text: "Added. Its mail comes in now." });
-    } catch (e) { setMsg({ ok: false, text: errorText(e) }); } finally { reload(); setBusy(false); }
-  };
-  return (
-    <form className="col" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <div className="muted small">
-        {preset === "gmail"
-          ? <>Turn on 2-Step Verification for your Google Account, then make an app password named Aeneas at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a>. Google shows it once, as 16 letters. One app password works for Mail and for Receipts and renewals.</>
-          : <>Your provider's help pages give its IMAP server and port, and where to make an app password. The hub connects with TLS only (most often port 993), and only to servers on the internet, never one on your own network.</>}
-      </div>
-      <label className="col small" style={{ gap: 2 }}>
-        Email address
-        <input type="email" autoComplete="off" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-      </label>
-      {preset === "imap" && (
-        <div className="row wrap" style={{ gap: 8 }}>
-          <label className="col small" style={{ gap: 2, flex: "1 1 220px" }}>
-            IMAP server
-            <input autoComplete="off" spellCheck={false} value={host} onChange={(e) => setHost(e.target.value)} placeholder="imap.example.com" />
-          </label>
-          <label className="col small" style={{ gap: 2, width: 90 }}>
-            Port
-            <input inputMode="numeric" value={port} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ""))} placeholder="993" />
-          </label>
-        </div>
-      )}
-      {preset === "imap" && (
-        <label className="col small" style={{ gap: 2 }}>
-          Username (if it is not the address)
-          <input autoComplete="off" spellCheck={false} value={user} onChange={(e) => setUser(e.target.value)} placeholder={email.trim() || "the address"} />
-        </label>
-      )}
-      <label className="col small" style={{ gap: 2 }}>
-        App password
-        <input type="password" autoComplete="off" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={preset === "gmail" ? "abcd efgh ijkl mnop" : ""} />
-      </label>
-      <div><button type="submit" className="primary" disabled={busy || !client || !ready}>{busy ? "Checking" : "Add account"}</button></div>
-      <Status msg={msg} />
-    </form>
-  );
-}
-
-/** Sign in with Google: the hub's own Google app once (a guide), then Google's page for each mailbox; receipts only. */
-function GoogleSignIn({ c, reload }: { c: GoogleConnection; reload: () => void }) {
-  const client = engine.client;
-  const [waiting, setWaiting] = useState(false);
-  const [msg, setMsg] = useState<Msg>(null);
-  const linked = c.accounts.length;
-  // While Google's page is open in the browser, look for the new mailbox to land.
-  useEffect(() => {
-    if (!waiting || !client) return;
-    const started = Date.now();
-    const t = setInterval(() => {
-      void client.connections().then((v) => {
-        if ((v.google?.accounts.length ?? 0) > linked) {
-          setWaiting(false);
-          setMsg({ ok: true, text: `Added ${v.google!.accounts.at(-1)!.email}. Its mail is being read in the background.` });
-          reload();
-        } else if (Date.now() - started > 5 * 60_000) setWaiting(false);
-      });
-    }, 3000);
-    return () => clearInterval(t);
-  }, [waiting, client, reload, linked]);
-  if (!c.app) return null;
-  return (
-    <div className="col" style={{ gap: 4 }}>
-      <div className="muted small">Google is asked to let the hub read mail only: it never sends, changes or deletes any, and so this way the account can't show in Mail.</div>
-      <div>
-        <button type="button" disabled={waiting || !client} onClick={() => void (async () => {
-          try { const { url } = await client!.googleSignIn("web"); await openExternal(url); setWaiting(true); setMsg({ ok: true, text: "Choose the mailbox on Google's page; this updates by itself when you are back." }); }
-          catch (e) { setMsg({ ok: false, text: errorText(e) }); }
-        })()}>
-          {waiting ? "Waiting for Google" : "Sign in with Google"}
-        </button>
-      </div>
-      <Status msg={msg} />
-    </div>
-  );
-}
-
-/** An iCloud account for calendars only (Mail and Receipts and renewals off): its address and app-specific password. */
-function ICloudCalendarLink({ reload }: { reload: () => void }) {
-  const client = engine.client;
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<Msg>(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  return (
-    <form className="col" onSubmit={(e) => {
-      e.preventDefault();
-      setBusy(true);
-      setMsg(null);
-      void client!.linkCalendars(email.trim(), password.trim()).then(() => { setPassword(""); setMsg({ ok: true, text: "Added. Choose the calendars to keep in step." }); }, (er) => setMsg({ ok: false, text: errorText(er) })).finally(() => { reload(); setBusy(false); });
-    }}>
-      <div className="muted small">
-        Apple has no sign-in for calendars, so the hub uses an app-specific password: at <a href="https://account.apple.com" target="_blank" rel="noreferrer">account.apple.com</a>, open Sign-In and Security, App-Specific Passwords, and make one named Aeneas. It is kept only on your hub.
-      </div>
-      <label className="col small" style={{ gap: 2 }}>
-        Apple Account address
-        <input type="email" autoComplete="off" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
-      </label>
-      <label className="col small" style={{ gap: 2 }}>
-        App-specific password
-        <input type="password" autoComplete="off" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="abcd-efgh-ijkl-mnop" />
-      </label>
-      <div><button type="submit" className="primary" disabled={busy || !client || !email.trim() || !password.trim()}>{busy ? "Checking" : "Add account"}</button></div>
-      <Status msg={msg} />
-    </form>
-  );
-}
-
 /** The plan as a calendar any app can subscribe to: task blocks, events, reminders and renewals. */
 function CalendarFeed() {
   const hubUrl = useMeta<string>(META.hubUrl) ?? "";
@@ -811,7 +361,7 @@ function CalendarFeed() {
     <section className="card col">
       <h2>Calendar feed</h2>
       <div className="muted small">
-        Scheduled tasks, events, reminders and renewal dates as a calendar your calendar app keeps up to date by itself (work items stay out). The link's key only reads this calendar; New link ends the old one.
+        Scheduled tasks, events, reminders and renewal dates as a calendar your calendar app keeps up to date by itself (work items stay out, and so do events already in one of your calendars). The link's key only reads this calendar; New link ends the old one.
       </div>
       <div className="row wrap">
         <button type="button" className="primary" onClick={() => void (isTauri ? openExternal(webcal) : Promise.resolve(window.location.assign(webcal))).catch(() => undefined)}>
@@ -1163,12 +713,12 @@ export const APP_KEYS_INTRO = "These are optional. A few services let a program 
 export const APP_KEYS: AppKey[] = [
   {
     service: "google", name: "Google app", by: "Google",
-    purpose: "For Sign in with Google, which reads Gmail for Receipts and renewals.",
-    what: "An OAuth client you make in your own Google Cloud project. It tells Google which program is asking, and that it may only read Gmail (the gmail.readonly permission).",
-    why: "Google lets a program use Sign in with Google only once it is registered. Aeneas has no registration with Google, so your hub uses yours, with you as its only user.",
-    uses: "Sign in with Google, offered when you add a Google account under Internet Accounts. It reads Gmail read-only, for Receipts and renewals, and never sends, changes or deletes mail.",
-    without: "Gmail accounts added with an app password do not need it: they work for Mail and for Receipts and renewals.",
-    replacing: "The guide ends by saving the new one in place of the old. Mailboxes signed in through the old one then need Sign in with Google again.",
+    purpose: "For the older Google sign-in, which reads Gmail for Receipts and renewals.",
+    what: "An OAuth client made in your own Google Cloud project. It tells Google which program is asking, and that it may only read Gmail (the gmail.readonly permission).",
+    why: "Google lets a program sign in to Gmail only once it is registered. Aeneas has no registration with Google, so your hub uses yours, with you as its only user.",
+    uses: "Only the older Google sign-in, which no app offers any more. It reads Gmail read-only, for Receipts and renewals, and never sends, changes or deletes mail. The hub deletes this key once no address uses that sign-in.",
+    without: "Gmail accounts added with an app password do not need it: they work for Mail and for Receipts and renewals. Adding an app password for an address on the older sign-in moves its receipts there.",
+    replacing: "The guide ends by saving the new one in place of the old. The older sign-in cannot be made again, so its addresses then stop reading: add an app password for each instead.",
   },
   {
     service: "atlassian", name: "Atlassian app", by: "Atlassian",
@@ -1192,11 +742,12 @@ export const APP_KEYS: AppKey[] = [
 
 /**
  * The app keys to show, each with whether the hub has it: a key only while its module is on (Receipts and renewals,
- * Wiki, Games), and Google's and Atlassian's only from a hub that says.
+ * Wiki, Games), and Google's and Atlassian's only from a hub that says. Google's only while a mailbox still uses the
+ * older Google sign-in, the one thing it serves.
  */
 export function appKeys(c: Pick<ConnectionsView, "google" | "atlassian" | "steam">, on: (m: string) => boolean): Array<AppKey & { added: boolean }> {
   const added: Record<AppKey["service"], boolean | null> = {
-    google: on("mail") && c.google ? c.google.app : null,
+    google: on("mail") && c.google?.accounts.length ? c.google.app : null,
     atlassian: on("wiki") && c.atlassian ? c.atlassian.app : null,
     steam: on("games") ? c.steam.hub_key : null,
   };
@@ -1255,8 +806,9 @@ function AppKeyRow({ k, reload }: { k: AppKey & { added: boolean }; reload: () =
 }
 
 /**
- * Settings, Connections, grouped (gnomecannon/aeneas#25): the accounts first, then the services each module links, by
- * kind (games and films, the wiki, health, machines, the calendar feed), then the app keys they need.
+ * Settings, Connections (gnomecannon/aeneas#25; since 2026-11-24 services only: mail and calendar accounts, and what
+ * comes in from the Apple devices, are in Settings, Accounts): the services each module links (Steam, Letterboxd,
+ * Confluence, the password manager), the calendar link, then the app keys they need.
  */
 export function ConnectionsPage() {
   const { on } = useModules();
@@ -1268,12 +820,10 @@ export function ConnectionsPage() {
       {engine.client && !c && loadErr && <div className="error">{loadErr} <button type="button" className="small" onClick={reload}>Try again</button></div>}
       {c && (
         <>
-          <InternetAccounts c={c} on={on} reload={reload} />
-          <h2 className="conn-group">Services</h2>
+          <div className="muted small">Mail and calendar accounts are in <a href="#/settings/accounts">Settings, Accounts</a>.</div>
           {on("games") && <Steam c={c.steam} reload={reload} />}
           {on("films") && <Letterboxd c={c.letterboxd} reload={reload} />}
           {on("wiki") && c.atlassian && <Confluence c={c.atlassian} reload={reload} />}
-          {on("health") && <Health c={c.health} />}
           {on("homelab") && c.password_manager && <PasswordManager c={c.password_manager} reload={reload} />}
           <CalendarFeed />
           <AppKeys c={c} on={on} reload={reload} />

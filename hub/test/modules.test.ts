@@ -244,16 +244,19 @@ test("Mail and Receipts and renewals name every kind of mailbox the hub links, n
       assert.match(text, /Gmail/, `${id}: ${text.slice(0, 60)}`);
     }
     assert.match(m.summary + (m.reads ?? ""), /another mail|other mail/, id);
-    // Gmail with an app password needs neither a Google app nor Tailscale; only Sign in with Google does.
-    assert.doesNotMatch(m.setup?.needs ?? "", /^for Gmail, your own Google app/, id);
+    // Gmail takes an app password, which needs neither a Google app nor Tailscale; Sign in with Google is offered no
+    // more (since 2026-11-24).
+    assert.doesNotMatch(m.setup?.needs ?? "", /Google app|Sign in with Google|Tailscale/, id);
+    assert.doesNotMatch(m.reads ?? "", /Google sign-in|Sign in with Google/, id);
   }
 });
 
-test("modules: Apple Reminders is switched on the iCloud account in Settings, Connections, and no other module is (gnomecannon/aeneas#10)", async () => {
+test("modules: every switch is in Settings, Modules, Apple Reminders' again (each device's own is in Settings, Accounts)", async () => {
   const t = makeHub();
   try {
     const list = ((await (await t.api("/modules")).json()) as { modules: { id: string; switch_in?: string }[] }).modules;
-    assert.deepEqual(list.filter((m) => m.switch_in).map((m) => [m.id, m.switch_in]), [["apple_reminders", "connections"]]);
+    assert.ok(list.some((m) => m.id === "apple_reminders"));
+    assert.deepEqual(list.filter((m) => m.switch_in).map((m) => m.id), [], "no module's switch is kept elsewhere");
   } finally { t.cleanup(); }
 });
 

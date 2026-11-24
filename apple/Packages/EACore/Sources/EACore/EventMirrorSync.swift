@@ -6,7 +6,7 @@ import os
 /// Copies events made in Aeneas into Apple Calendar and brings back edits and deletions made there. Personal
 /// events go to the calendar memory names under `calendar:personal` (else the default calendar), work events to the one
 /// under `calendar:work` (else they are not copied). The Mac adds new events at once (it runs all day); the iPhone adds an event only
-/// after two minutes untouched, so the Mac's copy, if there is one, is found instead of making a second.
+/// after two minutes untouched, so the Mac's copy, if there is one, is found instead of making a second. An iPad never adds one.
 /// Single events made in that personal calendar come into the app linked the same way; its repeating events come in
 /// as imported occurrences (`source: eventkit`, never written back).
 /// The rules are in `EventMirror`; this class reads and writes EventKit. It needs full Calendar access, the same
@@ -30,8 +30,9 @@ public final class EventMirrorSync: ObservableObject {
 
     public init() {}
 
-    /// Full Calendar access, and the Apple Calendar module (Settings, Modules) on: off, nothing is copied either way.
-    private var hasAccess: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess && SharedConfig.shared.moduleSaidOn(.appleCalendar) }
+    /// Full Calendar access, the Apple Calendar module (Settings, Modules) on and this device's own switch (Settings,
+    /// Accounts, From this iPhone, Calendars): off, nothing is copied either way.
+    private var hasAccess: Bool { EKEventStore.authorizationStatus(for: .event) == .fullAccess && SharedConfig.shared.appleCalendarOn }
 
     private var state: [String: SyncedEvent] {
         get { (UserDefaults.standard.data(forKey: Self.stateKey)).flatMap { try? JSONDecoder().decode([String: SyncedEvent].self, from: $0) } ?? [:] }
@@ -109,14 +110,16 @@ public final class EventMirrorSync: ObservableObject {
         #if os(macOS)
         let creates: (Entity) -> Bool = { _ in true }
         #else
-        // Untouched for two minutes: the Mac, when there is one, has had its turn.
-        let creates: (Entity) -> Bool = { e in (ISO.date(e.updated_at) ?? now) < now.addingTimeInterval(-120) }
+        // Untouched for two minutes: the Mac, when there is one, has had its turn. An iPad never adds or moves one
+        // (AppleItems): beside the iPhone, the two added the same new event.
+        let addsHere = AppleItems.addsEvents(on: AppleItems.thisDevice)
+        let creates: (Entity) -> Bool = { e in addsHere && (ISO.date(e.updated_at) ?? now) < now.addingTimeInterval(-120) }
         #endif
         let cals = store.calendars(for: .event)
         let infos = cals.map(\.info)
         let infoById = Dictionary(infos.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let writable = Set(cals.filter { $0.allowsContentModifications && $0.type != .birthday && $0.type != .subscription }.map(\.calendarIdentifier))
-        let work = SharedConfig.shared.workCalendarIds ?? []
+        let work = CalendarImporter.shared.selected
         let personalCal = EventMirror.calendar(for: .personal, facts: engine.facts, calendars: infos, writable: writable, defaultId: store.defaultCalendarForNewEvents?.calendarIdentifier, work: work)
         let workCal = EventMirror.calendar(for: .work, facts: engine.facts, calendars: infos, writable: writable, defaultId: nil, work: work)
         // Moves only go to a calendar the owner chose: with each device's own default, two devices move an event

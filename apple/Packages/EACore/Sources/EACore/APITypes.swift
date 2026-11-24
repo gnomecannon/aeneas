@@ -615,6 +615,8 @@ public enum LiveEvent: Equatable, Sendable {
     /// A module or a kind of alert was switched on or off on some device: both whole lists as they are now. `alerts`
     /// is nil from a hub that has no alert switches (before 2026-11-20).
     case modules([ModuleInfo], alerts: [AlertInfo]?)
+    /// The sources setting changed (a choice on some device, a list a device sees, a device updated): the whole setting.
+    case sources(SourcesSetting)
     case ping
     case unknown(name: String, data: String)
 }

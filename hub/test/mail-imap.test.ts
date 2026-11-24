@@ -151,7 +151,7 @@ test("internet accounts: one app password feeds the Mail screen and receipts, ea
     await t.api("/mail/refresh", { method: "POST" });
     assert.equal(listMail(t.hub.mailDb).length, 1, "still on the Mail screen");
     assert.equal((await sw({ inbox: "yes" })).status, 422);
-    assert.equal((await sw({ inbox: true }, "robin@gmail.example")).status, 404, "Sign in with Google has no switches");
+    assert.equal((await sw({ inbox: true }, "robin@gmail.example")).status, 404, "the older Google sign-in has no switches");
     // Mail off too: its mail leaves the screen at once, and with nothing using the account any more it is removed,
     // password and all (it stayed linked with both switches off, its password kept for nothing).
     const off = (await (await sw({ inbox: false })).json()) as { receipts: boolean; inbox: boolean; removed?: boolean; message?: string };
@@ -166,17 +166,16 @@ test("internet accounts: one app password feeds the Mail screen and receipts, ea
   } finally { tearDown(t); }
 });
 
-test("internet accounts: an address also signed in with Google is read for receipts there only; iCloud keeps Mail and receipts apart", async () => {
+test("internet accounts: a Gmail app password feeds receipts, with Gmail's own links; iCloud keeps Mail and receipts apart", async () => {
   const t = setUp();
   try {
     fake([]);
     await on(t);
     await link(t, { email: "robin@gmail.example", preset: "gmail", password: "abcdefghijklmnop" });
     assert.deepEqual(imapSource.accounts(t.hub), ["imap:robin@gmail.example"]);
-    t.hub.connections.update((c) => { c.google = [{ email: "robin@gmail.example", linked_at: new Date().toISOString() } as never]; });
-    assert.deepEqual(imapSource.accounts(t.hub), [], "filed once, through Sign in with Google");
+    // (An address that also has the older Google sign-in is one account: google-merge.test.ts.)
     const internet = (t.hub.connections.view() as unknown as { internet: { kind: string; features: Record<string, boolean | null> }[] }).internet;
-    assert.deepEqual(internet.map((a) => [a.kind, a.features]), [["google", { inbox: null, receipts: true, calendars: null }], ["gmail", { inbox: true, receipts: false, calendars: null }]]);
+    assert.deepEqual(internet.map((a) => [a.kind, a.features]), [["gmail", { inbox: true, receipts: true, calendars: null }]]);
     // A Gmail address gets Gmail's own link for what receipts file; another server the mail app's.
     assert.match(imapSource.link({ account: "imap:you@gmail.com", id: "1:2:INBOX", message_id: "<a@b>" }), /^https:\/\/mail\.google\.com\/.*rfc822msgid%3Aa%40b$/);
     assert.match(imapSource.link({ account: "imap:robin@fastmail.example", id: "1:2:INBOX", message_id: "<a@b>" }), /^message:\/\//);
@@ -236,7 +235,7 @@ test("other accounts: a server that is busy is tried again later; only a refused
   } finally { tearDown(t); }
 });
 
-test("internet accounts: an address whose receipts are read through Google: Mail off is its last use, and linking it again turns Mail on", async () => {
+test("internet accounts: Mail off leaves Receipts' use, a new password keeps the switches, and one nothing uses is linked for mail again", async () => {
   const t = setUp();
   try {
     fake([]);
@@ -244,13 +243,7 @@ test("internet accounts: an address whose receipts are read through Google: Mail
     const KEY = "imap:robin@fastmail.example";
     const sw = async (body: unknown) => (await (await t.api(`/connections/accounts/${encodeURIComponent(KEY)}`, { method: "PUT", json: body })).json()) as { receipts: boolean; inbox: boolean; removed?: boolean };
     const mine = () => t.hub.connections.get().imap?.find((a) => a.email === "robin@fastmail.example");
-    await link(t, { email: "robin@fastmail.example", host: "imap.fastmail.example", password: PASSWORD });
-    t.hub.connections.update((c) => { c.google = [{ email: "robin@fastmail.example", linked_at: new Date().toISOString() } as never]; });
-    // Receipts is on in name only (they are read through Google): with Mail off, nothing uses this password.
-    assert.equal((await sw({ inbox: false })).removed, true);
-    assert.equal(mine(), undefined);
-    // Without the Google link the same switch leaves Receipts' use, and the account.
-    t.hub.connections.update((c) => { c.google = []; });
+    // Receipts and renewals reads it with this password: with Mail off, the account stays for receipts.
     await link(t, { email: "robin@fastmail.example", host: "imap.fastmail.example", password: PASSWORD });
     assert.deepEqual(await sw({ inbox: false }), { receipts: true, inbox: false, read_only: false });
     assert.ok(mine());

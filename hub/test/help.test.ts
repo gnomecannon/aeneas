@@ -43,6 +43,12 @@ test("help: questions find the right section, the module list says what is on, a
   assert.match(music, /This hub has it switched on \(Settings, Modules\)\./);
   assert.match(mail, /This hub has it switched off \(Settings, Modules\)\./);
   assert.match(mail, /In Settings, Modules it sits under Mail, with a switch of its own\./);
+  // Accounts are added in Settings, Accounts (since 2026-11-24), which switches their modules on; keys in App keys.
+  assert.match(mail, /Add the account in Settings, Accounts, Add account, which switches this on for you\./);
+  assert.match(mods.find((m) => m.heading === "Modules > Games")!.text, /The guide is in Settings, Connections, App keys\./);
+  const add = searchHelp("how do I add my gmail account", { root: ROOT });
+  assert.ok(add.sections.slice(0, 3).some((s) => /> Accounts$/.test(s.heading)), JSON.stringify(add.sections.map((s) => s.heading)));
+  for (const s of docSections(ROOT).filter((x) => x.doc === "docs/using-aeneas.md")) assert.doesNotMatch(s.text, /Internet Accounts|Calendar and work/, s.heading);
   for (const t of [music, mail]) assert.doesNotMatch(t, /\b(on|off) (on|off)\b/, t);
   assert.equal(searchHelp("zzqx florble", { root: ROOT }).sections.length, 0);
   const whole = searchHelp("calendar", { root: ROOT, section: "Mail" });

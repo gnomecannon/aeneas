@@ -4,9 +4,10 @@ import { GMAIL_SCOPE } from "./imports/gmail.js";
 
 /**
  * Guided setup for the services that need the person's own key or app (release rule 3, Phase 3 of
- * docs/05-public-release.md): Gmail (their own Google app), Confluence (their own Atlassian app), Steam playtime
- * (their own Steam Web API key) and iCloud Mail (an app-specific password, since Apple has no sign-in for mail). There is
- * no server of the project's in between, so each person makes their own.
+ * docs/05-public-release.md): Gmail through the older Google sign-in (their own Google app; no new sign-in is offered
+ * since 2026-11-24), Confluence (their own Atlassian app), Steam playtime (their own Steam Web API key) and iCloud Mail
+ * (an app-specific password, since Apple has no sign-in for mail). There is no server of the project's in between, so
+ * each person makes their own.
  *
  * One guide per service, written here once so the web and Apple apps show the same steps: one step at a time, with
  * the exact values to copy filled in for this hub (its return address, the permissions), a link to the service's own
@@ -54,13 +55,14 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
   const view = hub.connections.view();
   const https = address.startsWith("https:");
   if (service === "google") {
-    // docs/gmail-setup.md has these steps for reading before an install: change both (test/gmail-setup-doc.test.ts).
+    // Only for the older Google sign-in (no app offers a new one since 2026-11-24): App keys shows the Google app, and
+    // so this guide, while a mailbox is still signed in that way, to replace the app it reads through.
     const ret = `${address}/connections/google/return`;
     return {
-      service, title: "Your own Google app, for Gmail", minutes: "10 to 15", done: view.google.app,
-      after: "Now Add an account, Google, offers Sign in with Google. Google shows a screen saying it has not verified the app: it is your own app, so choose Advanced, then Go to Aeneas, and allow reading mail.",
-      warning: !https ? "Google sends people back only to an https address, and this hub is reached over plain http. Reach it through Tailscale (an https ts.net address) to use Gmail."
-        : hostIsIp(address) ? "Google does not accept an IP address as a return address. Reach the hub through its Tailscale name (ts.net) to use Gmail." : null,
+      service, title: "Your own Google app, for the older Google sign-in", minutes: "10 to 15", done: view.google.app,
+      after: "The older Google sign-in reads receipts through this app. No app offers a new Google sign-in: if an address stops reading, add an app password for it in Settings, Accounts, and its receipts carry on with that.",
+      warning: !https ? "Google sends people back only to an https address, and this hub is reached over plain http. Reach it through Tailscale (an https ts.net address) to use the older Google sign-in."
+        : hostIsIp(address) ? "Google does not accept an IP address as a return address. Reach the hub through its Tailscale name (ts.net) to use the older Google sign-in." : null,
       steps: [
         { title: "Make a Google Cloud project", text: "Sign in with the Google account whose mail Aeneas should read, and create a project. Any name works.", copy: [{ label: "Project name", value: "Aeneas" }], link: { label: "Create a project", url: "https://console.cloud.google.com/projectcreate" } },
         { title: "Turn on the Gmail API", text: "With the new project selected at the top of the page, press Enable.", link: { label: "Gmail API", url: "https://console.cloud.google.com/apis/library/gmail.googleapis.com" } },

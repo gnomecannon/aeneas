@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { readBar } from "@everythingapp/shared";
 import { engine } from "../sync/engine";
 import { HubError } from "../sync/api";
 import { isWindowsApp } from "../tauri/bridge";
@@ -90,6 +91,12 @@ function flush(): Promise<void> {
     savePending();
     try {
       const out = await c.setFeel(body);
+      // A hub from before the bottom bar leaves `bar` out of its answer: it did not keep it. The choice stays on this
+      // device and goes out again with the next refresh, so it reaches the hub once that is updated.
+      if (body.bar && !pending.bar && readBar((out as { bar?: unknown }).bar) === null) {
+        pending = { ...pending, bar: body.bar };
+        savePending();
+      }
       set(mergeFeel(viewFrom(out), pending));
     } catch (e) {
       // The hub refused it or has no such route: keep it on this device only. Unreachable: try again later.

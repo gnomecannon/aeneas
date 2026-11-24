@@ -4,7 +4,7 @@ import type { Hub } from "./hub.js";
 import { StoreError } from "./store.js";
 import { errCode } from "./logsafe.js";
 import { stableId } from "./imports/util.js";
-import { appPassword, mailUsed, REFUSED, type ICloudAccount } from "./imports/icloud.js";
+import { appPassword, linkedAsOtherMail, mailUsed, REFUSED, type ICloudAccount } from "./imports/icloud.js";
 import { DavConflict, DavRefused, deleteEvent, discoverCalendars, getEvent, icloudHost, listEvents, putEvent, type DavLogin } from "./imports/caldav.js";
 import { newEventIcs, parseObject, updatedEventIcs, type EventTimes } from "./calendar-ics.js";
 
@@ -348,6 +348,9 @@ export async function linkCalendarAccount(hub: Hub, body: Record<string, unknown
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new StoreError(422, "email is the address of the Apple Account (iCloud)");
   const prev = (hub.connections.get().icloud ?? []).find((a) => a.email === email);
+  // One address, one account (since 2026-11-24): an address added as another mail account is not added as iCloud for
+  // its calendars too. One linked both ways before this (an iCloud account already here) keeps working.
+  if (!prev && hub.connections.get().imap?.some((a) => a.email === email)) throw new StoreError(409, linkedAsOtherMail(email));
   const given = body.password === undefined || body.password === "" ? null : appPassword(body.password);
   if (body.password && !given) throw new StoreError(422, "password is an app-specific password made at account.apple.com (16 letters, like abcd-efgh-ijkl-mnop), not your Apple Account password");
   const password = given ?? prev?.password;
@@ -377,7 +380,7 @@ export function chooseCalendars(hub: Hub, email: string, body: Record<string, un
   let target = body.target === undefined ? a.calendar.target : body.target;
   if (target !== null && (typeof target !== "string" || !urls.has(target))) throw new StoreError(422, "target is one of this account's calendar addresses, or null");
   if (target && !a.calendar.calendars.find((c) => c.url === target)?.writable) throw new StoreError(422, "that calendar cannot be written to; choose another for new events");
-  if (target && a.read_only && body.target !== undefined) throw new StoreError(422, `${email} is Read only, so new events cannot go to its calendars. Switch Read only off in Settings, Connections first.`);
+  if (target && a.read_only && body.target !== undefined) throw new StoreError(422, `${email} is Read only, so new events cannot go to its calendars. Switch Read only off in Settings, Accounts first.`);
   // A calendar taken out of the list stops taking new events; one picked for new events is kept in step.
   if (body.target === undefined && target && !chosen.includes(target)) target = null;
   if (target && !chosen.includes(target)) chosen.push(target);

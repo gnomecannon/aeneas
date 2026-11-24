@@ -79,6 +79,60 @@ beside it. In the Apple apps a page about one thing (a person, a machine, a proj
 Text you read keeps a width that reads. On the Mac a card cannot be swiped: delete, archive, set aside and move are in
 its right-click menu. A narrow window, the iPhone and an iPad held upright keep their lists and swipes.
 
+## Accounts
+
+Settings, Accounts is where your mail and calendar accounts are, and what comes in from your devices. It has three
+parts.
+
+- **Accounts.** Each address once, with a letter badge, what it brings in (Mail, Receipts and renewals, Calendars)
+  and its kind (iCloud, Google, Other mail). Tap one to open its page. Your hub keeps these in step whether or not any
+  device is on.
+- **From this iPhone** (iPad, Mac), on the Apple apps: Calendars, Reminders, Contacts and, on the iPhone, Health. One
+  switch each, and it asks for the permission when you switch it on. Calendars and Reminders open their choices:
+  which calendar your events go to, which calendars are work, which Reminders lists come in and in which space. The
+  web, Windows and Android apps show **From your iPhone, iPad and Mac** instead: the same lists and work calendars,
+  which you can change there too, and which device mirrors your contacts. The switches themselves are on each device.
+- **Work**: Keep work calendar and tasks. Off erases every work event and task on every device.
+
+**Add account** is one sheet of three steps:
+
+1. Which account? iCloud, Google or Other mail.
+2. Sign in: the address and an app password. Google makes one in about 2 minutes (Open Google's page takes you
+   there); iCloud's is an app-specific password from account.apple.com (Show me how walks through it); another
+   provider needs its server, port, user name and password.
+3. What it brings in: Mail and Receipts and renewals start on, an iCloud account's Calendars off.
+
+A switch you turn on here turns its module on for you, so there is no trip to Settings, Modules first and no key to
+make. The hub checks the sign-in before it keeps it. The Mail screen with no mailbox linked has Add an account too.
+
+**An account's page** has its switches (Mail, Receipts and renewals, Calendars on iCloud, Read only), each with a line
+saying what it does; its calendars and where new events go, while Calendars is on; Sign-in, with when the hub last
+used the password and Replace for a new one; and Remove account. Each address is one account: an address already
+added as iCloud is not added again as another mail account, and the other way round; the hub says which to remove
+first.
+
+## The bottom bar on a phone
+
+On the iPhone, and in the Windows and Android apps or a browser in a narrow window, the screens you use most sit in a
+bar along the bottom. Settings, Theme, Bottom bar chooses them, and the choice is the same on every device. iPad, Mac
+and wide windows keep the sidebar.
+
+- **Screens across**: 3, 4 or 5. The fewer across, the larger each icon and name. Going down to fewer leaves out the
+  last screens of each row.
+- **Two rows**: the first row always shows. Press and drag up on the bar to pull the second row out above it; let go
+  past half way, or flick, and it stays open. A drag down, a tap outside it, or choosing a screen folds it again. The
+  small grabber on the bar's top edge opens and folds it with a tap too, and it is in the accent color while a screen
+  of the second row is the one showing. With nothing in the second row there is no grabber.
+- **Choosing a screen**: on the Bottom bar page, choose a place in the preview, then the screen for it from the
+  screens that are on. A screen that already has a place swaps with the one there. A place of the second row can be
+  emptied. Reset puts back Today, Assistant, Capture, Library and Search, with Tasks, Week, Notes, Memory and People
+  in the second row.
+- **Library always has a place**, since every other screen and Settings are reached from it. A screen without a place
+  opens inside Library, and a main screen you left out (Today, Assistant, Capture or Search) is listed at the top of
+  Library. A screen whose module is off is left out of the bar until the module is on again; its place waits for it.
+- With VoiceOver on the iPhone, the grabber is a button named More screens, and the bar has an action to show or hide
+  the second row. In the other apps the grabber is a button you can reach with the keyboard, and Escape folds the row.
+
 ## Calendars
 
 There are two directions, and they are set up in different places.
@@ -86,13 +140,15 @@ There are two directions, and they are set up in different places.
 ### Your iCloud calendars, on the hub (every device)
 
 The Calendar accounts module keeps your iCloud calendars in step with Aeneas on the hub, both ways, so every device
-has them: Windows, Android and the web as well as the Apple apps. Switch it on in Settings, Modules, then open
-Settings, Connections, Internet Accounts:
+has them: Windows, Android and the web as well as the Apple apps. In Settings, Accounts:
 
-1. Make an app-specific password at account.apple.com (Sign-In and Security, App-Specific Passwords). An iCloud account
-   already added for Mail needs no new one: switch its Calendars on.
-2. Otherwise choose Add Account, iCloud, and enter the address and the password. The hub checks them with iCloud.
-3. Switch Calendars on for the account, tick the calendars to keep in step, and pick where events made in Aeneas go.
+1. An iCloud account already added for Mail needs no new password: open it and switch Calendars on.
+2. Otherwise choose Add account, iCloud, enter the address and an app-specific password from account.apple.com
+   (Sign-In and Security, App-Specific Passwords), and switch Calendars on in What it brings in. The hub checks them
+   with iCloud.
+3. On the account's page, tick the calendars to keep in step and pick where events made in Aeneas go.
+
+Switching Calendars on turns the Calendar accounts module on for you.
 
 Single events in those calendars, from 30 days back to a year ahead, come in as your events; edits and deletions
 made either in Aeneas or in iCloud reach the other side within about 5 minutes (10 seconds after a change in the
@@ -108,17 +164,27 @@ twice. Google and Exchange calendars are not synced by the hub yet: for those, u
 ### Calendars through the Apple apps
 
 The Apple apps can also read Apple Calendar on the device (so any account Apple Calendar has: iCloud, Google,
-Exchange and others). Switch on the Apple Calendar module in Settings, Modules, then on the iPhone, iPad or Mac open
-Settings, Calendar and work:
+Exchange and others). On the iPhone, iPad or Mac, switch Calendars on in Settings, Accounts, From this iPhone (it
+turns the Apple Calendar module on and asks for calendar access), then open it:
 
-- **Where app events go**: the calendars that events made in Aeneas (by you or the assistant) are copied into.
-  Changes made to them in Apple Calendar come back; single events made in those calendars come in both ways, and
-  repeating ones come in as read-only occurrences. While the hub syncs iCloud calendars, this part is off.
-- **Work meetings to import**: calendars you mark as work. Only the title and time of each meeting are read, from
-  7 days back to 30 days ahead. They show as Work in Today and Week and count as busy time. This is the way in for an
-  employer's Exchange calendar, which often does not allow other apps to sign in.
+- **Your calendar**: the calendar that events made in Aeneas (by you or the assistant) are copied into. Changes made
+  to them in Apple Calendar come back; single events made in that calendar come in both ways, and repeating ones come
+  in as read-only occurrences. While the hub syncs iCloud calendars, this part is off: the hub's own choice, on the
+  iCloud account's page, applies instead, so where new events go is set in one place.
+- **Work calendars**: calendars you mark as work. Only the title and time of each meeting are read, from 7 days back
+  to 30 days ahead. They show as Work in Today and Week and count as busy time. This is the way in for an employer's
+  Exchange calendar, which often does not allow other apps to sign in. **Work events you make go to** picks where
+  work events made in Aeneas are copied, and Import now reads the work calendars at once.
+
+Switching Calendars off on one device stops only that device; the Apple Calendar module in Settings, Modules stops
+every device.
 
 The Mac app copies at once; the iPhone after about two minutes.
+
+Which calendars are work is one choice for every device (since 1.0.18): tick or untick a calendar on any iPhone, iPad
+or Mac and every device imports the same ones. The first time an updated device runs, the calendars it had ticked
+itself join that choice once. A calendar your hub keeps in step from iCloud cannot be a work calendar (its events
+would come in twice), and is shown as kept in step by your hub.
 
 ### Calendar colors
 
@@ -131,15 +197,17 @@ made in Aeneas on no calendar use the theme's accent.
 
 Settings, Connections, Calendar has **Subscribe in calendar app** and **Copy link**. This goes the other way: it
 publishes your scheduled tasks, events, reminders and renewal dates as a calendar feed that Apple Calendar, Google
-Calendar or Outlook keeps up to date by itself. It does not bring any calendar into Aeneas. Work items stay out. The
-link's key reads only this feed; New link ends the old one. On a computer, Subscribe asks which calendar app to open;
-Copy link and adding it as a subscribed calendar by URL works in any calendar app.
+Calendar or Outlook keeps up to date by itself. It does not bring any calendar into Aeneas. Work items stay out, and
+so do events that are in one of your calendars already (your iCloud calendars the hub keeps in step, and events your
+iPhone, iPad or Mac copied to or brought in from Apple Calendar): subscribed in the same calendar app, they showed
+twice. The link's key reads only this feed; New link ends the old one. On a computer, Subscribe asks which calendar
+app to open; Copy link and adding it as a subscribed calendar by URL works in any calendar app.
 
 ## Mail
 
-Mail is read on the hub, not on the devices. Accounts are linked in Settings, Connections, Internet Accounts, on every
-device: iCloud, Google with an app password, or another mail server. Their mail then shows in Mail on every device.
-Two modules use them.
+Mail is read on the hub, not on the devices. Accounts are linked in Settings, Accounts, on every device: iCloud,
+Google with an app password, or another mail server. Their mail then shows in Mail on every device. Two modules use
+them, and each account's switches turn them on.
 
 **Receipts and renewals** (in Settings, Modules under Mail, with a switch of its own). The hub reads only mail that
 looks like purchase receipts, renewal notices or vet mail, files them as renewals and pet visits, and does not keep
@@ -221,23 +289,23 @@ On every device:
 
 Linking a mailbox:
 
-- **iCloud Mail** needs an app-specific password you make at account.apple.com; the guide in Settings, Connections
+- **iCloud Mail** needs an app-specific password you make at account.apple.com; Add account, iCloud, Show me how
   takes you through it. The password is kept only on the hub. Apple's app-specific passwords also open iCloud
   Contacts and Calendars; Aeneas uses it for mail, and for calendars only when Calendar accounts is on.
-- **Gmail on the Mail screen** needs an app password you make in your Google Account (16 letters; Google offers it
-  once 2-Step Verification is on). Add the account under Internet Accounts as Google, with an app password. The same
-  password feeds Receipts and renewals, and nothing needs setting up at Google.
-- **Gmail for receipts only** can use Sign in with Google instead: your own Google app, allowed only to read mail,
-  and the hub reached through Tailscale (Google returns only to an https name). The steps are in
-  [gmail-setup.md](gmail-setup.md) and in the guide under Settings, Connections, App keys. Signed in this way, the hub
-  may only read, so that account does not show on the Mail screen.
+- **Gmail** needs an app password you make in your Google Account (16 letters; Google offers it once 2-Step
+  Verification is on). Add the account in Settings, Accounts as Google. The same password feeds Mail and Receipts
+  and renewals, and nothing needs setting up at Google. Sign in with Google is no longer offered.
+- **An address signed in with Google before** (it says it uses the older Google sign-in) keeps reading its receipts,
+  and nothing else. Its Add an app password opens Add account with the address filled in. Once the app password is
+  added, the hub moves the address's receipts to it, reads on from where the sign-in stopped, so no mail is read
+  twice, and removes the older sign-in; the account then shows in Mail too. An address that had both is made one
+  account the same way by the hub itself. With the last such sign-in, the hub's Google app under App keys goes too.
 - **Another mail server** needs its IMAP server's name, your username and an app password from your provider. The
   hub links only servers on the internet, over an encrypted connection (port 993 as a rule).
-- Each account has switches for what it brings in (Mail, Calendars, and on your iCloud account Reminders, which your
-  iPhone and Mac sync), then the Aeneas modules that read it (Receipts and renewals, with Read now), and Remove
-  account, which takes its password and its mail off the hub. A password stays on the hub only while something uses
-  it (Mail, Receipts and renewals or Calendars): switching off the last one removes the account, and the app asks
-  first.
+- Each account has switches for what it brings in (Mail, Receipts and renewals with Read now, and Calendars on
+  iCloud), and Remove account, which takes its password and its mail off the hub. A password stays on the hub only
+  while something uses it (Mail, Receipts and renewals or Calendars): switching off the last one removes the account,
+  and the app asks first.
 - **Read only**, on each account, keeps Aeneas from changing anything in it: no drafts saved, no mail moved, flagged
   or marked read there, and no calendar event written. The hub itself refuses those changes, and Mail offers no Done,
   Delete, Pin or replies for that account's mail. Reminders are not covered: your iPhone and Mac write them through
@@ -245,10 +313,23 @@ Linking a mailbox:
 
 ## Reminders, Contacts and Health
 
-These are read on the Apple devices: Apple Reminders (the Reminders switch on your iCloud account in Settings,
-Connections, or on its own line there before you add one), the Contacts module (Settings, Modules), and Apple Health,
-turned on in the iPhone app under Settings, Connections. Health works both ways: readings come in, and what you log
-in Aeneas goes to Health.
+These are read on the Apple devices, each switched on for that device in Settings, Accounts, From this iPhone:
+Reminders (it turns the Apple Reminders module on, which Settings, Modules can switch off for every device), Contacts,
+and Health, on the iPhone. Each asks for its permission when you switch it on. Health works both ways: readings come
+in, and what you log in Aeneas goes to Health.
+
+**Which Reminders lists come in** (since 1.0.18) is one choice for every device, made on the iPhone, iPad or Mac
+(Settings, Accounts, From this iPhone, Reminders). Each list has a switch and Personal or Work. A list that is off
+stays out of Tasks, Today, Now, Week, search, alerts and the assistant, on every device, and stays as it is in Apple
+Reminders: nothing there is changed or deleted. Switch it on again and its tasks are back, with no doubles. Lists in
+iCloud or on the device itself start on, and so does any list that already had tasks; lists of other accounts
+(Exchange, Google, a school or work account) start off until you switch them on. Personal or Work moves a list's
+tasks to that space once every iPhone, iPad and Mac runs 1.0.18 or later; until then the page names the devices to
+update. **New tasks go to** picks the list that tasks you or the assistant make in Aeneas are added to.
+
+**Contacts** are kept in step by one device at a time: switching Contacts on on a device makes it the one (it says
+first which device had them), and a device that had it on turns its own switch off. People shows which device that
+is.
 
 ## Alerts
 

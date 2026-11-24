@@ -2,11 +2,10 @@ import SwiftUI
 import AuthenticationServices
 import EACore
 
-/// Settings, Connections, grouped as on every device (gnomecannon/aeneas#10, #25): Internet Accounts first (iCloud,
-/// Google and other mail accounts, each with Mail, Calendars, Reminders, Read only and Receipts and renewals), then the
-/// services by kind (Steam and Letterboxd, Confluence, Apple Health, the password manager, the calendar feed), then App
-/// keys, the hub's own registrations those services need. Linked data lands in Renewals, Pet, Games, Wiki, Films and
-/// Logs on its own, where the assistant reads it too.
+/// Settings, Connections, the same on every device (gnomecannon/aeneas#10, #25): the services (Steam and Letterboxd,
+/// Confluence, the password manager, the calendar link), then App keys, the hub's own registrations those services
+/// need. Mail and calendar accounts, and what comes in from this device (Apple Health among it), are in Settings,
+/// Accounts since 2026-11-24. Linked data lands in Games, Wiki and Films on its own, where the assistant reads it too.
 struct ConnectionsSettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -22,23 +21,21 @@ struct ConnectionsSettingsView: View {
     /// The calendar feed's own key (GET /feeds): it reads the feed and nothing else, so it can live in Calendar.
     @State private var calendarKey = ""
     @State private var confirmNewCalendarLink = false
-    #if os(iOS)
-    @State private var healthOn = false
-    #endif
 
     var body: some View {
         Form {
             if engine.client == nil {
                 Text("Set up the hub connection first.").foregroundStyle(.secondary)
             } else if let c = store.c {
-                // Every account, with what it brings in; Apple Reminders' switch is on the iCloud account.
-                InternetAccountsSection(store: store, note: message["accounts"], reload: { await load() })
+                SwiftUI.Section {
+                    PageLink { AccountsSettingsView() } label: { Label("Mail and calendar accounts are in Accounts", systemImage: "at") }
+                }
+                .themedRow()
                 // The services, by kind. Each feeds one module; while that module is off its link is hidden and the
                 // hub pauses its sync.
                 if model.isOn(.games) { steam(c.steam) }
                 if model.isOn(.films) { letterboxd(c.letterboxd) }
                 if model.isOn(.wiki), let a = c.atlassian { confluence(a) }
-                if model.isOn(.health) { health(c.health) }
                 if model.isOn(.homelab), let pm = c.password_manager { PasswordManagerSection(view: pm, reload: { await load() }) }
                 calendarFeed
                 // The app keys those services need, each made once, with what it is and why it is asked for.
@@ -56,11 +53,6 @@ struct ConnectionsSettingsView: View {
         .refreshable { spaces = nil; await load() }
         .onAppear { takeAtlassianReturn() }
         .onChange(of: model.atlassianReturn) { _, _ in takeAtlassianReturn() }
-        .onAppear { takeGoogleReturn() }
-        .onChange(of: model.googleReturn) { _, _ in takeGoogleReturn() }
-        #if os(iOS)
-        .onAppear { healthOn = model.config.healthImportEnabled }
-        #endif
     }
 
     // MARK: sections
@@ -118,14 +110,6 @@ struct ConnectionsSettingsView: View {
             await load()
             await engine.sync()
         }
-    }
-
-    /// Sign-in that came back through everythingapp://google instead of the browser sheet.
-    private func takeGoogleReturn() {
-        guard let r = model.googleReturn else { return }
-        model.googleReturn = nil
-        message["accounts"] = (r.ok, r.text)
-        Task { await load() }
     }
 
     @ViewBuilder private func confluence(_ a: Connections.Atlassian) -> some View {
@@ -295,41 +279,8 @@ struct ConnectionsSettingsView: View {
         .themedRow()
     }
 
-    @ViewBuilder private func health(_ h: Connections.Health) -> some View {
-        SwiftUI.Section {
-            #if os(iOS)
-            if model.config.sampleMode {
-                // As with Contacts, Calendar and Reminders: no sample reading goes into the person's own Health.
-                Text(HealthImporter.sampleOff).font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                Toggle("Sync with Apple Health", isOn: $healthOn)
-                    .onChange(of: healthOn) { _, v in
-                        guard v != model.config.healthImportEnabled else { return }
-                        model.config.healthImportEnabled = v
-                        if v { sendHealth(ask: true) }
-                    }
-                if healthOn {
-                    Button(busy == "health" ? "Sending" : "Send now") { sendHealth(ask: false) }
-                        .disabled(busy != nil)
-                }
-            }
-            #endif
-            LabeledContent("Readings from Health", value: "\(h.total)")
-            LabeledContent("Last sent", value: when(h.last_import))
-            note("health")
-        } header: {
-            Text("Apple Health")
-        } footer: {
-            #if os(iOS)
-            Text("Both ways, each time you open the app: weight, blood pressure, sleep, steps, workouts, caffeine and mood come in from Health, and what you log in the app (weight, blood pressure, caffeine, mood, timed activities) goes into Health. Browse it all under Library, Health.")
-            #else
-            Text("Health lives on the iPhone: turn it on there, in Settings, Connections.")
-            #endif
-        }
-        .themedRow()
-    }
-
-    /// The plan as a calendar subscription (task blocks, events, reminders, renewals); work items stay out.
+    /// The plan as a calendar subscription (task blocks, events, reminders, renewals); work items stay out, and so do
+    /// events already in one of the person's calendars.
     @ViewBuilder private var calendarFeed: some View {
         let cfg = engine.config
         if !cfg.hubURL.isEmpty, !calendarKey.isEmpty,
@@ -347,7 +298,7 @@ struct ConnectionsSettingsView: View {
             } header: {
                 Text("Calendar")
             } footer: {
-                Text("Scheduled tasks, events, reminders and renewal dates in Calendar, kept up to date by itself. Work items stay out. The link's key only reads this calendar.")
+                Text("Scheduled tasks, events, reminders and renewal dates in Calendar, kept up to date by itself. Work items stay out, and so do events already in one of your calendars. The link's key only reads this calendar.")
             }
             .themedRow()
         }
@@ -378,7 +329,7 @@ struct ConnectionsSettingsView: View {
 
     private func load() async {
         guard let client = engine.client else { return }
-        await store.load(client, calendarsOn: model.isOn(.calendars))
+        await store.load(client, calendarsOn: false)
         let c = store.c
         if calendarKey.isEmpty, let k = try? await client.feedKeys() { calendarKey = k.calendar.key }
         // An ended sign-in cannot list the spaces: they load once Reconnect lands.
@@ -409,17 +360,4 @@ struct ConnectionsSettingsView: View {
             busy = nil
         }
     }
-
-    #if os(iOS)
-    private func sendHealth(ask: Bool) {
-        busy = "health"
-        message["health"] = nil
-        Task {
-            let r = ask ? await HealthImporter.shared.requestAndImport(into: engine) : await HealthImporter.shared.importIfAuthorized(into: engine)
-            message["health"] = (!r.hasPrefix("Could not") && !r.hasPrefix("Health permission"), r)
-            await load()
-            busy = nil
-        }
-    }
-    #endif
 }

@@ -41,8 +41,8 @@ enum SampleScreens {
         (.log, [:]), (.task, ["space": "personal"]), (.journal, [:]), (.snippet, [:]), (.game, [:]), (.film, [:]), (.application, [:]),
     ]
 
-    /// Connections' "Set it up with the guide" links (OwnKeyGuideView).
-    static let guides = ["steam", "google", "atlassian"]
+    /// Connections' "Set it up with the guide" links (OwnKeyGuideView), and Add account's Show me how (`icloud`).
+    static let guides = ["steam", "google", "atlassian", "icloud"]
 
     /// What the synced sample holds that screens ask about by id.
     struct World {
@@ -140,7 +140,12 @@ enum SampleScreens {
 
         // Settings.
         add("Settings, People on this machine") { _ = try await $0.hubs() }
-        add("Connections") { _ = try await $0.connections() }
+        add("Accounts and Connections") { _ = try await $0.connections() }
+        // Settings, Accounts: the iCloud account's calendars, and From this iPhone's lists and calendars. A demo hub
+        // links no account (it would sign in with a made-up password), so these and Accounts' made-up addresses in
+        // the answer above are written into SampleHub.json by hand, and kept when it is recorded again.
+        add("Accounts, an iCloud account's calendars") { _ = try await $0.calendars() }
+        add("Accounts, From this iPhone") { _ = try await $0.sources() }
         for s in guides { add("Connections, \(s) guide") { _ = try await $0.ownKeyGuide(service: s) } }
         add("Connections, Password manager machines") { _ = try await $0.commandHosts() }
         add("Bring your data in") { _ = try await $0.importJobs() }

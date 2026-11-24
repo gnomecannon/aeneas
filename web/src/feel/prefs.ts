@@ -1,4 +1,4 @@
-import type { CalendarColor } from "@everythingapp/shared";
+import { defaultBar, readBar, type Bar, type CalendarColor } from "@everythingapp/shared";
 import { KEYS, SCALES, SHAPES, SYNTHS, THEMES, type Key, type Scale, type ShapeName, type Synth, type Theme } from "./theory";
 
 /** A saved tap palette, chosen as `custom:<id>`. */
@@ -56,6 +56,8 @@ export interface Feel {
   appearance: Appearance;
   /** Each calendar's color (Theme, Calendar colors): its own as reported, and the owner's choice, which wins. */
   calendars: CalendarColor[];
+  /** The phone layout's bottom bar (Theme, Bottom bar): how many screens across and which, in two rows. */
+  bar: Bar;
 }
 
 export interface FeelView extends Feel {
@@ -111,6 +113,7 @@ export const DEFAULT_FEEL: FeelView = {
   app_themes: [],
   calendars: [],
   appearance: "system",
+  bar: defaultBar(),
   effective: { key: "C", scale: "major_pentatonic", from: null },
 };
 
@@ -205,6 +208,9 @@ export function cleanPatch(raw: unknown): Partial<Feel> {
   if (r.appearance === "system" || r.appearance === "light" || r.appearance === "dark") out.appearance = r.appearance;
   const cals = calendarColors(r.calendars);
   if (cals) out.calendars = cals;
+  // A bar that breaks a rule is left out, so the one already here (or the default) stands.
+  const bar = readBar(r.bar);
+  if (bar) out.bar = bar;
   return out;
 }
 

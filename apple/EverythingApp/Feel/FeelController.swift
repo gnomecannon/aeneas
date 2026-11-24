@@ -143,14 +143,32 @@ final class FeelController: ObservableObject {
         }
         var left = config.feelPending
         for (k, v) in sent where left[k] == v { left.removeValue(forKey: k) }
+        // A hub from before the bottom bar answers without `bar`: it did not keep it. The choice stays on this device
+        // and goes out again with the next refresh, so it reaches the hub once that is updated.
+        var answer = fresh
+        var keptBar = false
+        if fresh.bar == nil, left["bar"] == nil, let v = sent["bar"], let b = try? JSONCoding.typed(BarSetting.self, from: v) {
+            left["bar"] = v
+            answer.bar = b
+            keptBar = true
+        }
         config.feelPending = left
-        if left.isEmpty { adopt(fresh) }
+        if left.isEmpty || (keptBar && left.count == 1) { adopt(answer) }
     }
 
     private func adopt(_ f: FeelSettings) {
         if f != settings { settings = f }
         config.feel = f
         images.sync(f.images, client: engine?.client)
+    }
+
+    // MARK: bottom bar
+
+    /// The phone's bottom bar (Theme, Bottom bar): drawn at once on this device and sent to the hub, which hands it
+    /// to every device. A bar that breaks a rule is never sent.
+    func setBar(_ bar: BarSetting) {
+        guard bar.isValid, let v = try? JSONCoding.value(bar) else { return }
+        change(["bar": v])
     }
 
     // MARK: calendar colors

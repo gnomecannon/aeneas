@@ -48,6 +48,10 @@ final class SampleRecorderTests: XCTestCase {
         XCTAssertEqual(failed, [], "the demo hub did not answer these")
 
         var rec = recorder.recording
+        // What a demo hub cannot answer, carried over from the recording the app ships (SampleScreens, Settings).
+        if let data = try? Data(contentsOf: SampleScreens.bundledRecording), let shipped = try? JSONDecoder().decode(SampleTransport.Recording.self, from: data) {
+            SampleRecordingCleaner.keepHandWritten(&rec, from: shipped)
+        }
         let renamed = SampleRecordingCleaner.clean(&rec)
         let left = SampleRecordingCleaner.leftovers(rec, words: renamed.filter { $0.key != $0.value }.map(\.key) + [token])
         XCTAssertEqual(left, [], "the recording still holds these details of the recording machine")
@@ -164,10 +168,35 @@ enum SampleRecordingCleaner {
         var found: [String] = []
         for (key, e) in rec.entries.sorted(by: { $0.key < $1.key }) {
             for p in patterns {
-                if let r = e.body.range(of: p, options: .regularExpression) { found.append("\(key): \(e.body[r])") }
+                guard let re = try? NSRegularExpression(pattern: p) else { continue }
+                let ns = e.body as NSString
+                let hits = re.matches(in: e.body, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
+                if let first = hits.first(where: { !madeUp($0) }) { found.append("\(key): \(first)") }
             }
         }
         return found
+    }
+
+    /// An address nobody has: one at the domains kept for examples (example.com, .org and .net, RFC 2606), as Settings,
+    /// Accounts' made-up accounts are, or the hub's own placeholder in its iCloud guide (hub/src/guides.ts).
+    static func madeUp(_ s: String) -> Bool {
+        s == "you@icloud.com" || s.range(of: #"^[A-Za-z0-9._%+-]+@example\.(com|org|net)$"#, options: .regularExpression) != nil
+    }
+
+    /// Answers a demo hub cannot give, written into the recording the app ships by hand: it links no mail or calendar
+    /// account (it would sign in with a made-up password), so Settings, Accounts' made-up addresses (in `connections`),
+    /// the iCloud account's calendars and From this iPhone's lists and calendars come from there, their dates moved to
+    /// the new recording's day.
+    static let handWritten = ["GET calendars", "GET prefs/sources"]
+    static let handWrittenConnections = ["icloud", "imap", "internet", "health"]
+
+    static func keepHandWritten(_ rec: inout SampleTransport.Recording, from old: SampleTransport.Recording) {
+        guard let from = SampleTransport.dayDate(old.day), let to = SampleTransport.dayDate(rec.day) else { return }
+        let days = Calendar.current.dateComponents([.day], from: from, to: to).day ?? 0
+        let moved = { (body: String) in SampleTransport.shift(body, days: days, around: old.day) }
+        for k in handWritten { if let e = old.entries[k] { rec.entries[k] = .init(status: e.status, body: moved(e.body)) } }
+        guard let e = old.entries["GET connections"], let was = (try? JSONSerialization.jsonObject(with: Data(moved(e.body).utf8))) as? [String: Any] else { return }
+        edit(&rec, "GET connections") { o in for k in handWrittenConnections { o[k] = was[k] } }
     }
 
     /// Changes one recorded JSON object, keeping it compact with its keys in order.

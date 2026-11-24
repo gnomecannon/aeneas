@@ -37,7 +37,7 @@ extension EKCalendar {
     /// What the app knows of a calendar: its account, whether it is Exchange, and its own color.
     var info: CalendarInfo {
         CalendarInfo(id: calendarIdentifier, title: title, sourceTitle: source?.title ?? "", isExchange: source?.sourceType == .exchange,
-                     color: Self.hex(cgColor))
+                     color: Self.hex(cgColor), kind: SourceKey.kind(sourceType: source.map { $0.sourceType.rawValue } ?? -1, accountTitle: source?.title ?? ""))
     }
 
     /// A calendar color as `#RRGGBB` in sRGB, as the hub keeps it.
@@ -93,6 +93,9 @@ public final class CalendarColorReporter {
 /// Imports the calendars the user marks as work into `event` entities in the `work` space.
 /// Runs on launch, on foreground, on `EKEventStoreChanged` (debounced 5 s) and in a
 /// `BGAppRefreshTask` on iOS, or an hourly timer on the Mac. Patches go through the normal SyncEngine outbox.
+/// Which calendars are work is one choice for every device, kept by the hub (the sources setting): each device
+/// imports the chosen calendars it has. The first time, a device adds the calendars it had ticked itself to that
+/// choice, once; until then, and with a hub from before 1.0.18, its own ticks are used as before.
 @MainActor
 public final class CalendarImporter: ObservableObject {
     public static let shared = CalendarImporter()
@@ -117,11 +120,37 @@ public final class CalendarImporter: ObservableObject {
     private var debounce: Task<Void, Never>?
     private var rerun = false
 
-    public init() { refreshAccess() }
+    /// The sources setting as the engine last took it.
+    @Published public private(set) var setting: SourcesSetting?
+    private var sourcesObserver: NSObjectProtocol?
+
+    public init() {
+        setting = SharedConfig.shared.sources
+        refreshAccess()
+        // The engine keeps the setting in the app group before it says it changed.
+        sourcesObserver = NotificationCenter.default.addObserver(forName: SyncEngine.sourcesDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.sourcesChanged(SharedConfig.shared.sources) }
+        }
+    }
 
     public var config: SharedConfig { .shared }
-    public var selected: Set<String> { config.workCalendarIds ?? [] }
-    public var hasChosen: Bool { config.workCalendarIds != nil }
+
+    /// This device's own ticks were added to the hub-wide choice (once).
+    public var ticksMoved: Bool { UserDefaults.standard.bool(forKey: AppleLinkRecords.workTicksMoved) }
+    /// The work calendars are the hub-wide choice: the hub has the setting, and this device's own ticks are in it.
+    public var usesHubChoice: Bool { setting != nil && ticksMoved }
+    public var selected: Set<String> {
+        if usesHubChoice, let s = setting { return s.workCalendarIds(calendars) }
+        return config.workCalendarIds ?? []
+    }
+    public var hasChosen: Bool { usesHubChoice || config.workCalendarIds != nil }
+
+    private func sourcesChanged(_ s: SourcesSetting?) {
+        let before = selected
+        setting = s
+        // A calendar ticked or unticked on another device: imported or removed here too.
+        if selected != before, access == .full, moduleOn { Task { await runNow(reason: "work calendars changed") } }
+    }
 
     public func refreshAccess() {
         switch EKEventStore.authorizationStatus(for: .event) {
@@ -155,10 +184,60 @@ public final class CalendarImporter: ObservableObject {
     }
 
     public func setSelected(_ id: String, _ on: Bool) {
+        if usesHubChoice, let c = calendars.first(where: { $0.id == id }) {
+            Task { await setWork(key: c.sourceKey, on) }
+            return
+        }
         var s = selected
         if on { s.insert(id) } else { s.remove(id) }
         config.workCalendarIds = s
         Task { await runNow(reason: "selection changed") }
+    }
+
+    /// A calendar marked as work or not, for every device. Shown at once; the hub's answer is the setting.
+    public func setWork(key: String, _ on: Bool) async {
+        guard let engine = await engineProvider?(), var s = setting else { return }
+        lastError = nil
+        if let i = s.calendars.firstIndex(where: { $0.key == key }) {
+            s.calendars[i].work = on
+            setting = s
+        }
+        do {
+            // A calendar the hub has not heard of yet (this device's list was not sent) is sent first.
+            if engine.sources?.calendar(key) == nil { await reportCalendars(engine, force: true) }
+            try await engine.changeSources(["calendars": .array([.object(["key": .string(key), "work": .bool(on)])])])
+        } catch {
+            lastError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            setting = engine.sources
+        }
+        await runNow(reason: "selection changed")
+    }
+
+    /// Tells the hub which calendars this device has when that changed (or once a day), with the key a renamed one had;
+    /// the first time, also the calendars this device had ticked as work itself, which join the hub-wide choice once.
+    func reportCalendars(_ engine: SyncEngine, force: Bool = false) async {
+        guard engine.sources != nil, engine.hubInReach, access == .full else { return }
+        let key = AppleLinkRecords.sourcesCalendars
+        var memory = UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(SourcesReportMemory.self, from: $0) } ?? SourcesReportMemory()
+        let all = source.calendars()
+        let seen = all.map { c in
+            SeenCalendar(key: c.sourceKey, title: c.title, account: c.sourceTitle, kind: c.kind, color: c.color, was: memory.was(id: c.id, key: c.sourceKey))
+        }.sorted { $0.key < $1.key }
+        let ticked = ticksMoved ? nil : WorkCalendarMove.ticked(chosen: config.workCalendarIds, calendars: all, workDomain: CalendarSelection.workDomain(facts: engine.facts))
+        let print = (try? JSONCoding.string(seen)) ?? ""
+        guard force || ticked != nil || memory.due(print) else { return }
+        do {
+            try await engine.reportSources(SourcesReport(calendars: Array(seen.prefix(200)), ticked: ticked.map { Array($0.prefix(200)) }))
+        } catch {
+            Self.log.notice("calendars not reported: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        if ticked != nil { UserDefaults.standard.set(true, forKey: AppleLinkRecords.workTicksMoved) }
+        memory.keys = Dictionary(all.map { ($0.id, $0.sourceKey) }, uniquingKeysWith: { a, _ in a })
+        memory.print = print
+        memory.at = Date()
+        if let d = try? JSONEncoder().encode(memory) { UserDefaults.standard.set(d, forKey: key) }
+        setting = engine.sources
     }
 
     /// Watch the Calendar store; changes are imported 5 s after the last one.
@@ -179,12 +258,13 @@ public final class CalendarImporter: ObservableObject {
         }
     }
 
-    /// The Apple Calendar module (Settings, Modules) is on. Off, no calendar is read and nothing is imported.
-    public var moduleOn: Bool { config.moduleSaidOn(.appleCalendar) }
+    /// The Apple Calendar module (Settings, Modules) is on, and this device's own switch (Settings, Accounts, From this
+    /// iPhone, Calendars). Off, no calendar is read and nothing is imported.
+    public var moduleOn: Bool { config.appleCalendarOn }
 
     /// Launch path: preselect work calendars if access exists but nothing was ever chosen, then import. Access is
     /// never asked for here (release rule 2); the permission screen after setup or a module switched on asks, and so
-    /// does Allow calendar access in Settings, Calendar and work.
+    /// does this device's Calendars switch in Settings, Accounts.
     public func autoStart(facts: [Entity]) async {
         refreshAccess()
         guard moduleOn else { return }
@@ -225,6 +305,8 @@ public final class CalendarImporter: ObservableObject {
                 lastError = "The work space is turned off in Settings, so the work calendar is not imported."
                 return
             }
+            // The hub-wide choice of work calendars: what this device has is told first (and its own ticks, once).
+            await reportCalendars(engine)
             let result = await CalendarImportRunner(engine: engine, source: source).run(selected: selected)
             await CalendarColorReporter.shared.found(source.calendars().filter { selected.contains($0.id) }, part: "work", engine: engine)
             lastResult = result

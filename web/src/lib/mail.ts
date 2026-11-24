@@ -447,7 +447,7 @@ export function mailboxOf(boxes: MailMailbox[], email: string | undefined): Mail
   return email ? boxes.find((b) => b.email.toLowerCase() === email.toLowerCase()) : boxes.length === 1 ? boxes[0] : undefined;
 }
 /**
- * Whether the mailbox a mail is in is Read only (Settings, Connections): the hub refuses every change to it, so the
+ * Whether the mailbox a mail is in is Read only (Settings, Accounts): the hub refuses every change to it, so the
  * screen offers none (Done, Delete, Spam, Move to, Pin, replies, drafts). An older hub never says so.
  */
 export const readOnlyBox = (boxes: MailMailbox[], email: string | undefined) => !!mailboxOf(boxes, email)?.read_only;

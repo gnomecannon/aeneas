@@ -106,15 +106,20 @@ final class MailDecodeTests: XCTestCase {
         XCTAssertEqual(Mail.inProvider(nil), "in your mailbox")
     }
 
-    /// With no mailbox linked, the screen names where every kind is added: Internet Accounts, which the Apple apps have
-    /// too since gnomecannon/aeneas#23 (they sent people to the web, Windows or Android app for Gmail).
-    func testNoMailboxSaysWhereEveryKindIsLinked() {
+    /// With no mailbox linked, the screen names where every kind is added: Settings, Accounts, which the Apple apps have
+    /// too since gnomecannon/aeneas#23 (they sent people to the web, Windows or Android app for Gmail), and the same
+    /// words as the web's.
+    func testNoMailboxSaysWhereEveryKindIsLinked() throws {
         for text in [Mail.noMailboxText, Mail.otherAccountsWhere] {
-            XCTAssertTrue(text.contains("iCloud") && text.contains("Gmail") && text.contains("Settings, Connections, Internet Accounts"), text)
-            XCTAssertFalse(text.contains("web, Windows or Android"), "Internet Accounts is on this device now")
+            XCTAssertTrue(text.contains("iCloud") && text.contains("Gmail") && text.contains("Settings, Accounts"), text)
+            XCTAssertFalse(text.contains("web, Windows or Android"), "Accounts is on this device now")
             XCTAssertNil(text.range(of: "[–—]", options: .regularExpression), "no dashes in what people read")
         }
         XCTAssertFalse(Mail.noMailboxText.contains("an iCloud mailbox"))
+        var web = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { web.deleteLastPathComponent() }   // the file, EACoreTests, Tests, EACore, Packages, apple
+        let mail = try String(contentsOf: web.appendingPathComponent("web/src/views/Mail.tsx"), encoding: .utf8)
+        XCTAssertTrue(mail.contains("\"\(Mail.noMailboxText)\""), "the web's NO_MAILBOX says the same")
     }
 
     /// A Read only mailbox's mail is told apart, so its Done and Pin are held back (gnomecannon/aeneas#10).
@@ -122,7 +127,7 @@ final class MailDecodeTests: XCTestCase {
         let list = try JSONCoding.decode(MailList.self, from: #"{"messages": [], "mailboxes": [{"email": "robin@example.com", "more": false, "read_only": true}, {"email": "jamie@example.org", "more": false}]}"#)
         XCTAssertTrue(Mail.readOnly(list.mailboxes, "Robin@example.com"))
         XCTAssertFalse(Mail.readOnly(list.mailboxes, "jamie@example.org"), "an older hub, or the switch off")
-        XCTAssertTrue(Mail.readOnlyText("robin@example.com").contains("Read only in Settings, Connections"))
+        XCTAssertTrue(Mail.readOnlyText("robin@example.com").contains("Read only in Settings, Accounts"))
     }
 
     func testDecodesOneMessageWithItsPageAndQuote() throws {

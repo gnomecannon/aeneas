@@ -21,7 +21,7 @@ import { type BackupKey, encryptBytes, encryptFile, writeAtomic } from "./backup
  * Sign-ins (connections.json), the password vault, ai.json (model keys), the feed keys and both key files never go.
  */
 // hub-id and link.json too: a hub restored from this archive keeps its id (homeroute.ts), so its devices still know it.
-export const SETTINGS_FILES = ["profile.json", "modules.json", "alerts.json", "dashboard.json", "feel.json", "hosts.json", "work-space.json", "device-keys.json", "retention.json", "hub-id", "link.json"];
+export const SETTINGS_FILES = ["profile.json", "modules.json", "alerts.json", "dashboard.json", "feel.json", "sources.json", "hosts.json", "work-space.json", "device-keys.json", "retention.json", "hub-id", "link.json"];
 
 export interface MirrorCount { sealed: number; kept: number; removed: number }
 export interface OutboxReport { dir: string; settings: number; gallery: MirrorCount; audio: MirrorCount }

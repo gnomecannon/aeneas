@@ -120,6 +120,15 @@ public final class SharedConfig: @unchecked Sendable {
         set { set("deviceName", newValue) }
     }
     public var healthImportEnabled: Bool { get { defaults.bool(forKey: "healthImport") } set { defaults.set(newValue, forKey: "healthImport") } }
+    /// This device reads and writes Apple Calendar (Settings, Accounts, From this iPhone, Calendars; since 2026-11-24).
+    /// On until switched off, so a device that synced before goes on; the Apple Calendar module (one setting for every
+    /// device) is needed too.
+    public var appleCalendarHere: Bool {
+        get { defaults.object(forKey: "appleCalendar.here") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "appleCalendar.here") }
+    }
+    /// Apple Calendar is read and written on this device: the module is on (as this hub said) and this device's switch.
+    public var appleCalendarOn: Bool { moduleSaidOn(.appleCalendar) && appleCalendarHere }
     public var lastHealthImport: Date? {
         get { defaults.object(forKey: "lastHealthImport") as? Date }
         set { defaults.set(newValue, forKey: "lastHealthImport") }
@@ -146,6 +155,13 @@ public final class SharedConfig: @unchecked Sendable {
     public var feel: FeelSettings? {
         get { defaults.data(forKey: "feel.cache").flatMap { try? JSONCoding.decode(FeelSettings.self, from: $0) } }
         set { if let v = newValue, let d = try? JSONCoding.data(v) { defaults.set(d, forKey: "feel.cache") } else { defaults.removeObject(forKey: "feel.cache") } }
+    }
+    /// The last sources setting from the hub (which Reminders lists are on, which calendars are work, the Contacts
+    /// device), so the next launch, widgets and the Watch hide the same tasks before the network answers. Nil from a hub
+    /// before 1.0.18 or before it first answered.
+    public var sources: SourcesSetting? {
+        get { defaults.data(forKey: "sources.cache").flatMap { try? JSONCoding.decode(SourcesSetting.self, from: $0) } }
+        set { if let v = newValue, let d = try? JSONCoding.data(v) { defaults.set(d, forKey: "sources.cache") } else { defaults.removeObject(forKey: "sources.cache") } }
     }
     /// The last module switches from the hub, so the next launch, widgets and the Watch hide the same things before the network answers.
     public var modules: [ModuleInfo]? {

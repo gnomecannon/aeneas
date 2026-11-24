@@ -31,7 +31,7 @@ final class ConnectionsTests: XCTestCase {
     }
 
     /// Internet Accounts on the iPhone, iPad and Mac (gnomecannon/aeneas#23): every account decodes with its switches,
-    /// Read only and what receipts came to; a hub from before it has none, and a Google sign-in has no Read only switch.
+    /// Read only and what receipts came to; a hub from before it has none, and the older Google sign-in has no Read only switch.
     func testDecodesInternetAccounts() throws {
         let json = """
         {"steam": {"connected": false}, "letterboxd": {"connected": false}, "health": {"samples": 0, "total": 0},
@@ -39,7 +39,7 @@ final class ConnectionsTests: XCTestCase {
            {"key": "icloud:jamie@example.com", "kind": "icloud", "email": "jamie@example.com", "linked_at": "2026-11-20T10:00:00Z", "last_sync": null, "last_error": null,
             "features": {"inbox": true, "receipts": true, "calendars": false}, "read_only": false, "receipts": {"listed": 4, "to_read": 1, "read": 3, "failed": 0, "filed": {"renewals": 2, "pet": 0, "events": 0}}},
            {"key": "imap:robin@example.org", "kind": "imap", "email": "robin@example.org", "host": "imap.example.org", "port": 993, "user": "robin",
-            "features": {"inbox": true, "receipts": false, "calendars": null}, "read_only": true},
+            "features": {"inbox": true, "receipts": false, "calendars": null}, "read_only": true, "google_removed_at": "2026-11-24T08:00:00.000Z"},
            {"key": "alex@example.com", "kind": "google", "email": "alex@example.com", "features": {"inbox": null, "receipts": true, "calendars": null}, "read_only": true}
          ]}
         """
@@ -47,11 +47,19 @@ final class ConnectionsTests: XCTestCase {
         let a = try XCTUnwrap(c.internet)
         XCTAssertEqual(a.map(\.id), ["icloud:jamie@example.com", "imap:robin@example.org", "alex@example.com"])
         XCTAssertEqual(a[0].receipts?.summary, "Filed 2 renewals from 3 messages read, 1 still to read.")
-        XCTAssertEqual(a[0].summary(mail: true, calendars: true, receipts: true, reminders: true), "Mail, Reminders, Receipts and renewals")
+        XCTAssertEqual(a[0].broughtIn { _ in true }, "Mail, Receipts and renewals")
+        XCTAssertEqual(a[0].broughtIn { $0 != .mail }, "Mail", "a switch counts only while its module is on")
+        XCTAssertEqual(a[0].kindShort, "iCloud")
+        XCTAssertEqual(a[0].badgeLetter, "J")
         XCTAssertEqual(a[1].kindLabel, "imap.example.org:993")
-        XCTAssertEqual(a[1].summary(mail: true, calendars: true, receipts: true, reminders: false), "Mail, read only")
+        XCTAssertEqual(a[1].broughtIn { _ in true }, "Mail, read only")
+        XCTAssertEqual(a.map(\.kindShort), ["iCloud", "Other mail", "Google, older sign-in"])
         XCTAssertEqual(a.map(\.hasReadOnlySwitch), [true, true, false])
-        XCTAssertNil(a[2].features.inbox, "Sign in with Google reads only: no Mail screen")
+        XCTAssertNil(a[2].features.inbox, "the older Google sign-in reads only: no Mail screen")
+        XCTAssertEqual(a[2].kindLabel, "Google, older sign-in")
+        XCTAssertEqual(a.map(\.google_removed_at), [nil, "2026-11-24T08:00:00.000Z", nil], "when an app password took an older Google sign-in over")
+        XCTAssertEqual(InternetAccount.googleRemovedNote("Nov 24"), "The older Google sign-in for this address was removed on Nov 24. Receipts and renewals carries on with this app password, from where the sign-in stopped.")
+        XCTAssertTrue(InternetAccount.olderGoogleNote.hasPrefix("This address uses the older Google sign-in, which reads receipts only."))
         XCTAssertNil(try JSONCoding.decode(Connections.self, from: #"{"steam": {"connected": false}, "letterboxd": {"connected": false}, "health": {"samples": 0, "total": 0}}"#).internet)
         // A hub from before Read only says nothing: no switch the hub would not keep.
         XCTAssertFalse(InternetAccount(key: "icloud:jamie@example.com", kind: "icloud", email: "jamie@example.com", features: .init(inbox: true)).hasReadOnlySwitch)
@@ -85,7 +93,8 @@ final class ConnectionsTests: XCTestCase {
         XCTAssertEqual(try body(2) as NSDictionary, ["email": "alex@example.com", "password": "abcd efgh ijkl mnop", "preset": "gmail"] as NSDictionary, "Gmail's server is the hub's to fill in")
     }
 
-    /// Apple Reminders' switch is on the iCloud account in Settings, Connections, so Settings, Modules leaves it out.
+    /// A hub of 1.0.17 kept Apple Reminders' switch on the iCloud account, so Settings, Modules leaves out a module it
+    /// says is switched elsewhere (since 2026-11-24 the hub sends no such module).
     func testAModuleSwitchedElsewhereIsLeftOutOfModules() throws {
         let list = try JSONCoding.decode(ModulesResponse.self, from: #"{"modules": [{"id": "voice", "group": "On your devices", "on": true}, {"id": "apple_reminders", "group": "On your devices", "on": true, "switch_in": "connections"}]}"#).modules
         XCTAssertEqual(list.listedInModules.map(\.id), ["voice"])

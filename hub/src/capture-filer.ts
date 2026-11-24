@@ -56,7 +56,7 @@ export function nearbyEvents(store: Store, at: Date): string[] {
 export function similarTasks(store: Store, text: string): string[] {
   const want = wordsOf(text);
   if (!want.size) return [];
-  return store.list({ kind: "task", space: "personal", limit: 100000 })
+  return store.list({ kind: "task", space: "personal", limit: 100000, shown: true })
     .filter((t) => t.fields.status !== "done" && !t.deleted_at)
     .map((t) => ({ t, shared: [...wordsOf(String(t.fields.title ?? ""))].filter((w) => want.has(w)).length }))
     .filter((x) => x.shared >= Math.min(2, want.size))

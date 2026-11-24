@@ -207,20 +207,11 @@ extension HubClient {
     }
 }
 
-// MARK: Gmail through Sign in with Google
+// MARK: Gmail through the older Google sign-in (no app offers a new one since 2026-11-24)
 extension HubClient {
     /// The hub's own Google app (OAuth client for a web application), set once by whoever runs the hub.
     public func setGoogleApp(clientId: String, secret: String) async throws {
         _ = try await post("connections/google/app", GoogleAppBody(client_id: clientId, client_secret: secret), as: Ignored.self, method: "PUT")
-    }
-
-    /// Google's account chooser for one more mailbox. Google sends the browser back to the hub, which answers with
-    /// `everythingapp://google?linked=1&message=…` (or `?error=…`).
-    public func googleSignInURL() async throws -> URL {
-        guard let base = http?.baseURL else { throw HubError.transport("Google sign-in needs a direct hub connection") }
-        let r = try await post("connections/google/signin", SignInBody(hub: base.absoluteString, client: "apple"), as: SignInURL.self)
-        guard let u = URL(string: r.url) else { throw HubError.decoding("bad sign-in URL") }
-        return u
     }
 
     /// List every linked mailbox (or the one account named by its key) for new mail now. Returns how many new
@@ -491,9 +482,11 @@ public struct MailCounts: Decodable, Equatable, Sendable {
     }
 }
 
-/// One account in Internet Accounts (`GET /connections` `internet`): iCloud, Google signed in with Google (receipts
-/// only), Gmail with an app password, or another IMAP server. A feature is nil when the account cannot do it.
-/// `read_only` (since 2026-11-24): the hub writes nothing to it; nil from a hub older than that.
+/// One account in Internet Accounts (`GET /connections` `internet`), one per address: iCloud, Google on the older
+/// Google sign-in (receipts only; no app offers a new one since 2026-11-24), Gmail with an app password, or another
+/// IMAP server. A feature is nil when the account cannot do it. `read_only` (since 2026-11-24): the hub writes nothing
+/// to it; nil from a hub older than that. `google_removed_at`: when the hub removed the older Google sign-in of this
+/// address, whose receipts this account carries on.
 public struct InternetAccount: Decodable, Equatable, Sendable, Identifiable {
     public struct Features: Decodable, Equatable, Sendable {
         public var inbox: Bool?
@@ -522,6 +515,10 @@ public struct InternetAccount: Decodable, Equatable, Sendable, Identifiable {
     public var read_only: Bool?
     /// What Receipts and renewals came to, while it reads the account.
     public var receipts: MailCounts?
+    public var google_removed_at: String?
+    /// When the hub last used its password (added, or a sign-in for Receipts and renewals, the Mail screen or calendar
+    /// sync; since 2026-11-24). `last_error` says when that went wrong. Nil from older hubs.
+    public var checked_at: String?
     public var id: String { key }
 
     public init(key: String, kind: String, email: String, features: Features, read_only: Bool? = nil, host: String? = nil, port: Int? = nil) {
@@ -532,31 +529,23 @@ public struct InternetAccount: Decodable, Equatable, Sendable, Identifiable {
     public var kindLabel: String {
         switch kind {
         case "icloud": return "iCloud"
-        case "google": return "Google, signed in with Google"
+        case "google": return "Google, older sign-in"
         case "gmail": return "Google, with an app password"
         default: return "\(host ?? "Mail server")\(port.map { ":\($0)" } ?? "")"
         }
     }
 
-    /// An iCloud or app-password account on a hub that knows Read only (a Google sign-in can only read).
+    /// An iCloud or app-password account on a hub that knows Read only (the older Google sign-in can only read).
     public var hasReadOnlySwitch: Bool { kind != "google" && read_only != nil }
-
-    /// What it brings in, for its line in the list: "Mail, Calendars, Receipts and renewals, read only".
-    public func summary(mail: Bool, calendars: Bool, receipts: Bool, reminders: Bool) -> String {
-        let parts = [
-            mail && features.inbox == true ? "Mail" : nil,
-            calendars && features.calendars == true ? "Calendars" : nil,
-            reminders ? "Reminders" : nil,
-            receipts && features.receipts == true ? "Receipts and renewals" : nil,
-        ].compactMap { $0 }
-        let what = parts.isEmpty ? "Nothing switched on" : parts.joined(separator: ", ")
-        return read_only == true ? "\(what), read only" : what
-    }
 
     /// What Read only stops, said under its switch (web READ_ONLY_NOTE, kept the same).
     public static let readOnlyNote = "Aeneas only reads this account: no drafts saved, no mail moved, flagged or marked read there, and no calendar event changed. Mail's Done, Delete, Pin and replies are off for its mail."
-    /// What the Reminders switch does, said beside it (web REMINDERS_NOTE, kept the same).
-    public static let remindersNote = "Your iPhone and Mac keep Apple Reminders and Tasks the same, both ways, every list. iCloud does not give Reminders to servers, so the hub never reads them itself."
+    /// What an account still on the older Google sign-in says, beside Add an app password (web OLDER_GOOGLE_NOTE, kept
+    /// the same).
+    public static let olderGoogleNote = "This address uses the older Google sign-in, which reads receipts only. Add an app password for it and Mail can show it too: Receipts and renewals then carries on with the app password, from where the sign-in stopped."
+    /// What an account that took over an older Google sign-in of its address says, once (web googleRemovedNote, kept
+    /// the same).
+    public static func googleRemovedNote(_ day: String) -> String { "The older Google sign-in for this address was removed on \(day). Receipts and renewals carries on with this app password, from where the sign-in stopped." }
 }
 
 /// What a switch change came to (`PUT /connections/accounts/<key>`); `removed` with the hub's `message` when it turned

@@ -27,10 +27,13 @@ import EACore
 ///   -EAThemeEditor YES         with -EASection settings -EASettingsPage appColors, the theme editor opens on the theme in use
 ///   -EAOpenItem <id>           an item's sheet opens, as a link to it does
 ///   -EAPrintWindows YES        prints the number of every window of the app (sheets too) once the screen has loaded
-///   -EASettingsWindow <page>   a Settings page (theme, appColors, calendarColors...) in a window of its own (640x860,
-///                              or the size -EAWindowSize gives)
+///   -EASettingsWindow <page>   a Settings page (theme, appColors, calendarColors, accounts, addAccount...) in a window
+///                              of its own (640x860, or the size -EAWindowSize gives); with accounts, -EAAccount
+///                              <address> then opens that account's page
 ///   -EAAppKey <service>        an app key's page from Settings, Connections, App keys (google, atlassian or steam) in
 ///                              a window of its own (640x860, or the size -EAWindowSize gives)
+///   -EASourcesPage <page>      a page of Settings, Accounts, From this Mac in a window of its own (640x860, or the size
+///                              -EAWindowSize gives): reminders (DeviceRemindersView) or calendars (DeviceCalendarsView)
 ///   -EAWideLayouts NO          every screen keeps its narrow layout however wide the window is (WideLayout in
 ///                              UI.swift), to compare a wide window with and without the wide layouts
 ///   -EAWideFrom <points>       the width a screen is wide from, instead of 1040 (also on the iPhone and iPad)
@@ -116,6 +119,14 @@ enum DebugHooksMac {
                 let reload = { await store.load(model.engine.client, calendarsOn: false) }
                 await reload()
                 await screenWindow(model, title: key.name, size: size) { NavigationStack { AppKeyView(key: key, store: store, reload: reload) } }
+            }
+        }
+        if let page = d.string(forKey: "EASourcesPage"), ["reminders", "calendars"].contains(page) {
+            let size = d.string(forKey: "EAWindowSize").flatMap(parse) ?? NSSize(width: 640, height: 860)
+            Task {
+                await screenWindow(model, title: page == "reminders" ? "Reminders" : "Calendars", size: size) {
+                    NavigationStack { if page == "reminders" { DeviceRemindersView() } else { DeviceCalendarsView() } }
+                }
             }
         }
         if let name = d.string(forKey: "EAMachine"), !name.isEmpty {

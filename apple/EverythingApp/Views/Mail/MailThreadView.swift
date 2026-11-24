@@ -83,7 +83,7 @@ struct MailThreadView: View {
         let where_ = Mail.inProvider(Mail.mailboxOf(store.list?.mailboxes ?? [], t.summary.mailbox))
         let readOnly = store.readOnly(t)
         return FlowLayout(spacing: 8) {
-            // A Read only mailbox (Settings, Connections) takes no Done and no Pin.
+            // A Read only mailbox (Settings, Accounts) takes no Done and no Pin.
             if !readOnly {
                 Button { Task { await store.done([t], inDone: back); leave() } } label: {
                     Label(back ? "Move to Inbox" : "Done", systemImage: back ? "tray" : "checkmark")

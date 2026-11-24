@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { makeHub } from "./helpers.js";
-import { parseKey } from "../src/feel.js";
+import { FeelStore, parseKey } from "../src/feel.js";
 
 test("feel: defaults, partial updates, refusals, and following the newest music idea's key", async () => {
   const t = makeHub();
@@ -117,5 +119,74 @@ test("a saved theme may carry its own status colors", async () => {
     assert.equal(r.status, 200);
     assert.equal(((await r.json()) as { app_themes: Array<{ danger?: string }> }).app_themes[0].danger, "#B00020");
     assert.equal((await t.api("/prefs/feel", { method: "PUT", json: { app_themes: [{ ...theme, ok: "green" }] } })).status, 422);
+  } finally { t.cleanup(); }
+});
+
+test("bottom bar: the default, a change kept beside the rest of the setting, and what is refused", async () => {
+  const t = makeHub();
+  try {
+    const put = (json: unknown) => t.api("/prefs/feel", { method: "PUT", json });
+    const usual = { count: 5, first: ["today", "assistant", "capture", "library", "search"], second: ["tasks", "week", "notes", "memory", "people"] };
+    const first = await (await t.api("/prefs/feel")).json() as Record<string, any>;
+    assert.deepEqual(first.bar, usual, "a hub that was never told has the bar as it always was");
+
+    // Three across, a screen only a newer app knows, and nothing but the three fields kept.
+    const bar = { count: 3, first: ["today", "library", "mail"], second: ["tasks", "someNewScreen"] };
+    const set = await (await put({ bar: { ...bar, extra: true } })).json() as Record<string, any>;
+    assert.deepEqual(set.bar, bar);
+    assert.equal(set.scale, "major_pentatonic", "the rest of the setting is as it was");
+    // An app from before the bottom bar changes another field and never names the bar: it stays.
+    const later = await (await put({ key: "D" })).json() as Record<string, any>;
+    assert.deepEqual(later.bar, bar);
+    assert.deepEqual(((await (await t.api("/prefs/feel")).json()) as Record<string, any>).bar, bar, "kept in the file");
+    // Library may be left out (the apps draw it) and the second row may be empty.
+    const bare = { count: 4, first: ["today", "capture"], second: [] };
+    assert.deepEqual(((await (await put({ bar: bare })).json()) as Record<string, any>).bar, bare);
+
+    for (const bad of [
+      null,
+      "five",
+      { count: 2, first: ["library"], second: [] },
+      { count: 6, first: ["library"], second: [] },
+      { count: 5, first: ["library"] },
+      { count: 5, first: ["today", "library", "today"], second: [] },
+      { count: 5, first: ["today", "library"], second: ["today"] },
+      { count: 5, first: ["a", "b", "c", "d", "e", "library"], second: [] },
+      { count: 3, first: ["today", "assistant", "library", "capture"], second: [] },
+      { count: 4, first: ["library"], second: ["a", "b", "c", "d", "e"] },
+      { count: 5, first: ["library", "two words"], second: [] },
+      { count: 5, first: ["library", 7], second: [] },
+    ]) {
+      const r = await put({ bar: bad });
+      assert.equal(r.status, 422, JSON.stringify(bad));
+      assert.match(((await r.json()) as { error: string }).error, /^bar: count is 3, 4 or 5/);
+    }
+    // Refused whole: the good field beside a bad bar is not taken either.
+    assert.equal((await put({ key: "E", bar: { count: 9, first: [], second: [] } })).status, 422);
+    const after = await (await t.api("/prefs/feel")).json() as Record<string, any>;
+    assert.equal(after.key, "D");
+    assert.deepEqual(after.bar, bare);
+  } finally { t.cleanup(); }
+});
+
+test("bottom bar: a file from before it, or with a bar that breaks a rule, reads with the default bar and keeps the rest", () => {
+  const t = makeHub();
+  try {
+    const usual = { count: 5, first: ["today", "assistant", "capture", "library", "search"], second: ["tasks", "week", "notes", "memory", "people"] };
+    const file = path.join(t.dir, "feel-bar.json");
+    const store = new FeelStore(file);
+    store.set({ key: "A", synth: "bell" });
+    const { bar: _bar, ...older } = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify(older));
+    assert.deepEqual(store.get().bar, usual);
+    assert.equal(store.get().key, "A");
+    for (const broken of [{ count: 7, first: ["today", "today"], second: "none" }, { count: 3, first: ["a", "b", "c", "d"], second: [] }]) {
+      fs.writeFileSync(file, JSON.stringify({ ...older, bar: broken }));
+      assert.deepEqual(store.get().bar, usual);
+      assert.equal(store.get().synth, "bell", "a bad bar does not cost the rest of the setting");
+    }
+    // The default handed out is a copy: changing it changes no other answer.
+    store.get().bar.first.pop();
+    assert.equal(store.get().bar.first.length, 5);
   } finally { t.cleanup(); }
 });

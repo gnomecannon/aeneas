@@ -7,12 +7,15 @@ final class AppKeysTests: XCTestCase {
     private let base = #""letterboxd": {"connected": false}, "health": {"last_import": null, "samples": 0, "total": 0}"#
 
     func testAKeyShowsOnlyWhileItsModuleIsOnWithWhetherTheHubHasIt() throws {
-        let c = try connections(#"{"steam": {"connected": false, "hub_key": true}, \#(base), "atlassian": {"connected": false, "app": false}, "google": {"app": true, "accounts": []}}"#)
+        let c = try connections(#"{"steam": {"connected": false, "hub_key": true}, \#(base), "atlassian": {"connected": false, "app": false}, "google": {"app": true, "accounts": [{"email": "robin@larkspur.example"}]}}"#)
         let all = AppKey.shown(in: c) { _ in true }
         XCTAssertEqual(all.map(\.key.name), ["Google app", "Atlassian app", "Steam key"])
         XCTAssertEqual(all.map(\.added), [true, false, true])
         XCTAssertEqual(AppKey.shown(in: c) { $0 != .wiki }.map(\.id), ["google", "steam"], "Wiki off: no Atlassian app")
         XCTAssertEqual(AppKey.shown(in: c) { _ in false }, [])
+        // The Google app serves only the older Google sign-in: with no mailbox signed in that way, it is not shown.
+        let noSignIn = try connections(#"{"steam": {"connected": false, "hub_key": true}, \#(base), "atlassian": {"connected": false, "app": false}, "google": {"app": true, "accounts": []}}"#)
+        XCTAssertEqual(AppKey.shown(in: noSignIn) { _ in true }.map(\.id), ["atlassian", "steam"])
         // Linked to Confluence means the hub has its Atlassian app.
         let linked = try connections(#"{"steam": {"connected": false}, \#(base), "atlassian": {"connected": true, "site_name": "example-studio"}}"#)
         XCTAssertEqual(AppKey.atlassian.added(in: linked) { _ in true }, true)

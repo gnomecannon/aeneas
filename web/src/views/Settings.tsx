@@ -15,6 +15,7 @@ import { checkForUpdate, manifestCheck, promptInstall, shellVersion, subscribePw
 import { fmtDateTime } from "../lib/time";
 import { useFeel } from "../feel/store";
 import { AppColors, AppThemeEditor, CalendarColors, ThemeHome, themeSummaries } from "./settings/Theme";
+import { BottomBarPage } from "./settings/BottomBar";
 import { PaletteEditor, TapEffects } from "./settings/TapEffects";
 import { NoteSounds } from "./settings/NoteSounds";
 import { NavRow, SubPage, Toggle, errorText } from "./settings/common";
@@ -23,6 +24,7 @@ import { ModulesPage, modulesSummary } from "./settings/Modules";
 import { useModules } from "../lib/modules";
 import { setAlerts, shownAlerts, useAlerts } from "../lib/alerts";
 import { ConnectionsPage, connectionsSummary, useConnections } from "./settings/Connections";
+import { AccountsSettings, accountsSummary } from "./settings/Accounts";
 import { DevicesList, PairDevice } from "./settings/Devices";
 import { LinkChoice } from "./settings/Link";
 import { MachinesSettings, RetentionSettings } from "./settings/HubPrivacy";
@@ -61,12 +63,15 @@ export function Settings({ parts, params }: { parts: string[]; params: URLSearch
     if (b === "taps") return <TapEffects />;
     if (b === "sounds") return <NoteSounds />;
     if (b === "calendars") return <CalendarColors />;
+    if (b === "bar") return <BottomBarPage />;
     return <ThemeHome />;
   }
   if (a === "connection") return <Connection />;
+  if (a === "accounts") return <AccountsSettings parts={parts.slice(1)} params={params} />;
   if (a === "connections") return <ConnectionsPage />;
   if (a === "notifications") return <Notifications />;
-  if (a === "work") return <WorkSpace />;
+  // Work space is in Settings, Accounts, Work since 2026-11-24; a link to its old page lands there.
+  if (a === "work") return <AccountsSettings parts={[]} params={params} />;
   if (a === "planner") return <Planner />;
   if (a === "data") return <Data />;
   if (a === "import") return <ImportPage />;
@@ -94,7 +99,6 @@ function SettingsHome() {
   const hubUrl = useMeta<string>(META.hubUrl) ?? "";
   const sync = useSyncState();
   const rejected = useMeta<RejectedEdit[]>(META.rejected) ?? [];
-  const [work, setWork] = useState<string>("");
   const [widget, setWidgetState] = useState(false);
   const [auto, setAuto] = useState(false);
   const t = themeSummaries(f);
@@ -106,10 +110,6 @@ function SettingsHome() {
 
   const ready = useHubReady();
   useEffect(() => {
-    engine.client?.workSpace().then(
-      (w) => setWork(w.enabled ? `On, ${w.events} events and ${w.tasks} tasks` : "Off"),
-      () => setWork(""),
-    );
     if (!isWindowsApp) return;
     void getWidget().then(setWidgetState);
     void autostartEnabled().then(setAuto);
@@ -135,10 +135,10 @@ function SettingsHome() {
         <NavRow href="/settings/modules" title="Modules" summary={modulesSummary(modules)} />
         {people && <NavRow href="/settings/people" title="People on this machine" summary={people} />}
         <NavRow href="/settings/import" title="Bring your data in" summary="ChatGPT, Google Takeout, Obsidian and other notes, text" />
+        <NavRow href="/settings/accounts" title="Accounts" summary={accountsSummary(links)} />
         <NavRow href="/settings/connections" title="Connections" summary={connectionsSummary(links)} />
         {reference !== null && <NavRow href="/settings/reference" title="Reference" summary={reference} />}
         <NavRow href="/settings/notifications" title="Notifications" summary={isWindowsApp ? "Windows notifications and banners" : "Banners while the app is open"} />
-        <NavRow href="/settings/work" title="Work space" summary={work || (engine.client ? "Work calendar and tasks" : "Hub not configured")} />
         <NavRow href="/settings/planner" title="Planner" summary="Plan rules, week and renewals" />
         <NavRow href="/settings/data" title="Data" summary="Export notes, clear this device" />
         {isWindowsApp && <NavRow href="/settings/windows" title="Windows app" summary={windows} />}
@@ -410,49 +410,6 @@ function Notifications() {
           {msg && <div className="muted small">{msg}</div>}
         </div>
       )}
-    </SubPage>
-  );
-}
-
-/** One switch for the sealed work space. Off erases every work event and task on every device and stops the import. */
-function WorkSpace() {
-  const [st, setSt] = useState<{ enabled: boolean; events: number; tasks: number } | null>(null);
-  const [msg, setMsg] = useState("");
-  const [busy, setBusy] = useState(false);
-  const ready = useHubReady();
-  const load = () => engine.client?.workSpace().then(setSt, (e) => setMsg(errorText(e)));
-  useEffect(() => { void load(); }, [ready]);
-  const set = async (on: boolean) => {
-    if (!engine.client) return;
-    if (!on && !confirm("Turn off and erase the work space? Every work event and work task is erased from the hub and every device, and the work calendar stops importing.")) return;
-    setBusy(true);
-    try {
-      const r = await engine.client.setWorkSpace(on);
-      setMsg(on ? "Work space on." : `Erased ${r.erased} work items.`);
-      await engine.cycle();
-      await load();
-    } catch (e) {
-      setMsg(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <SubPage path="/settings/work">
-      <div className="card col">
-        {st ? (
-          <Toggle
-            checked={st.enabled}
-            disabled={busy}
-            onChange={(on) => void set(on)}
-            label="Keep work calendar and tasks"
-            note={st.enabled ? `${st.events} work events and ${st.tasks} work tasks. Titles and times only; never sent to cloud AI.` : "Off. Nothing from work is kept or imported."}
-          />
-        ) : msg ? null : (
-          <div className="muted small">{engine.client ? "Loading" : "Hub not configured."}</div>
-        )}
-        {msg && <div className="muted small">{msg}</div>}
-      </div>
     </SubPage>
   );
 }

@@ -275,7 +275,15 @@ button.back.link { background: none; border: 0; color: var(--link); cursor: poin
    side by side, long text keeps its measure), never a limit on the area. */
 .main { padding: 16px var(--gutter) 24px; width: 100%; min-width: 0; }
 
-.tabs { display: none; }
+.tabs, .tabs-scrim { display: none; }
+/* The phone's bottom bar and its picture in Settings, Theme, Bottom bar, in three sizes: the fewer screens across, the
+   larger each icon and its name and the more room around them. Five across keeps the 12 px names the bar had. */
+.tabs, .bar-edit { --tab-icon: 22px; --tab-text: 12px; --tab-gap: 2px; --tab-pad: 6px; }
+.tabs.count-4, .bar-edit.count-4 { --tab-icon: 25px; --tab-text: 13px; --tab-gap: 3px; --tab-pad: 7px; }
+.tabs.count-3, .bar-edit.count-3 { --tab-icon: 28px; --tab-text: 14px; --tab-gap: 4px; --tab-pad: 8px; }
+.screen-icon { flex: none; }
+.tab-name { max-width: 100%; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.tabs-grab-pill { display: block; width: 36px; height: 5px; border-radius: 3px; background: currentColor; }
 
 .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); padding: 6px 8px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
@@ -728,22 +736,57 @@ ul.ledger-lines li .grow { overflow-wrap: anywhere; }
 @media (max-width: 767px) {
   .shell { grid-template-columns: 1fr; }
   .rail { display: none; }
-  .main { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
-  html.kb-open .tabs { display: none; }
+  /* The bottom bar (components/BottomBar.tsx) says how tall it is folded: that changes with how many screens it shows
+     across, the size of the words and whether there is a second row. Until it has, room for the tallest. */
+  .main { padding-bottom: calc(var(--tabs-h, calc(92px + env(safe-area-inset-bottom))) + 12px); }
+  html.kb-open .tabs, html.kb-open .tabs-scrim { display: none; }
   html.kb-open .main { padding-bottom: 16px; }
-  .toast { bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(var(--tabs-h, calc(92px + env(safe-area-inset-bottom))) + 8px); }
   html.kb-open .toast { bottom: 8px; }
   .tabs {
-    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    display: flex; flex-direction: column; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     background: var(--surface); border-top: 1px solid var(--border);
-    padding: 4px var(--gutter) max(4px, env(safe-area-inset-bottom));
+    padding: 4px 4px max(4px, env(safe-area-inset-bottom));
+    /* A drag on the bar is the bar's own (it pulls the second row out): the page does not scroll or select under it. */
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   }
+  .tabs-row { display: flex; position: relative; }
   .tabs a {
-    flex: 1; text-align: center; color: var(--muted); font-size: 12px; padding: 8px 2px;
-    border-radius: var(--radius); position: relative;
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+    gap: var(--tab-gap); padding: var(--tab-pad) 2px; position: relative; text-align: center;
+    color: var(--text-2); font-size: var(--tab-text); line-height: 1.15; border-radius: var(--radius);
+    -webkit-tap-highlight-color: transparent;
   }
-  .tabs a.active { color: var(--text); font-weight: 600; background: var(--surface-2); }
-  .tabs a .badge { position: absolute; top: 0; right: 2px; font-size: 10px; line-height: 16px; min-width: 16px; padding: 0 4px; }
+  .tabs a:hover { text-decoration: none; }
+  /* The screen that is showing: the accent as words, and its icon drawn heavier, so it does not rest on color alone.
+     The words keep their weight: bold ones are wider, and a name that only then needed a second line moved the bar. */
+  .tabs a.active { color: var(--link); }
+  .tabs a.active .screen-icon { stroke-width: 2.3; }
+  .tabs .screen-icon { width: var(--tab-icon); height: var(--tab-icon); flex: none; }
+  /* A long name takes a second line before it is cut (.tab-name), so every name reads on a 360 px screen. */
+  .tabs a .badge { position: absolute; top: 2px; left: calc(50% + var(--tab-icon) / 2 - 7px); font-size: 10px; line-height: 16px; min-width: 16px; padding: 0 4px; }
+  /* The grabber: a strip of its own along the bar's top edge, the pill in its middle. All of its box can be pressed
+     and none of it lies over a row (a box reaching under the first row lost its lower part to that row's screens).
+     It is 24 px tall, the size WCAG asks of a target, and not 44: that would make the bar 20 px taller, and a drag
+     anywhere on the bar does the same. */
+  .tabs-grab {
+    align-self: center; width: 120px; height: 24px; min-height: 24px; margin: -4px 0 0; padding: 0;
+    display: flex; justify-content: center; align-items: center;
+    background: none; border: 0; border-radius: var(--radius); color: var(--muted); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* The keyboard's ring goes around the part that shows, not the whole box. */
+  .tabs-grab:focus-visible { outline: none; }
+  .tabs-grab:focus-visible .tabs-grab-pill { outline: 2px solid var(--accent); outline-offset: 3px; }
+  /* A screen of the second row is the one showing. */
+  .tabs-grab.lit { color: var(--accent); }
+  /* The second row: no height while folded, its own height when open, and in between whatever the finger says. */
+  .tabs-more { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .2s ease; position: relative; }
+  .tabs.open .tabs-more { grid-template-rows: 1fr; }
+  .tabs-more > .tabs-row { min-height: 0; overflow: hidden; visibility: hidden; transition: visibility 0s linear .2s; }
+  .tabs.open .tabs-more > .tabs-row, .tabs.dragging .tabs-more > .tabs-row { visibility: visible; transition-delay: 0s; }
+  /* Under the open second row, over the screen: a tap there folds the row. */
+  .tabs-scrim { display: block; position: fixed; inset: 0; z-index: 39; }
   .topbar {
     display: flex; justify-content: space-between; align-items: center;
     margin: -4px 0 10px; min-height: 28px;
@@ -1066,6 +1109,15 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 .account-row { gap: 4px; border-top: 1px solid var(--border); padding-top: 10px; }
 .account-modules { gap: 2px; padding-left: 10px; border-left: 2px solid var(--border); }
 .conn-group { margin: 12px 0 -4px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+/* Settings, Accounts: each address once, with a letter badge, what it brings in, and its kind at the right. */
+.accounts-list { gap: 6px; }
+.account-link { align-items: center; color: inherit; }
+.account-link:hover { text-decoration: none; }
+.account-link .body { display: flex; flex-direction: column; gap: 2px; }
+.account-badge { flex: none; width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.account-badge.add { background: transparent; color: var(--accent); border: 1px dashed var(--accent); }
+.account-kind { flex: none; }
+.guide-steps { margin: 0; padding-left: 18px; gap: 8px; }
 .toggle-note { padding-left: 28px; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; align-self: flex-start; max-width: 100%; }
 .seg button { border: 0; border-radius: 0; background: var(--surface); min-width: 72px; }
@@ -1093,6 +1145,29 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 .color-field input[type="color"] { width: 44px; height: 36px; padding: 2px; flex: none; cursor: pointer; }
 .color-field > span { display: flex; flex-direction: column; min-width: 0; }
 .live-preview { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; }
+/* Theme, Bottom bar: both rows as the phone draws them, each place a button that opens the list of screens. */
+.bar-edit { display: flex; flex-direction: column; gap: 2px; width: 100%; max-width: 430px; padding: 6px 4px 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+.bar-edit > .tabs-grab-pill { align-self: center; color: var(--muted); margin-bottom: 2px; }
+.bar-edit-name { font-size: 11px; color: var(--muted); padding: 2px 6px 0; }
+.bar-edit-row { display: flex; gap: 2px; }
+.bar-place {
+  flex: 1 1 0; min-width: 0; min-height: 44px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: var(--tab-gap); padding: var(--tab-pad) 2px; text-align: center;
+  background: none; border: 1px solid transparent; color: var(--text-2); font-size: var(--tab-text); line-height: 1.15;
+}
+.bar-place .screen-icon { width: var(--tab-icon); height: var(--tab-icon); }
+.bar-place.free { border: 1px dashed var(--border); color: var(--muted); }
+.bar-place.off { color: var(--muted); }
+.bar-place.off .screen-icon { opacity: .5; }
+.bar-place.sel { border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--text); }
+.bar-plus { display: flex; align-items: center; justify-content: center; width: var(--tab-icon); height: var(--tab-icon); font-size: calc(var(--tab-icon) - 4px); line-height: 1; }
+.bar-chooser h2 { margin: 0; }
+.bar-chooser h2:focus { outline: none; }
+.bar-choice { width: 100%; align-items: center; text-align: left; min-height: 44px; }
+.bar-choice .screen-icon { width: 22px; height: 22px; color: var(--link); }
+.bar-choice .meta { flex: none; }
+.bar-choice.on { border-color: var(--accent); }
+.bar-empty { align-self: flex-start; }
 
 .palette-list { gap: 6px; }
 .palette-row { align-items: center; flex-wrap: wrap; padding: 4px 6px; }
@@ -1981,7 +2056,7 @@ table.compare tbody th { color: var(--muted); font-weight: 600; width: 22%; }
   .theme-actions button, .palette-actions button, .swatch-tools button { min-height: 44px; }
   .gear { width: 44px; height: 44px; }
   .info-btn { min-width: 44px; min-height: 44px; }
-  .tabs a { min-height: 44px; display: flex; align-items: center; justify-content: center; }
+  .tabs a { min-height: 44px; }
   .topbar .back { display: inline-flex; align-items: center; min-height: 44px; }
   .music .to-projects, details.music-project > summary { min-height: 44px; }
 }

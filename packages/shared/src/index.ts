@@ -115,8 +115,11 @@ export const TaskFields = z.object({
   fired: z.array(instant).optional(),
   /** The item this task is about (a renewal, a pet event, a job application). */
   linked_id: z.string().optional(),
-  /** The Apple Reminders item it mirrors, written by the iPhone and Mac. */
-  apple: z.object({ id: z.string(), list: z.string(), list_title: z.string().optional() }).optional(),
+  /**
+   * The Apple Reminders item it mirrors, written by the iPhone and Mac. `list_key` (since 1.0.18) names its list the
+   * same way on every device, as the sources setting does (`taskFilter`).
+   */
+  apple: z.object({ id: z.string(), list: z.string(), list_title: z.string().optional(), list_key: z.string().max(300).optional() }).optional(),
   /**
    * A snoozed mail this task brings back (the Mail screen's id for it): the task is titled "Snoozed mail", holds none
    * of the mail's words, and reminds at the snooze's end; marking the task done or deleting it brings the mail back
@@ -124,6 +127,53 @@ export const TaskFields = z.object({
    */
   mail: z.string().optional(),
 });
+
+/**
+ * An Apple Reminders list as the sources setting knows it (GET /prefs/sources, `lists`). `key` is the same on every
+ * device (`<account kind>:<account name>/<list title>`), `was` holds the keys it had before it or its account was
+ * renamed, and `on` says whether its tasks show in the app.
+ */
+export interface SourceList { key: string; title: string; on: boolean; was?: string[] }
+
+/**
+ * The one rule for "does this task show", for the hub and the web: a task is hidden only while it is in an Apple
+ * Reminders list that is switched off (Settings, Accounts). The task names its list by `apple.list_key`; one linked
+ * by an app from before 1.0.18 has only `apple.list_title`, and is hidden when every list of that name is off. A key
+ * whose list now has another name is out of date (an older app changed only the title), so the title decides. A list
+ * the setting has not heard of hides nothing. Returns the test for a task's fields.
+ */
+export function taskFilter(lists: SourceList[] | undefined): (fields: Record<string, unknown>) => boolean {
+  if (!lists?.some((l) => !l.on)) return () => true;
+  const byKey = new Map<string, SourceList>();
+  const byOldKey = new Map<string, SourceList>();
+  const byTitle = new Map<string, SourceList[]>();
+  for (const l of lists) {
+    byKey.set(l.key, l);
+    for (const k of l.was ?? []) if (!byOldKey.has(k)) byOldKey.set(k, l);
+    const named = byTitle.get(l.title);
+    if (named) named.push(l); else byTitle.set(l.title, [l]);
+  }
+  return (fields) => {
+    const a = fields.apple as { list_key?: unknown; list_title?: unknown } | null | undefined;
+    if (!a || typeof a !== "object") return true;
+    const key = typeof a.list_key === "string" ? a.list_key : "";
+    const title = typeof a.list_title === "string" ? a.list_title : "";
+    if (key) {
+      const l = byKey.get(key);
+      if (l && (!title || l.title === title)) return l.on;
+      const old = l ? undefined : byOldKey.get(key);
+      if (old) return old.on;
+    }
+    if (!title) return true;
+    const named = byTitle.get(title);
+    return !named || named.some((l) => l.on);
+  };
+}
+
+/** `taskFilter` for one task. */
+export function taskShown(fields: Record<string, unknown>, lists: SourceList[] | undefined): boolean {
+  return taskFilter(lists)(fields);
+}
 
 /** Older kind. The hub turns every reminder into a task on start; nothing new is written with it. */
 export const ReminderFields = z.object({
@@ -1189,3 +1239,4 @@ export function readingLabel(sensor: string, thing: string): string {
 }
 
 export { HOST_SCRIPTS } from "./hostscripts.js";
+export * from "./bar.js";

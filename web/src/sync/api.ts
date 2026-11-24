@@ -21,10 +21,26 @@ export type ModulePermission = "microphone" | "speech" | "notifications" | "remi
  * A part of the app the owner switches on or off (GET /modules). `group` is its Library area, "Assistant", or "On your
  * devices". `reads` says what personal data it reads; `setup` marks a part that needs the person's own key or app.
  */
+/**
+ * Which Apple Reminders lists, calendars and Contacts come in from the devices (GET /prefs/sources), one setting for
+ * every device. The web app only reads `lists`, to hide the tasks of a list that is off; the Apple apps change it.
+ */
+export interface SourcesView {
+  lists: { key: string; title: string; account: string; kind: string; on: boolean; space: "personal" | "work"; work_default: boolean; wants?: "personal" | "work"; was?: string[]; devices: string[] }[];
+  new_tasks: string | null;
+  calendars: { key: string; title: string; account: string; kind: string; color?: string; work: boolean; hub_kept: boolean; devices: string[] }[];
+  contacts: { device: string | null; name: string | null };
+  waiting: { id: string; name: string; platform: string; version: string | null }[];
+  needs: string;
+}
+
 export interface ModuleInfo {
   id: string; title: string; summary: string; example?: string; group: string; on: boolean;
   reads?: string; permissions?: ModulePermission[]; setup?: { minutes: string; needs: string };
-  /** Where its switch is when not in Settings, Modules: `connections` (Apple Reminders, on the iCloud account). */
+  /**
+   * Where its switch is when not in Settings, Modules: `connections` (Apple Reminders, on the iCloud account, from
+   * hubs of 1.0.17 only; since 2026-11-24 every switch is in Settings, Modules).
+   */
   switch_in?: "connections";
   /**
    * The module it is shown under in Settings, Modules, as a sub-option with its own switch (since 2026-11-24:
@@ -212,7 +228,11 @@ export interface Connections {
   health: { last_import: string | null; samples: number; total: number };
   /** Confluence through Sign in with Atlassian. `app`: the hub has its own Atlassian app; sign-in works only then. Absent on older hubs. */
   atlassian?: AtlassianConnection;
-  /** Gmail, read-only, one entry per linked mailbox. `app`: the hub has its own Google app; sign-in works only then. Absent on older hubs. */
+  /**
+   * Gmail through the older Google sign-in, read-only, one entry per mailbox still signed in that way (no app offers a
+   * new one since 2026-11-24). `app`: the hub has its own Google app. Its `reading` and `times` are every mailbox's.
+   * Absent on older hubs.
+   */
   google?: GoogleConnection;
   /** iCloud Mail, read-only, one entry per mailbox linked with an app-specific password (never sent back). Absent on older hubs. */
   icloud?: ICloudConnection;
@@ -273,8 +293,9 @@ export interface ImapConnection {
   accounts: ImapAccountView[];
 }
 /**
- * One account in Internet Accounts: iCloud, Google signed in with Google (receipts only), Gmail with an app password, or
- * another IMAP server. A feature is null when the account cannot do it; `receipts` holds what receipts came to.
+ * One account in Internet Accounts, one per address: iCloud, Google on the older Google sign-in (receipts only), Gmail
+ * with an app password, or another IMAP server. A feature is null when the account cannot do it; `receipts` holds what
+ * receipts came to.
  */
 export interface InternetAccount {
   key: string;
@@ -287,9 +308,16 @@ export interface InternetAccount {
   last_sync: string | null;
   last_error: string | null;
   features: { inbox: boolean | null; receipts: boolean | null; calendars: boolean | null };
-  /** The hub writes nothing to it (since 2026-11-24; a Google sign-in can only read). Absent on older hubs. */
+  /** The hub writes nothing to it (since 2026-11-24; the older Google sign-in can only read). Absent on older hubs. */
   read_only?: boolean;
+  /** When the hub removed the older Google sign-in of this address, whose receipts this account carries on (since 2026-11-24). */
+  google_removed_at?: string;
   receipts?: Pick<GmailAccount, "listed" | "to_read" | "read" | "failed" | "filed">;
+  /**
+   * When the hub last used its password (added, or a sign-in for Receipts and renewals, the Mail screen or calendar
+   * sync; since 2026-11-24). `last_error` says when that went wrong. Absent on older hubs.
+   */
+  checked_at?: string | null;
 }
 /** Linking another mail account: Gmail (the hub fills in the server) or any IMAP server over TLS. */
 export type ImapLink = { email: string; password: string; user?: string } & ({ preset: "gmail" } | { preset: "imap"; host: string; port?: number });
@@ -748,10 +776,6 @@ export class HubClient {
   setGoogleApp(clientId: string, clientSecret: string) {
     return this.req<unknown>("PUT", "/connections/google/app", { client_id: clientId, client_secret: clientSecret });
   }
-  /** Start Sign in with Google for one more mailbox: Google's account chooser, which returns to this hub. */
-  googleSignIn(client: "web" | "apple") {
-    return this.req<{ url: string }>("POST", "/connections/google/signin", { hub: this.url(""), client });
-  }
   /** List every linked mailbox (or the one account named by its key) for new mail now; the hub files it in the background. */
   readMailNow(account?: string) {
     return this.req<Record<string, { listed: number; queued: number } | { error: string }>>("POST", "/connections/google/sync", account ? { account } : {});
@@ -761,6 +785,13 @@ export class HubClient {
     return this.req<Record<string, { listed: number; queued: number } | { error: string }>>("POST", "/connections/icloud/sync", {});
   }
 
+  /**
+   * Link an iCloud mailbox with its app-specific password (Mail and Receipts and renewals both, for a new one); the
+   * hub checks it with iCloud once. A new password for an account already linked keeps its switches.
+   */
+  linkICloud(email: string, password: string) {
+    return this.req<unknown>("PUT", "/connections/icloud", { email, password });
+  }
   /** Link another mail account for the Mail screen; the hub checks it with the server once. */
   linkImap(link: ImapLink) {
     return this.req<ImapConnection>("PUT", "/connections/imap", link);
@@ -1395,6 +1426,14 @@ export class HubClient {
   /** Shapes and tap notes, one setting for every device. */
   feel() {
     return this.req<FeelView>("GET", "/prefs/feel");
+  }
+  /** Which Apple Reminders lists, calendars and Contacts come in from the devices (404 from a hub before 1.0.18). */
+  sources() {
+    return this.req<SourcesView>("GET", "/prefs/sources");
+  }
+  /** Change what comes in from the devices: only what is named changes (Settings, Accounts, From your iPhone, iPad and Mac). */
+  setSources(body: { lists?: { key: string; on?: boolean; space?: "personal" | "work" | null }[]; new_tasks?: string | null; calendars?: { key: string; work: boolean }[] }) {
+    return this.req<SourcesView>("PUT", "/prefs/sources", body);
   }
   setFeel(patch: Partial<Feel>) {
     return this.req<FeelView>("PUT", "/prefs/feel", patch);

@@ -99,7 +99,7 @@ It checks the backup opens and is whole before changing anything, stops the hub,
 On a new machine: run the install command there, copy a backup file over (from the second copy, or the old disk),
 and run `restore.sh` with its path. It asks for the recovery key, since the new hub has its own backup key; the key
 is not shown or written anywhere. Then open the Welcome page and save the new hub's recovery key too: backups from
-now on use it. Pair your devices again (below), and link accounts again in Settings, Connections.
+now on use it. Pair your devices again (below), and link accounts again in Settings, Accounts.
 
 ## Move to a new machine
 

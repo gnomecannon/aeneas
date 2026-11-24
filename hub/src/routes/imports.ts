@@ -86,7 +86,7 @@ export function importRoutes() {
   });
   r.post("/connections/icloud/sync", async (c) => {
     const hub = c.get("hub");
-    if (!hub.modules.on("mail")) throw new StoreError(404, "Receipts and renewals is off. Turn it on in Settings, Modules.");
+    if (!hub.modules.on("mail")) throw new StoreError(404, "Receipts and renewals is off. Switch it on for an account in Settings, Accounts.");
     return c.json(await readMailNow(hub, readNowAccount(await readJsonObject(c).catch(() => ({})))));
   });
   r.delete("/connections/icloud/:email", (c) => {
@@ -101,7 +101,7 @@ export function importRoutes() {
   // password checked with the server once and kept sealed; never returned.
   r.put("/connections/imap", async (c) => {
     const hub = c.get("hub");
-    if (!hub.modules.on("mail_inbox") && !hub.modules.on("mail")) throw new StoreError(404, "Neither Mail nor Receipts and renewals is on. Turn one on in Settings, Modules.");
+    if (!hub.modules.on("mail_inbox") && !hub.modules.on("mail")) throw new StoreError(404, "Neither Mail nor Receipts and renewals is on. Add the account in Settings, Accounts, which switches them on.");
     return c.json(await linkImap(hub, await readJsonObject(c), (account) => {
       if (hub.modules.on("mail_inbox")) void refreshMail(hub).catch((e) => console.error(`[mail-inbox] ${errCode(e)}`));
       if (hub.modules.on("mail") && imapSource.accounts(hub).includes(account)) void imapSource.list(hub, account).catch((e) => console.error(`[mail] ${errCode(e)}`));
@@ -243,6 +243,19 @@ export function startImportJob(hub: Hub, everyMs = 3600_000): () => void {
   return () => { clearTimeout(first); clearInterval(timer); };
 }
 
+/**
+ * When the hub last used an account's password (since 2026-11-24, for its page in Settings, Accounts): the latest of
+ * when it was added, Receipts and renewals' last look at it, the Mail screen's last refresh of it and its calendars'
+ * last sync. `last_error` says when that went wrong.
+ */
+function checkedAt(hub: Hub, a: { key: string; email: string; linked_at: string; last_sync: string | null }): string | null {
+  let mailbox: string | null = null;
+  try { mailbox = (hub.mailDb.prepare("SELECT last_refresh FROM mailboxes WHERE account = ?").get(a.key) as { last_refresh: string | null } | undefined)?.last_refresh ?? null; } catch { /* no Mail screen table yet */ }
+  const calendar = a.key.startsWith("icloud:") ? hub.connections.get().icloud?.find((x) => x.email === a.email)?.calendar?.last_sync ?? null : null;
+  const times = [a.linked_at, a.last_sync, mailbox, calendar].filter((t): t is string => !!t && !Number.isNaN(Date.parse(t)));
+  return times.length ? times.reduce((x, y) => (Date.parse(y) > Date.parse(x) ? y : x)) : null;
+}
+
 /** `GET /connections`: every service, with what each linked mailbox's mail came to. */
 export function connectionsView(hub: Hub) {
   const v = hub.connections.view();
@@ -250,7 +263,7 @@ export function connectionsView(hub: Hub) {
     ...v,
     google: { ...v.google, reading: mailReading(hub), ...mailSchedule(hub), accounts: v.google.accounts.map((a) => ({ ...a, ...mailCounts(hub, a.email) })) },
     icloud: { accounts: v.icloud.accounts.map((a) => ({ ...a, ...mailCounts(hub, `icloud:${a.email}`) })) },
-    internet: v.internet.map((a) => (a.features.receipts ? { ...a, receipts: mailCounts(hub, a.key) } : a)),
+    internet: v.internet.map((a) => ({ ...a, ...(a.features.receipts ? { receipts: mailCounts(hub, a.key) } : {}), checked_at: checkedAt(hub, a) })),
     password_manager: passwordManagerView(hub),
   };
 }

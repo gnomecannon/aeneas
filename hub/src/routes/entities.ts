@@ -12,6 +12,7 @@ import { readJsonObject } from "../http.js";
 import { ackReminder, pendingReminders, snoozeReminder } from "../reminders.js";
 import { assertWorkAllowed, setWorkSpace, workCounts } from "../work.js";
 import { feelView } from "../feel.js";
+import { sourcesChanged, sourcesView } from "../sources.js";
 import { entitiesCsv } from "../csv.js";
 import { dayKey } from "../metrics.js";
 import { inAppUnits } from "../health.js";
@@ -19,8 +20,17 @@ import { modelPin, prepareSpeechModel, speechModelFile } from "../speechmodels.j
 
 const RESERVED_QUERY = new Set(["kind", "space", "limit", "include_deleted", "token", "key"]);
 
+/**
+ * A task in an Apple Reminders list that is switched off is hidden, and nothing about it changes on the hub: these
+ * routes (the assistant's way in) answer as for a task that is not there. Devices still sync it (/sync).
+ */
+function assertShown(hub: Hub, id: string): void {
+  const e = hub.store.get(id);
+  if (e && !hub.store.shows(e)) throw new StoreError(404, "entity not found");
+}
+
 export function entityRoutes() {
-  const r = new Hono<{ Variables: { hub: Hub } }>();
+  const r = new Hono<{ Variables: { hub: Hub; device_id?: string } }>();
 
   // ---- entities ----
   r.get("/entities", (c) => {
@@ -34,7 +44,8 @@ export function entityRoutes() {
     const where: Record<string, string> = {};
     for (const [k, v] of Object.entries(c.req.query())) if (!RESERVED_QUERY.has(k)) where[k] = v;
     const includeDeleted = c.req.query("include_deleted") === "true";
-    return c.json(hub.store.list({ kind, space, limit, where, includeDeleted }));
+    // Tasks in an Apple Reminders list that is switched off are hidden here too (the assistant lists items this way).
+    return c.json(hub.store.list({ kind, space, limit, where, includeDeleted, shown: true }));
   });
 
   /** Every item of one kind as a CSV download. Same filters as GET /entities (space, field=value), no limit. */
@@ -79,6 +90,7 @@ export function entityRoutes() {
     if (!body.fields || typeof body.fields !== "object") throw new StoreError(422, "fields object required");
     // As on sync: while the work space is off no edit reaches it (a PATCH after an erase brought the item back).
     assertWorkAllowed(hub, hub.store.get(c.req.param("id"))?.space);
+    assertShown(hub, c.req.param("id"));
     const patched = hub.store.patch(c.req.param("id"), body.fields);
     return c.json(hub.store.get(patched.id) ?? patched);
   });
@@ -86,6 +98,7 @@ export function entityRoutes() {
   r.delete("/entities/:id", (c) => {
     const hub = c.get("hub");
     assertWorkAllowed(hub, hub.store.get(c.req.param("id"))?.space);
+    assertShown(hub, c.req.param("id"));
     return c.json(hub.store.patch(c.req.param("id"), { deleted_at: nowIso() }));
   });
 
@@ -148,7 +161,10 @@ export function entityRoutes() {
     const body = await readJsonObject<{ enabled?: boolean; confirm?: string }>(c);
     if (typeof body.enabled !== "boolean") throw new StoreError(422, "enabled must be true or false");
     if (!body.enabled && body.confirm !== "erase work") throw new StoreError(422, 'turning the work space off erases it: send {"enabled": false, "confirm": "erase work"}');
-    return c.json(setWorkSpace(hub, body.enabled));
+    const out = setWorkSpace(hub, body.enabled);
+    // A list set to Work whose tasks waited for the work space moves now.
+    sourcesChanged(hub);
+    return c.json(out);
   });
 
   // How the app feels on every device: shapes, tap notes, key, scale and synth.
@@ -157,6 +173,23 @@ export function entityRoutes() {
     const hub = c.get("hub");
     hub.feel.set(await readJsonObject(c));
     return c.json(feelView(hub));
+  });
+  // What comes in from each device's Apple Reminders, Calendar and Contacts (sources.ts): one choice for every device.
+  r.get("/prefs/sources", (c) => c.json(sourcesView(c.get("hub"))));
+  r.put("/prefs/sources", async (c) => {
+    const hub = c.get("hub");
+    hub.sources.set(hub, await readJsonObject(c));
+    sourcesChanged(hub);
+    return c.json(sourcesView(hub));
+  });
+  // A device says which lists and calendars it sees (and, once, which calendars it had marked as work itself).
+  r.put("/prefs/sources/seen", async (c) => {
+    const hub = c.get("hub");
+    const device = c.get("device_id");
+    if (!device) throw new StoreError(403, "only a device signed in with its own key says what it sees");
+    hub.sources.seen(hub, device, await readJsonObject(c));
+    sourcesChanged(hub);
+    return c.json(sourcesView(hub));
   });
   // Image shapes: the raw PNG or WebP as the body, `?name=` for its label. Shrink to about 256 px before sending.
   // Calendar colors (Theme, Calendar colors): an app reports the calendars it brings events from, with their colors;
@@ -217,7 +250,9 @@ export function entityRoutes() {
     const shown = (kind: string) => { const m = moduleOfKind(kind); return !m || hub.modules.on(m); };
     // Assistant chats too (kept in the chat database, not as items), unless the search asks for item kinds only.
     const chats = !kinds.length || kinds.includes("chat") ? hub.ai.sessions.search(q, Math.min(limit, 20)) : [];
-    return c.json({ hits: hub.store.search(q, { kinds: kinds.filter((k) => k !== "chat"), limit: limit * 2 }).filter((h) => shown(h.kind)).slice(0, limit), chats });
+    // A task in an Apple Reminders list that is switched off is hidden from search as from every list.
+    const visible = (h: { id: string; kind: string }) => { if (h.kind !== "task") return true; const e = hub.store.get(h.id); return !e || hub.store.shows(e); };
+    return c.json({ hits: hub.store.search(q, { kinds: kinds.filter((k) => k !== "chat"), limit: limit * 2 }).filter((h) => shown(h.kind) && visible(h)).slice(0, limit), chats });
   });
 
   // ---- logs and dashboard ----
@@ -235,7 +270,7 @@ export function entityRoutes() {
 
   r.get("/dashboard", (c) => {
     const hub = c.get("hub");
-    const tasks = hub.store.list({ kind: "task" });
+    const tasks = hub.store.list({ kind: "task", shown: true });
     const byOrder = (a: Entity, b: Entity) => Number(a.fields.order ?? 0) - Number(b.fields.order ?? 0) || a.created_at.localeCompare(b.created_at);
     const doing = tasks.filter((t) => t.fields.status === "doing").sort(byOrder);
     const nextTasks = tasks.filter((t) => t.fields.status === "next").sort(byOrder);

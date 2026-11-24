@@ -3,8 +3,10 @@ import Foundation
 import Contacts
 import os
 
-/// People and Apple Contacts, both ways, on the one device where Settings, People, "Sync Apple Contacts" is on (the
+/// People and Apple Contacts, both ways, on the one device where Settings, Accounts, Contacts is switched on (the
 /// Mac, which runs all day). The rules are in `ContactsMirror`; this reads and writes the Contacts store.
+/// One device at a time, for every device (the sources setting): switching it on here makes this device the one, and
+/// a device that had it on stops, turns its switch off and can say which device mirrors them (`mirroredElsewhere`).
 @MainActor
 public final class ContactsSync: ObservableObject {
     public static let shared = ContactsSync()
@@ -15,6 +17,10 @@ public final class ContactsSync: ObservableObject {
     @Published public private(set) var lastRun: Date?
     @Published public private(set) var lastSummary: String?
     @Published public private(set) var lastError: String?
+    /// The device that mirrors Contacts when it is another one (its name), so People can say so.
+    @Published public private(set) var mirroredElsewhere: String?
+    private var observers: [NSObjectProtocol] = []
+    private var lastDevice = SharedConfig.shared.sources?.contacts.device
 
     public var engineProvider: (() async -> SyncEngine)?
     private let store = CNContactStore()
@@ -23,6 +29,66 @@ public final class ContactsSync: ObservableObject {
     private var running = false
 
     public var enabled: Bool { UserDefaults.standard.bool(forKey: Self.enabledKey) }
+
+    /// The switch as this device last settled it (`ContactsDevice`); nil before the first time.
+    private var wasOn: Bool? {
+        get { UserDefaults.standard.object(forKey: AppleLinkRecords.contactsSeen) as? Bool }
+        set { UserDefaults.standard.set(newValue, forKey: AppleLinkRecords.contactsSeen) }
+    }
+
+    public init() {
+        // The switch turned on or off (Settings, Accounts), or another device took Contacts over: settled again now.
+        observers.append(NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.wasOn != nil, self.enabled != self.wasOn else { return }
+                // After a run already under way, which read the switch before it changed.
+                for _ in 0..<40 where self.running { try? await Task.sleep(nanoseconds: 500_000_000) }
+                await self.runNow(reason: "switch")
+            }
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: SyncEngine.sourcesDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                // Only a change of the device that mirrors them matters here.
+                let device = SharedConfig.shared.sources?.contacts.device
+                guard let self, device != self.lastDevice else { return }
+                self.lastDevice = device
+                await self.runNow(reason: "contacts device")
+            }
+        })
+    }
+
+    /// Who mirrors Contacts, settled with the hub: this device claims them when its switch was just turned on (or none
+    /// does), gives them up when it was turned off, and stops when another device is the one. True when this device
+    /// mirrors them now.
+    private func settle(_ engine: SyncEngine) async -> Bool {
+        let me = engine.config.deviceId
+        let step = ContactsDevice.step(localOn: enabled, wasOn: wasOn, setting: engine.sources, me: me)
+        var mine = false
+        switch step {
+        case .mirror:
+            mine = true
+        case .claim:
+            do {
+                try await engine.changeSources(["contacts": .object(["device": .string(me)])])
+                mine = true
+            } catch {
+                // Not settled with the hub: tried again on the next run, and nothing is mirrored meanwhile.
+                lastError = "Could not tell the hub that this device syncs Contacts: \((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
+                return false
+            }
+        case .release:
+            // Not settled with the hub: tried again on the next run (the switch is remembered as on until then).
+            do { try await engine.changeSources(["contacts": .object(["device": .null])]) } catch { return false }
+        case .stop:
+            UserDefaults.standard.set(false, forKey: Self.enabledKey)
+        case .idle:
+            break
+        }
+        wasOn = enabled
+        let other = engine.sources?.contacts
+        mirroredElsewhere = other?.device.flatMap { $0 == me ? nil : (other?.name ?? "another device") }
+        return mine
+    }
     /// The Contacts module (Settings, Modules) is on. Off, Contacts are not read or written on this device.
     public var moduleOn: Bool { SharedConfig.shared.moduleSaidOn(.contacts) }
     public var authorized: Bool {
@@ -52,15 +118,17 @@ public final class ContactsSync: ObservableObject {
     }
 
     public func runNow(reason: String) async {
-        guard enabled, moduleOn, authorized, let provider = engineProvider, !running else { return }
+        guard let provider = engineProvider, !running else { return }
         running = true
         defer { running = false }
+        // Settled even with the switch off: one turned off here gives Contacts up for every device.
+        let engine = await provider()
+        guard await settle(engine), moduleOn, authorized else { return }
         if observer == nil {
             observer = NotificationCenter.default.addObserver(forName: .CNContactStoreDidChange, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.scheduleRun(after: 5) }
             }
         }
-        let engine = await provider()
         // Only against a copy that holds the hub's people: an unpaired or removed device, or one whose copy was emptied
         // and not filled again yet, reads as nobody in People, and every card went to the hub as a second person.
         guard engine.hasHubCopy else { return }

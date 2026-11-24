@@ -2,6 +2,8 @@ import { mainPortGuard, startLink } from "./link.js";
 import { startGalleryJob } from "./gallery.js";
 import { linkCaptureThreads, startFilingJob } from "./capture-filer.js";
 import { startMailJob } from "./mail-filer.js";
+import { dropUnusedGoogleApp } from "./imports/gmail.js";
+import { mergeGoogleSignIns } from "./imports/icloud.js";
 import { startMailInboxJob } from "./mail-inbox.js";
 import { startCalendarJob } from "./calendar-sync.js";
 import { startHelpingRefresh } from "./helping.js";
@@ -225,6 +227,13 @@ async function main(): Promise<void> {
   if (interrupted) console.log(`[ai] ${interrupted} command(s) the last run left running marked interrupted`);
   const rec = hub.vault.reconcile();
   if (rec.imported || rec.exported) console.log(`[vault] reconciled: ${rec.imported} imported from disk, ${rec.exported} written to disk`);
+  // Sign in with Google is retired: an address that also has an app password is one account from this start on (its
+  // receipts move to the app password at once; telling Google goes on behind), and a Google app nothing uses goes.
+  void mergeGoogleSignIns(hub).then(
+    (merged) => { if (merged) console.log(`[mail] ${merged} older Google sign-in(s) merged into their app-password accounts`); },
+    (e) => console.error(`[mail] merging the older Google sign-ins: ${errCode(e)}`),
+  );
+  try { if (dropUnusedGoogleApp(hub)) console.log("[mail] the hub's Google app was deleted: no Google sign-in is left to use it"); } catch (e) { console.error(`[mail] ${errCode(e)}`); }
   const app = createApp(hub);
   const stopReminders = startReminderLoop(hub.store, hub.bus, cfg.reminderIntervalMs);
   const stopBackup = startNightlyBackup(hub.db, cfg.backupDir, hub.backupKey, hub.store.workKey, 3, cfg.backupCopyDir);

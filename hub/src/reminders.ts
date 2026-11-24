@@ -16,8 +16,9 @@ import { errCode } from "./logsafe.js";
 export function reminderTick(store: Store, bus: Bus, now: Date = new Date()): string[] {
   const nowStr = now.toISOString();
   const fired: string[] = [];
-  // Only open tasks with a reminder time are read: every task ever made used to be parsed every 30 seconds.
-  for (const t of store.listWhere("task", [{ key: "remind_at", set: true }, { key: "status", isNot: "done" }])) {
+  // Only open tasks with a reminder time are read: every task ever made used to be parsed every 30 seconds. A task in
+  // an Apple Reminders list that is switched off neither alerts nor changes (sources.ts).
+  for (const t of store.listWhere("task", [{ key: "remind_at", set: true }, { key: "status", isNot: "done" }], { shown: true })) {
     const eff = taskAlertAt(t.fields);
     if (!eff || eff > nowStr) continue;
     const firedList = Array.isArray(t.fields.fired) ? (t.fields.fired as string[]) : [];
@@ -42,7 +43,8 @@ export function startReminderLoop(store: Store, bus: Bus, intervalMs: number): (
 
 function taskWithReminder(store: Store, id: string): Entity {
   const t = store.get(id);
-  if (!t || t.deleted_at || t.kind !== "task") throw new StoreError(404, "task not found");
+  // A task in a Reminders list that is switched off is hidden, and nothing about it changes.
+  if (!t || t.deleted_at || t.kind !== "task" || !store.shows(t)) throw new StoreError(404, "task not found");
   return t;
 }
 
@@ -140,10 +142,13 @@ export function migrateRemindersToTasks(store: Store): number {
   return n;
 }
 
-/** Open tasks with a reminder time, each with when it notifies next (counting a snooze), soonest first. */
+/**
+ * Open tasks with a reminder time, each with when it notifies next (counting a snooze), soonest first. Tasks in a
+ * Reminders list that is switched off are left out.
+ */
 export function pendingReminders(store: Store): Array<{ t: Entity; eff: string }> {
   const out: Array<{ t: Entity; eff: string }> = [];
-  for (const t of store.list({ kind: "task", limit: 1_000_000 })) {
+  for (const t of store.list({ kind: "task", limit: 1_000_000, shown: true })) {
     const eff = taskAlertAt(t.fields);
     if (eff) out.push({ t, eff });
   }

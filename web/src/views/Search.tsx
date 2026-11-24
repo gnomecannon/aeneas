@@ -6,6 +6,7 @@ import { go } from "../lib/router";
 import { fmtDateTime } from "../lib/time";
 import type { ChatHit } from "../sync/api";
 import { useSyncState } from "../sync/hooks";
+import { isShown } from "../lib/sources";
 
 interface Hit {
   id: string;
@@ -17,7 +18,8 @@ interface Hit {
 
 async function localSearch(q: string): Promise<Hit[]> {
   const s = q.toLowerCase();
-  const all = await db.entities.filter((e) => !e.deleted_at).toArray();
+  // A task in an Apple Reminders list that is switched off is hidden here as on every screen.
+  const all = await db.entities.filter((e) => !e.deleted_at && isShown(e)).toArray();
   const hits: Hit[] = [];
   for (const e of all) {
     const f = e.fields as Record<string, unknown>;

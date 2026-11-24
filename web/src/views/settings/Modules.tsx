@@ -60,8 +60,8 @@ function ModuleToggle({ m, busy, onFlip }: { m: ModuleInfo; busy: boolean; onFli
 }
 
 /**
- * The modules this list switches: not one whose switch is elsewhere (`switch_in`: Apple Reminders, on the iCloud
- * account in Settings, Connections, gnomecannon/aeneas#10), so the one setting is never in two places.
+ * The modules this list switches: not one an older hub says is switched elsewhere (`switch_in`: Apple Reminders, on
+ * the iCloud account, from hubs of 1.0.17; since 2026-11-24 every switch is here), so one setting is never in two places.
  */
 export const listedHere = (list: ModuleInfo[]) => list.filter((m) => !m.switch_in);
 

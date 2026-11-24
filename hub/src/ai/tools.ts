@@ -465,7 +465,7 @@ export const TOOLS: ToolDef[] = [
       if (kind === "task" && str(a.list)) {
         const title = matchList(str(a.list)!, taskLists(ctx.store), ctx.owner);
         if (!title) return { error: `no Reminders list named ${str(a.list)}`, lists: taskLists(ctx.store) };
-        const tasks = ctx.store.list({ kind: "task", limit: 100000 })
+        const tasks = ctx.store.list({ kind: "task", limit: 100000, shown: true })
           .filter((t) => listOf(t) === title && (!str(a.status) || t.fields.status === str(a.status)))
           .map((t) => ({ id: t.id, title: t.fields.title, status: t.fields.status, ...(t.fields.due ? { due: t.fields.due } : {}), ...(t.fields.remind_at ? { remind_at: t.fields.remind_at } : {}), ...(t.space === "work" ? { work: true } : {}) }));
         return { list: title, open: tasks.filter((t) => t.status !== "done"), done: tasks.filter((t) => t.status === "done").length };
@@ -512,6 +512,9 @@ export const TOOLS: ToolDef[] = [
       if (owner && ctx.moduleOn && !ctx.moduleOn(owner)) return { error: `that item belongs to ${moduleDef(owner).title}, which is switched off` };
       // A deleted item is said to be deleted, not shown as if it were live.
       if ((e as { deleted_at?: string | null }).deleted_at) return { error: "that item was deleted", item_id: e.id, item_kind: e.kind };
+      // A task in an Apple Reminders list that is switched off is hidden from the assistant as from every screen.
+      const held = e.id ? ctx.store.get(e.id) : null;
+      if (held && !ctx.store.shows(held)) return { error: "entity not found" };
       const f = { ...e.fields };
       for (const k of ["field_ts", "fired", "snooze_log", "checkins", "links", "suggested_tags", "converted_to", "external_id", "reminder_id"]) delete f[k];
       return { item_id: e.id, item_kind: e.kind, ...(e.space === "work" ? { space: "work" } : {}), ...f };

@@ -62,7 +62,8 @@ export function relatedItems(store: Store, id: string, limit = 40): Related[] {
   if (!e || e.deleted_at) throw new StoreError(404, "not found");
   const out = new Map<string, Related & { rank: number }>();
   const add = (x: Entity | null, why: string, rank: number, lines?: string[]) => {
-    if (!x || x.deleted_at || x.id === e.id || out.has(x.id)) return;
+    // A task in an Apple Reminders list that is switched off is hidden here too.
+    if (!x || x.deleted_at || x.id === e.id || out.has(x.id) || !store.shows(x)) return;
     // A work item is marked, so a cloud model is never shown it (the assistant's people tool lists these).
     out.set(x.id, { id: x.id, kind: x.kind, title: titleOf(x), why, at: x.updated_at, rank, ...(lines?.length ? { lines } : {}), ...(x.space === "work" ? { work: true } : {}) });
   };

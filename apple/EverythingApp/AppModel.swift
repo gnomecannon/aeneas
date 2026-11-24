@@ -110,14 +110,15 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .settings: return "gearshape"
         }
     }
-    /// The tab a section belongs to on the iPhone. Everything that is not a tab lives in Library.
-    var tab: Section {
+    /// The screen whose own stack shows this one on the iPhone while this one has no place in the bottom bar
+    /// (`BarLayout.tab(for:)`): Now and Week open over Today, Memory over the Assistant, and the Overview's own pages
+    /// over the Overview. Nil, or a home with no place either: it opens inside Library, like every other screen.
+    var barHome: Section? {
         switch self {
-        case .today, .now, .week: return .today
-        case .assistant, .memory: return .assistant
-        case .capture: return .capture
-        case .search: return .search
-        default: return .library
+        case .now, .week: return .today
+        case .memory: return .assistant
+        case .hosts, .journal, .snippets: return .ops
+        default: return nil
         }
     }
     /// Library: every screen that is not a tab, grouped by area of life, the same on every device.
@@ -241,6 +242,11 @@ final class AppModel: ObservableObject {
         }
         engine.onActivityCheckin = { [weak self] c in self?.activityCheckin = c }
         engine.onModules = { [weak self] list in self?.applyModules(list, offer: true) }
+        // A Reminders list switched on or off: Spotlight follows the tasks that show.
+        engine.onSources = { [weak self] _ in
+            guard let self else { return }
+            Task { await SpotlightIndexer.shared.update(self.engine) }
+        }
         engine.onDigest = { title in
             Task { await ReminderScheduler.shared.notifyDigest(title: StyleGuard.dashes(title)) }
         }
@@ -669,18 +675,24 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Fetch the switches, the alert switches with them (the engine holds those); offline keeps the cached ones.
+    /// Fetch the switches, the alert switches with them (the engine holds those); offline keeps the cached ones. The
+    /// sources setting too (which Reminders lists are on), read at launch and on return to the foreground.
     func refreshModules() async {
-        guard let c = engine.client, let r = try? await c.modulesAndAlerts() else { return }
-        await engine.applyAlerts(r.alerts)
-        applyModules(r.modules)
+        guard let c = engine.client else { return }
+        if let r = try? await c.modulesAndAlerts() {
+            await engine.applyAlerts(r.alerts)
+            applyModules(r.modules)
+        }
+        await engine.refreshSources()
     }
 
-    /// Switch modules on or off for every device; the hub answers with the whole list.
-    func setModules(_ changes: [String: Bool]) async throws {
+    /// Switch modules on or off for every device; the hub answers with the whole list. `offer`: a module switched on
+    /// offers the permissions it needs; Settings, Accounts, From this iPhone asks for its own right where it is switched
+    /// on, so it passes false.
+    func setModules(_ changes: [String: Bool], offer: Bool = true) async throws {
         guard let c = engine.client else { throw HubError.notConfigured }
         let machinesWereOn = isOn(.homelab)
-        applyModules(try await c.setModules(changes), offer: true)
+        applyModules(try await c.setModules(changes), offer: offer)
         // Machines switched on here (not on another device): its first steps, as the web offers them under the switch.
         if changes[AppModule.homelab.rawValue] == true, !machinesWereOn, isOn(.homelab) { machinesStart = true }
     }

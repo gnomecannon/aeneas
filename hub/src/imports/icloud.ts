@@ -5,7 +5,7 @@ import { nowIso } from "@everythingapp/shared";
 import type { Hub } from "../hub.js";
 import { StoreError } from "../store.js";
 import { errCode } from "../logsafe.js";
-import { BACKFILL_DAYS, MAIL_QUERY, OVERLAP_MS } from "./gmail.js";
+import { BACKFILL_DAYS, dropGoogleSignIn, MAIL_QUERY, OVERLAP_MS, revokeGoogle } from "./gmail.js";
 import type { FetchedMail, MailRef, MailSource } from "./mail-sources.js";
 import { bodyText, readingText } from "./mail-text.js";
 import { cleanMailHtml, pictureData } from "../mail-html.js";
@@ -44,6 +44,10 @@ export type { InboxMail, MailAddress, MoveRef } from "./inbox-source.js";
  * owner's own network (a mistyped or planted server cannot point the hub inside the home), the connection then made to
  * a checked address. Brand logos stay iCloud's only: they trust a verdict iCloud writes on each mail, which another
  * server does not write and a sender could forge there.
+ *
+ * One account per address (since 2026-11-24): an address is linked as iCloud or as another mail account, never both
+ * (linkICloud and linkImap refuse the second), and the older Google sign-in of an address that has an app password is
+ * merged into that account (mergeGoogleSignIns), which reads its receipts from where the sign-in stopped.
  */
 
 const HOST = "imap.mail.me.com";
@@ -128,8 +132,14 @@ export interface ImapClient {
   /** `headers` names header lines to fetch (with BODY.PEEK, like everything here): only the Mail screen asks for them. */
   fetchOne(uid: string, query: { envelope: true; bodyStructure: true; internalDate: true; headers?: string[] }, options: { uid: true }): Promise<ImapMessage | false>;
   download(uid: string, part: string, options: { uid: true; maxBytes: number }): Promise<{ content?: NodeJS.ReadableStream } | undefined>;
-  /** Each message's flags (`FETCH FLAGS`, which reads and changes nothing): only the Mail screen asks, for read and unread. */
-  fetch?(range: string, query: { uid: true; flags: true }, options: { uid: true }): AsyncIterable<{ uid: number; flags?: Set<string> }>;
+  /**
+   * Each message's flags (`FETCH FLAGS`: only the Mail screen asks, for read and unread) or when it arrived (`FETCH
+   * INTERNALDATE`: only an account that took over from a Google sign-in asks, listICloud). Both read and change
+   * nothing. `emailId` comes by itself from a server that names its messages (on Gmail its own message id, in decimal).
+   */
+  fetch?(range: string, query: { uid: true; flags?: true; internalDate?: true }, options: { uid: true }): AsyncIterable<{ uid: number; flags?: Set<string>; internalDate?: Date | string; emailId?: string }>;
+  /** What the server said it can do, once connected (`X-GM-EXT-1`: Gmail's own message ids). Read, never changed. */
+  capabilities?: Map<string, unknown>;
 }
 /** Who signs in, and where: iCloud when `host` is absent. `name` is the provider's name in the hub's messages. */
 export interface ImapLogin { user: string; pass: string; host?: string; port?: number; servername?: string; name?: string }
@@ -269,6 +279,14 @@ export interface ImapAccount extends ICloudAccount {
   port: number;
   /** The username the server takes, most often the address itself. */
   user: string;
+  /**
+   * Set when the account took over an older Google sign-in of the same address (mergeGoogleSignIns): the moment that
+   * sign-in last listed the mailbox (else the newest mail it read). Receipts are read with this password from there:
+   * no mail the sign-in listed is listed again, and none that came after is lost (listICloud, sinceHandover).
+   */
+  receipts_from?: string;
+  /** When that Google sign-in was removed, said once on the account's page. */
+  google_removed_at?: string;
 }
 
 /** Whether a mailbox's Inbox shows on the Mail screen. */
@@ -294,20 +312,14 @@ function account(hub: Hub, key: string): ICloudAccount & Partial<ImapAccount> {
 }
 
 /**
- * Whether anything on the hub still uses a linked account's password: the Mail screen, Receipts and renewals (not for
- * another mail account whose address is also signed in with Google: its receipts are read there, never with this
- * password), or calendar sync. When the last of them is switched off the account is removed (routes/imports.ts), since
- * a password is kept only while something uses it.
+ * Whether anything on the hub still uses a linked account's password: the Mail screen, Receipts and renewals or
+ * calendar sync. When the last of them is switched off the account is removed (routes/imports.ts), since a password is
+ * kept only while something uses it.
  */
 export function accountUsed(hub: Hub, key: string): boolean {
   const a = account(hub, key);
-  return inboxOn(a) || (receiptsOn(a) && !readByGoogle(hub, key)) || !!a.calendar;
+  return mailUsed(a) || !!a.calendar;
 }
-/**
- * Another mail account whose address is also signed in with Google: Receipts and renewals reads it there
- * (imapSource.accounts).
- */
-const readByGoogle = (hub: Hub, key: string) => isImapKey(key) && !!hub.connections.get().google?.some((g) => g.email === key.slice(IMAP_PREFIX.length));
 
 function saveAccount(hub: Hub, key: string, fields: Partial<ICloudAccount>) {
   hub.connections.update((c) => {
@@ -343,7 +355,14 @@ export function readOnly(hub: Hub, key: string): boolean {
 }
 
 /** What a write to a Read only account is refused with. */
-export const readOnlyText = (email: string) => `${email} is set to Read only in Settings, Connections, so Aeneas changes nothing in it. Switch Read only off there to do this.`;
+export const readOnlyText = (email: string) => `${email} is set to Read only in Settings, Accounts, so Aeneas changes nothing in it. Switch Read only off there to do this.`;
+
+/**
+ * One address, one account (since 2026-11-24): what the hub says when an address is added as iCloud (for mail or for
+ * its calendars) while it is another mail account, and the other way round. Each says what to do.
+ */
+export const linkedAsOtherMail = (email: string) => `${email} is already added as another mail account. Remove that account in Settings, Accounts first, then add it as iCloud.`;
+export const linkedAsICloud = (email: string) => `${email} is already added as an iCloud account. Remove that account in Settings, Accounts first, then add it here.`;
 
 /** Refuse a write to a Read only account: every one of the Mail screen's writes asks this first. */
 function refuseIfReadOnly(a: { email: string; read_only?: boolean }) {
@@ -403,6 +422,10 @@ export async function linkICloud(hub: Hub, body: Record<string, unknown>, read: 
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new StoreError(422, "email is the iCloud Mail address");
   const password = appPassword(body.password);
   if (!password) throw new StoreError(422, "password is an app-specific password made at account.apple.com (16 letters, like abcd-efgh-ijkl-mnop), not your Apple ID password");
+  // One account per address, as linkImap refuses the other way round: linked both ways, its mail was read by both.
+  // An address linked both ways before this (an iCloud account already here) keeps working: a new password is taken.
+  const known = hub.connections.get().icloud?.some((a) => a.email === email);
+  if (!known && hub.connections.get().imap?.some((a) => a.email === email)) throw new StoreError(409, linkedAsOtherMail(email));
   await withClient({ user: email, pass: password }, DEADLINES.check, async () => {});
   hub.connections.update((c) => {
     const list = (c.icloud ??= []);
@@ -426,7 +449,10 @@ export async function linkICloud(hub: Hub, body: Record<string, unknown>, read: 
 export async function linkImap(hub: Hub, body: Record<string, unknown>, read: (account: string) => void = () => {}) {
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new StoreError(422, "email is the mailbox's address");
-  if (hub.connections.get().icloud?.some((a) => a.email === email && mailUsed(a))) throw new StoreError(409, "that address is already linked as an iCloud mailbox");
+  // One account per address (since 2026-11-24 also an iCloud account linked for its calendars alone). An address
+  // linked both ways before this (another mail account already here) keeps working: a new password is taken.
+  const known = hub.connections.get().imap?.some((a) => a.email === email);
+  if (!known && hub.connections.get().icloud?.some((a) => a.email === email && (mailUsed(a) || !!a.calendar))) throw new StoreError(409, linkedAsICloud(email));
   const preset = body.preset === "gmail" ? "gmail" : "imap";
   let host: string, port: number, password: string | null;
   if (preset === "gmail") {
@@ -454,11 +480,66 @@ export async function linkImap(hub: Hub, body: Record<string, unknown>, read: (a
       // As for iCloud (linkICloud): the switches stay as the owner set them, and only an account nothing uses is
       // linked for mail again, as a new one is.
       Object.assign(prev, { ...acct, last_error: null, refused_at: null });
-      if (!inboxOn(prev) && !(receiptsOn(prev) && !c.google?.some((g) => g.email === email))) { prev.mail = true; delete prev.inbox; }
+      if (!mailUsed(prev)) { prev.mail = true; delete prev.inbox; }
     } else list.push({ ...acct, linked_at: nowIso() });
   });
+  // An address that was signed in with Google is this one account from here on: its receipts move to this password.
+  await mergeGoogleSignIns(hub);
   read(`${IMAP_PREFIX}${email}`);
   return hub.connections.view().imap;
+}
+
+/**
+ * Sign in with Google is retired (2026-11-24): a Google account is added with an app password, which serves the Mail
+ * screen and Receipts and renewals with one password. An address that has both links becomes one account here, by
+ * the hub itself: at start, and whenever an app password is added for an address signed in with Google.
+ *
+ * - The sign-in's rows in the `mail` table become the account's, under the ids Gmail gave them, so what receipts came
+ *   to (listed, read, filed) carries on, and everything that was filed stays.
+ * - The account's Receipts and renewals switch goes on, as the sign-in's was; its Mail and Read only switches stay.
+ * - `receipts_from` keeps the moment the sign-in last listed the mailbox. The account lists from there (`listed_to`),
+ *   and no mail the sign-in listed is listed again with the app password (listICloud, sinceHandover: by the time
+ *   before then, by Gmail's own message id around it), so none is read a second time, and mail that came after it is
+ *   not lost. Mail the sign-in listed and had not read yet waits in the queue as it did, and is read through IMAP by
+ *   its Gmail id (readICloud).
+ * - The sign-in's tokens are deleted and Google is told to end it (the best the hub can do, never holding the merge
+ *   up), and with the last sign-in the hub's Google app goes too (dropGoogleSignIn).
+ *
+ * Everything up to the first `await` happens at once, in the call itself: a caller that does not wait still has one
+ * account per address. Returns how many sign-ins were merged.
+ */
+export async function mergeGoogleSignIns(hub: Hub, now: Date = new Date()): Promise<number> {
+  const before = hub.connections.get();
+  const both = (before.google ?? []).filter((g) => before.imap?.some((a) => a.email === g.email));
+  for (const g of both) {
+    const key = `${IMAP_PREFIX}${g.email}`;
+    // Where the sign-in stopped: its last listing. One whose listing was started over (a new search) and then failed
+    // has none; the newest mail it read stands in, found by its Gmail ids under either name (a merge cut short has
+    // moved them already).
+    const newest = hub.db.prepare("SELECT MAX(at) AS at FROM mail WHERE account IN (?, ?) AND instr(id, ':') = 0").get(g.email, key) as { at: string | null };
+    const handover = g.listed_to ?? newest.at ?? undefined;
+    // The rows first: were the hub stopped between the two steps, the next start finds both links and finishes.
+    hub.db.transaction(() => {
+      hub.db.prepare("UPDATE OR IGNORE mail SET account = ? WHERE account = ?").run(key, g.email);
+      hub.db.prepare("DELETE FROM mail WHERE account = ?").run(g.email);
+    }).immediate();
+    hub.connections.update((c) => {
+      const a = c.imap?.find((x) => x.email === g.email);
+      if (!a) return;
+      // The Mail switch stays as it was: one that followed a Receipts switch that was off is kept off on its own.
+      if (a.inbox === undefined && a.mail === false) a.inbox = false;
+      a.mail = true;
+      if (handover) {
+        if (!a.receipts_from || a.receipts_from < handover) a.receipts_from = handover;
+        if (!a.listed_to || a.listed_to < handover) a.listed_to = handover;
+        a.query = SEARCH_ID;
+      }
+      a.google_removed_at = now.toISOString();
+      dropGoogleSignIn(c, g.email);
+    });
+  }
+  await Promise.all(both.map((g) => revokeGoogle(hub, g.refresh_token)));
+  return both.length;
 }
 
 /** Unlink another mail account: its password and its receipts queue go from the hub; filed records stay. The provider revokes the app password itself. */
@@ -534,24 +615,81 @@ async function openOrPass(c: ImapClient, path: string): Promise<{ uidValidity: b
   }
 }
 
+/**
+ * A Gmail API message id (64 bits, in hex): what the rows of an older Google sign-in are named by, also after its
+ * address's app-password account took them over (mergeGoogleSignIns). Never the shape of an IMAP id (messageId).
+ */
+const GMAIL_ID = /^[0-9a-f]{1,16}$/;
+/** Whether a server names each message by Gmail's own id (`X-GM-MSGID`), which the IMAP library then asks for and searches by. */
+const knowsGmailIds = (c: ImapClient) => !!c.capabilities?.has("X-GM-EXT-1") && !c.capabilities.has("OBJECTID");
+/** Gmail's id of a message as its IMAP server gives it (in decimal), as the Gmail API names it (in hex); null when it is not one. */
+const gmailHex = (emailId: string | undefined) => (emailId && /^\d{1,20}$/.test(emailId) ? BigInt(emailId).toString(16) : null);
+/** At most this many messages are asked about in one FETCH. */
+const FETCH_CHUNK = 400;
+/**
+ * How long before the handover a Gmail message is still told by its id, not by the clock: the sign-in's last listing
+ * may have missed mail of its last minutes (Gmail's search finds new mail a little late, and the hub's clock is not
+ * Google's), and that mail must not be taken for listed.
+ */
+export const HANDOVER_LOOKBACK_MS = 3600_000;
+
+/**
+ * Of the messages a search found, the ones an account that took over from a Google sign-in lists (mergeGoogleSignIns):
+ * all it has listed before, and of the others those the sign-in had not listed by `handover`, the moment it last
+ * listed the mailbox. The search cannot say this itself: IMAP's SINCE takes a day, not a moment, so it also finds the
+ * mail of the hours (and with the two days every listing looks back, of the days) before the handover. So each
+ * message not listed before is asked when it arrived (FETCH INTERNALDATE, which reads and changes nothing):
+ * - more than an hour before the handover, it was the sign-in's to list (a receipt by its search, or not one), and it
+ *   is left out;
+ * - from then on, on Gmail, it is left out only when the sign-in's own rows name it (`listedByGoogle`, by the Gmail id
+ *   the server gives with each message): exact, also for mail the sign-in listed in its last seconds or missed in its
+ *   last minutes;
+ * - on a server that gives no Gmail id, it is left out when it arrived before the handover's second.
+ * A message the server gives no time for is left for the next listing, which finds it again.
+ */
+async function sinceHandover(c: ImapClient, uids: number[], listed: (uid: number) => boolean, handover: number, listedByGoogle: (gmailId: string) => boolean): Promise<number[]> {
+  const fresh = uids.filter((uid) => !listed(uid));
+  if (!fresh.length) return uids;
+  if (!c.fetch) throw new StoreError(502, "the mail server cannot be asked when a message arrived");
+  const gmail = knowsGmailIds(c);
+  const take = new Set<number>();
+  for (let i = 0; i < fresh.length; i += FETCH_CHUNK) {
+    for await (const m of c.fetch(fresh.slice(i, i + FETCH_CHUNK).join(","), { uid: true, internalDate: true }, { uid: true })) {
+      const at = m.internalDate === undefined ? NaN : new Date(m.internalDate).getTime();
+      if (!(at >= handover - HANDOVER_LOOKBACK_MS)) continue;
+      const id = gmail ? gmailHex(m.emailId) : null;
+      if (id ? listedByGoogle(id) : at < Math.floor(handover / 1000) * 1000) continue;
+      take.add(m.uid);
+    }
+  }
+  return uids.filter((uid) => listed(uid) || take.has(uid));
+}
+
 /** List a mailbox's likely mail since it was last listed (the first time, the last BACKFILL_DAYS) and queue what is new. */
 export async function listICloud(hub: Hub, accountKey: string, now: Date = new Date(), opts: { owner?: boolean } = {}): Promise<{ listed: number; queued: number }> {
   const email = accountKey;
   let a = account(hub, accountKey);
   if (a.refused_at && !opts.owner) throw new StoreError(409, refusedText(a));
   if (a.listed_to && a.query !== SEARCH_ID) {
-    hub.db.prepare("DELETE FROM mail WHERE account = ? AND state = 'queued'").run(accountKey);
+    // Mail an older Google sign-in queued (named by its Gmail id, no colon) stays queued: a new search finds only mail
+    // after that sign-in's last listing (sinceHandover), so it would not come back.
+    hub.db.prepare("DELETE FROM mail WHERE account = ? AND state = 'queued' AND instr(id, ':') > 0").run(accountKey);
     saveAccount(hub, email, { listed_to: undefined });
     a = account(hub, accountKey);
   }
   const from = a.listed_to ? new Date(Date.parse(a.listed_to) - OVERLAP_MS) : new Date(now.getTime() - BACKFILL_DAYS * 86400_000);
+  // An account that took over from an older Google sign-in reads receipts from where that stopped, whatever day the
+  // search starts at (a new search lists 400 days again: the mail the sign-in read stays read).
+  const handover = a.receipts_from ? Date.parse(a.receipts_from) : NaN;
+  const has = hub.db.prepare("SELECT 1 FROM mail WHERE account = ? AND id = ?");
   const ids: string[] = [];
   try {
     await withClient(loginOf(a), DEADLINES.list, async (c) => {
       for (const f of mailFolders(await c.list(), { allMail: isGmail(a) })) {
         const box = await openOrPass(c, f.path);
         if (!box) continue;
-        const uids = (await c.search(searchQuery(from), { uid: true })) || [];
+        let uids = (await c.search(searchQuery(from), { uid: true })) || [];
+        if (!Number.isNaN(handover)) uids = await sinceHandover(c, uids, (uid) => !!has.get(accountKey, messageId(box.uidValidity, uid, f.path)), handover, (id) => !!has.get(accountKey, id) || !!has.get(accountKey, id.padStart(16, "0")));
         // Oldest first, so the filer (which takes the newest queued first) reads recent mail before old.
         for (const uid of [...uids].sort((x, y) => x - y)) ids.push(messageId(box.uidValidity, uid, f.path));
       }
@@ -609,25 +747,53 @@ async function downloadText(c: ImapClient, uid: string, msg: ImapMessage): Promi
   return { plain, html };
 }
 
-/** One queued message as text, or null when it is gone (its folder, its UIDVALIDITY or the message itself). */
+/**
+ * Open (read-only) the folder that holds the message Gmail names by this id and give its number there. Null when it is
+ * gone, or when this server does not name messages by Gmail's ids. A Gmail account keeps every mail once in All Mail;
+ * with All Mail hidden from mail apps, its folders are looked through in turn.
+ */
+async function openByGmailId(c: ImapClient, gmailId: string): Promise<string | null> {
+  if (!knowsGmailIds(c)) return null;
+  for (const f of mailFolders(await c.list(), { allMail: true })) {
+    if (!(await openOrPass(c, f.path))) continue;
+    // X-GM-MSGID takes the id in decimal.
+    const uids = (await c.search({ emailId: BigInt(`0x${gmailId}`).toString() }, { uid: true })) || [];
+    if (uids.length) return String(uids[0]);
+  }
+  return null;
+}
+
+/**
+ * One queued message as text, or null when it is gone (its folder, its UIDVALIDITY or the message itself). A message
+ * an older Google sign-in listed and had not read when its address's app-password account took over
+ * (mergeGoogleSignIns) is still named by its Gmail id: it is found by that id.
+ */
 export async function readICloud(hub: Hub, accountKey: string, id: string): Promise<FetchedMail | null> {
   const ref = parseId(id);
-  if (!ref) return null;
+  if (!ref && !GMAIL_ID.test(id)) return null;
   const email = accountKey;
   const a = account(hub, accountKey);
   if (a.refused_at) throw new StoreError(409, refusedText(a));
   return withClient(loginOf(a), DEADLINES.read, async (c) => {
-    let box: { uidValidity: bigint };
-    try { box = await c.mailboxOpen(ref.folder, { readOnly: true }); }
-    catch (e) {
-      // The server said NO: the folder is gone or renamed. Anything else (a dropped connection) is not "gone".
-      if ((e as { responseStatus?: string })?.responseStatus === "NO") return null;
-      throw e;
+    let uid: string;
+    if (ref) {
+      let box: { uidValidity: bigint };
+      try { box = await c.mailboxOpen(ref.folder, { readOnly: true }); }
+      catch (e) {
+        // The server said NO: the folder is gone or renamed. Anything else (a dropped connection) is not "gone".
+        if ((e as { responseStatus?: string })?.responseStatus === "NO") return null;
+        throw e;
+      }
+      if (String(box.uidValidity) !== ref.validity) return null;
+      uid = ref.uid;
+    } else {
+      const found = await openByGmailId(c, id);
+      if (!found) return null;
+      uid = found;
     }
-    if (String(box.uidValidity) !== ref.validity) return null;
-    const msg = await c.fetchOne(ref.uid, { envelope: true, bodyStructure: true, internalDate: true }, { uid: true });
+    const msg = await c.fetchOne(uid, { envelope: true, bodyStructure: true, internalDate: true }, { uid: true });
     if (!msg) return null;
-    const { plain, html } = await downloadText(c, ref.uid, msg);
+    const { plain, html } = await downloadText(c, uid, msg);
     const env = msg.envelope ?? {};
     const sender = env.from?.[0];
     const at = new Date(msg.internalDate ?? env.date ?? Date.now());
@@ -1510,14 +1676,11 @@ export const imapInbox: InboxSource = {
 
 /**
  * Other mail accounts as a Receipts and renewals source (since 2026-11-22): one app password serves the Mail screen
- * and receipts. An address also signed in with Google is read for receipts there only, so its mail is filed once.
+ * and receipts. An address is never also signed in with Google (mergeGoogleSignIns), so its mail is filed once.
  */
 export const imapSource: MailSource = {
   kind: "imap",
-  accounts: (hub) => {
-    const c = hub.connections.get();
-    return (c.imap ?? []).filter((a) => a.mail !== false && !c.google?.some((g) => g.email === a.email)).map((a) => `${IMAP_PREFIX}${a.email}`);
-  },
+  accounts: (hub) => (hub.connections.get().imap ?? []).filter(receiptsOn).map((a) => `${IMAP_PREFIX}${a.email}`),
   list: (hub, accountKey, opts) => listICloud(hub, accountKey, new Date(), opts),
   read: (hub, accountKey, id) => readICloud(hub, accountKey, id),
   // Gmail's own web search by Message-ID for a Gmail address; elsewhere the mail app's message link, as for iCloud.

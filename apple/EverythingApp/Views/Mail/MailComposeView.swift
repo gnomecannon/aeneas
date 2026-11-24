@@ -94,7 +94,7 @@ struct MailComposer: View {
     @FocusState private var textFocused: Bool
 
     private var key: String { Mail.writingKey(target.what) }
-    /// The mailboxes a draft can be saved to: never a Read only one (Settings, Connections).
+    /// The mailboxes a draft can be saved to: never a Read only one (Settings, Accounts).
     private var boxes: [MailMailbox] { Mail.writableBoxes(store.boxes) }
     /// A new mail goes from one of several mailboxes: the one used last time, until another is chosen.
     private var choosesFrom: Bool { if case .fresh = target { return boxes.count > 1 } else { return false } }

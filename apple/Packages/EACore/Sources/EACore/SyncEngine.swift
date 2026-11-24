@@ -11,7 +11,7 @@ public final class SyncEngine: ObservableObject {
 
     /// Every entity by id. Screens read it through `list(_:)`, which is indexed by kind and rebuilt only after a change.
     @Published public private(set) var entities: [String: Entity] = [:] { didSet { byKind = nil } }
-    private var byKind: [Kind: [Entity]]?
+    var byKind: [Kind: [Entity]]?
     private var lastSnapshotKey = ""
     @Published public internal(set) var status: Status = .unconfigured
     @Published public internal(set) var lastError: String?
@@ -27,6 +27,13 @@ public final class SyncEngine: ObservableObject {
     /// The alert switches from the hub (Settings, Notifications), in its order, starting from the app group's copy.
     /// Empty from a hub that has none (before 2026-11-20): every kind is then on and Settings lists no switches.
     @Published public private(set) var alerts: [AlertInfo] = []
+    /// Which Apple Reminders lists, calendars and Contacts come in (SyncEngine+Sources.swift), from the app group's copy
+    /// until the hub answers. Nil from a hub before 1.0.18, or before it first answered: every list then syncs.
+    @Published public internal(set) var sources: SourcesSetting?
+    /// The rule for which tasks show, made from `sources` when first needed.
+    var visibility: TaskVisibility?
+    /// Called when the sources setting changed (a read, or the live stream), after it is taken in.
+    public var onSources: ((SourcesSetting?) -> Void)?
     /// Called once when the hub says this device was removed.
     public var onDeviceRemoved: (() -> Void)?
     private var retryTask: Task<Void, Never>?
@@ -99,6 +106,7 @@ public final class SyncEngine: ObservableObject {
         }
         deviceRemoved = platform != .watch && config.deviceRemoved
         alerts = config.alerts ?? []
+        sources = config.sources
         routes.onChange = { [weak self] r in Task { @MainActor in self?.routeChanged(r) } }
         routes.onFound = { [weak self] address, moves in Task { @MainActor in self?.homeFound(address, movesAddress: moves) } }
     }
@@ -479,6 +487,7 @@ public final class SyncEngine: ObservableObject {
         outboxCount = 0
         pulledOnce = false
         AppleLinkRecords.forget()
+        adoptSources(nil)
         config.clearSnapshot()
         forgetAlerts()
         clearRejected()
@@ -975,6 +984,8 @@ public final class SyncEngine: ObservableObject {
                         case .modules(let list, let alerts):
                             await self.applyAlerts(alerts)
                             self.onModules?(list)
+                        case .sources(let s):
+                            self.adoptSources(s)
                         case .ping:
                             if self.status != .online { self.status = .online }
                         case .unknown: break
@@ -1165,10 +1176,14 @@ public final class SyncEngine: ObservableObject {
 
     // MARK: queries
 
+    /// The live items of a kind. A task in an Apple Reminders list that is switched off is left out (`TaskVisibility`),
+    /// so every screen, alert, widget and the Watch hide it; the Reminders sync reads `entities` and keeps it whole.
     public func list(_ kind: Kind, space: Space? = nil) -> [Entity] {
         if byKind == nil {
+            let shows = visibility ?? TaskVisibility(sources)
+            visibility = shows
             var m: [Kind: [Entity]] = [:]
-            for e in entities.values where !e.isDeleted { m[e.kind, default: []].append(e) }
+            for e in entities.values where !e.isDeleted && shows.shows(e) { m[e.kind, default: []].append(e) }
             byKind = m
         }
         let all = byKind?[kind] ?? []
@@ -1179,7 +1194,7 @@ public final class SyncEngine: ObservableObject {
 
     // MARK: after change hooks
 
-    private func afterChange() async {
+    func afterChange() async {
         updateSnapshot()
         if schedulesNotifications { await replanNotifications() }
     }
@@ -1335,7 +1350,13 @@ public enum AppleLinkRecords {
     public static let calendar = "ea.eventMirror.state"
     public static let contacts = "ea.contacts.state"
 
+    /// What this device last told the hub it sees, and whether it moved its own work calendar ticks (sources).
+    public static let sourcesLists = "ea.sources.reported.lists"
+    public static let sourcesCalendars = "ea.sources.reported.calendars"
+    public static let workTicksMoved = "ea.sources.workTicksMoved"
+    public static let contactsSeen = "ea.sources.contactsSeen"
+
     public static func forget(_ defaults: UserDefaults = .standard) {
-        for k in [reminders, calendar, contacts] { defaults.removeObject(forKey: k) }
+        for k in [reminders, calendar, contacts, sourcesLists, sourcesCalendars, workTicksMoved, contactsSeen] { defaults.removeObject(forKey: k) }
     }
 }

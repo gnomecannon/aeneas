@@ -312,6 +312,9 @@ public final class HubClient: Sendable {
         case "modules":
             if let m = try? JSONCoding.decode(ModulesResponse.self, from: d) { return .modules(m.modules, alerts: m.alerts) }
             return .unknown(name: msg.event, data: msg.data)
+        case "sources":
+            if let s = try? JSONCoding.decode(SourcesSetting.self, from: d) { return .sources(s) }
+            return .unknown(name: msg.event, data: msg.data)
         case "ping": return .ping
         default: return .unknown(name: msg.event, data: msg.data)
         }

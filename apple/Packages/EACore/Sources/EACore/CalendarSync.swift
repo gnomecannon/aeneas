@@ -46,9 +46,15 @@ public struct CalendarInfo: Equatable, Identifiable, Sendable {
     public var isExchange: Bool
     /// The calendar's own color as `#RRGGBB`, when it has one.
     public var color: String?
-    public init(id: String, title: String, sourceTitle: String, isExchange: Bool, color: String? = nil) {
+    /// Its account's kind (`SourceKey.kind`): `icloud`, `local`, `exchange`, `caldav`, `subscribed`, `birthdays`, `other`.
+    public var kind: String
+    public init(id: String, title: String, sourceTitle: String, isExchange: Bool, color: String? = nil, kind: String? = nil) {
         self.id = id; self.title = title; self.sourceTitle = sourceTitle; self.isExchange = isExchange; self.color = color
+        self.kind = kind ?? (isExchange ? "exchange" : "other")
     }
+
+    /// How the sources setting names it, the same on every device (`SourceKey`).
+    public var sourceKey: String { SourceKey.make(kind: kind, account: sourceTitle, title: title) }
 
     /// The key its events carry and its color is kept under; nil when it cannot have one (`EventCalendar.appleKey`).
     public var key: String? { EventCalendar.appleKey(account: sourceTitle, calendar: title) }

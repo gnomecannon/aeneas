@@ -121,10 +121,10 @@ const toCommitment = (c: Commitment & Interval): Commitment => ({ rule_id: c.rul
 
 // ---------- blocks, events, free slots ----------
 
-/** Tasks that still hold a block: not deleted, not done. */
+/** Tasks that still hold a block: not deleted, not done, not in a Reminders list that is switched off. */
 export function blockedTasks(hub: Hub): (Entity & { block: Interval })[] {
   const out: (Entity & { block: Interval })[] = [];
-  for (const t of hub.store.list({ kind: "task", limit: 100000 })) {
+  for (const t of hub.store.list({ kind: "task", limit: 100000, shown: true })) {
     const b = t.fields.block as { start?: string; end?: string } | undefined;
     if (!b || typeof b.start !== "string" || typeof b.end !== "string" || t.fields.status === "done") continue;
     const start = new Date(b.start);
@@ -314,7 +314,7 @@ export function scheduleTask(hub: Hub, body: ScheduleRequest): Entity {
   const taskId = typeof body.task_id === "string" ? body.task_id : "";
   if (!taskId) throw new StoreError(422, "task_id required");
   const task = hub.store.get(taskId);
-  if (!task || task.kind !== "task" || task.deleted_at) throw new StoreError(404, "task not found");
+  if (!task || task.kind !== "task" || task.deleted_at || !hub.store.shows(task)) throw new StoreError(404, "task not found");
   if (typeof body.start !== "string" || Number.isNaN(new Date(body.start).getTime())) throw new StoreError(422, "start must be an ISO datetime");
   const hours = body.hours === undefined ? 3 : Number(body.hours);
   if (!Number.isFinite(hours) || hours <= 0 || hours > 24) throw new StoreError(422, "hours must be a number from 0 to 24");
@@ -333,7 +333,7 @@ export function unscheduleTask(hub: Hub, body: { task_id?: unknown }): Entity {
   const taskId = typeof body.task_id === "string" ? body.task_id : "";
   if (!taskId) throw new StoreError(422, "task_id required");
   const task = hub.store.get(taskId);
-  if (!task || task.kind !== "task" || task.deleted_at) throw new StoreError(404, "task not found");
+  if (!task || task.kind !== "task" || task.deleted_at || !hub.store.shows(task)) throw new StoreError(404, "task not found");
   const keep = task.fields.status === "done" || task.fields.status === "doing";
   return hub.store.patch(taskId, { block: null, ...(keep ? {} : { status: "next" }) });
 }
@@ -377,7 +377,7 @@ export function watchesDueSoon(hub: Hub, now: Date): Entity[] {
 export function todayView(hub: Hub, now: Date = new Date(), minHours = 3): TodayView {
   const day = startOfDay(now);
   const model = dayModel(hub, day, minHours);
-  const tasks = hub.store.list({ kind: "task", limit: 100000 });
+  const tasks = hub.store.list({ kind: "task", limit: 100000, shown: true });
   const byOrder = (a: Entity, b: Entity) => Number(a.fields.order ?? 0) - Number(b.fields.order ?? 0) || a.created_at.localeCompare(b.created_at);
   const doing = tasks.filter((t) => t.fields.status === "doing").sort(byOrder);
   const nextTasks = tasks.filter((t) => t.fields.status === "next").sort(byOrder);

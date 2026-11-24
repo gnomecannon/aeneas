@@ -21,7 +21,6 @@ export const HELP_DOCS = [
   "docs/multi-person.md",
   "docs/helpers.md",
   "docs/privacy-network.md",
-  "docs/gmail-setup.md",
   "docs/06-threat-model.md",
 ] as const;
 
@@ -68,6 +67,9 @@ export function splitMarkdown(doc: string, md: string): HelpSection[] {
   return out;
 }
 
+/** Modules an account brings in: set up in Settings, Accounts (since 2026-11-24), the rest in Settings, Connections. */
+const ACCOUNT_MODULES = new Set(["mail", "mail_inbox", "calendars"]);
+
 /** The module list as sections, with whether each module is on for this hub when that is known. */
 export function moduleSections(modules?: Pick<ModuleView, "id" | "on">[]): HelpSection[] {
   const on = new Map((modules ?? []).map((m) => [m.id, m.on]));
@@ -84,7 +86,7 @@ export function moduleSections(modules?: Pick<ModuleView, "id" | "on">[]): HelpS
         m.example && `For example: ${m.example}`,
         m.reads && `What it reads: ${m.reads}`,
         m.permissions?.length && `What each Apple device asks for while it is on: ${m.permissions.join(", ")}.`,
-        m.setup && `Setup takes about ${m.setup.minutes} minutes: ${m.setup.needs}. The guide is in Settings, Connections.`,
+        m.setup && `Setup takes about ${m.setup.minutes} minutes: ${m.setup.needs}. ${ACCOUNT_MODULES.has(m.id) ? "Add the account in Settings, Accounts, Add account, which switches this on for you." : "The guide is in Settings, Connections, App keys."}`,
         `Listed under ${m.group}.`,
         m.under && `In Settings, Modules it sits under ${moduleDef(m.under).title}, with a switch of its own.`,
       ].filter(Boolean).join("\n"),

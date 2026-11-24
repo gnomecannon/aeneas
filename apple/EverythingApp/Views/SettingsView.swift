@@ -7,11 +7,12 @@ struct SettingsView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
     @ObservedObject private var feel = FeelController.shared
-    @ObservedObject private var importer = CalendarImporter.shared
     @State private var notifStatus = "Checking"
     @State private var debugPage: SettingsPage?
     /// "People on this machine": its summary on the machine owner's hub, nil elsewhere (the row stays out).
     @State private var machinePeople: String?
+    /// Accounts: the linked addresses, once the hub answered.
+    @State private var accountsLine: String?
     @ObservedObject private var helpers = HelpersStore.shared
 
     var body: some View {
@@ -23,6 +24,11 @@ struct SettingsView: View {
         .navigationTitle("Settings")
         .pageDestination(item: $debugPage) { $0.view }
         .task { notifStatus = await NotificationSettingsView.statusLabel() }
+        // Again once the hub's client is there (a page opened at launch is drawn before it).
+        .task(id: engine.client == nil) {
+            guard let c = engine.client, let v = try? await withDeadline(15, { try await c.connections() }) else { return }
+            accountsLine = Self.accountsSummary(v)
+        }
         .task {
             guard let c = engine.client, let l = try? await withDeadline(15, { try await c.hubs() }), l.offered else { return }
             let others = l.hubs.filter { !$0.owner }.count
@@ -82,6 +88,9 @@ struct SettingsView: View {
             SettingsRow(title: "Connection", symbol: "network", summary: connectionSummary,
                         warning: !engine.rejectedEdits.isEmpty || engine.lastError != nil)
         }
+        SettingsAreaLink(card: card) { AccountsSettingsView() } label: {
+            SettingsRow(title: "Accounts", symbol: "at", summary: accountsLine ?? "Mail and calendar accounts")
+        }
         SettingsAreaLink(card: card) { ConnectionsSettingsView() } label: {
             SettingsRow(title: "Connections", symbol: "link", summary: connectionsSummary)
         }
@@ -107,11 +116,6 @@ struct SettingsView: View {
         SettingsAreaLink(card: card) { NotificationSettingsView(status: $notifStatus) } label: {
             SettingsRow(title: "Notifications", symbol: "bell.badge", summary: notificationsSummary)
         }
-        if model.isOn(.contacts) {
-            SettingsAreaLink(card: card) { PeopleSettingsView() } label: {
-                SettingsRow(title: "People", symbol: "person.2", summary: UserDefaults.standard.bool(forKey: ContactsSync.enabledKey) ? "Syncing Apple Contacts" : "Contacts sync off")
-            }
-        }
         if model.isOn(.images) {
             SettingsAreaLink(card: card) { ImageSettingsView() } label: {
                 SettingsRow(title: "Images", symbol: "photo.on.rectangle", summary: ImageSettingsView.summary)
@@ -125,9 +129,6 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private func planLinks(card: Bool) -> some View {
-        SettingsAreaLink(card: card) { CalendarWorkSettingsView() } label: {
-            SettingsRow(title: "Calendar and work", symbol: "briefcase", summary: calendarSummary)
-        }
         NavigationLink(value: Section.planRules) {
             SettingsRow(title: "Planner", symbol: "calendar.badge.clock", summary: plannerSummary).gridCard(if: card)
         }
@@ -153,11 +154,18 @@ struct SettingsView: View {
         return engine.statusLabel
     }
 
-    /// The links whose module is on, in the order the Connections screen shows them.
+    /// The services whose module is on, in the order the Connections screen shows them (mail and calendar accounts are
+    /// in Accounts since 2026-11-24).
     private var connectionsSummary: String {
-        let links: [(AppModule, String)] = [(.games, "Steam"), (.films, "Letterboxd"), (.wiki, "Confluence"), (.health, "Apple Health")]
-        let shown = ["Internet Accounts"] + links.filter { model.isOn($0.0) }.map(\.1)
-        return shown.joined(separator: ", ")
+        let links: [(AppModule, String)] = [(.games, "Steam"), (.films, "Letterboxd"), (.wiki, "Confluence"), (.homelab, "Password manager")]
+        return (links.filter { model.isOn($0.0) }.map(\.1) + ["Calendar link"]).joined(separator: ", ")
+    }
+
+    /// The linked addresses in a line: the first, and how many more.
+    static func accountsSummary(_ c: Connections) -> String {
+        let emails = c.internet.map { $0.map(\.email) } ?? ((c.icloud?.accounts ?? []) + (c.google?.accounts ?? [])).map(\.email)
+        guard let first = emails.first else { return "No accounts yet" }
+        return emails.count == 1 ? first : "\(first) and \(emails.count - 1) more"
     }
 
     /// The Mac says whether it shows itself in Tech (ThisMacReport).
@@ -170,7 +178,7 @@ struct SettingsView: View {
     }
 
     private var modulesSummary: String {
-        // Not Apple Reminders, whose switch is on the iCloud account in Connections.
+        // Not a module an older hub says is switched elsewhere (Apple Reminders, on hubs of 1.0.17).
         let list = model.modules.listedInModules
         if list.isEmpty { return "Everything on" }
         let on = list.filter(\.on).count
@@ -189,21 +197,13 @@ struct SettingsView: View {
         return n == 0 ? "No plan rules" : "\(n) plan rule\(n == 1 ? "" : "s")"
     }
 
-    private var calendarSummary: String {
-        switch importer.access {
-        case .full:
-            let n = importer.selected.count
-            return n == 0 ? "No work calendar chosen" : "\(n) work calendar\(n == 1 ? "" : "s")"
-        case .notDetermined: return "Calendar access not asked"
-        default: return "Calendar access off"
-        }
-    }
-
 }
 
-/// The Settings screens that can be opened directly in Debug builds (`-EASettingsPage theme`).
+/// The Settings screens that can be opened directly in Debug builds (`-EASettingsPage theme`). `accounts` is Settings,
+/// Accounts (`-EAAccount <address>` then opens that account's page), `addAccount` its Add account, `calendar` From this
+/// iPhone, Calendars.
 enum SettingsPage: String, Hashable, Identifiable {
-    case theme, connection, connections, notifications, calendar, health, about, appColors, tapEffects, noteSounds, calendarColors, modules, reference, helpers
+    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, modules, reference, helpers
     var id: String { rawValue }
 
     /// A page named by a launch argument, once per launch.
@@ -219,13 +219,16 @@ enum SettingsPage: String, Hashable, Identifiable {
         case .theme: ThemeSettingsView()
         case .connection: ConnectionSettingsView()
         case .notifications: NotificationSettingsView(status: .constant(""))
-        case .calendar: CalendarWorkSettingsView()
-        case .health, .connections: ConnectionsSettingsView()
+        case .calendar: DeviceCalendarsView()
+        case .connections: ConnectionsSettingsView()
+        case .accounts, .health: AccountsSettingsView()
+        case .addAccount: AddAccountView()
         case .about: AboutSettingsView()
         case .appColors: AppColorsView()
         case .tapEffects: TapEffectsView()
         case .noteSounds: NoteSoundsView()
         case .calendarColors: CalendarColorsView()
+        case .bottomBar: BottomBarSettingsView()
         case .modules: ModulesSettingsView()
         case .reference: ReferenceSettingsView()
         case .helpers: HelpersSettingsView()
@@ -519,26 +522,6 @@ struct NotificationSettingsView: View {
     }
 }
 
-// MARK: Calendar and work
-
-struct CalendarWorkSettingsView: View {
-    @EnvironmentObject var model: AppModel
-
-    var body: some View {
-        Form {
-            // Apple Calendar off (Settings, Modules): no calendar is read or written on this device.
-            if model.isOn(.appleCalendar) {
-                AppEventsCalendarSection().themedRow()
-                WorkCalendarSection().themedRow()
-            }
-            WorkSpaceSection().themedRow()
-        }
-        .formStyle(.grouped)
-        .themedScreen()
-        .navigationTitle("Calendar and work")
-    }
-}
-
 // MARK: About
 
 struct AboutSettingsView: View {
@@ -573,7 +556,7 @@ struct WorkSpaceSection: View {
     @State private var busy = false
 
     var body: some View {
-        SwiftUI.Section("Work space") {
+        SwiftUI.Section("Work") {
             if let s = status {
                 Toggle("Keep work calendar and tasks", isOn: Binding(get: { s.enabled }, set: { on in on ? set(true) : (confirmOff = true) }))
                     .disabled(busy)

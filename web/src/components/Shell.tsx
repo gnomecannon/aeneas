@@ -5,7 +5,7 @@ import { showKeyboardHints } from "../lib/keyboardHints";
 import { listedKeys } from "../lib/keys";
 import { refreshHubIdentity, useHubTitle } from "../lib/hubIdentity";
 import { useLiveQuery } from "dexie-react-hooks";
-import { taskAlertAt } from "@everythingapp/shared";
+import { BAR_LIBRARY, barLayout, barTabs, taskAlertAt, type Bar, type BarLayout } from "@everythingapp/shared";
 import { go, type Route } from "../lib/router";
 import { useEntities } from "../sync/hooks";
 import { db } from "../sync/db";
@@ -16,6 +16,11 @@ import { openWindow } from "../tauri/bridge";
 import { usePetName } from "../lib/profile";
 import { moduleOfScreen, useModules } from "../lib/modules";
 import { useOpenAreas } from "../lib/libraryOpen";
+import { MAIN_SCREENS, SCREEN_ALSO, barAvailable, barShowing, screenId, screenPath } from "../lib/bar";
+import { useFeel } from "../feel/store";
+import { useMediaQuery } from "../lib/useMediaQuery";
+import { BottomBar, type BarItem } from "./BottomBar";
+import { isShown } from "../lib/sources";
 
 /**
  * `also`: other paths that are this screen's own pages (a machine's page is the Overview's), so it shows as the one you
@@ -48,7 +53,7 @@ export const AREAS: Array<{ title: string; items: Item[] }> = [
   // Since 2026-11-19 one screen: a card per machine, service and place, each opening its page (checks, readings, fix
   // notes, changes, snippets). With Machines off, the home sensors are the Sensors screen.
   { title: "Tech", items: [
-    { path: "/ops", label: "Overview", also: ["/hosts", "/journal", "/snippets"] },
+    { path: "/ops", label: "Overview", also: SCREEN_ALSO.ops },
     { path: "/sensors", label: "Sensors", unless: "homelab" },
   ] },
   { title: "Making", items: [
@@ -158,10 +163,19 @@ function keysHint(on: (id: string | undefined) => boolean): string {
   return listedKeys(on).map((k) => `${k.key} ${k.label}`).join(", ");
 }
 
+/** The Library areas with only the screens of modules that are on (`on` says which); an emptied area goes too. */
+export function areasFor(on: (id: string | undefined) => boolean): typeof AREAS {
+  return AREAS.map((a) => ({ ...a, items: a.items.filter((i) => on(moduleOfScreen(i.path)) && !(i.unless && on(i.unless))) })).filter((a) => a.items.length);
+}
+
 /** The Library areas with only the screens of modules that are on (Settings, Modules); an emptied area goes too. */
 export function useAreas(): typeof AREAS {
-  const { on } = useModules();
-  return AREAS.map((a) => ({ ...a, items: a.items.filter((i) => on(moduleOfScreen(i.path)) && !(i.unless && on(i.unless))) })).filter((a) => a.items.length);
+  return areasFor(useModules().on);
+}
+
+/** The screens the Library lists while those modules are on, as paths: its areas' screens and Status. */
+export function listedPaths(on: (id: string | undefined) => boolean): string[] {
+  return [...areasFor(on).flatMap((a) => a.items), ...SYSTEM].map((i) => i.path);
 }
 
 function Gear({ active }: { active: boolean }) {
@@ -190,8 +204,23 @@ function PopOut({ route }: { route: Route }) {
   );
 }
 
-/** Phone tabs. Today carries the Now card; Library holds everything else by area. */
-const TABS: Item[] = [...PRIMARY, { path: "/library", label: "Library" }, { path: "/search", label: "Search" }];
+/** Each screen the phone's bottom bar can hold, by its id (packages/shared `BAR_SCREENS`), with its name. */
+export const SCREEN_LABELS: Record<string, string> = Object.fromEntries(
+  [...PRIMARY, { path: "/library", label: "Library" }, { path: "/search", label: "Search" }, ...AREAS.flatMap((a) => a.items), ...SYSTEM].map((n) => [screenId(n.path), n.label]),
+);
+
+/**
+ * The phone's bottom bar as this device draws it now (the feel setting's `bar`, without screens of modules that are
+ * off), the screens it could hold, and each one's name. Settings, Theme, Bottom bar edits it.
+ */
+export function useBar(): { bar: Bar; layout: BarLayout; tabs: string[]; available: Set<string>; label: (id: string) => string } {
+  const { bar } = useFeel();
+  const { on } = useModules();
+  const pet = usePetName();
+  const available = barAvailable(listedPaths(on));
+  const layout = barLayout(bar, (id) => available.has(id));
+  return { bar, layout, tabs: barTabs(layout), available, label: (id) => (id === "pet" ? pet : SCREEN_LABELS[id] ?? id) };
+}
 
 /**
  * Marks <html class="kb-open"> while the on-screen keyboard is up (visual viewport much shorter than
@@ -241,6 +270,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   const [openAreas, toggleArea] = useOpenAreas();
   const areas = useAreas();
   const { on } = useModules();
+  const { layout, tabs, label } = useBar();
   useKeyboardOpen();
   useHubTitle(screenOf(route.path).title);
   useEffect(() => {
@@ -264,11 +294,14 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   };
   // A Settings sub-page, or a page inside a screen, leads back to the page above it rather than all the way to Library.
   const back = settingsBack(route.path) ?? SUB_PAGES[route.path] ?? null;
-  const inLibrary = AREAS.some((a) => a.items.some((i) => active(i.path))) || SYSTEM.some((i) => active(i.path)) || active("/plan-rules");
   const inSettings = active(SETTINGS.path);
-  // Library is the phone's home for every screen that is not a tab.
-  const tabActive = (p: string) =>
-    p === "/library" ? !PRIMARY.some((x) => active(x.path)) && !active("/search") && !active("/now") : active(p) || (p === "/today" && active("/now"));
+  // The phone's bottom bar: a screen with a place in it is lit there; Library is the home of every other screen, so
+  // it is lit for those, and the top bar leads back to it from them (a main screen left out of the bar too).
+  const lit = barShowing(route.path, tabs);
+  const mainScreen = PRIMARY.some((x) => active(x.path)) || active("/search") || active("/now");
+  const inLibrary = lit === BAR_LIBRARY && !active("/library") && !active("/more")
+    && (mainScreen || AREAS.some((a) => a.items.some((i) => active(i.path))) || SYSTEM.some((i) => active(i.path)) || active("/plan-rules"));
+  const barItems = (ids: string[]): BarItem[] => ids.map((id) => ({ id, path: screenPath(id), label: label(id) }));
 
   return (
     <div className="shell">
@@ -342,21 +375,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </div>
         <ScreenBoundary resetKey={route.path}>{children}</ScreenBoundary>
       </main>
-      <nav className="tabs" aria-label="Sections">
-        {TABS.map((t) => {
-          const isActive = tabActive(t.path);
-          return (
-            <a key={t.path} href={`#${t.path}`} className={isActive ? "active" : ""} aria-current={isActive ? "page" : undefined}>
-              {t.label}
-              {t.path === "/library" && inbox > 0 && (
-                <span className="badge" aria-label={`${inbox} to sort`}>
-                  {inbox}
-                </span>
-              )}
-            </a>
-          );
-        })}
-      </nav>
+      <BottomBar count={layout.count} first={barItems(layout.first)} second={barItems(layout.second)} lit={lit} inbox={inbox} at={route.path} />
     </div>
   );
 }
@@ -365,7 +384,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
 function useSummaries(): Record<string, string> {
   return (
     useLiveQuery(async () => {
-      const all = await db.entities.filter((e) => !e.deleted_at).toArray();
+      // A task in an Apple Reminders list that is switched off is not counted (lib/sources).
+      const all = await db.entities.filter((e) => !e.deleted_at && isShown(e)).toArray();
       const by = new Map<string, typeof all>();
       for (const e of all) {
         const list = by.get(e.kind);
@@ -423,9 +443,24 @@ export function Library() {
   const areas = useAreas();
   const [openAreas, toggleArea] = useOpenAreas();
   const pet = usePetName();
+  // The phone layout: a main screen left out of the bottom bar is reached from here, like every other screen.
+  const phone = useMediaQuery("(max-width: 767px)");
+  const { tabs } = useBar();
+  const loose = phone ? MAIN_SCREENS.filter((id) => !tabs.includes(id)) : [];
   return (
     <div className="col library">
       <h1>Library</h1>
+      {loose.length > 0 && (
+        <section className="library-area">
+          <nav className="list" aria-label="Main screens">
+            {loose.map((id) => (
+              <a key={id} href={`#${screenPath(id)}`} className="item library-row">
+                <span className="body"><span className="t">{SCREEN_LABELS[id]}</span></span>
+              </a>
+            ))}
+          </nav>
+        </section>
+      )}
       {areas.map((area) => {
         const open = openAreas.includes(area.title);
         const waiting = area.items.some((i) => i.path === "/inbox") ? inbox : 0;

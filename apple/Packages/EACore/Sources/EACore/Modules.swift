@@ -19,8 +19,9 @@ public struct ModuleInfo: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// For a module whose work also needs setting up on the hub: whether it is set up and working there (since
     /// 2026-11-18, only `calendars`: the hub keeps at least one calendar in step). Nil when the hub does not say.
     public var active: Bool?
-    /// Where its switch is when not in Settings, Modules (since 2026-11-24): "connections", for Apple Reminders, whose
-    /// switch is on the iCloud account in Settings, Connections (gnomecannon/aeneas#10). Nil for every other module.
+    /// Where its switch is when not in Settings, Modules: "connections", for Apple Reminders, from hubs of 1.0.17 only,
+    /// which kept its switch on the iCloud account in Settings, Connections (gnomecannon/aeneas#10). Since 2026-11-24
+    /// every switch is in Settings, Modules again, and each device's own Reminders switch is in Settings, Accounts.
     public var switch_in: String?
     /// The module it is shown under in Settings, Modules, as a sub-option with its own switch (since 2026-11-24:
     /// Receipts and renewals under Mail). Only where it is shown: each works with the other off. Nil for every other

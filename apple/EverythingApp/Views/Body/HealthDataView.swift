@@ -7,7 +7,7 @@ import EACore
 struct HealthDataView: View {
     @EnvironmentObject var engine: SyncEngine
 
-    private static let footer = "Readings typed in the app and readings from Apple Health, kept the same both ways (Settings, Connections). Swipe an entry to delete it. To log something, use Logs."
+    private static let footer = "Readings typed in the app and readings from Apple Health, kept the same both ways (Settings, Accounts). Swipe an entry to delete it. To log something, use Logs."
 
     var body: some View {
         WideReader { wide in

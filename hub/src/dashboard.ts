@@ -195,7 +195,7 @@ class Reader {
   /** When each task was finished: `done_at` (a repeating task keeps the last one), else when it was marked done. */
   taskDoneTimes(): string[] {
     const out: string[] = [];
-    for (const t of this.hub.store.list({ kind: "task", limit: 1_000_000 })) {
+    for (const t of this.hub.store.list({ kind: "task", limit: 1_000_000, shown: true })) {
       const at = typeof t.fields.done_at === "string" ? t.fields.done_at : t.fields.status === "done" ? t.field_ts.status : undefined;
       if (at && !at.startsWith("1970")) out.push(at);
     }

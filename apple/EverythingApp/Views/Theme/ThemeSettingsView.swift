@@ -1,7 +1,8 @@
 import SwiftUI
 import EACore
 
-/// Settings, then Theme: the app's colors, the shapes a tap throws, and the note it plays.
+/// Settings, then Theme: the app's colors, the shapes a tap throws, the note it plays, the calendars' colors and the
+/// phone's bottom bar.
 struct ThemeSettingsView: View {
     @ObservedObject private var feel = FeelController.shared
     @State private var debugPage: SettingsPage?
@@ -10,7 +11,7 @@ struct ThemeSettingsView: View {
 
     private static let shared = "Shared with every device through the hub."
 
-    /// The four parts of the theme, each opening its screen: rows of the list, or cards in a wide window.
+    /// The parts of the theme, each opening its screen: rows of the list, or cards in a wide window.
     @ViewBuilder private func links(card: Bool) -> some View {
         SettingsAreaLink(card: card) { AppColorsView() } label: {
             SettingsRow(title: "App colors", symbol: "circle.lefthalf.filled", summary: appSummary)
@@ -24,10 +25,13 @@ struct ThemeSettingsView: View {
         SettingsAreaLink(card: card) { CalendarColorsView() } label: {
             SettingsRow(title: "Calendar colors", symbol: "calendar", summary: CalendarColorsView.summary(s.calendars))
         }
+        SettingsAreaLink(card: card) { BottomBarSettingsView() } label: {
+            SettingsRow(title: "Bottom bar", symbol: "dock.rectangle", summary: BarText.summary(s.shownBar))
+        }
     }
 
     var body: some View {
-        // A wide window: the four parts as cards side by side, as Settings itself shows its areas; the rows used to
+        // A wide window: the parts as cards side by side, as Settings itself shows its areas; the rows used to
         // be stretched across the window.
         WideReader { wide in
             if wide {

@@ -116,6 +116,12 @@ const WORK_KINDS = new Set(["task", "event"]);
 export class Store {
   private hooks: AfterWriteHook[] = [];
   private q: Record<string, any>;
+  /**
+   * Whether an item shows in the app. sources.ts sets the rule (a task in an Apple Reminders list that is switched off
+   * does not); lists that people or the assistant see ask for `shown` items only. Sync and the hub's own bookkeeping
+   * read every item.
+   */
+  shows: (e: Entity) => boolean = () => true;
 
   /** Work entities are stored sealed with this key (see workkey.ts); a row it cannot open reads as absent. */
   constructor(public db: DB, public bus: Bus, public workKey: WorkKey = new WorkKey(null)) {
@@ -179,7 +185,7 @@ export class Store {
    * Simple listing, newest change first, with optional field equality filters (applied in JS). Rows are read one at
    * a time and reading stops at `limit`, so a short list of a big kind does not parse the whole kind.
    */
-  list(opts: { kind?: string; space?: string; includeDeleted?: boolean; limit?: number; where?: Record<string, unknown> } = {}): Entity[] {
+  list(opts: { kind?: string; space?: string; includeDeleted?: boolean; limit?: number; where?: Record<string, unknown>; shown?: boolean } = {}): Entity[] {
     const conds: string[] = [];
     const args: unknown[] = [];
     if (opts.kind) { conds.push("kind = ?"); args.push(opts.kind); }
@@ -187,7 +193,7 @@ export class Store {
     if (!opts.includeDeleted) conds.push("deleted_at IS NULL");
     const sql = `SELECT * FROM entities ${conds.length ? "WHERE " + conds.join(" AND ") : ""} ORDER BY updated_at DESC`;
     const where = opts.where ? Object.entries(opts.where) : [];
-    return this.collect(this.stmt(sql).iterate(...args) as Iterable<Row>, (e) => where.every(([k, v]) => String(e.fields[k]) === String(v)), opts.limit);
+    return this.collect(this.stmt(sql).iterate(...args) as Iterable<Row>, (e) => (!opts.shown || this.shows(e)) && where.every(([k, v]) => String(e.fields[k]) === String(v)), opts.limit);
   }
 
   /**
@@ -195,9 +201,9 @@ export class Store {
    * timer that needs a few rows of a big kind (open reminders among every task ever made) parses only those. Work rows
    * are sealed, so SQLite passes them all and they are tested here after opening, as every row is again.
    */
-  listWhere(kind: string, tests: FieldTest[], opts: { limit?: number; includeDeleted?: boolean } = {}): Entity[] {
+  listWhere(kind: string, tests: FieldTest[], opts: { limit?: number; includeDeleted?: boolean; shown?: boolean } = {}): Entity[] {
     const { sql, args } = this.whereSql(kind, tests, opts.includeDeleted === true);
-    return this.collect(this.stmt(`SELECT * FROM entities WHERE ${sql} ORDER BY updated_at DESC`).iterate(...args) as Iterable<Row>, (e) => tests.every((t) => passes(e.fields[t.key], t)), opts.limit);
+    return this.collect(this.stmt(`SELECT * FROM entities WHERE ${sql} ORDER BY updated_at DESC`).iterate(...args) as Iterable<Row>, (e) => (!opts.shown || this.shows(e)) && tests.every((t) => passes(e.fields[t.key], t)), opts.limit);
   }
 
   /** The WHERE for listWhere and countWhere. Work rows are sealed: for kinds that can be work they pass SQLite. */

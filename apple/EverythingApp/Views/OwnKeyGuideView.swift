@@ -8,6 +8,9 @@ struct OwnKeyGuideView: View {
     @EnvironmentObject var engine: SyncEngine
     @Environment(\.dismiss) private var dismiss
     let service: String
+    /// Add account's Show me how: the steps without the guide's last one (its fields), since the address and password
+    /// are typed into Add account itself, where its switches apply.
+    var stepsOnly = false
     var onDone: () -> Void = {}
 
     @State private var guide: OwnKeyGuide?
@@ -29,8 +32,9 @@ struct OwnKeyGuideView: View {
                         .foregroundStyle(.secondary)
                     Button("Show the steps anyway") { showAnyway = true }
                 }
-            } else if let g = guide {
-                let step = g.steps[index]
+            } else if let g = guide, !steps(g).isEmpty {
+                let all = steps(g)
+                let step = all[min(index, all.count - 1)]
                 if let w = g.warning {
                     SwiftUI.Section { Text(w).foregroundStyle(.dangerText) }
                 }
@@ -67,15 +71,15 @@ struct OwnKeyGuideView: View {
                     }
                     if let m = message { Text(m.text).foregroundStyle(m.ok ? AnyShapeStyle(.secondary) : AnyShapeStyle(.dangerText)) }
                 } header: {
-                    Text("Step \(index + 1) of \(g.steps.count): \(step.title)")
+                    Text("Step \(index + 1) of \(all.count): \(step.title)")
                 } footer: {
-                    Text("About \(g.minutes) minutes in all. Values you paste are kept on your hub only and never shown again.")
+                    Text(stepsOnly ? "About \(g.minutes) minutes in all. Then type the address and the password into Add account." : "About \(g.minutes) minutes in all. Values you paste are kept on your hub only and never shown again.")
                 }
                 SwiftUI.Section {
                     HStack {
                         Button("Back") { index -= 1; message = nil }.disabled(index == 0)
                         Spacer()
-                        if index < g.steps.count - 1 { Button("Next") { index += 1; message = nil } }
+                        if index < all.count - 1 { Button("Next") { index += 1; message = nil } }
                     }
                     .buttonStyle(.borderless)
                 }
@@ -88,6 +92,9 @@ struct OwnKeyGuideView: View {
         .navigationTitle(guide?.title ?? "Setup guide")
         .task { await load() }
     }
+
+    /// The steps shown: every one, or, for Show me how, those without fields to fill in.
+    private func steps(_ g: OwnKeyGuide) -> [OwnKeyGuide.Step] { stepsOnly ? g.steps.filter { ($0.fields ?? []).isEmpty } : g.steps }
 
     private func load() async {
         guard guide == nil, let c = engine.client else { return }

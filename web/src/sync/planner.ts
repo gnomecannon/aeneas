@@ -11,6 +11,7 @@ import { engine } from "./engine";
 import { HubError } from "./api";
 import { createEntity, updateEntity } from "./edits";
 import { HOUR } from "../lib/time";
+import { isShown } from "../lib/sources";
 import {
   addDays,
   blockOf,
@@ -39,9 +40,10 @@ import {
 
 const isNetworkError = (e: unknown) => !(e instanceof HubError);
 
+/** The live items of some kinds; a task in an Apple Reminders list that is switched off is left out (lib/sources.ts). */
 async function liveOf(kinds: string[]): Promise<Entity[]> {
   const rows = await db.entities.where("kind").anyOf(kinds).toArray();
-  return rows.filter((e) => !e.deleted_at);
+  return rows.filter((e) => !e.deleted_at && isShown(e));
 }
 
 function localBlocks(tasks: Entity[], exceptTaskId?: string): Block[] {

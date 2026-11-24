@@ -162,7 +162,7 @@ export interface ProjectSummary {
 
 export function projectSummary(hub: Hub, id: string, now: Date = new Date()): ProjectSummary {
   const project = getProject(hub.store, id);
-  const tasks = hub.store.list({ kind: "task", limit: 100000 }).filter((t) => t.fields.project_id === id);
+  const tasks = hub.store.list({ kind: "task", limit: 100000, shown: true }).filter((t) => t.fields.project_id === id);
   const since = now.getTime() - 7 * DAY_MS;
   const doneAt = (t: Entity) => String(t.fields.done_at ?? t.field_ts.status ?? "");
   const byOrder = (a: Entity, b: Entity) => Number(a.fields.order ?? 0) - Number(b.fields.order ?? 0);

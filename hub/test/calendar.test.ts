@@ -32,6 +32,29 @@ test("calendar feed: task blocks, events, reminders and renewals, without work i
   }
 });
 
+test("calendar feed: events already in one of the person's calendars stay out, so a subscription never shows them twice", async () => {
+  const { calendarFeed } = await import("../src/calendar.js");
+  const t = makeHub();
+  try {
+    const soon = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+    const caldav = (uid: string) => ({ account: "robin@icloud.example", calendar: "https://caldav.icloud.example/1/calendars/home/", uid });
+    t.hub.store.create("event", { title: "Dinner only in Aeneas", start: soon(24), end: soon(25) });
+    t.hub.store.create("task", { title: "Plan the trip", status: "scheduled", order: 1, block: { start: soon(3), end: soon(4) } });
+    // Kept in step with iCloud by the hub, a single event and an occurrence of a repeating one.
+    t.hub.store.create("event", { title: "Haircut from iCloud", start: soon(30), end: soon(31), caldav: { ...caldav("u1"), from_caldav: true } });
+    t.hub.store.create("event", { title: "Book club from iCloud", start: soon(32), end: soon(33), source: "caldav", external_id: `u2|${soon(32)}`, caldav: caldav("u2") });
+    // Copied to Apple Calendar by a device, and made there and brought in.
+    t.hub.store.create("event", { title: "Dentist copied to Apple Calendar", start: soon(34), end: soon(35), apple: { id: "EK-1", calendar: "cal-1" } });
+    t.hub.store.create("event", { title: "Lunch made in Apple Calendar", start: soon(36), end: soon(37), apple: { id: "EK-2", from_apple: true } });
+    // An occurrence of a repeating event from the phone's calendars.
+    t.hub.store.create("event", { title: "Yoga from the phone", start: soon(38), end: soon(39), source: "eventkit", external_id: `EK-3|${soon(38)}` });
+    const ics = calendarFeed(t.hub);
+    assert.match(ics, /SUMMARY:Dinner only in Aeneas/, "an event that lives only in Aeneas stays");
+    assert.match(ics, /SUMMARY:Plan the trip/, "and so does the plan");
+    for (const title of ["Haircut from iCloud", "Book club from iCloud", "Dentist copied to Apple Calendar", "Lunch made in Apple Calendar", "Yoga from the phone"]) assert.ok(!ics.includes(title), `${title} is in a calendar already`);
+  } finally { t.cleanup(); }
+});
+
 test("calendar: an assistant event from midnight to midnight is all day even when the model leaves the flag out", async () => {
   const t = makeHub();
   try {

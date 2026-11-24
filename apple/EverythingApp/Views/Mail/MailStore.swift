@@ -110,7 +110,7 @@ final class MailStore: ObservableObject {
         await load()
     }
 
-    /// Whether a thread's mailbox is Read only (Settings, Connections): its Done and Pin are held back, as the hub
+    /// Whether a thread's mailbox is Read only (Settings, Accounts): its Done and Pin are held back, as the hub
     /// refuses them.
     func readOnly(_ t: MailThread) -> Bool { Mail.readOnly(list?.mailboxes ?? [], t.summary.mailbox) }
 
@@ -122,7 +122,7 @@ final class MailStore: ObservableObject {
     }
 
     /// Sweep: every unpinned thread here marked done at once (pinned ones stay), with one Undo.
-    /// A Read only mailbox's mail stays too (Settings, Connections).
+    /// A Read only mailbox's mail stays too (Settings, Accounts).
     func sweepIds(_ ts: [MailThread]) -> [String] { Mail.sweepIds(ts, boxes: boxes) }
 
     /// Whether a mailbox (by a mail's `mailbox`) is Read only: the screen offers no change to its mail.

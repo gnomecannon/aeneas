@@ -1,15 +1,30 @@
 import SwiftUI
 import EACore
 
-/// Everything that is not a tab, grouped by area. Each row says what is waiting there, so the list doubles as a status board.
+/// Everything that is not a tab, grouped by area, and on the iPhone the main screens the bottom bar leaves out. Each row
+/// says what is waiting there, so the list doubles as a status board.
 /// Areas start closed, each naming the screens inside, so all of them fit on one screen; the ones you open stay open.
 struct LibraryView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
+    @Environment(\.phoneBar) private var bar
     @AppStorage(LibraryOpen.key) private var openRaw = ""
+
+    /// The phone layout: a main screen left out of the bottom bar is reached from here, like every other screen.
+    private var loose: [Section] {
+        guard let bar else { return [] }
+        return BarScreen.main.compactMap(Section.init(rawValue:)).filter { !bar.has($0.rawValue) }
+    }
 
     var body: some View {
         List {
+            if !loose.isEmpty {
+                SwiftUI.Section {
+                    ForEach(loose) { s in
+                        NavigationLink(value: s) { LibraryRow(section: s, summary: nil) }
+                    }
+                }
+            }
             ForEach(model.libraryAreas) { area in
                 let open = LibraryOpen.isOpen(openRaw, area.title)
                 SwiftUI.Section {
@@ -288,8 +303,9 @@ struct SearchView: View {
             }
             chats = []
             let needle = q.lowercased()
+            // A task in an Apple Reminders list that is switched off is hidden here as everywhere (`engine.shows`).
             hits = engine.entities.values
-                .filter { !$0.isDeleted && model.shows(Self.section(for: $0.kind)) && ($0.str("title") + " " + $0.str("text") + " " + $0.str("body")).lowercased().contains(needle) }
+                .filter { !$0.isDeleted && engine.shows($0) && model.shows(Self.section(for: $0.kind)) && ($0.str("title") + " " + $0.str("text") + " " + $0.str("body")).lowercased().contains(needle) }
                 .prefix(50)
                 .map { SearchHit(id: $0.id, kind: $0.kind, title: $0.str("title", $0.str("text")), snippet: nil, score: nil) }
         }

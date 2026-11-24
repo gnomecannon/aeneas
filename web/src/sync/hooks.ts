@@ -3,19 +3,24 @@ import { useLiveQuery } from "dexie-react-hooks";
 import type { Entity, Kind } from "@everythingapp/shared";
 import { db } from "./db";
 import { engine, type SyncState } from "./engine";
+import { isShown, useSourcesVersion } from "../lib/sources";
 
 const EMPTY: Entity[] = [];
 
-/** Live list of non-deleted entities of one kind, optionally filtered. */
+/**
+ * Live list of non-deleted entities of one kind, optionally filtered. Tasks in an Apple Reminders list that is
+ * switched off are left out (lib/sources.ts), so every screen that lists tasks hides them.
+ */
 export function useEntities(kind: Kind, filter?: (e: Entity) => boolean, deps: unknown[] = []): Entity[] {
+  const sources = useSourcesVersion();
   const rows = useLiveQuery(
     () =>
       db.entities
         .where("kind")
         .equals(kind)
-        .filter((e) => !e.deleted_at && (filter ? filter(e) : true))
+        .filter((e) => !e.deleted_at && isShown(e) && (filter ? filter(e) : true))
         .toArray(),
-    [kind, ...deps],
+    [kind, kind === "task" ? sources : 0, ...deps],
   );
   return rows ?? EMPTY;
 }

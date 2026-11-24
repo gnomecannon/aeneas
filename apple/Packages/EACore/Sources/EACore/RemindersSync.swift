@@ -3,9 +3,11 @@ import Foundation
 import EventKit
 import os
 
-/// Keeps tasks and Apple Reminders the same, both ways, on the iPhone and the Mac. Every list syncs; lists from a
-/// work account (Exchange, or the work email's domain) go into the work space. New tasks made in the app are added
-/// to the default Reminders list by the iPhone only, so the two devices never add the same one twice.
+/// Keeps tasks and Apple Reminders the same, both ways, on the iPhone and the Mac. Which lists sync, and in which space,
+/// is the sources setting (Sources.swift), one choice for every device: a list that is off is neither read nor
+/// written and its tasks are hidden; by default lists from a work account (Exchange, or the work email's domain) go
+/// into the work space. New tasks made in the app are added to the list chosen for them (else the default list) by the
+/// iPhone only, so the two devices never add the same one twice.
 /// The merge rules are in `RemindersMerge`; this class reads and writes EventKit and runs it.
 @MainActor
 public final class RemindersSync: ObservableObject {
@@ -33,14 +35,8 @@ public final class RemindersSync: ObservableObject {
 
     /// Supplies a started engine; set by the app.
     public var engineProvider: (() async -> SyncEngine)?
-    /// Only one device adds Apple items for tasks made in the app.
-    public var createsInApple: Bool = {
-        #if os(iOS)
-        return true
-        #else
-        return false
-        #endif
-    }()
+    /// Only one device adds Apple items for tasks made in the app: the iPhone, never an iPad (AppleItems).
+    public var createsInApple: Bool = AppleItems.addsReminders(on: AppleItems.thisDevice)
 
     /// Replaced once access is granted: a store made before that never answers its first fetch.
     private var store = EKEventStore()
@@ -51,7 +47,29 @@ public final class RemindersSync: ObservableObject {
     private var hourly: Timer?
     #endif
 
-    public init() { refreshAccess() }
+    private var sourcesObserver: NSObjectProtocol?
+    /// The list choices the last run went by, so a change made on another device starts a run here.
+    private var listPrint = RemindersSync.print(SharedConfig.shared.sources)
+
+    public init() {
+        refreshAccess()
+        sourcesObserver = NotificationCenter.default.addObserver(forName: SyncEngine.sourcesDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let p = Self.print(SharedConfig.shared.sources)
+                guard p != self.listPrint else { return }
+                self.listPrint = p
+                // A list switched on starts syncing, one switched off stops, and new tasks go where they now should.
+                self.scheduleRun(after: 1)
+            }
+        }
+    }
+
+    /// What of the setting a run depends on: each list's key, switch and space, and the list for new tasks.
+    private static func print(_ s: SourcesSetting?) -> String {
+        guard let s else { return "" }
+        return s.lists.map { "\($0.key)|\($0.on)|\($0.space.rawValue)" }.sorted().joined(separator: "\n") + "\n" + (s.new_tasks ?? "")
+    }
 
     public var enabled: Bool {
         get { UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true }
@@ -219,17 +237,44 @@ public final class RemindersSync: ObservableObject {
 
     private func syncOnce(_ engine: SyncEngine) async throws -> String {
         let now = Date()
+        // The tasks first, then the setting: the hub saves a choice before it moves a list's tasks, so a setting read
+        // after them is at least as new as they are. Not read from the hub (it could not be reached), the choices kept
+        // here are used, but nothing is deleted for a move to Work and no list waits on a Personal or Work choice.
+        let tasks = Array(engine.entities.values.filter { $0.kind == .task })
+        // Offline the copy kept is used at once, with no wait for a hub that cannot answer.
+        let read = engine.hubInReach ? await engine.refreshSources() : false
         let lists = store.calendars(for: .reminder)
-        let domainForLists = CalendarSelection.workDomain(facts: engine.facts)?.lowercased()
-        self.lists = lists.map { ReminderList(title: $0.title, isWork: Self.isWorkSource($0.source, domain: domainForLists)) }
+        let domain = CalendarSelection.workDomain(facts: engine.facts)?.lowercased()
+        let reported = read ? await reportLists(lists, tasks: tasks, domain: domain, engine: engine) : false
+        let fresh = read || reported
+        let setting = engine.sources
+        let shows = TaskVisibility(setting)
+        let linked = Self.linkedLists(tasks)
+        var choices: [String: (key: String, choice: ReminderListChoice, own: Space)] = [:]
+        for l in lists {
+            let key = Self.key(l)
+            let own: Space = Self.isWorkSource(l.source, domain: domain) ? .work : .personal
+            let choice = SourcesSetting.choice(setting, key: key, kind: Self.kind(l), accountWork: own == .work, hasTasks: linked.keys.contains(key) || linked.titles.contains(l.title))
+            choices[l.calendarIdentifier] = (key, choice, own)
+        }
+        func synced(_ l: EKCalendar) -> Bool {
+            guard let c = choices[l.calendarIdentifier] else { return true }
+            return c.choice.on && (fresh || c.choice.space == c.own)
+        }
+        // The Tasks screen offers only the lists that are on, each in its space.
+        self.lists = lists.filter { choices[$0.calendarIdentifier]?.choice.on ?? true }
+            .map { ReminderList(title: $0.title, isWork: (choices[$0.calendarIdentifier]?.choice.space ?? .personal) == .work) }
             .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         self.defaultListTitle = store.defaultCalendarForNewReminders()?.title
         let open = try await fetch(store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: lists))
         let recent = try await fetch(store.predicateForCompletedReminders(withCompletionDateStarting: now.addingTimeInterval(-RemindersMerge.importDoneWithin), ending: nil, calendars: lists))
         var seenIds = Set<String>()
         let reminders = (open + recent).filter { seenIds.insert($0.calendarItemIdentifier).inserted }
-        let domain = CalendarSelection.workDomain(facts: engine.facts)?.lowercased()
-        let items = reminders.map { Self.item($0, workDomain: domain) }
+        // A hub without the setting keeps no list keys (it drops them), so none is written to it: every run would again.
+        let items = reminders.map { r in
+            let c = choices[r.calendar.calendarIdentifier]
+            return Self.item(r, listKey: setting == nil ? "" : c?.key ?? Self.key(r.calendar), listOn: synced(r.calendar), isWork: (c?.choice.space ?? .personal) == .work)
+        }
         itemCount = items.count
 
         var state = loadState()
@@ -237,11 +282,15 @@ public final class RemindersSync: ObservableObject {
         let fetched = Set(items.map(\.externalId))
         for (k, v) in state where !fetched.contains(k) && v.fields["done"] == "1" { state[k] = nil }
 
-        let tasks = engine.entities.values.filter { $0.kind == .task }
         let workOff = UserDefaults.standard.bool(forKey: CalendarImporter.workOffKey)
-        let plan = RemindersMerge.plan(items: items, tasks: Array(tasks), state: state, presentLists: Set(lists.map(\.calendarIdentifier)),
+        let writableLists = lists.filter(\.allowsContentModifications)
+        // New tasks go to the list chosen for them when this device has it and it is on, else the default list.
+        let newTasks = setting?.new_tasks.flatMap { key in writableLists.first { choices[$0.calendarIdentifier]?.key == key && synced($0) } }
+        let defaultOn = store.defaultCalendarForNewReminders().map(synced) ?? false
+        let plan = RemindersMerge.plan(items: items, tasks: tasks, state: state, presentLists: Set(lists.map(\.calendarIdentifier)),
                                        createsInApple: createsInApple, workOff: workOff,
-                                       writableLists: Set(lists.filter(\.allowsContentModifications).map(\.title)), now: now)
+                                       writableLists: Set(writableLists.map(\.title)), shows: { shows.shows($0) },
+                                       newTasksList: newTasks?.title, defaultListOn: defaultOn, moveDeletes: fresh, now: now)
         var newState = plan.state
 
         for p in plan.taskPatches { _ = await engine.apply(p) }
@@ -271,7 +320,8 @@ public final class RemindersSync: ObservableObject {
         }
         var created: [(EKReminder, String, [String: String])] = []
         for c in plan.appleCreates {
-            guard let l = list(named: c.listTitle, work: c.isWork) else { continue }
+            // Never into a list that is off: its tasks are hidden.
+            guard let l = list(named: c.listTitle, work: c.isWork), synced(l) else { continue }
             let r = EKReminder(eventStore: store)
             r.calendar = l
             Self.write(c.fields, full: c.fields, to: r)
@@ -283,7 +333,9 @@ public final class RemindersSync: ObservableObject {
         // Link each new Apple item to its task, so every device matches them from now on.
         for (r, taskId, fields) in created {
             let ext = r.calendarItemExternalIdentifier ?? r.calendarItemIdentifier
-            let link: JSONValue = .object(["id": .string(ext), "list": .string(r.calendar.calendarIdentifier), "list_title": .string(r.calendar.title)])
+            var o: [String: JSONValue] = ["id": .string(ext), "list": .string(r.calendar.calendarIdentifier), "list_title": .string(r.calendar.title)]
+            if setting != nil { o["list_key"] = .string(choices[r.calendar.calendarIdentifier]?.key ?? Self.key(r.calendar)) }
+            let link: JSONValue = .object(o)
             _ = await engine.apply(Patch(id: taskId, kind: .task, ts: ISO.now(), fields: ["apple": link]))
             var agreed = fields
             agreed[RemindersMerge.listKey] = r.calendar.title
@@ -293,6 +345,49 @@ public final class RemindersSync: ObservableObject {
         return "\(items.count) in Reminders; \(plan.taskPatches.count) task changes, \(plan.appleWrites.count + created.count + plan.appleDeletes.count) Reminders changes"
     }
 
+    // MARK: the sources setting
+
+    /// The lists' keys and names the tasks here are linked to, so a list with tasks starts on.
+    private static func linkedLists(_ tasks: [Entity]) -> (keys: Set<String>, titles: Set<String>) {
+        var keys = Set<String>(), titles = Set<String>()
+        for t in tasks where !t.isDeleted {
+            guard let a = t.fields["apple"]?.objectValue, !(a["id"]?.stringValue ?? "").isEmpty else { continue }
+            if let k = a["list_key"]?.stringValue, !k.isEmpty { keys.insert(k) }
+            if let n = a["list_title"]?.stringValue, !n.isEmpty { titles.insert(n) }
+        }
+        return (keys, titles)
+    }
+
+    private static func kind(_ l: EKCalendar) -> String { SourceKey.kind(sourceType: l.source.map { $0.sourceType.rawValue } ?? -1, accountTitle: l.source?.title ?? "") }
+    private static func key(_ l: EKCalendar) -> String { SourceKey.make(kind: kind(l), account: l.source?.title ?? "", title: l.title) }
+
+    /// Tells the hub which lists this device sees when that changed (or once a day), with the key a renamed one had,
+    /// so its choices go with it. True when the hub answered.
+    private func reportLists(_ lists: [EKCalendar], tasks: [Entity], domain: String?, engine: SyncEngine) async -> Bool {
+        // Only to a hub that has the setting (one from before 1.0.18 answers 404, and nothing was read when unreachable).
+        guard engine.sources != nil else { return false }
+        var memory = UserDefaults.standard.data(forKey: AppleLinkRecords.sourcesLists).flatMap { try? JSONDecoder().decode(SourcesReportMemory.self, from: $0) } ?? SourcesReportMemory()
+        let linked = Self.linkedLists(tasks)
+        let seen = lists.map { l -> SeenList in
+            let key = Self.key(l)
+            return SeenList(key: key, title: l.title, account: l.source?.title ?? "", kind: Self.kind(l), work: Self.isWorkSource(l.source, domain: domain),
+                            has_tasks: linked.keys.contains(key) || linked.titles.contains(l.title), was: memory.was(id: l.calendarIdentifier, key: key))
+        }.sorted { $0.key < $1.key }
+        let print = (try? JSONCoding.string(seen)) ?? ""
+        guard memory.due(print) else { return false }
+        do {
+            try await engine.reportSources(SourcesReport(lists: Array(seen.prefix(200))))
+        } catch {
+            Self.log.notice("lists not reported: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+        memory.keys = Dictionary(lists.map { ($0.calendarIdentifier, Self.key($0)) }, uniquingKeysWith: { a, _ in a })
+        memory.print = print
+        memory.at = Date()
+        if let d = try? JSONEncoder().encode(memory) { UserDefaults.standard.set(d, forKey: AppleLinkRecords.sourcesLists) }
+        return true
+    }
+
     // MARK: EventKit mapping
 
     /// A work account: Exchange, or an account named after the work email's domain.
@@ -300,12 +395,11 @@ public final class RemindersSync: ObservableObject {
         source?.sourceType == .exchange || (domain.map { !$0.isEmpty && (source?.title.lowercased().contains($0) ?? false) } ?? false)
     }
 
-    private static func item(_ r: EKReminder, workDomain: String?) -> ReminderItem {
+    private static func item(_ r: EKReminder, listKey: String, listOn: Bool, isWork: Bool) -> ReminderItem {
         // A due date with no time reads as the day alone, the same in every time zone (ReminderDates).
         let dates = ReminderDates.read(due: r.dueDateComponents, alarms: (r.alarms ?? []).map(alarm))
-        let isWork = isWorkSource(r.calendar.source, domain: workDomain)
         return ReminderItem(externalId: r.calendarItemExternalIdentifier ?? r.calendarItemIdentifier, localId: r.calendarItemIdentifier,
-                            listId: r.calendar.calendarIdentifier, listTitle: r.calendar.title, isWork: isWork,
+                            listId: r.calendar.calendarIdentifier, listTitle: r.calendar.title, listKey: listKey, listOn: listOn, isWork: isWork,
                             title: r.title ?? "", notes: r.notes, due: dates.due, remindAt: dates.remindAt,
                             repeatRule: r.recurrenceRules?.first.flatMap(repeatString), done: r.isCompleted,
                             doneAt: r.completionDate.map { ISO.string($0) }, modified: r.lastModifiedDate)
