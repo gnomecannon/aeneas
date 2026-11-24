@@ -6,8 +6,8 @@ The same comparison is in the app, under Settings, How devices reach this hub, â
 
 | | Direct link (iroh) | Tailscale | Home Wi-Fi only |
 |---|---|---|---|
-| **Setting up a phone or computer** | Scan the QR code (Aeneas 1.0.3 or newer). | Sign in to Tailscale with the same account as the hub (in the Tailscale app, or inside Aeneas on iPhone, iPad and Mac), then scan the QR code. | Scan the QR code while on your home network. |
-| **Works away from home** | Yes. | Yes. | No. |
+| **Setting up a phone or computer** | A phone scans the QR code. A computer or tablet shows its own code, and a paired phone scans it and says yes (Aeneas 1.0.15 or newer). | Sign in to Tailscale with the same account as the hub (in the Tailscale app, or inside Aeneas on iPhone, iPad and Mac), then scan the QR code. | Scan the QR code while on your home network. |
+| **Works away from home** | Yes, in the apps. A web browser reaches the hub at home, or on your tailnet with the Tailscale door on (Settings, How devices reach the hub). | Yes, apps and web browsers. | No. |
 | **Account needed** | None. | A Tailscale account (Google, Apple, Microsoft or GitHub sign-in). | None. |
 | **Can anyone read your data on the way?** | No. Encrypted end to end between your device and the hub. | No. Encrypted end to end between your devices (WireGuard). | No. Encrypted with the hub's own certificate. |
 | **Outside companies involved** | n0, the makers of iroh, run the relay used when a direct path is blocked. It passes encrypted data and sees IP addresses and timing, not content. n0 offers its relays free but promises no uptime; if they stop, Direct link stops until the app moves to another relay (Tailscale and Home Wi-Fi only are not affected). | Tailscale runs the coordination server and relays. It keeps your account, a list of your devices, their names and when they're online. | None. |

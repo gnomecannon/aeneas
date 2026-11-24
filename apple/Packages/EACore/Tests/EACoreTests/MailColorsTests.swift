@@ -29,8 +29,8 @@ final class MailColorsTests: XCTestCase {
     }
 
     func testAThemesPageMovesAWordShadeTowardItsText() {
-        // A gray theme page where Other's gray is too faint: it moves toward the theme's text until it reads.
-        let w = MailColors.word(.place("other"), dark: true, text: "#F0F0F0", backgrounds: ["#6A6A6A"])
+        // A gray theme page where a folder's gray is too faint: it moves toward the theme's text until it reads.
+        let w = MailColors.word(.place("folder"), dark: true, text: "#F0F0F0", backgrounds: ["#6A6A6A"])
         XCTAssertGreaterThanOrEqual(FeelColor.contrast(w, "#6A6A6A"), 4.5)
     }
 

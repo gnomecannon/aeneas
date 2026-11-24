@@ -14,9 +14,18 @@ module list) to answer questions about the app, so ask it too: "how do I get my 
 
 ## Add another device (pair a new phone, tablet or computer)
 
-On a device that is already paired, open Settings, Connection, Pair another device. It shows a code (and a QR code)
-that works once, for 10 minutes. On the new device, install Aeneas, open it and scan the QR code or type the code
-and the hub's address. Reinstalling the app on a device means pairing it again the same way.
+A Mac, iPad, Windows PC or Android tablet, on a hub that uses Direct link: install Aeneas on it and open it. Set up
+shows a code to scan. Point the Camera of a phone that already uses Aeneas at it, and tap Add on the phone. The hub
+reaches the new device by itself, from anywhere, and nothing needs typing.
+
+A phone, or a hub on Tailscale or Home Wi-Fi only: on a device that is already paired, open Settings, Connection, Pair
+another device. It shows a code (and a QR code) that works once, for 10 minutes. On the new device, install Aeneas,
+open it and scan the QR code, or type the code and the hub's address, or paste the pairing link into the address
+field. Reinstalling the app on a device means pairing it again the same way.
+
+A web browser cannot use Direct link. It opens the hub at the addresses Settings, How devices reach the hub lists: at
+home, or on your tailnet when the hub's computer runs Tailscale and you switch on the Tailscale door there. Then type a
+pairing code made on a paired device.
 
 ## Today
 
@@ -117,40 +126,78 @@ Copy link and adding it as a subscribed calendar by URL works in any calendar ap
 
 ## Mail
 
-Mail is read on the hub, not on the devices: Settings, Connections, Gmail or iCloud Mail. Two modules use it.
+Mail is read on the hub, not on the devices. Accounts are linked in Settings, Connections: under Internet Accounts in
+the web, Windows and Android apps, under Gmail and iCloud Mail in the Apple apps. Two modules use them.
 
 **Mail receipts.** The hub reads only mail that looks like receipts, renewal notices or vet mail, files them as
 renewals and pet visits, and does not keep the mail itself.
 
-**Mail** (the Mail screen, in the web, Windows, Android, iPhone, iPad and Mac apps, not on the Apple Watch; iCloud Mail
-only). Your iCloud Inbox by day, with
-kinds of mail gathered into colored bundles: Purchases, Trips, Social, Promos and Other, and Bills, Pet and Jobs while
+**Mail** (the Mail screen, in the web, Windows, Android, iPhone, iPad and Mac apps, not on the Apple Watch). Your
+Inbox by day, for each mailbox you link: iCloud Mail, Gmail, or another mail server that takes an app password. Kinds
+of mail are gathered into colored bundles: Transactions, Trips, Updates and Promotions, and Bills, Pet and Jobs while
 those modules are on. A person's mail stands on its own.
 
-- **Pin** keeps a mail out of its bundle and out of a Sweep.
-- **Done** moves a mail to Archive in iCloud, with Undo. **Sweep** marks every unpinned mail of a day or a bundle done.
+- **Pin** keeps a mail out of its bundle and out of a Sweep. A pin is your mailbox's own flag: flag a mail in your
+  mail app and it is pinned here, and the other way round.
+- **Done** moves a mail to Archive in your mailbox (All Mail in Gmail), with Undo. **Sweep** marks every unpinned mail
+  of a day or a bundle done.
 - **Snooze** hides a mail until a time you pick and makes a task called "Snoozed mail", which holds none of the mail's
-  words (tasks are open to the assistant; mail is not). The Snoozed list on the Mail screen says which mail it is. The mail comes back to the
-  top of the Inbox at that time, or as soon as you finish or delete the task.
-- **Read and unread** are the same here and in iCloud, both ways: mail you read in Apple Mail shows as read here, and
-  opening a mail here (or Mark unread) changes it in iCloud. That flag and Done's move are the only two changes the
-  hub makes to your mailbox.
+  words (tasks are open to the assistant; mail is not). The Snoozed list on the Mail screen says which mail it is. The
+  mail comes back to the top of the Inbox at that time, or as soon as you finish or delete the task.
+- **Read and unread** are the same here and in your mailbox, both ways: mail you read in your mail app shows as read
+  here, and opening a mail here (or Mark unread) changes it there.
+- **What the hub changes in your mailbox**, and nothing else: read marks, flags (pins), moves (Done to Archive,
+  Delete to Trash, Spam to Junk, Move to one of your folders, and back) and drafts saved to Drafts. It never erases a
+  mail (emptying Trash is your mail app's) and it never sends one.
 - **Threads.** A back-and-forth is one row that opens with its messages stacked, your own replies among them (the hub
-  reads your Sent folder, read-only, and keeps only the replies that belong to mail it keeps). Earlier messages quoted
-  inside a reply are folded behind "•••". Pin and Snooze act on the whole thread.
+  reads your Sent folder, read-only). Earlier messages quoted inside a reply are folded behind "•••". Pin and Snooze
+  act on the whole thread.
 - **Bundles your way.** Each bundle can show in the Inbox as mail arrives, once a day, once a week or never, and you
-  can make bundles of your own from senders, domains and words in the subject.
+  can make bundles of your own from senders, domains, words in the subject or the text, and the address a mail was
+  sent to.
 - **New-mail alerts** are for mail from people to start with; a bundle's alerts are switched on in that bundle. They
   say the sender and subject, the sender only, or a count, as you choose on the Mail screen. Like every alert, they
   are switched off altogether in Settings, Notifications.
-- **Keys.** Arrow keys and single letters work on the Mail screen; the Keyboard keys button lists them.
+- **Keys.** Arrow keys and single letters work on the Mail screen; the Keyboard keys button lists them. They act on
+  the mail you see, and not while you are writing.
+
+These are in the web, Windows and Android apps (the Apple apps have the Inbox, the bundles, Pin, Done, Snooze and
+read marks):
+
+- **Delete, Spam and Move to.** Delete moves a mail to Trash, Spam to Junk, and Move to into one of your own folders.
+  Undo puts it back as it was: snoozed again, or done again.
+- **Folders.** Drafts, Sent, Spam, Trash and your own folders show under the Inbox, each with its newest 500 mails of
+  the last 90 days.
+- **Writing.** Reply, Reply all, Forward and New mail save a draft in your mailbox's Drafts folder, and you send it
+  from your mail app: Aeneas sends no mail. You see the whole mail before it is saved. A draft can carry up to 10
+  files, 15 MB together; an edited draft keeps the files and the Bcc it had. What you typed and have not saved stays
+  while the page is open, and in a browser the page asks before you reload or close it. When you start a reply, the
+  model on your hub (never a cloud one) may suggest a greeting, a sign-off and up to three short replies, which you
+  edit or drop.
+- **Attachments.** A paperclip marks mail that has them. Small pictures show when you open the mail; Download saves a
+  file, and the screen asks first for a kind of file that can run programs. Files are read from your mailbox when you
+  ask and are never kept on the hub.
+- **Search** looks through every kept mail, the folders too, by its whole text. A person's name opens all mail with
+  that person.
+- **Sort new mail.** The model on your hub marks which new mails need you today or need a reply, with one line on
+  each, shown as Needs you. It reads them only when you press Sort new mail (a hub set to do its model work on its
+  own also does it after each refresh). Its lines are kept a week. The switch under the Mail screen's "i" turns it
+  off and erases them. It can be wrong.
+- **Unsubscribe and Block sender.** Unsubscribe uses the mail's own unsubscribe address, through Tor when your hub
+  has Tor; without Tor it asks first, because the sender then sees your home's internet address. Block sender moves
+  a sender's mail to Spam now and whenever more arrives. You can block one address, or a whole domain that is the
+  sender's own (not one like gmail.com that many people use).
+
+On every device:
+
 - **On the iPhone, iPad and Mac** the title is the menu of places (Inbox, Snoozed, Done, each bundle). Swipe a mail
   for Done, Snooze, Pin and Mark read, or touch and hold it for the rest; Select (in the menu at the top right) picks
   several. Pull the list down to refresh. A mail's page shows in a view where nothing in it runs or loads, and a
   link in it opens in your browser. On the Mac the open mail shows beside the list, and an iPad or Mac keyboard has
   the same letters as the web (Mailboxes and settings lists them).
-- The mail is kept on the hub only while it is in your Inbox (done mail for 30 days), never in a backup, and the
-  assistant cannot read it. Switching the module off deletes it from the hub at once.
+- The mail is kept on the hub only: the Inbox's while it is there (done mail for 30 days) and the other folders'
+  newest mail, never in a backup, and the assistant cannot read it. Unlinking a mailbox or switching the module off
+  deletes it from the hub at once.
 - **Pictures in mail.** The hub fetches them through Tor when a mail arrives, so opening a mail loads nothing, and a
   sender sees neither your device nor your home's internet address, nor whether you opened it. A hub without Tor
   fetches no picture until you press Show pictures on a mail; that mail's sender then sees your home's internet
@@ -159,12 +206,23 @@ those modules are on. A person's mail stands on its own.
   colors are the same in every theme, so a color always means the same bundle. The list itself follows your theme
   (Settings, Theme): the page and each mail take the theme's own page and card colors.
 
+Linking a mailbox:
+
 - **iCloud Mail** needs an app-specific password you make at account.apple.com; the guide in Settings, Connections
   takes you through it. The password is kept only on the hub. Apple's app-specific passwords also open iCloud
   Contacts and Calendars; Aeneas uses it for mail, and for calendars only when Calendar accounts is on.
-- **Gmail** needs your own Google app, allowed only to read mail, and the hub reached through Tailscale (Google
-  returns only to an https name). The steps are in [gmail-setup.md](gmail-setup.md) and in the guide in Settings,
-  Connections.
+- **Gmail on the Mail screen** needs an app password you make in your Google Account (16 letters; Google offers it
+  once 2-Step Verification is on). Add the account under Internet Accounts as Google, with an app password. The same
+  password can feed Mail receipts.
+- **Gmail for receipts only** can use Sign in with Google instead: your own Google app, allowed only to read mail,
+  and the hub reached through Tailscale (Google returns only to an https name). The steps are in
+  [gmail-setup.md](gmail-setup.md) and in the guide in Settings, Connections. Signed in this way, the hub may only
+  read, so that account does not show on the Mail screen.
+- **Another mail server** needs its IMAP server's name, your username and an app password from your provider. The
+  hub links only servers on the internet, over an encrypted connection (port 993 as a rule).
+- Each account has switches for what it does (Mail, Receipts, Calendars), and Remove account takes its password and
+  its mail off the hub. A password stays on the hub only while one of the three uses it: switching off the last one
+  removes the account, and the app asks first.
 
 ## Reminders, Contacts and Health
 

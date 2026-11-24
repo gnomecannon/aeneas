@@ -1,12 +1,14 @@
 import { plainError } from "../lib/errors";
-import { useEffect, useState } from "react";
-import { HubClient, HubError, isDeviceKey, normalizeHubUrl } from "../sync/api";
+import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
+import { HubClient, HubError, isDeviceKey, normalizeHubUrl, type SetupView } from "../sync/api";
 import { directAddress, isDirect, parseDirect, relayOwner, validRelay } from "../sync/direct";
 import { afterLink, normalizeHubId } from "../sync/hubid";
 import { META, db, getMeta, setMeta } from "../sync/db";
 import { engine } from "../sync/engine";
 import { useMeta } from "../sync/hooks";
-import { isAndroid, isTauri, isWindowsApp } from "../tauri/bridge";
+import { joinedHubName, setJoinedNote } from "../sync/join";
+import { isAndroid, isTauri, isWindowsApp, renewJoin, startJoin, stopJoin, type JoinOffer } from "../tauri/bridge";
 import { leaveSetup } from "../lib/router";
 import { pairingName } from "../lib/platform";
 
@@ -115,7 +117,8 @@ export function Setup() {
     leaveSetup();
   };
 
-  const pairWithCode = async (given?: { hub: string; hid: string | null; code: string; name: string }) => {
+  /** `after` runs with the new key before this device leaves Setup (a join says which hub it joined). */
+  const pairWithCode = async (given?: { hub: string; hid: string | null; code: string; name: string }, after?: (hubUrl: string, key: string) => Promise<void>) => {
     const h = given?.hub ?? hub, c = given?.code ?? code, n = given?.name ?? name;
     if (!h.trim() || !c.trim()) { setMsg({ ok: false, text: "The hub's address and a pairing code are needed." }); return; }
     setBusy(true);
@@ -124,6 +127,7 @@ export function Setup() {
       // A device paired before on this hub asks to keep its id (the hub gives a new one if that id still has a key).
       const { same } = afterLink(await current(), { url: h, id: given ? given.hid : hid });
       const r = await new HubClient({ hubUrl: h, token: "" }).claim(c.trim(), n.trim() || "Browser", platform(), same ? await getMeta<string>(META.deviceId) : undefined);
+      try { await after?.(h, r.key); } catch { /* the pairing stands without it */ }
       await keep(r.key, r.device_id, given ? { url: h, id: given.hid } : undefined);
     } catch (e) {
       setMsg({ ok: false, text: e instanceof HubError && e.status === 404 ? "This hub is older and has no pairing codes yet. Use its main key below." : errorText(e) });
@@ -155,6 +159,19 @@ export function Setup() {
 
   const fromLink = () => (link.get("code") ? pairWithCode() : pairWithMainKey());
 
+  // A hub's join came in over Direct link (src-tauri/src/join.rs): pair with its link as with an opened pairing link,
+  // then say which hub it was, so a device joined to someone else's hub shows it at once.
+  const [joining, setJoining] = useState(false);
+  const joined = (appLink: string) => {
+    const p = pastedLink(appLink);
+    if (!p?.get("code")) { setMsg({ ok: false, text: "The hub's pairing link could not be read. Scan the new code with your phone again." }); return; }
+    const found = { hub: p.get("hub")!, hid: normalizeHubId(p.get("hid")), code: p.get("code")!, name: name.trim() || pairingName(p.get("name"), ownName, ua()) };
+    setHub(found.hub); setHid(found.hid); setCode(found.code);
+    setJoining(true);
+    void pairWithCode(found, async (url, key) => setJoinedNote(`This device joined ${await whichHub(url, key)}.`)).finally(() => setJoining(false));
+  };
+  const pairingFromLink = !!(link.get("hub") && (link.get("code") || link.get("token")));
+
   // Opened from a pairing link: connect at once, asking first only when it would leave another hub.
   useEffect(() => {
     if (!link.get("hub") || !(link.get("code") || link.get("token"))) return;
@@ -175,6 +192,7 @@ export function Setup() {
   return (
     <div className="setup">
       <h1>Connect to your hub</h1>
+      {/^#\/join(\?|$)/.test(window.location.hash) && <div className="error">Pair this device with your hub first.</div>}
       {unpaired && !msg && <div className="error">{unpaired}</div>}
       {switchFrom && (
         <section className="card col">
@@ -186,6 +204,12 @@ export function Setup() {
           </div>
         </section>
       )}
+      {isTauri && !switchFrom && !pairingFromLink && (joining ? (
+        <section className="card col" aria-label="Pair with your phone">
+          <h2>Pair with your phone</h2>
+          <p aria-live="polite">Your hub answered. Pairing this device now.</p>
+        </section>
+      ) : !busy && <PairWithPhone name={name} onLink={joined} />)}
       {!switchFrom && <Invitation busy={busy} onFound={(p) => {
         const found = { hub: p.get("hub")!, hid: normalizeHubId(p.get("hid")), code: p.get("code") ?? "", name: pairingName(p.get("name"), name, ua()) };
         setHub(found.hub); setHid(found.hid); setCode(found.code); setName(found.name);
@@ -228,6 +252,76 @@ export function Setup() {
       </details>
     </div>
   );
+}
+
+/** A new secret and QR code this often while Setup shows (CONTRACT, Devices). */
+const JOIN_RENEW_MS = 5 * 60_000;
+
+/**
+ * The Windows and Android apps' QR code for joining with a phone's yes (CONTRACT, Devices): the app listens on an
+ * iroh endpoint of its own while this shows, with a new secret every 5 minutes, and stops when it goes away. Never in
+ * a browser, which cannot use Direct link.
+ */
+function PairWithPhone({ name, onLink }: { name: string; onLink: (link: string) => void }) {
+  const [qr, setQr] = useState("");
+  const [err, setErr] = useState("");
+  const [tries, setTries] = useState(0);
+  // The name in the code is the one in the field when it was made; the link arrives through these.
+  const nameRef = useRef(name);
+  nameRef.current = name;
+  const onLinkRef = useRef(onLink);
+  onLinkRef.current = onLink;
+
+  useEffect(() => {
+    let live = true;
+    let session: number | undefined;
+    const show = async (o: JoinOffer) => {
+      session = o.session;
+      const img = await QRCode.toDataURL(o.link, { margin: 1, width: 240 });
+      if (live) { setQr(img); setErr(""); }
+    };
+    const start = () => startJoin(nameRef.current.trim() || ownName, isAndroid ? "android" : "windows", (l) => { if (live) onLinkRef.current(l); }).then(show);
+    const failed = (e: unknown) => { if (live) { setQr(""); setErr(plainError(e)); } };
+    // Every call the app is still working on, so stopping waits for it and names the newest code.
+    let pending: Promise<unknown> = start().catch(failed);
+    // An endpoint that stopped (the network went away) starts again.
+    const t = setInterval(() => { pending = renewJoin().then(show).catch(() => start()).catch(failed); }, JOIN_RENEW_MS);
+    return () => {
+      live = false;
+      clearInterval(t);
+      void pending.finally(() => { if (session !== undefined) void stopJoin(session); });
+    };
+  }, [tries]);
+
+  return (
+    <section className="card col" aria-label="Pair with your phone">
+      <h2>Pair with your phone</h2>
+      <div className="row wrap" style={{ alignItems: "flex-start" }}>
+        {qr
+          ? <img src={qr} width={240} height={240} alt="Code for a phone that already uses Aeneas" style={{ background: "#fff", borderRadius: 8 }} />
+          : !err && <div className="muted small" style={{ width: 240 }}>Making a code.</div>}
+        <div className="col grow" style={{ minWidth: 200 }}>
+          <p>On a phone that already uses Aeneas, open the Camera and point it at this code, then tap Add on the phone.</p>
+          <p className="muted small">This works with a hub on Direct link. A hub on Tailscale or Home Wi-Fi only takes its address and a code below.</p>
+        </div>
+      </div>
+      {err && (
+        <div className="row wrap" style={{ alignItems: "center" }}>
+          <span className="error small grow">{err}</span>
+          <button type="button" onClick={() => setTries((n) => n + 1)}>Try again</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Which hub a join reached, as the hub names itself, else by its key's start. */
+async function whichHub(hubUrl: string, key: string): Promise<string> {
+  const c = new HubClient({ hubUrl, token: key });
+  const soon = () => (typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(10_000) : undefined);
+  const health = await c.health(soon()).catch(() => null);
+  const setup = health?.hub?.name ? null : await c.req<SetupView>("GET", "/setup", undefined, soon()).catch(() => null);
+  return joinedHubName({ hubName: health?.hub?.name, owner: setup?.owner, named: setup?.named }, parseDirect(hubUrl)?.node ?? "");
 }
 
 /**

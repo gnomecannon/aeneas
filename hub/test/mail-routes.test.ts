@@ -159,19 +159,20 @@ test("mail routes: one picture shown thousands of times neither fills the hub no
   } finally { Object.assign(mailImages, real); done(t); }
 });
 
-test("mail routes: Pin is kept on the hub, nothing is sent to iCloud, and only a kept mail can be pinned", async () => {
+test("mail routes: Pin is kept on the hub and as iCloud's flag (that flag only), and only a kept mail can be pinned", async () => {
   const t = makeHub();
   try {
     linked(t);
     const seen = fake(INBOX);
     await t.api("/mail/refresh", { method: "POST" });
-    const calls = seen.calls.length;
     const id = (await list(t)).messages[1].id;
     assert.equal((await t.api(`/mail/messages/${id}/pin`, { method: "POST", json: { pinned: true } })).status, 200);
     assert.equal((await list(t)).messages.find((m) => m.id === id)!.pinned, true);
     assert.equal((await t.api(`/mail/messages/${id}/pin`, { method: "POST", json: { pinned: false } })).status, 200);
     assert.equal((await list(t)).messages.find((m) => m.id === id)!.pinned, false);
-    assert.equal(seen.calls.length, calls, "no connection to iCloud");
+    // Since 2026-11-21 a pin is Apple Mail's flag too (mail-pins.test.ts): \Flagged added, then removed, nothing else.
+    assert.deepEqual(seen.flags.map((f) => [f.flags, f.add]), [[["\\Flagged"], true], [["\\Flagged"], false]]);
+    assert.deepEqual([seen.moves.length, seen.appends.length], [0, 0]);
     assert.equal((await t.api(`/mail/messages/${id}/pin`, { method: "POST", json: { pinned: "yes" } })).status, 422);
     assert.equal((await t.api("/mail/messages/000000000000000000000000/pin", { method: "POST", json: { pinned: true } })).status, 404);
     assert.ok(refuseToolCall("POST", `/mail/messages/${id}/pin`), "the assistant cannot pin");

@@ -49,7 +49,7 @@ describe("Tech things", () => {
       ["Not identified", ["x"]],
     ]);
     expect(identityLine({ ...m("dc1"), os_name: "Windows Server 2022 Standard", vm_of: "pve", vm_state: "running" })).toBe("Windows Server 2022 Standard, virtual machine on pve");
-    expect(identityLine({ ...m("dc2"), vm_of: "pve", vm_state: "stopped" })).toBe("stopped virtual machine on pve");
+    expect(identityLine({ ...m("dc2"), vm_of: "pve", vm_state: "stopped" })).toBe("virtual machine on pve");
     expect(identityLine(m("x"))).toBe("");
     expect(identityLine({ ...m("p", "printer"), model: "HP LaserJet Pro M404" })).toBe("HP LaserJet Pro M404");
   });

@@ -101,6 +101,7 @@ const OTHER: Item[] = [
   { path: "/item", label: "Item" },
   { path: "/welcome", label: "Welcome" },
   { path: "/help/connections", label: "Connections help" },
+  { path: "/join", label: "Add a device" },
 ];
 
 /**

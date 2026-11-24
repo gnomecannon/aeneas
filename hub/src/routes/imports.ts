@@ -9,11 +9,12 @@ import { listImports, stopImport, textImport, uploadImport } from "../imports/bu
 import { atlassianReturn, atlassianSignIn, atlassianSpaces, disconnectAtlassian, setAtlassianApp, setAtlassianSpaces, syncConfluence } from "../imports/confluence.js";
 import { applicationsList, filmsLibrary, gamesLibrary } from "../imports/library.js";
 import { checkGoogleApp, disconnectGoogle, googleReturn, googleSignIn, listMail, mailCounts, setGoogleApp } from "../imports/gmail.js";
-import { icloudSource, linkICloud, unlinkICloud } from "../imports/icloud.js";
+import { accountUsed, icloudSource, imapSource, linkICloud, linkImap, setMailboxFeatures, unlinkICloud, unlinkImap } from "../imports/icloud.js";
 import { guideFor, parseGuideService } from "../guides.js";
 import { hubAddress } from "../setup.js";
 import { mailboxLabel, mailReading, mailSchedule, readMailNow } from "../mail-filer.js";
 import { deleteMailbox, refreshMail } from "../mail-inbox.js";
+import { unlinkCalendarAccount } from "../calendar-sync.js";
 import { StoreError } from "../store.js";
 import { importKeepass, installPasswordManager, keepass, keepassEntries, linkPasswordManager, passwordManagerStatus, passwordManagerView, PROVIDERS, putKeepassEntry, removeKeepassEntry, searchItems, setAccess, setAllowed, signInPasswordManager, unlinkPasswordManager, type Provider } from "../secrets.js";
 import { KEEPASS_FILE } from "../keepass.js";
@@ -91,11 +92,51 @@ export function importRoutes() {
   r.delete("/connections/icloud/:email", (c) => {
     const hub = c.get("hub");
     const email = decodeURIComponent(c.req.param("email")).toLowerCase();
-    const view = unlinkICloud(hub, email);
-    // The Mail screen's messages from it go at once, whichever modules are on.
-    deleteMailbox(hub.mailDb, `icloud:${email}`);
-    return c.json(view);
+    // The Mail screen's messages from it go at once, whichever modules are on, and also when the account itself is
+    // gone already (removed another way a moment ago): none of its mail may stay behind an error.
+    try { return c.json(unlinkICloud(hub, email)); } finally { deleteMailbox(hub.mailDb, `icloud:${email}`); }
   });
+
+  // Other mail accounts for the Mail screen (icloud.ts linkImap, since 2026-11-22): Gmail or any IMAP server, an app
+  // password checked with the server once and kept sealed; never returned.
+  r.put("/connections/imap", async (c) => {
+    const hub = c.get("hub");
+    if (!hub.modules.on("mail_inbox") && !hub.modules.on("mail")) throw new StoreError(404, "Mail and Mail receipts are off. Turn one on in Settings, Modules.");
+    return c.json(await linkImap(hub, await readJsonObject(c), (account) => {
+      if (hub.modules.on("mail_inbox")) void refreshMail(hub).catch((e) => console.error(`[mail-inbox] ${errCode(e)}`));
+      if (hub.modules.on("mail") && imapSource.accounts(hub).includes(account)) void imapSource.list(hub, account).catch((e) => console.error(`[mail] ${errCode(e)}`));
+    }));
+  });
+  // Internet Accounts (since 2026-11-22): one account's switches. Mail off takes its mail off the Mail screen at once;
+  // Receipts off drops what was waiting to be read (what was filed stays). The last use switched off removes the
+  // account, password and all (`removed` and a `message` in the answer): a password is kept only while something
+  // uses it. (It stayed on the hub with every switch off, against what the contract and the guide say.)
+  r.put("/connections/accounts/:key", async (c) => {
+    const hub = c.get("hub");
+    const key = decodeURIComponent(c.req.param("key")).toLowerCase();
+    if (!/^(icloud|imap):[^\s@]+@[^\s@]+$/.test(key)) throw new StoreError(404, "that account has no switches");
+    const body = await readJsonObject(c);
+    const on = setMailboxFeatures(hub, key, body);
+    if ((body.inbox === false || body.receipts === false) && !accountUsed(hub, key)) {
+      const { message } = await removeAccount(hub, key);
+      return c.json({ receipts: false, inbox: false, removed: true, message: `Nothing on the hub uses this account now. ${message}` });
+    }
+    if (body.inbox === false) deleteMailbox(hub.mailDb, key);
+    if (body.inbox === true && hub.modules.on("mail_inbox")) void refreshMail(hub).catch((e) => console.error(`[mail-inbox] ${errCode(e)}`));
+    if (body.receipts === false) hub.db.prepare("DELETE FROM mail WHERE account = ? AND state = 'queued'").run(key);
+    if (body.receipts === true && hub.modules.on("mail")) {
+      const source = key.startsWith("imap:") ? imapSource : icloudSource;
+      if (source.accounts(hub).includes(key)) void source.list(hub, key).catch((e) => console.error(`[mail] ${errCode(e)}`));
+    }
+    return c.json(on);
+  });
+  r.delete("/connections/imap/:email", (c) => {
+    const hub = c.get("hub");
+    const email = decodeURIComponent(c.req.param("email")).toLowerCase();
+    try { return c.json(unlinkImap(hub, email)); } finally { deleteMailbox(hub.mailDb, `imap:${email}`); }
+  });
+  // Remove account (Internet Accounts): the account whole, in one call.
+  r.delete("/connections/accounts/:key", async (c) => c.json(await removeAccount(c.get("hub"), decodeURIComponent(c.req.param("key")).toLowerCase())));
 
   // Password manager (secrets.ts): which one and where its CLI runs, sign-in, and the items the assistant may use.
   r.get("/connections/password-manager", (c) => c.json(passwordManagerView(c.get("hub"))));
@@ -143,6 +184,38 @@ export function importRoutes() {
   return r;
 }
 
+/**
+ * Remove an account whole (Internet Accounts): its calendar sync stops (its events stay in the app), its mail leaves
+ * the Mail screen, what waited to be read for receipts goes (what was filed stays), and its password or sign-in is
+ * deleted from the hub. One call for all of it, so a part that is gone already never leaves the rest standing: stopping
+ * calendar sync removes an account nothing else uses, and a second call to unlink it then found nothing and failed
+ * before the kept mail was deleted. `key`: `icloud:<address>`, `imap:<address>`, or a Google sign-in's address.
+ */
+export async function removeAccount(hub: Hub, key: string): Promise<{ message: string }> {
+  const gone = new StoreError(404, "that account is not linked");
+  if (key.startsWith("icloud:")) {
+    const email = key.slice("icloud:".length);
+    const linked = () => (hub.connections.get().icloud ?? []).find((x) => x.email === email);
+    try {
+      const a = linked();
+      if (!a) throw gone;
+      if (a.calendar) unlinkCalendarAccount(hub, email);
+      // Calendar sync stopped, the unlink takes the password too; it went already when only calendars used the account.
+      if (linked()) unlinkICloud(hub, email);
+    } finally {
+      hub.db.prepare("DELETE FROM mail WHERE account = ?").run(key);
+      deleteMailbox(hub.mailDb, key);
+    }
+    return { message: "The account is removed and its password deleted from the hub. To end the password itself, revoke it at account.apple.com, under Sign-In and Security, App-Specific Passwords." };
+  }
+  if (key.startsWith("imap:")) {
+    try { return { message: unlinkImap(hub, key.slice("imap:".length)).message }; } finally { deleteMailbox(hub.mailDb, key); }
+  }
+  if (!(hub.connections.get().google ?? []).some((x) => x.email === key)) throw gone;
+  await disconnectGoogle(hub, key);
+  return { message: "The account is removed and its sign-in deleted from the hub." };
+}
+
 /** Hourly (first run 2 minutes after start): the Letterboxd diary and Confluence spaces every hour, Steam playtime every 6 hours, when connected. */
 export function startImportJob(hub: Hub, everyMs = 3600_000): () => void {
   let tick = 0;
@@ -167,6 +240,7 @@ export function connectionsView(hub: Hub) {
     ...v,
     google: { ...v.google, reading: mailReading(hub), ...mailSchedule(hub), accounts: v.google.accounts.map((a) => ({ ...a, ...mailCounts(hub, a.email) })) },
     icloud: { accounts: v.icloud.accounts.map((a) => ({ ...a, ...mailCounts(hub, `icloud:${a.email}`) })) },
+    internet: v.internet.map((a) => (a.features.receipts ? { ...a, receipts: mailCounts(hub, a.key) } : a)),
     password_manager: passwordManagerView(hub),
   };
 }

@@ -439,10 +439,16 @@ export function mailTimeReached(times: string[], since: Date, now: Date): boolea
  * three hours. Read now reads at once. With EA_BACKGROUND_AI=auto it reads whenever mail waits. One message at a
  * time, newest first, only while no chat is using the model.
  */
-/** How a log line names a linked mailbox: its place in Settings ("mailbox 2"), never the address. */
+/**
+ * How a log line names a linked mailbox: its number among the mailboxes Mail receipts reads ("mailbox 2"), never the
+ * address. One that Mail receipts does not read is "a mailbox" and its kind: the Mail screen logs with this too, and a
+ * mailbox only it reads was called "a mailbox no longer linked".
+ */
 export function mailboxLabel(hub: Hub, account: string): string {
   const i = mailAccounts(hub).findIndex((a) => a.account === account);
-  return i >= 0 ? `mailbox ${i + 1}` : "a mailbox no longer linked";
+  if (i >= 0) return `mailbox ${i + 1}`;
+  const kind = /^([a-z]+):/.exec(account)?.[1];
+  return kind === "icloud" || kind === "imap" ? `a mailbox (${kind})` : "a mailbox";
 }
 
 export function startMailJob(hub: Hub): () => void {

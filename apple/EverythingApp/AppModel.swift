@@ -382,10 +382,22 @@ final class AppModel: ObservableObject {
         #endif
     }
 
-    /// A pairing link to another hub, waiting for the owner to say switch or keep (RootView asks).
+    /// A pairing link to another hub, waiting for the owner to say switch or keep (PairingPrompts asks).
     @Published var pendingSetup: PendingSetup?
+    /// A pairing link for the hub this device already uses, waiting for Pair again or Cancel (PairingPrompts asks).
+    @Published var pendingRepair: SetupLink?
+    /// Another device's join code, opened from the Camera: Add it to your hub? (JoinRequestSheet).
+    @Published var pendingJoin: JoinLink?
+    /// How a pairing link went while Set up is not on screen, or which hub a phone's yes joined; shown in an alert.
+    @Published var pairingNotice: PairingNotice?
     /// What went wrong with the last pairing link, shown on the setup screen.
     @Published var setupError: String?
+
+    struct PairingNotice: Identifiable, Equatable {
+        let id = UUID()
+        var title: String
+        var message: String?
+    }
 
     struct PendingSetup: Identifiable, Equatable {
         let link: SetupLink
@@ -445,6 +457,89 @@ final class AppModel: ObservableObject {
         return nil
     }
 
+    /// A setup link opened (the Camera, a message) or found in pasted text. Set up shows what went wrong itself; anywhere
+    /// else every outcome shows in an alert, so a link never fails, or pairs again, without a word.
+    func useSetupLink(_ link: SetupLink) {
+        guard isConfigured else {
+            if deviceRemoved { Task { await connectAndReport(link) } } else { Task { setupError = await connect(link) } }
+            return
+        }
+        // An item open over the screen would keep the question from showing.
+        openItemId = nil
+        // The sample month is no hub: Set up says setting up a hub wipes it, so a link pairs at once, as on a device
+        // that is not paired (asking whether to leave "sample://everythingapp" only confused).
+        if config.sampleMode {
+            Task { await connectAndReport(link) }
+            return
+        }
+        // A link to another hub than this device's waits for a yes: a link in a note, a page or an email must not
+        // move the device to someone else's hub unnoticed. Another hub id is another hub even at this address. So
+        // does one to this hub that names another certificate than the one pinned now (taken at once, it replaced
+        // the pin), or this hub at another address without the pinned certificate (the id alone proves nothing).
+        if link.needsConfirmation(currentHub: config.hubURL, currentPin: config.hubPin, currentHubId: config.hubId) {
+            pendingSetup = PendingSetup(link: link, current: config.hubURL, currentId: config.hubId)
+            return
+        }
+        // The same hub, address and certificate: following it would only pair this device again.
+        if link.pairsAgain(currentHub: config.hubURL, currentPin: config.hubPin, currentHubId: config.hubId) {
+            pendingRepair = link
+            return
+        }
+        Task { await connectAndReport(link) }
+    }
+
+    /// Pairs with `link` and says how it went in an alert.
+    func connectAndReport(_ link: SetupLink) async {
+        if let e = await connect(link) {
+            pairingNotice = PairingNotice(title: "Pairing did not work", message: e)
+            return
+        }
+        await notePaired()
+    }
+
+    /// "Paired with <hub>": the hub this device now uses, by the name it gives itself, else by its address. After a
+    /// phone's yes this is how the new device says which hub it joined.
+    func notePaired() async {
+        pairingNotice = PairingNotice(title: "Paired with \(await pairedHubLabel())", message: nil)
+    }
+
+    /// The paired hub's own name, asked now (the one kept may be the previous hub's), else its address.
+    private func pairedHubLabel() async -> String {
+        if let c = engine.client, let h = try? await withDeadline(15, { try await c.health() }),
+           let n = h.hub?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty {
+            return "\(n)\u{2019}s hub"
+        }
+        return Self.hubPlace(config.hubURL)
+    }
+
+    /// The hub this device uses now, for a question: its name when it gave one, else its address.
+    var currentHubLabel: String {
+        if let n = engine.hubIdentity?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty { return "\(n)\u{2019}s hub" }
+        return Self.hubPlace(config.hubURL)
+    }
+
+    /// A hub address in words: its host (and port), or for a Direct link hub the start of its key, as the web app shows it.
+    static func hubPlace(_ hub: String) -> String {
+        if let d = DirectHub.parse(hub) { return "the hub with Direct link key \(d.node.prefix(10))" }
+        guard let u = HTTPTransport.hubURL(hub), let h = u.host else { return hub }
+        return u.port.map { "\(h):\($0)" } ?? h
+    }
+
+    /// The phone's Add on another device's join code: its hub reaches that device over Direct link and hands it a
+    /// pairing link. The words to show afterwards, and whether it worked.
+    func join(_ link: JoinLink) async -> (text: String, ok: Bool) {
+        guard isConfigured, !config.sampleMode, let c = engine.client else { return ("Pair this device with your hub first.", false) }
+        do {
+            // The hub may take about 100 seconds (HTTPTransport.timeout); this is only the last stop.
+            switch try await withDeadline(115, { try await c.join(link) }) {
+            case .added(let name): return ("Added \(name).", true)
+            case .sent(let name): return ("Sent to \(name). It finishes pairing by itself.", true)
+            }
+        } catch {
+            return (JoinAnswer.failureText(error, name: link.name), false)
+        }
+    }
+
     static func pairingMessage(_ e: Error) -> String {
         guard let h = e as? HubError else { return e.localizedDescription }
         switch h {
@@ -461,15 +556,33 @@ final class AppModel: ObservableObject {
     }
 
     /// Settings, Devices, Remove this device: the hub ends this device's key, and it signs out here. What is on the
-    /// device stays, with edits not sent yet, for when it is paired again.
-    func removeThisDevice() async -> String? {
-        guard let c = engine.client else { return "This device is not connected." }
+    /// device stays, with edits not sent yet, for when it is paired again. Nil when it worked; else what went wrong, and
+    /// whether the hub could not be reached at all (then `forgetHub()` is offered).
+    func removeThisDevice() async -> (message: String, unreachable: Bool)? {
+        guard let c = engine.client else { return ("This device is not connected.", true) }
         let id = config.deviceId
         do { try await withDeadline(20) { try await c.removeDevice(id) } }
-        catch { return (error as? HubError)?.errorDescription ?? error.localizedDescription }
+        catch { return ((error as? HubError)?.errorDescription ?? error.localizedDescription, Self.unreachable(error)) }
+        forgetHub()
+        return nil
+    }
+
+    /// The hub did not answer at all: no connection, a time limit, or a proxy in front of it saying it is not there.
+    static func unreachable(_ e: Error) -> Bool {
+        guard let h = e as? HubError else { return true }
+        switch h {
+        case .transport: return true
+        case .http(let status, _): return [502, 503, 504].contains(status)
+        default: return false
+        }
+    }
+
+    /// This device stops using its hub without telling it: the half of Remove this device that happens here, for a
+    /// device that cannot reach its hub. It goes back to Set up; what is on it stays, and the hub lists it until it is
+    /// removed from another device.
+    func forgetHub() {
         engine.signOut()
         isConfigured = false
-        return nil
     }
 
     // MARK: sample mode
@@ -656,8 +769,8 @@ final class AppModel: ObservableObject {
     }
 
     func handle(url: URL) {
-        // Only the kind of link: a setup link carries a pairing code (or an older hub's key), which must never reach
-        // the system log.
+        // Only the kind of link: a setup link carries a pairing code (or an older hub's key) and a join link a secret,
+        // which must never reach the system log.
         Self.log.notice("open url: \(url.scheme ?? "", privacy: .public)://\(url.host ?? "", privacy: .public)")
         guard url.scheme?.lowercased() == "everythingapp" else { return }
         let host = (url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))).lowercased()
@@ -671,19 +784,24 @@ final class AppModel: ObservableObject {
             // everythingapp://setup?hub=<hub url>&code=<one-time code>&name=<device name>[&fp=<certificate SHA-256>]
             // [&hid=<hub id>], or an older link with &token= (traded for this device's own key at once).
             guard let link = SetupLink.parse(url) else {
-                setupError = "That setup link is not complete. Make a new pairing code on a device that is already paired."
+                let message = "That setup link is not complete. Make a new pairing code on a device that is already paired."
+                if !isConfigured, !deviceRemoved { setupError = message } else { pairingNotice = PairingNotice(title: "Pairing did not work", message: message) }
                 return
             }
-            // A link to another hub than this device's waits for a yes: a link in a note, a page or an email must not
-            // move the device to someone else's hub unnoticed. Another hub id is another hub even at this address. So
-            // does one to this hub that names another certificate than the one pinned now (taken at once, it replaced
-            // the pin), or this hub at another address without the pinned certificate (the id alone proves nothing).
-            // A first setup, or the same hub and certificate, connects at once.
-            if isConfigured, link.needsConfirmation(currentHub: config.hubURL, currentPin: config.hubPin, currentHubId: config.hubId) {
-                pendingSetup = PendingSetup(link: link, current: config.hubURL, currentId: config.hubId)
+            useSetupLink(link)
+        case "join":
+            // everythingapp://join?node=&relay=&s=&name=&platform=: the code a Mac, iPad, Windows PC or Android tablet
+            // shows while it is not paired, opened by this device's Camera. This device's hub does the pairing.
+            guard isConfigured, !config.sampleMode else {
+                pairingNotice = PairingNotice(title: "Pair this device with your hub first.", message: nil)
                 return
             }
-            Task { setupError = await connect(link) }
+            guard let join = JoinLink.parse(url) else {
+                pairingNotice = PairingNotice(title: "That code is not complete", message: "Point the Camera at the code on the other device again.")
+                return
+            }
+            openItemId = nil
+            pendingJoin = join
         #if DEBUG && os(macOS)
         case "debug":
             // everythingapp://debug/<command>: a Debug build does to its own window what a hand would (DebugHooksMac).

@@ -176,22 +176,6 @@ extension HubClient {
     }
 }
 
-// MARK: Invitations
-
-extension SetupLink {
-    /// The `everythingapp://setup?...` link inside a pasted message: an invitation someone sent (Settings, People on
-    /// this machine on their hub) is a few lines of steps with the link at the end. Nil when there is none, or when the
-    /// one there is not a complete setup link.
-    public static func find(in text: String) -> URL? {
-        guard let r = text.range(of: #"everythingapp://setup\?[^\s"'<>]+"#, options: [.regularExpression, .caseInsensitive]) else { return nil }
-        // A sentence's full stop right after the link is not part of it.
-        var s = String(text[r])
-        while let last = s.last, ".,;:)".contains(last) { s.removeLast() }
-        guard let url = URL(string: s), SetupLink.parse(url) != nil else { return nil }
-        return url
-    }
-}
-
 // MARK: Plain times
 
 public enum HelperTime {

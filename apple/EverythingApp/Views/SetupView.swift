@@ -3,7 +3,9 @@ import EACore
 import EATailnet
 
 /// First run: the hub's address, a one-time pairing code from a device that is already paired (or the hub's Welcome
-/// page), and this device's name. The code is traded for this device's own key, kept in the Keychain.
+/// page), and this device's name. The code is traded for this device's own key, kept in the Keychain. A Mac or iPad
+/// also shows a code for a paired phone to scan (PhoneJoinCard), since it cannot scan one, and a pairing link pasted
+/// into either field pairs at once.
 struct SetupView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -21,9 +23,12 @@ struct SetupView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Set up").font(.largeTitle.bold())
-                // Someone who was sent an invitation (People on this machine on a family member's hub): first, and large.
+                // A Mac or iPad cannot scan a code, and a hub on Direct link has no address to type: a phone that is
+                // already paired scans this device's code instead.
+                if model.platform != .iphone { PhoneJoinCard(name: deviceName.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                // Someone who was sent an invitation (People on this machine on a family member's hub), large.
                 InvitationCard()
-                Text("Pair this device with your hub. The easiest way: scan the QR code with the Camera. The first time, it is on the hub's Welcome page (step 5, Make a pairing code); later, on any paired device under Settings, Connection, Pair another device. Scanning also lets this device check the hub's own certificate on a home network, so prefer it to typing.")
+                Text(Self.intro(model.platform))
                     .foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("No hub yet? Look around first with a made-up month of sample data. Nothing leaves this device, and setting up your hub later wipes it.")
@@ -35,11 +40,12 @@ struct SetupView: View {
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Hub address").font(.headline)
-                    TextField("The address the installer printed", text: $hubURL)
+                    TextField("The address the installer printed, or a pairing link", text: $hubURL)
                         .textFieldStyle(.roundedBorder)
                         .font(.title3)
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("setup.hub")
+                        .onChange(of: hubURL) { _, t in pasted(t) }
                         #if os(iOS)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -52,6 +58,7 @@ struct SetupView: View {
                         .font(.system(.title2, design: .monospaced))
                         .autocorrectionDisabled()
                         .accessibilityIdentifier("setup.code")
+                        .onChange(of: code) { _, t in pasted(t) }
                         #if os(iOS)
                         .textInputAutocapitalization(.characters)
                         #endif
@@ -107,7 +114,7 @@ struct SetupView: View {
                 testResult = h.version.map { "The hub answers, version \($0)" } ?? "The hub answers."
             } catch {
                 testOK = false
-                testResult = Self.plain((error as? HubError)?.errorDescription ?? error.localizedDescription)
+                testResult = Self.plain((error as? HubError)?.errorDescription ?? error.localizedDescription, platform: model.platform)
             }
             testing = false
         }
@@ -117,19 +124,53 @@ struct SetupView: View {
         pairing = true
         error = nil
         Task {
-            error = await model.pair(hub: hubURL, code: code, name: deviceName).map(Self.plain)
+            let platform = model.platform
+            error = await model.pair(hub: hubURL, code: code, name: deviceName).map { Self.plain($0, platform: platform) }
             if error == nil { code = "" }
             pairing = false
         }
     }
 
+    /// A pairing link pasted into the address or code field (from a message, or copied on a computer): it carries the
+    /// address, the code and the hub's certificate, so it pairs at once, the same as opening it. A Direct link hub has
+    /// no address to type at all.
+    private func pasted(_ text: String) {
+        guard !pairing, let link = SetupLink.find(in: text) else { return }
+        var l = link
+        // A name typed here wins over the one in the link (what the other device called this one).
+        let typed = deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty, typed != model.config.deviceName { l.name = typed }
+        hubURL = link.hub
+        if case .code(let c) = link.credential { code = PairingCode.display(c) } else { code = "" }
+        pairing = true
+        error = nil
+        let platform = model.platform
+        Task {
+            error = await model.connect(l).map { Self.plain($0, platform: platform) }
+            if error == nil { code = "" }
+            pairing = false
+        }
+    }
+
+    /// The ways to pair this kind of device. A Mac cannot scan a code, and someone setting up away from the hub cannot
+    /// open its Welcome page, so a Mac or iPad is pointed at the phone card, a code, or a pasted link.
+    static func intro(_ platform: Platform) -> String {
+        if platform == .iphone {
+            return "Pair this device with your hub. The easiest way: scan the pairing QR code with the Camera. The first time, it is on the hub's Welcome page (step 5, Make a pairing code); later, on a paired device under Settings, Connection, Pair another device. Or open the pairing link on this phone. Both let this device check the hub's own certificate on a home network, so prefer them to typing."
+        }
+        return "Pair this device with your hub. The easiest way is the code above, scanned by a phone that already uses Aeneas. For a hub on Tailscale, type its address and a pairing code made on a paired device (Settings, Connection, Pair another device). You can also paste a pairing link into the hub address field."
+    }
+
     /// A hub on a home network has its own certificate, which this device can only check with the fingerprint a
     /// scanned code or opened link carries; typed by hand, the system refuses it with a message about an invalid
-    /// certificate. Say what to do instead.
-    static func plain(_ message: String) -> String {
+    /// certificate. Say what to do instead, in the ways this kind of device can.
+    static func plain(_ message: String, platform: Platform) -> String {
         let m = message.lowercased()
         guard m.contains("certificate") || m.contains("-1202") || m.contains("trust") else { return message }
-        return "This hub uses its own certificate, which this device can check only from the pairing QR code or link. Scan the QR code on the hub's Welcome page (or open its link on this device) instead of typing the address."
+        if platform == .iphone {
+            return "This hub uses its own certificate, which this device can check only from the pairing QR code or link. Scan the pairing QR code (on the hub's Welcome page, or on a paired device under Settings, Connection, Pair another device), or open its link on this phone, instead of typing the address."
+        }
+        return "This hub uses its own certificate, which this device can check only from a pairing link. Pair with your phone and the code above, or paste a pairing link into the hub address field, instead of typing the address."
     }
 }
 

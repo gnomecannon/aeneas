@@ -37,20 +37,9 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active, model.isConfigured { Task { await HelpersStore.shared.refresh(engine, force: false) } }
         }
-        .alert("Switch this device to another hub?", isPresented: Binding(get: { model.pendingSetup != nil }, set: { if !$0 { model.pendingSetup = nil } }), presenting: model.pendingSetup) { p in
-            Button("Switch hubs", role: .destructive) {
-                model.pendingSetup = nil
-                Task { model.setupError = await model.connect(p.link) }
-            }
-            Button("Keep the current hub", role: .cancel) { model.pendingSetup = nil }
-        } message: { p in
-            // The same address names another certificate than the one this device checks for (AppModel.handle).
-            Text(p.link.hubId != nil && p.currentId != nil && p.link.hubId != p.currentId
-                 ? "This link is for another hub than the one this device uses now (\(p.current)). Switch only if you made this link yourself."
-                 : AppModel.sameHub(p.hub, p.current)
-                 ? "This link is for \(p.hub), the hub this device uses now, but it names another certificate than the one this device trusts. Switch only if you made this link yourself."
-                 : "This link connects to \(p.hub). This device uses \(p.current) now. Switch only if you made this link yourself.")
-        }
+        // Pairing links and join codes: switch hubs, pair again, how it went, and a phone's Add (JoinViews.swift). On the
+        // iPhone, while the Settings sheet is up, that sheet shows them instead.
+        .pairingPrompts(active: !model.showingSettings)
         .sheet(item: Binding(get: { model.pendingSnoozeReminderId.map { PendingSnooze(id: $0) } }, set: { model.pendingSnoozeReminderId = $0?.id })) { p in
             SnoozeReasonSheet(reminderId: p.id)
         }
@@ -216,6 +205,8 @@ struct PhoneRoot: View {
             .sheet(isPresented: Binding(get: { model.permissionOffer == nil && model.machinesStart }, set: { if !$0 { model.machinesStart = false } })) {
                 MachinesStartSheet().environmentObject(model).environmentObject(engine)
             }
+            // A join code scanned while Settings is open (Pair another device says to), and pairing links.
+            .pairingPrompts(active: true)
         }
         // Anything that asks for Settings by section opens the sheet instead.
         .onChange(of: model.section) { old, s in

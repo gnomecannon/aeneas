@@ -407,7 +407,7 @@ test("home route: PUT /setup/link takes home_route and announce, alone or with t
     assert.deepEqual(off.home, { on: false, announce: true, port: t.hub.cfg.port + 1000, urls: [], fp: null });
     const both = (await (await t.api("/setup/link", { method: "PUT", json: { method: "direct", announce: false } })).json()) as { method: string; direct: { relay_ok: boolean }; home: { on: boolean; announce: boolean } };
     assert.deepEqual([both.method, both.home.on, both.home.announce, both.direct.relay_ok], ["direct", false, false, false]);
-    assert.deepEqual(readLinkFile(t.dir), { method: "direct", relay: undefined, home_route: false, announce: false });
+    assert.deepEqual(readLinkFile(t.dir), { method: "direct", relay: undefined, home_route: false, announce: false, tailscale_door: undefined });
     // An unavailable method is refused as before, and leaves the rest alone.
     assert.equal((await t.api("/setup/link", { method: "PUT", json: { method: "tailscale", home_route: true } })).status, 409);
     assert.equal(readLinkFile(t.dir).home_route, false);

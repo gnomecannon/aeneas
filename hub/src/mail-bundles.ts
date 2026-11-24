@@ -10,9 +10,12 @@ import type { ModuleId } from "./modules.js";
  * stale is stored. The sender, the subject and what the headers say are read; of the text, only its start, and only
  * for the job and order phrases (a recruiter's note and signature, a shop's "estimated arrival").
  *
- * Bundles: purchases, trips, social, promos and other for every mail a system sent; bills, pet and jobs only while
+ * Bundles: Transactions, Trips, Updates and Promotions for every mail a system sent; Bills, Pet and Jobs only while
  * their module is on (their part of BundleContext is null when it is off). A person's own mail stands alone (null),
- * so it is never lost among notices.
+ * so it is never lost among notices, and so does a reply in a mailing list's discussion (people talking).
+ * Since 2026-11-22 Purchases is called Transactions (money moving too), Promos is called Promotions, and Other is called
+ * Updates and takes the social networks' mail too (there is no Social bundle any more). The ids did not change with the
+ * names (BUNDLE_IDS says why).
  *
  * The sender's name and the subject are whatever the sender wrote: a mail can put itself in the wrong bundle, nothing
  * more. The screen always shows the real address when a mail is opened.
@@ -28,8 +31,12 @@ export interface BundleMail {
   unsubscribe: boolean;
   /** Its List-Id, when it comes from a mailing list. */
   list_id: string | null;
-  /** The start of its text (TEXT_START characters), read only for the job and order phrases. */
+  /** The start of its text (TEXT_START characters), read for the job and order phrases and the owner's text words. */
   text?: string;
+  /** The addresses it was sent to (To and Cc, lowercase), for the owner's recipient rules; absent for mail kept before. */
+  to?: string[];
+  /** It answers another mail (it carries In-Reply-To or References), as a reply in a discussion does. */
+  answers?: boolean;
 }
 
 /** How much of a mail's text the phrases are looked for in: enough to reach a normal mail's signature. */
@@ -55,7 +62,7 @@ export interface BundleContext {
  * of `domains` (or a domain under it), or whose subject has one of `words` (whole words). Checked before the built-in
  * rules, so the owner's wins; unlike those, it may take a person's mail ("Family": a sister's address).
  */
-export interface CustomBundle { id: string; name: string; color: number; addresses: string[]; domains: string[]; words: string[] }
+export interface CustomBundle { id: string; name: string; color: number; addresses: string[]; domains: string[]; words: string[]; body_words?: string[]; to?: string[] }
 export const CUSTOM_MAX = 20;
 const LIST_MAX = 30;
 
@@ -82,8 +89,11 @@ function checked(body: Record<string, unknown>): Omit<CustomBundle, "id"> {
   const addresses = list(body.addresses, "addresses", (x) => x.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
   const domains = list(body.domains, "domains", (x) => x.length <= 253 && /^([a-z0-9-]+\.)+[a-z]{2,}$/.test(x.replace(/^@/, ""))).map((x) => x.replace(/^@/, ""));
   const words = list(body.words, "words", (x) => x.length <= 60);
-  if (!addresses.length && !domains.length && !words.length) throw new StoreError(422, "a bundle needs at least one address, domain or word");
-  return { name, color: body.color as number, addresses, domains, words };
+  // Since 2026-11-22: words in the mail's text (its first 3,000 characters), and the addresses it was sent to (an alias).
+  const bodyWords = list(body.body_words, "body_words", (x) => x.length <= 60);
+  const to = list(body.to, "to", (x) => x.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
+  if (!addresses.length && !domains.length && !words.length && !bodyWords.length && !to.length) throw new StoreError(422, "a bundle needs at least one address, domain, word or recipient");
+  return { name, color: body.color as number, addresses, domains, words, ...(bodyWords.length ? { body_words: bodyWords } : {}), ...(to.length ? { to } : {}) };
 }
 
 export function addCustomBundle(db: DB, body: Record<string, unknown>): CustomBundle {
@@ -98,7 +108,10 @@ export function updateCustomBundle(db: DB, id: string, body: Record<string, unkn
   const all = customBundles(db);
   const i = all.findIndex((b) => b.id === id);
   if (i < 0) throw new StoreError(404, "there is no such bundle");
-  all[i] = { id, ...checked(body) };
+  // An app from before 2026-11-22 does not know the text words and the recipients, and sends neither: they stay as
+  // they are. (It replaced the whole bundle, so an edit of its name there took both rules away.)
+  const old = all[i];
+  all[i] = { id, ...checked({ ...body, ...(body.body_words === undefined && old.body_words ? { body_words: old.body_words } : {}), ...(body.to === undefined && old.to ? { to: old.to } : {}) }) };
   saveAll(db, all);
   return all[i];
 }
@@ -117,14 +130,30 @@ export function customBundleOf(mail: BundleMail, custom: CustomBundle[]): string
     if (b.addresses.includes(address)) return b.id;
     if (b.domains.some((d) => domain === d || domain.endsWith(`.${d}`))) return b.id;
     if (b.words.length && hasWord(mail.subject, b.words)) return b.id;
+    if (b.body_words?.length && hasWord((mail.text ?? "").slice(0, TEXT_START), b.body_words)) return b.id;
+    if (b.to?.length && mail.to?.some((a) => b.to!.includes(a))) return b.id;
   }
   return null;
 }
 
-/** Every bundle's id, the built-in ones and the module ones. */
-export const BUNDLE_IDS = ["purchases", "trips", "social", "promos", "bills", "pet", "jobs", "other"] as const;
+/**
+ * Every bundle's id, the built-in ones and the module ones. An id is what the apps and the kept settings know a bundle
+ * by, so it stays when the bundle is renamed: `purchases` is Transactions, `other` is Updates and `promos` is
+ * Promotions (renamed 2026-11-22). An app that shipped before the renaming has a fixed list of ids, and the hub updates
+ * itself before the apps do: under an id it does not know, mail set to show later or never showed nowhere in that app.
+ */
+export const BUNDLE_IDS = ["purchases", "other", "promos", "trips", "bills", "pet", "jobs"] as const;
 /** Their names, as the screen shows them (for notifications). */
-export const BUNDLE_NAMES: Record<string, string> = { purchases: "Purchases", trips: "Trips", social: "Social", promos: "Promos", bills: "Bills", pet: "Pet", jobs: "Jobs", other: "Other" };
+export const BUNDLE_NAMES: Record<string, string> = { purchases: "Transactions", trips: "Trips", other: "Updates", promos: "Promotions", bills: "Bills", pet: "Pet", jobs: "Jobs" };
+/** Ids that name no bundle any more: `social`, whose mail is in Updates since 2026-11-22. */
+export const RETIRED_BUNDLE_IDS: readonly string[] = ["social"];
+/**
+ * Ids a build of the renaming used for a few days in November 2026, and the bundle each one is. Settings kept under
+ * them move back at start (mail-inbox.ts settleBundleIds), and a request that still sends one is taken as the real id.
+ */
+export const SHORT_LIVED_BUNDLE_IDS: Record<string, string> = { transactions: "purchases", updates: "other", promotions: "promos" };
+/** The bundle id a request means: a short-lived one's real id, else itself. */
+export const bundleIdAsSent = (id: string): string => (Object.hasOwn(SHORT_LIVED_BUNDLE_IDS, id) ? SHORT_LIVED_BUNDLE_IDS[id] : id);
 
 /** No modules on: only the bundles every mail can have. */
 export const NO_MODULES: BundleContext = { jobs: null, bills: null, pets: null };
@@ -197,6 +226,10 @@ function wordPattern(words: string[]): RegExp | null {
 const HIRING = ["greenhouse.io", "lever.co", "myworkday.com", "ashbyhq.com", "smartrecruiters.com", "icims.com"];
 /** Social networks' mail domains. */
 const SOCIAL = ["facebookmail.com", "linkedin.com", "instagram.com", "reddit.com", "redditmail.com", "discord.com", "nextdoor.com", "x.com"];
+/** Developer and work tools: their notices carry an unsubscribe link (to stop a repository's notices), but are updates, not promotions. */
+const TOOLS = ["github.com", "gitlab.com", "bitbucket.org", "atlassian.net", "atlassian.com"];
+/** A reply's subject: "Re:" (and "Aw:", "Sv:"). */
+const REPLY = /^\s*(re|aw|sv)\s*:/i;
 /**
  * Phrases that almost only hiring mail has, looked for in the subject and the start of the text: about an application,
  * about the next steps, and the titles in a recruiter's signature. Never single words like "interview" or "position",
@@ -210,12 +243,15 @@ const JOB_PHRASES = [
 const VET_WORDS =["vet", "veterinary", "animal hospital"];
 const BILL_WORDS = ["invoice", "bill", "statement", "payment due", "autopay"];
 const TRIP_WORDS = ["flight", "boarding pass", "itinerary", "reservation", "check-in", "hotel", "booking"];
-const PURCHASE_WORDS = ["order", "receipt", "shipped", "delivered", "delivery", "tracking", "purchase", "package", "pick up"];
+/** Transactions: buying (an order, its shipping) and money moving (a transfer, a deposit, a payment sent or received, a refund). */
+const TRANSACTION_WORDS = ["order", "receipt", "shipped", "delivered", "delivery", "tracking", "purchase", "package", "pick up",
+  "transaction", "transfer", "deposit", "withdrawal", "refund", "payment received", "payment sent", "payment confirmation", "you paid", "paid you", "sent you money", "money request"];
 /**
  * Order-status phrases, looked for in the start of the text: a shop's notice whose subject says nothing ("meet your
  * next coffee") still has them. Never "shipping" or "delivery" alone, which promos say all the time ("free shipping").
  */
-const ORDER_PHRASES = ["estimated arrival", "estimated delivery", "order number", "order confirmation", "tracking number", "out for delivery", "has shipped", "your shipment"];
+const ORDER_PHRASES = ["estimated arrival", "estimated delivery", "order number", "order confirmation", "tracking number", "out for delivery", "has shipped", "your shipment",
+  "transaction id", "transfer amount", "has been deposited", "available balance"];
 
 /**
  * The bundle a mail sits in, or null when it stands alone (a person's mail). The rules, most specific first (the first
@@ -231,12 +267,15 @@ const ORDER_PHRASES = ["estimated arrival", "estimated delivery", "order number"
  *  4. bills: ctx.bills is not null, and the sender is the same site as a record's url or has its title; or the subject
  *            has invoice, bill, statement, payment due, autopay.
  *  5. trips:     flight, boarding pass, itinerary, reservation, check-in, hotel, booking.
- *  6. purchases: order, receipt, shipped, delivered, delivery, tracking, purchase, package, pick up in the subject; or an order-status
- *                phrase (ORDER_PHRASES) in the start of the text.
- *  7. social:    the sender's domain is a social network's (facebookmail.com, linkedin.com, instagram.com, reddit.com,
- *                redditmail.com, discord.com, nextdoor.com, x.com).
- *  8. promos:    anything left that carries unsubscribe.
- *  9. other:     anything else a system sent.
+ *  6. purchases (Transactions): a buying or money word (TRANSACTION_WORDS: order, receipt, shipped, transfer, deposit, refund,
+ *                payment received...) in the subject; or an order or money phrase (ORDER_PHRASES) in the start of the text.
+ *  7. other (Updates): the sender's domain is a social network's (facebookmail.com, linkedin.com, instagram.com, reddit.com,
+ *                redditmail.com, discord.com, nextdoor.com, x.com) or a developer or work tool's (TOOLS: github.com,
+ *                gitlab.com, ...), though it carries unsubscribe.
+ *  8. none:      a reply in a mailing list's discussion (a List-Id, a "Re:" subject, and it answers another mail)
+ *                stands alone, as people talking. "Re:" alone is not enough: a newsletter writes it to look like one.
+ *  9. promos (Promotions): anything left that carries unsubscribe.
+ * 10. other (Updates): anything else a system sent.
  */
 export function bundleOf(mail: BundleMail, ctx: BundleContext): string | null {
   const domain = domainOf(mail.from.address);
@@ -280,8 +319,10 @@ export function bundleOf(mail: BundleMail, ctx: BundleContext): string | null {
 
   // 5 to 9: the bundles every mail can have.
   if (hasWord(subject, TRIP_WORDS)) return "trips";
-  if (hasWord(subject, PURCHASE_WORDS) || hasWord(start, ORDER_PHRASES)) return "purchases";
-  if (fromAny(SOCIAL)) return "social";
+  if (hasWord(subject, TRANSACTION_WORDS) || hasWord(start, ORDER_PHRASES)) return "purchases";
+  if (fromAny(SOCIAL) || fromAny(TOOLS)) return "other";
+  // A mail kept before the hub knew what it answers (undefined) counts as before.
+  if (mail.list_id && REPLY.test(subject) && mail.answers !== false) return null;
   if (mail.unsubscribe) return "promos";
   return "other";
 }

@@ -43,7 +43,7 @@ test("mail-inbox: new Inbox mail is kept once, newest first, with a key that nam
     const first = list[0];
     assert.equal(first.id, mailKey(ACCOUNT, a.id));
     assert.match(first.id, /^[0-9a-f]{24}$/, "the API id shows neither address nor folder");
-    assert.deepEqual([first.state, first.pinned, first.bundle, first.automated, first.reply_to], ["inbox", false, "other", true, "other@example.com"], "a system's mail with no bundle words is in Other");
+    assert.deepEqual([first.state, first.pinned, first.bundle, first.automated, first.reply_to], ["inbox", false, "other", true, "other@example.com"], "a system's mail with no bundle words is in Updates");
     assert.equal(first.preview, "Saturday? Alex", "a first line, on one line");
     assert.equal((first as unknown as { text?: string }).text, undefined, "the list carries no text");
     assert.equal(mailMessage(db, first.id)!.text, "Saturday?\n\nAlex");

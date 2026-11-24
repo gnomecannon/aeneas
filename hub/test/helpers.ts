@@ -7,6 +7,7 @@ import { createApp, type App } from "../src/app.js";
 import { restoreBackup } from "../src/backup.js";
 import { setDiskSpaceOverride, type DiskSpace } from "../src/diskspace.js";
 import { fileURLToPath } from "node:url";
+import { setTailscaleRunner } from "../src/tsdoor.js";
 
 /** Invented seed data for tests (the shipped seed is only starter content; the owner's own lives in their data folder). */
 export const SEED_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "seed");
@@ -36,6 +37,8 @@ export interface TestHub { hub: Hub; app: App; dir: string; cleanup(): void; api
 /** A hub on a fresh temp dir with the fake AI backend, request logging off and every module on (`modulesPreset` changes that). */
 export function makeHub(overrides: Record<string, unknown> = {}): TestHub {
   process.env.EA_NO_DOTENV = "1";
+  // The Tailscale door (tsdoor.ts) never asks this machine's own Tailscale in tests; a test that needs it sets a runner.
+  setTailscaleRunner(async () => { throw new Error("no tailscale in tests"); });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ea-hub-test-"));
   const cfg = loadConfig({ dataDir: dir, token: TOKEN, aiFake: true, logRequests: false, ollamaUrl: "", anthropicApiKey: "", adapterUrl: "", searxngUrl: "", sshConfigPath: path.join(dir, "no-ssh-config"), seedDir: SEED_FIXTURES, seedPersonalDir: path.join(dir, "seed"), modulesPreset: "all", ...overrides } as any);
   const hub = createHub(cfg);

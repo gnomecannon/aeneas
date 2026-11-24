@@ -45,6 +45,7 @@ export function PairDevice({ defaultName = "iPhone" }: { defaultName?: string })
     } catch (e) { setMsg({ ok: false, text: errorText(e) }); }
   };
   const remaining = links?.expires_at ? left(links.expires_at, now) : null;
+  const onPhone = /iPhone|Android/i.test(navigator.userAgent);
   return (
     <div className="col">
       <form className="row" onSubmit={(e) => { e.preventDefault(); void make(); }}>
@@ -57,8 +58,9 @@ export function PairDevice({ defaultName = "iPhone" }: { defaultName?: string })
           <div className="col small">
             <div style={{ fontFamily: "ui-monospace, monospace", fontSize: "2rem", letterSpacing: "0.12em" }} aria-label="Pairing code">{links.code}</div>
             <div>Works once, for {remaining} more. {links.link === "direct"
-              ? `On the new device, scan the QR code with the camera. With Direct link the code alone isn't enough: the QR code or link carries this hub's key. On a computer, copy the app link and paste it into Aeneas's hub address field. It needs Aeneas ${DIRECT_LINK_MIN_APP} or newer there: if scanning does nothing, update the app first.`
+              ? `On a new phone, scan the QR code with the camera. With Direct link the code alone isn't enough: the QR code or link carries this hub's key. It needs Aeneas ${DIRECT_LINK_MIN_APP} or newer there: if scanning does nothing, update the app first.`
               : `On the new device, scan the QR code with the camera, or open Aeneas and type the code with the hub address ${links.hub}.`}</div>
+            {links.link === "direct" && <div>A computer or tablet with the Aeneas app joins without this code: open Aeneas on it and point {onPhone ? "this phone's Camera" : "the Camera of a phone that already uses Aeneas"} at the code it shows. If it shows no code, update Aeneas on it, or copy the app link below and paste it into Aeneas's hub address field there.</div>}
             {isMacBrowser(navigator.userAgent, isTauri) && <a href={links.app}>Open in the app on this Mac</a>}
             <button type="button" className="ghost small" onClick={() => void navigator.clipboard.writeText(links.app).then(() => setMsg({ ok: true, text: "App link copied. Paste it into Aeneas on the new device. It works once, for 10 minutes." }))}>Copy the app link</button>
             {links.link !== "direct" && <button type="button" className="ghost small" onClick={() => void navigator.clipboard.writeText(links.web).then(() => setMsg({ ok: true, text: "Web link copied. It works once, for 10 minutes." }))}>Copy the web link</button>}

@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 mod appupdate;
 mod helper;
 mod home;
+mod join;
 mod link;
 use std::sync::Mutex;
 
@@ -288,7 +289,8 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| on_second_start(app, args)));
     }
     builder = builder
-        // Pairing links (everythingapp://setup?...) open the app; the page reads them (tauri/bridge.ts, onSetupLink).
+        // Pairing links (everythingapp://setup?...) and a new device's join code (everythingapp://join?...) open the
+        // app; the page reads them (tauri/bridge.ts, onSetupLink).
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_fs::init())
@@ -296,10 +298,12 @@ pub fn run() {
         .manage(Mutex::new(NotifyTarget::default()))
         .manage(std::sync::Arc::new(link::Links::default()))
         .manage(std::sync::Arc::new(home::Home::default()))
+        .manage(std::sync::Arc::new(join::Joins::default()))
         .manage(appupdate::Updates::default())
         .invoke_handler(tauri::generate_handler![
             set_widget, get_widget, show_main_window, open_capture_window, open_window, set_notify_target, set_capture_shortcut, get_capture_shortcut,
             link::link_fetch, link::link_cancel, link::link_state,
+            join::join_start, join::join_renew, join::join_stop,
             home::home_fetch, home::home_cancel, home::home_probe, home::home_browse,
             appupdate::update_begin, appupdate::update_chunk, appupdate::update_finish,
             helper::run_helper_command, helper::scan_home_network, helper::ssh_helper_command

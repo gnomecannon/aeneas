@@ -301,7 +301,7 @@ struct MailView: View {
                 Button { Task { await store.read([t], t.isUnread) } } label: {
                     t.isUnread ? Label("Mark read", systemImage: "envelope.open") : Label("Mark unread", systemImage: "envelope.badge")
                 }
-                .tint(MailFill(key: .place("other")))
+                .tint(MailFill(key: .place("folder")))
             }
     }
 
@@ -428,7 +428,9 @@ struct MailView: View {
     // MARK: Toolbar and places
 
     @ViewBuilder private var placeMenu: some View {
-        let unread = store.threads.filter { $0.state == .inbox && $0.isUnread && Mail.inboxAt($0.summary, delivery: store.delivery, now: clock) != nil }.count
+        // Counted as the list shows them: mail of a bundle this app has no view for is not held back.
+        let held = Mail.shownDelivery(store.delivery, shown: shown)
+        let unread = store.threads.filter { $0.state == .inbox && $0.isUnread && Mail.inboxAt($0.summary, delivery: held, now: clock) != nil }.count
         let snoozed = store.threads.filter { $0.state == .snoozed }.count
         Button { place = .inbox } label: { Label(unread > 0 ? "Inbox (\(unread) new)" : "Inbox", systemImage: "tray") }
         Button { place = .snoozed } label: { Label(snoozed > 0 ? "Snoozed (\(snoozed))" : "Snoozed", systemImage: "clock") }
@@ -545,7 +547,7 @@ struct MailView: View {
                     .buttonStyle(.plain)
             }
             .padding(.horizontal, 18).padding(.vertical, 12)
-            .background(Capsule().fill(MailFill(key: .place("other"))))
+            .background(Capsule().fill(MailFill(key: .place("folder"))))
             .padding(.bottom, 16)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .accessibilityElement(children: .contain)

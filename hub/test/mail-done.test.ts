@@ -73,7 +73,7 @@ test("mail done: the fence: never a mail the hub does not keep, never a differen
     await t.api("/mail/refresh", { method: "POST" });
     const [promo, receipt] = [await byKey(t, "Promo"), await byKey(t, "Receipt")];
 
-    assert.deepEqual(await post(t, "/mail/done", ["000000000000000000000000"]), { moved: [], failed: 1, error: "One mail was not moved: it changed in iCloud since the last refresh. Refresh and try again." });
+    assert.deepEqual(await post(t, "/mail/done", ["000000000000000000000000"]), { moved: [], failed: 1, error: "One mail was not moved: it changed in the mailbox since the last refresh. Refresh and try again." });
     // Another message now sits at the receipt's UID (the folder was renumbered): its Message-ID differs, so it stays.
     msgs.find((m) => m.messageId === "r1@x")!.messageId = "someone-else@x";
     const r = await post(t, "/mail/done", [receipt.id]);

@@ -19,14 +19,15 @@ public enum MailColors {
         "inbox": Pair(light: "#2F5FBF", dark: "#33569E"),
         "snoozed": Pair(light: "#9E6910", dark: "#9A6A14"),
         "done": Pair(light: "#358252", dark: "#2F7A4B"),
-        "purchases": Pair(light: "#2A7F50", dark: "#318256"),
-        "trips": Pair(light: "#7048C0", dark: "#7D5CC9"),
-        "social": Pair(light: "#C9413F", dark: "#C1514E"),
-        "promos": Pair(light: "#4D7C0F", dark: "#58801D"),
-        "bills": Pair(light: "#1F6F43", dark: "#2F7D52"),
+        "purchases": Pair(light: "#0F7C86", dark: "#14808A"),
+        "trips": Pair(light: "#C9413F", dark: "#C1514E"),
+        "other": Pair(light: "#7048C0", dark: "#7D5CC9"),
+        "promos": Pair(light: "#C2185B", dark: "#C42D6C"),
+        "bills": Pair(light: "#8A5A2B", dark: "#8F6232"),
         "pet": Pair(light: "#B55D18", dark: "#AA6229"),
-        "jobs": Pair(light: "#4352B8", dark: "#5767C8"),
-        "other": Pair(light: "#5D6470", dark: "#6B7280"),
+        "jobs": Pair(light: "#4F5D75", dark: "#5A6880"),
+        // A folder's gray, and the app's own neutral marks (Mark read, a notice's capsule).
+        "folder": Pair(light: "#5D6470", dark: "#6B7280"),
     ]
 
     /// The same colors as words, on the page and a row.
@@ -34,19 +35,19 @@ public enum MailColors {
         "inbox": Pair(light: "#2F5FBF", dark: "#7B98D4"),
         "snoozed": Pair(light: "#8F5F0E", dark: "#CC8C1A"),
         "done": Pair(light: "#30764B", dark: "#42AB69"),
-        "purchases": Pair(light: "#27764B", dark: "#40AB71"),
-        "trips": Pair(light: "#7048C0", dark: "#A38CD9"),
-        "social": Pair(light: "#BE3735", dark: "#D38280"),
-        "promos": Pair(light: "#48740E", dark: "#73A826"),
-        "bills": Pair(light: "#1F6F43", dark: "#40AB70"),
+        "purchases": Pair(light: "#0B6870", dark: "#4FB3BD"),
+        "trips": Pair(light: "#BE3735", dark: "#D38280"),
+        "other": Pair(light: "#7048C0", dark: "#A38CD9"),
+        "promos": Pair(light: "#B8185A", dark: "#E07AA6"),
+        "bills": Pair(light: "#8A5A2B", dark: "#C9955F"),
         "pet": Pair(light: "#A25315", dark: "#D38649"),
-        "jobs": Pair(light: "#4352B8", dark: "#8994D8"),
-        "other": Pair(light: "#5D6470", dark: "#9399A5"),
+        "jobs": Pair(light: "#4F5D75", dark: "#9AA6BA"),
+        "folder": Pair(light: "#5D6470", dark: "#9399A5"),
     ]
 
-    /// The owner's own bundles: eight colors of their own, apart from the built-in bundles' (white words on each),
-    /// the same in light and dark as on the web.
-    public static let custom = ["#0F7C86", "#2F6FD0", "#A83E8E", "#8A5A2B", "#5560A8", "#C2416B", "#127A9C", "#8A7410"]
+    /// The owner's own bundles: the eight colors every app offers for them (white words on each), the same in light
+    /// and dark. Several are a built-in bundle's color too (Transactions' teal, Updates' violet, Trips' red).
+    public static let custom = ["#0F7C86", "#2F6FD0", "#A83E8E", "#B55D18", "#7048C0", "#C9413F", "#2F7D3A", "#8A7410"]
 
     /// The key a place's colors are kept under: a view, or a bundle (the owner's by its color).
     public enum Key: Hashable, Sendable {
@@ -69,7 +70,8 @@ public enum MailColors {
     public static func fill(_ k: Key, dark: Bool) -> String {
         switch k {
         case .custom(let i): return custom[((i % custom.count) + custom.count) % custom.count]
-        case .place(let id): return (fills[id] ?? fills["other"]!).pick(dark: dark)
+        // A place this app has no color for (a bundle a newer hub added): the neutral gray, not another bundle's color.
+        case .place(let id): return (fills[id] ?? fills["folder"]!).pick(dark: dark)
         }
     }
 
@@ -85,7 +87,7 @@ public enum MailColors {
         let base: String
         switch k {
         case .custom: base = fill(k, dark: dark)
-        case .place(let id): base = (words[id] ?? words["other"]!).pick(dark: dark)
+        case .place(let id): base = (words[id] ?? words["folder"]!).pick(dark: dark)
         }
         return FeelColor.readable(base, text: text, on: backgrounds)
     }

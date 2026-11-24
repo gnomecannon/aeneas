@@ -63,6 +63,7 @@ const Search = screen(() => import("./views/Search").then((m) => m.Search));
 const Status = screen(() => import("./views/Status").then((m) => m.Status));
 const Settings = screen(() => import("./views/Settings").then((m) => m.Settings));
 const Setup = screen(() => import("./views/Setup").then((m) => m.Setup));
+const Join = screen(() => import("./views/Join").then((m) => m.Join));
 const Welcome = screen(() => import("./views/Welcome").then((m) => m.Welcome));
 const HelpConnections = screen(() => import("./views/HelpConnections").then((m) => m.default));
 const Widget = screen(() => import("./views/Widget").then((m) => m.Widget));
@@ -204,6 +205,7 @@ export function App() {
   else if (p.startsWith("/assistant")) view = <Assistant id={route.parts[1]} />;
   else if (p.startsWith("/search")) view = <Search q={route.params.get("q") ?? ""} />;
   else if (p.startsWith("/status")) view = <Status />;
+  else if (p === "/join") view = <Join key={window.location.hash} params={route.params} />;
   else if (p.startsWith("/welcome")) view = <Welcome />;
   else if (p.startsWith("/help/connections")) view = <HelpConnections />;
   else if (p.startsWith("/settings")) view = <Settings parts={route.parts.slice(1)} params={route.params} />;

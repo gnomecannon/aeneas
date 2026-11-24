@@ -4,7 +4,7 @@ import type { Hub } from "./hub.js";
 import { StoreError } from "./store.js";
 import { errCode } from "./logsafe.js";
 import { stableId } from "./imports/util.js";
-import { appPassword, REFUSED, type ICloudAccount } from "./imports/icloud.js";
+import { appPassword, mailUsed, REFUSED, type ICloudAccount } from "./imports/icloud.js";
 import { DavConflict, DavRefused, deleteEvent, discoverCalendars, getEvent, icloudHost, listEvents, putEvent, type DavLogin } from "./imports/caldav.js";
 import { newEventIcs, parseObject, updatedEventIcs, type EventTimes } from "./calendar-ics.js";
 
@@ -382,7 +382,8 @@ export function chooseCalendars(hub: Hub, email: string, body: Record<string, un
 
 /**
  * Stop calendar sync for an address. Its events stay in the app as they are (no longer linked to anything that
- * changes them); the occurrences of repeating events go. The password goes too unless Mail receipts still uses it.
+ * changes them); the occurrences of repeating events go. The password goes too unless Mail receipts or the Mail
+ * screen still reads the address (mailUsed: either one keeps it).
  */
 export function unlinkCalendarAccount(hub: Hub, email: string): ReturnType<typeof calendarView> & { message: string } {
   const a = (hub.connections.get().icloud ?? []).find((x) => x.email === email);
@@ -392,14 +393,14 @@ export function unlinkCalendarAccount(hub: Hub, email: string): ReturnType<typeo
     if (e && !e.deleted_at) write(() => hub.store.patch(e.id, row.recurring ? { deleted_at: nowIso() } : { caldav: null }));
     dropRow(hub, row.entity_id);
   }
-  const keepMail = a.mail !== false;
+  const keepMail = mailUsed(a);
   hub.connections.update((c) => {
     if (keepMail) { const x = c.icloud?.find((y) => y.email === email); if (x) delete x.calendar; }
     else c.icloud = (c.icloud ?? []).filter((y) => y.email !== email);
   });
   hub.modules.notify();
   return { ...calendarView(hub), message: keepMail
-    ? "Calendar sync stopped. Its events stay in the app. Mail receipts still reads this address, so its password stays on the hub."
+    ? "Calendar sync stopped. Its events stay in the app. Mail still reads this address, so its password stays on the hub."
     : "Calendar sync stopped and the password is deleted from the hub. Its events stay in the app. To end the password itself, revoke it at account.apple.com, under Sign-In and Security, App-Specific Passwords." };
 }
 

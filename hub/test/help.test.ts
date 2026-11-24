@@ -38,8 +38,11 @@ test("help: questions find the right section, the module list says what is on, a
   const pair = searchHelp("pair a new phone", { root: ROOT });
   assert.match(pair.sections[0].heading, /Add another device/);
   const mods = moduleSections([{ id: "music", on: true }, { id: "mail", on: false }]);
-  assert.match(mods.find((m) => m.heading === "Modules > Music")!.text, /It is on on this hub/);
-  assert.match(mods.find((m) => m.heading === "Modules > Mail receipts")!.text, /It is off on this hub/);
+  const music = mods.find((m) => m.heading === "Modules > Music")!.text;
+  const mail = mods.find((m) => m.heading === "Modules > Mail receipts")!.text;
+  assert.match(music, /This hub has it switched on \(Settings, Modules\)\./);
+  assert.match(mail, /This hub has it switched off \(Settings, Modules\)\./);
+  for (const t of [music, mail]) assert.doesNotMatch(t, /\b(on|off) (on|off)\b/, t);
   assert.equal(searchHelp("zzqx florble", { root: ROOT }).sections.length, 0);
   const whole = searchHelp("calendar", { root: ROOT, section: "Mail" });
   assert.equal(whole.sections.length, 1);
@@ -60,6 +63,6 @@ test("app_help is a core tool the assistant can call, and answers from the docs 
     assert.equal(r.ok, true, r.text);
     const out = JSON.parse(r.text) as { sections: { heading: string; text: string }[] };
     assert.ok(out.sections.some((s) => /Hum Song/.test(s.heading)));
-    assert.ok(out.sections.some((s) => /Modules > Music/.test(s.heading) && /on this hub/.test(s.text)));
+    assert.ok(out.sections.some((s) => /Modules > Music/.test(s.heading) && /This hub has it switched (on|off) \(Settings, Modules\)\./.test(s.text)));
   } finally { t.cleanup(); }
 });

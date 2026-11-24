@@ -203,21 +203,52 @@ export const pageReads = { allow: new Set<string>() };
 const refused = (addr: string) => isNonPublicAddress(addr) && !pageReads.allow.has(addr.replace(/^\[|\]$/g, ""));
 
 /**
+ * An IPv6 address as its eight groups, however it is written: "::" opened, leading zeros or none, a dotted IPv4 tail
+ * read, a zone left off. Null when it is not one.
+ */
+export function v6Groups(addr: string): number[] | null {
+  let s = addr.split("%")[0];
+  if (!net.isIPv6(s)) return null;
+  const tail = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s);
+  if (tail) s = `${tail[1]}${((Number(tail[2]) << 8) | Number(tail[3])).toString(16)}:${((Number(tail[4]) << 8) | Number(tail[5])).toString(16)}`;
+  const [head, rest] = s.split("::");
+  const h = head ? head.split(":") : [];
+  const r = rest === undefined ? null : rest ? rest.split(":") : [];
+  const groups = r === null ? h : [...h, ...Array(Math.max(0, 8 - h.length - r.length)).fill("0"), ...r];
+  return groups.length === 8 ? groups.map((g) => parseInt(g, 16)) : null;
+}
+
+/**
  * An address that is not on the public internet: private and tailnet ranges, loopback, link-local, the "this
- * network" block, multicast and reserved, IPv6 unique-local and link-local, and IPv4 written inside IPv6.
+ * network" block, multicast and reserved, the two blocks of 192.0 kept for protocols and for examples (192.0.0.0/24
+ * and 192.0.2.0/24: the rest of 192.0 is sites on the internet, and was refused with them), and for IPv6 everything
+ * outside the one block the internet's addresses are given out of (2000::/3), which takes
+ * unique-local, link-local, site-local, multicast and every other way of writing an IPv4 address inside one
+ * (::a.b.c.d, ::ffff:0:a.b.c.d) with it. Two forms are read by the IPv4 address in them: mapped (::ffff:a.b.c.d) and
+ * through a NAT64 gateway (64:ff9b::a.b.c.d), as is a 6to4 address (2002:AABB:CCDD::). An IPv6 address is read by its
+ * groups, so a long spelling (0:0:0:0:0:0:0:1) is the same address as its short one.
  */
 export function isNonPublicAddress(addr: string): boolean {
   const a = addr.replace(/^\[|\]$/g, "").toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a);
-  if (mapped) return isNonPublicAddress(mapped[1]);
-  // The URL parser writes an IPv4 address inside IPv6 in hex (::ffff:a00:1 for 10.0.0.1).
-  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(a);
-  if (hex) { const h = parseInt(hex[1], 16), l = parseInt(hex[2], 16); return isNonPublicAddress(`${h >> 8}.${h & 255}.${l >> 8}.${l & 255}`); }
   if (net.isIPv4(a)) {
-    const [x, y] = a.split(".").map(Number);
-    return isPrivateHost(a) || x === 0 || x >= 224 || (x === 198 && (y === 18 || y === 19)) || (x === 192 && y === 0);
+    const [x, y, z] = a.split(".").map(Number);
+    return isPrivateHost(a) || x === 0 || x >= 224 || (x === 198 && (y === 18 || y === 19)) || (x === 192 && y === 0 && (z === 0 || z === 2));
   }
-  if (net.isIPv6(a)) return a === "::" || isPrivateHost(a) || a.startsWith("ff");
+  const g = v6Groups(a);
+  if (g) {
+    const zero = (from: number, to: number) => g.slice(from, to).every((x) => x === 0);
+    const inside = (hi: number, lo: number) => isNonPublicAddress(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+    // The two forms a public IPv4 address is reached through: decided by the address inside.
+    if (zero(0, 5) && g[5] === 0xffff) return inside(g[6], g[7]);
+    if (g[0] === 0x64 && g[1] === 0xff9b && zero(2, 6)) return inside(g[6], g[7]);
+    // Everything else outside 2000::/3 is no place on the internet: ::, ::1, the old compatible and translated forms
+    // of an IPv4 address (::ffff:0:10.0.0.5 was let through), unique-local, link-local, site-local, multicast, the
+    // discard block and what is not given out at all.
+    if ((g[0] & 0xe000) !== 0x2000) return true;
+    if (g[0] === 0x2002) return inside(g[1], g[2]);
+    // Teredo and the documentation block.
+    return g[0] === 0x2001 && (g[1] === 0 || g[1] === 0xdb8);
+  }
   return isPrivateHost(a);
 }
 
@@ -353,6 +384,47 @@ export function fetchBytesViaTor(url: string, socks: string, timeoutMs = 45_000,
       resolve(code === 0 && !over && status >= 200 && status < 300 ? Buffer.concat(out) : null);
     });
   });
+}
+
+/**
+ * RFC 8058 one-click unsubscribe (the Mail screen's Unsubscribe, which the owner confirmed): one POST of
+ * `List-Unsubscribe=One-Click` to an https address a mail gave. Through Tor when `socks` is set (curl, as
+ * fetchBytesViaTor: the sender sees a Tor exit, never the home address); otherwise directly, and only to a public
+ * address (publicOnlyLookup: a mail cannot point the hub at the home network). No redirect followed, no cookie, nothing
+ * read back but the status. True for a 2xx answer; TorDown when Tor is not there.
+ */
+export function postOneClick(url: string, socks: string, timeoutMs = 30_000): Promise<boolean> {
+  let u: URL;
+  try { u = new URL(url); } catch { return Promise.resolve(false); }
+  if (u.protocol !== "https:" || u.username || u.password) return Promise.resolve(false);
+  const body = "List-Unsubscribe=One-Click";
+  if (socks) {
+    return new Promise((resolve, reject) => {
+      const args = ["-sS", "-g", "--max-time", String(Math.ceil(timeoutMs / 1000)), "--proto", "=https", "--socks5-hostname", socks, "-A", UA,
+        "-X", "POST", "-H", "Content-Type: application/x-www-form-urlencoded", "--data-raw", body, "-o", process.platform === "win32" ? "NUL" : "/dev/null",
+        "-w", "%{stderr}\n@@meta@@%{http_code}", u.toString()];
+      const child = spawn(torFetch.curl, args, { stdio: ["ignore", "ignore", "pipe"] });
+      let err = "";
+      child.stderr.on("data", (b: Buffer) => { if (err.length < 4000) err += b.toString("utf8"); });
+      child.on("error", () => reject(new TorDown()));
+      child.on("close", (code) => {
+        if (code === 7) return reject(new TorDown());
+        const status = Number(/@@meta@@(\d+)/.exec(err)?.[1] ?? 0);
+        resolve(code === 0 && status >= 200 && status < 300);
+      });
+    });
+  }
+  if (refused(u.hostname)) return Promise.resolve(false);
+  return timed(timeoutMs, async (signal) => {
+    const res = await new Promise<http.IncomingMessage>((resolve, reject) => {
+      const req = https.request(u, { method: "POST", signal, lookup: publicOnlyLookup, headers: { "user-agent": UA, "content-type": "application/x-www-form-urlencoded", "content-length": String(body.length) } }, resolve);
+      req.on("error", reject);
+      req.end(body);
+    });
+    res.resume();
+    const status = res.statusCode ?? 0;
+    return status >= 200 && status < 300;
+  }).then((x) => !!x).catch(() => false);
 }
 
 /**

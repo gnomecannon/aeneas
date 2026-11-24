@@ -27,7 +27,7 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* Mail's bundle colors (Mail.tsx) as fills: white icons, initials and the words of the colored top bar sit on them,
      so white reads on each at 4.5:1 (web/src/lib/contrast.test.ts). */
-  --b-purchases: #2a7f50;
+  --b-purchases: #0f7c86;
   /*
    * The Mail screen: two shades, as grouped lists usually have: the page behind the list,
    * and the mail and bundles on it (white, as most mail is). Hover is an overlay on whatever is under it, never a shade.
@@ -36,27 +36,27 @@
   --mail-page: #ecebe7;
   --mail-item: #ffffff;
   --mail-hover: rgb(0 0 0 / .05);
-  --b-trips: #7048c0;
-  --b-social: #c9413f;
-  --b-promos: #4d7c0f;
-  --b-bills: #1f6f43;
+  --b-trips: #c9413f;
+  --b-other: #7048c0;
+  --b-promos: #c2185b;
+  --b-bills: #8a5a2b;
   --b-pet: #b55d18;
-  --b-jobs: #4352b8;
-  --b-other: #5d6470;
+  --b-jobs: #4f5d75;
+  --b-folder: #5d6470;
   --b-inbox: #2f5fbf;
   --b-snoozed: #9e6910;
   --b-done: #358252;
   /* The same colors as words and icons (a bundle's name, its link, the side list's icons): each reads at 4.5:1 on the
      page, on a mail's row and on a row being pointed at. A theme moves them toward its own text color where it must
      (web/src/feel/appTheme.ts). */
-  --bt-purchases: #27764b;
-  --bt-trips: #7048c0;
-  --bt-social: #be3735;
-  --bt-promos: #48740e;
-  --bt-bills: #1f6f43;
+  --bt-purchases: #0b6870;
+  --bt-trips: #be3735;
+  --bt-other: #7048c0;
+  --bt-promos: #b8185a;
+  --bt-bills: #8a5a2b;
   --bt-pet: #a25315;
-  --bt-jobs: #4352b8;
-  --bt-other: #5d6470;
+  --bt-jobs: #4f5d75;
+  --bt-folder: #5d6470;
   --bt-inbox: #2f5fbf;
   --bt-snoozed: #8f5f0e;
   --bt-done: #30764b;
@@ -77,29 +77,29 @@
     --danger: #e07a73;
     --ok: #6cc08a;
     --warn: #e0a84a;
-    --b-purchases: #318256;
+    --b-purchases: #14808a;
     --mail-page: #131417;
     --mail-item: #212328;
     --mail-hover: rgb(255 255 255 / .06);
-    --b-trips: #7d5cc9;
-    --b-social: #c1514e;
-    --b-promos: #58801d;
-    --b-bills: #2f7d52;
+    --b-trips: #c1514e;
+    --b-other: #7d5cc9;
+    --b-promos: #c42d6c;
+    --b-bills: #8f6232;
     --b-pet: #aa6229;
-    --b-jobs: #5767c8;
-    --b-other: #6b7280;
+    --b-jobs: #5a6880;
+    --b-folder: #6b7280;
     --b-inbox: #33569e;
     --b-snoozed: #9a6a14;
     --b-done: #2f7a4b;
     /* The same colors as words and icons, lighter: on the dark page, a row and a row being pointed at. */
-    --bt-purchases: #40ab71;
-    --bt-trips: #a38cd9;
-    --bt-social: #d38280;
-    --bt-promos: #73a826;
-    --bt-bills: #40ab70;
+    --bt-purchases: #4fb3bd;
+    --bt-trips: #d38280;
+    --bt-other: #a38cd9;
+    --bt-promos: #e07aa6;
+    --bt-bills: #c9955f;
     --bt-pet: #d38649;
-    --bt-jobs: #8994d8;
-    --bt-other: #9399a5;
+    --bt-jobs: #9aa6ba;
+    --bt-folder: #9399a5;
     --bt-inbox: #7b98d4;
     --bt-snoozed: #cc8c1a;
     --bt-done: #42ab69;
@@ -125,29 +125,29 @@
   --danger: #e07a73;
   --ok: #6cc08a;
   --warn: #e0a84a;
-  --b-purchases: #318256;
+  --b-purchases: #14808a;
   --mail-page: #131417;
   --mail-item: #212328;
   --mail-hover: rgb(255 255 255 / .06);
-  --b-trips: #7d5cc9;
-  --b-social: #c1514e;
-  --b-promos: #58801d;
-  --b-bills: #2f7d52;
+  --b-trips: #c1514e;
+  --b-other: #7d5cc9;
+  --b-promos: #c42d6c;
+  --b-bills: #8f6232;
   --b-pet: #aa6229;
-  --b-jobs: #5767c8;
-  --b-other: #6b7280;
+  --b-jobs: #5a6880;
+  --b-folder: #6b7280;
   --b-inbox: #33569e;
   --b-snoozed: #9a6a14;
   --b-done: #2f7a4b;
   /* The same colors as words and icons, lighter: on the dark page, a row and a row being pointed at. */
-  --bt-purchases: #40ab71;
-  --bt-trips: #a38cd9;
-  --bt-social: #d38280;
-  --bt-promos: #73a826;
-  --bt-bills: #40ab70;
+  --bt-purchases: #4fb3bd;
+  --bt-trips: #d38280;
+  --bt-other: #a38cd9;
+  --bt-promos: #e07aa6;
+  --bt-bills: #c9955f;
   --bt-pet: #d38649;
-  --bt-jobs: #8994d8;
-  --bt-other: #9399a5;
+  --bt-jobs: #9aa6ba;
+  --bt-folder: #9399a5;
   --bt-inbox: #7b98d4;
   --bt-snoozed: #cc8c1a;
   --bt-done: #42ab69;
@@ -1220,40 +1220,89 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 /* Mail (Mail.tsx): an inner side list, a bar colored by where you are, and the Inbox as one column of day groups. */
 .mailx { display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); height: calc(100dvh - 40px); min-height: 420px; overflow: hidden; }
 /* The top bar: the title on the left, Refresh and search in the middle (the same place in every view), Pinned only on the right. */
-.mailx-bar { --barc: var(--b-inbox); background: var(--barc); color: #fff; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px 14px; transition: background .25s; }
-.mailx-bar.selecting { grid-template-columns: minmax(0, 1fr); }
+.mailx-bar { --barc: var(--b-inbox); background: var(--barc); color: #fff; display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, min(560px, calc(100% - 260px))) minmax(max-content, 1fr); align-items: center; gap: 12px; padding: 10px 14px; transition: background .25s; height: 56px; }
+/* One height while nothing is selected (36px of controls, 64px on touch). */
+@media (pointer: coarse) { .mailx-bar { height: 64px; } }
+/*
+ * While mail is selected the bar is as tall as the selection's actions need: one line where they fit, more where they
+ * do not, so every action can be reached at any width. It then uses its whole width (see the bar's right margin below).
+ */
+.mailx-bar.selecting { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 56px; }
+@media (pointer: coarse) { .mailx-bar.selecting { min-height: 64px; } }
 .mailx-bar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mailx-bar.selecting .mailx-bar-left { align-items: flex-start; }
+.mailx-bar.selecting .mailx-bar-left > h1 { line-height: 32px; }
 .mailx-bar-mid { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .mailx-bar-right { display: flex; justify-content: flex-end; min-width: 0; }
 .mailx-refresh { display: grid; place-items: center; width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 50%; flex: none; }
 /* The same height as the search box and the Pinned only switch. */
-.mailx-refresh .mailx-icon { width: 22px; height: 22px; }
-/* On the colored bar a button's own shade is the bar's color darkened, never lightened: white words and icons must read on it (as the search box). */
-.mailx-refresh:hover { background: rgb(0 0 0 / .2); }
+.mailx-refresh .mailx-icon { width: 18px; height: 18px; stroke-width: 2; }
 .mailx-refresh.busy .mailx-icon { animation: mailx-spin 1s linear infinite; }
 @keyframes mailx-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .mailx-refresh.busy .mailx-icon { animation: none; opacity: .6; } }
 .mailx-refreshmsg { margin-bottom: 10px; }
 .mailx-bar.v-snoozed { --barc: var(--b-snoozed); }
 .mailx-bar.v-done { --barc: var(--b-done); }
-.mailx-bar.b-purchases { --barc: var(--b-purchases); } .mailx-bar.b-trips { --barc: var(--b-trips); } .mailx-bar.b-social { --barc: var(--b-social); } .mailx-bar.b-promos { --barc: var(--b-promos); }
-.mailx-bar.b-bills { --barc: var(--b-bills); } .mailx-bar.b-pet { --barc: var(--b-pet); } .mailx-bar.b-jobs { --barc: var(--b-jobs); } .mailx-bar.b-other { --barc: var(--b-other); }
+.mailx-bar.b-purchases { --barc: var(--b-purchases); } .mailx-bar.b-trips { --barc: var(--b-trips); } .mailx-bar.b-other { --barc: var(--b-other); } .mailx-bar.b-promos { --barc: var(--b-promos); }
+.mailx-bar.b-bills { --barc: var(--b-bills); } .mailx-bar.b-pet { --barc: var(--b-pet); } .mailx-bar.b-jobs { --barc: var(--b-jobs); }
 .mailx-bar h1 { margin: 0; font-size: 18px; white-space: nowrap; }
+/*
+ * A long name (a bundle's, a folder's) shortens with an ellipsis and never pushes New mail out of the bar. The bar is a
+ * size container, and the title is at most the bar's inner width (100cqw) less everything else that is always in it,
+ * with 4px to spare:
+ * - from 768px: its two gaps (24px), Refresh, a search box of at least 80px and Pinned only with their gaps (198px),
+ *   and New mail with its words (124px);
+ * - under 768px: the menu button and its gap (44px), the gaps (24px), Refresh, a search box of at least 60px and
+ *   Pinned only (182px), and New mail's circle (36px);
+ * - up to 560px, where search is a button: 44 + 24 + (36 + 8 + 36 + 8 + 70) + 36;
+ * - up to 420px, with smaller gaps and a round pin: (32 + 6) + 12 + (36 + 4 + 36 + 4 + 48) + 36.
+ */
+.mailx-bar { container-type: inline-size; }
+.mailx-bar h1 { min-width: 0; max-width: calc(100cqw - 350px); overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 767px) { .mailx-bar h1 { max-width: calc(100cqw - 290px); } }
+@media (max-width: 560px) { .mailx-bar h1 { max-width: calc(100cqw - 266px); } }
+@media (max-width: 420px) { .mailx-bar h1 { max-width: calc(100cqw - 218px); } }
 .mailx-bar button { background: transparent; border: 0; color: inherit; min-height: 32px; padding: 4px 6px; }
+/*
+ * Refresh, New mail and (on phones) Search as the Pinned only switch's circle (2026-11-22): a white circle, or for New
+ * mail a white pill, its icon and words in the bar's color (which carries white at 4.5:1, so it reads on white as
+ * well). Pointed at, as Sweep: solid, the bar's color deepened, with the icon and words white, and a thin white ring
+ * keeping its shape on the bar. The switch's circle does the same.
+ */
+.mailx-bar .mailx-refresh, .mailx-bar .mailx-compose-btn, .mailx-bar .mailx-search-btn { background: #fff; border: 0; color: var(--barc); }
+.mailx-bar .mailx-refresh:hover:not(:disabled), .mailx-bar .mailx-compose-btn:hover, .mailx-bar .mailx-compose-btn[aria-expanded="true"], .mailx-bar .mailx-search-btn:hover,
+.mailx-bar .mailx-switch:hover .knob {
+  background: color-mix(in srgb, var(--barc) 80%, #000); color: #fff; box-shadow: inset 0 0 0 2px #fff;
+}
+/* New mail's own room on each side: the bar's general button padding (4px 6px) must not squeeze it. */
+.mailx-bar .mailx-compose-btn { padding: 0 18px 0 14px; }
+.mailx-bar .mailx-refresh:disabled { opacity: 1; }
 .mailx-menu { display: none; }
 /*
  * The search box is the bar's color, darker (never lighter: white words must read on it whatever the bar's color is).
  * It is a dark field in the light look too, so the browser draws its own parts (the clear button) light.
  */
-.mailx-search { flex: 1; min-width: 0; background: rgb(0 0 0 / .2); border: 0; color: #fff; min-height: 32px; color-scheme: dark; }
+.mailx-search { flex: 1; min-width: 0; background: rgb(0 0 0 / .2); border: 0; color: #fff; height: 36px; min-height: 0; padding: 0 12px; color-scheme: dark; }
 .mailx-search::placeholder { color: rgb(255 255 255 / .8); }
 .mailx-search:focus { outline: 2px solid #fff; outline-offset: 1px; }
+/*
+ * Everything that can be clicked shows it when pointed at (2026-11-22). On the colored bar: deeper, never lighter, so
+ * the white on it still reads. On the page: the screen's own hover shade, or the colors' solid fill.
+ */
+.mailx-search:hover:not(:focus) { background: rgb(0 0 0 / .32); }
+.mailx-bar .mailx-menu:hover, .mailx-bar .mailx-search-close:hover { background: rgb(0 0 0 / .2); }
+.mailx-bar .mailx-menu { border-radius: 50%; }
+.mailx-card-head:hover { background: var(--mail-hover); }
+.mailx-more:hover, .mailx-smart-one:hover, .mailx-movemenu:hover:not(:disabled), .mailx-attach:hover { background: var(--mail-hover); border-color: var(--muted); }
+.mailx-att-pic:hover { border-color: var(--muted); filter: brightness(1.05); }
+.mailx-swatch:hover:not(.on) { border-color: var(--muted); }
+.mailx-check:hover, .mailx-snooze-own label:hover { color: var(--text); }
 .mailx-switch { display: flex; align-items: center; gap: 8px; white-space: nowrap; flex: none; }
 .mailx-switch.placeholder { visibility: hidden; pointer-events: none; }
-.mailx-bar { grid-template-columns: minmax(0, 1fr) minmax(0, 680px) minmax(0, 1fr); }
-/* Pinned only: the switch's circle carries the pin, gray while off, in the bar's color while on. */
+.mailx-bar { grid-template-columns: minmax(max-content, 1fr) minmax(0, min(680px, calc(100% - 260px))) minmax(max-content, 1fr); }
+/* Pinned only: the switch's circle carries the pin in the bar's color, an outline while off, filled while on. */
 .mailx-switch .sw { width: 58px; height: 32px; border-radius: 16px; background: rgb(255 255 255 / .35); position: relative; }
-.mailx-switch .knob { position: absolute; top: 2px; left: 2px; width: 28px; height: 28px; border-radius: 50%; background: #fff; color: #6b7280; display: grid; place-items: center; transition: transform .2s; }
+.mailx-switch .knob { position: absolute; top: 2px; left: 2px; width: 28px; height: 28px; border-radius: 50%; background: #fff; color: var(--barc); display: grid; place-items: center; transition: transform .2s; }
 .mailx-switch .knob .mailx-icon { width: 18px; height: 18px; stroke-width: 2; }
 .mailx-switch[aria-pressed="true"] .sw { background: rgb(255 255 255 / .8); }
 .mailx-switch[aria-pressed="true"] .knob { transform: translateX(26px); color: var(--barc); }
@@ -1267,6 +1316,14 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 .mailx-nav .ico { color: var(--ct, var(--muted)); display: flex; }
 .mailx-nav.v-inbox { --c: var(--b-inbox); --ct: var(--bt-inbox); } .mailx-nav.v-snoozed { --c: var(--b-snoozed); --ct: var(--bt-snoozed); } .mailx-nav.v-done { --c: var(--b-done); --ct: var(--bt-done); }
 .mailx-label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 12px 10px 4px; }
+/* Every row of the side list keeps its height and the list scrolls: as flex items free to shrink, the rows of a long
+   list (two mailboxes' folders and the bundles) were pressed into less than their words needed and drawn over each
+   other. */
+.mailx-rail > * { flex-shrink: 0; }
+/* A mailbox's folders under its address: the address as it is written (no capitals), on one line, cut with an ellipsis. */
+.mailx-group { display: flex; flex-direction: column; gap: 1px; }
+.mailx-label.box { text-transform: none; letter-spacing: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailx-nav.v-folder .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mailx-boxes { margin-top: auto; padding: 14px 8px 4px; display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
 .mailx-main { min-width: 0; padding: 16px; overflow-y: auto; background: var(--mail-page); }
 /* On a wide window the list keeps as much room on its right as the side list takes on its left. */
@@ -1302,7 +1359,22 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 .pinmark { color: var(--link); display: flex; }
 .pinmark .mailx-icon { width: 14px; height: 14px; }
 /* A row's actions: over its time, when the row is pointed at or tabbed to. */
-.mailx-item { position: relative; }
+.mailx-item { position: relative; touch-action: pan-y; }
+/*
+ * Swiping a row (touch only): the row slides over a panel in Done's color (right) or Snoozed's (left); let go, it
+ * slides back. Before it is far enough to act the color is deepened, and is the color itself once it is: never faded
+ * or lightened, so the white label on it reads at every moment (web/src/lib/contrast.test.ts).
+ */
+.mailx-row { transition: transform .18s ease-out; }
+.mailx-item.swiping { overflow: hidden; }
+.mailx-item.swiping .mailx-row { position: relative; z-index: 1; background: var(--mail-item); transition: none; }
+.mailx-item.swiping .mailx-pick, .mailx-item.swiping .mailx-acts { visibility: hidden; }
+.mailx-swipe { position: absolute; inset: 0; display: flex; align-items: center; gap: 8px; padding: 0 20px; color: #fff; font-weight: 600; }
+.mailx-swipe.done { background: color-mix(in srgb, var(--b-done) 72%, #000); justify-content: flex-start; }
+.mailx-swipe.snooze { background: color-mix(in srgb, var(--b-snoozed) 72%, #000); justify-content: flex-end; }
+.mailx-swipe.done.armed { background: var(--b-done); }
+.mailx-swipe.snooze.armed { background: var(--b-snoozed); }
+@media (prefers-reduced-motion: reduce) { .mailx-row { transition: none; } }
 .mailx-acts { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: none; gap: 2px; background: var(--surface-2); border-radius: var(--radius); padding: 2px; }
 .mailx-item:hover .mailx-acts, .mailx-item:focus-within .mailx-acts { display: flex; }
 .mailx-act { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 0; border-radius: var(--radius); padding: 6px 8px; min-height: 0; color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; }
@@ -1310,18 +1382,14 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 .mailx-act.on { color: var(--link); }
 .mailx-act.on .mailx-icon { fill: currentColor; }
 .mailx-act .mailx-icon { width: 18px; height: 18px; }
-.mailx-card-acts { display: flex; gap: 4px; padding-top: 0; padding-bottom: 6px; }
+/* An open mail's actions: on as many lines as they need (on a phone they are twice the card's width on one). */
+.mailx-card-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 0; padding-bottom: 6px; }
 .mailx-acterr { margin-bottom: 12px; }
 /* Reminders among the mail: a bell in the circle; the row is a link to the task. */
 a.mailx-row { color: inherit; text-decoration: none; }
 .mailx-av.reminder { background: var(--b-snoozed); color: #fff; border-color: transparent; }
 .mailx-item.reminder .line { color: var(--b-snoozed); }
 .mailx-remsnooze { padding: 4px 12px 12px 74px; }
-.mailx-newrem { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border-radius: 16px; background: rgb(0 0 0 / .2) !important; }
-.mailx-newrem:hover { background: rgb(0 0 0 / .32) !important; }
-.mailx-newreminder { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; margin-bottom: 12px; background: var(--mail-item); border: 1px solid var(--border); border-radius: var(--radius); }
-.mailx-newreminder input:first-of-type { flex: 1; min-width: 180px; }
-.mailx-newreminder button.link { background: none; border: 0; padding: 0; min-height: 0; color: var(--link); cursor: pointer; font: inherit; }
 .mailx-notify { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 0; color: var(--muted); }
 /* The side list's bottom: Refresh, Keyboard keys, and "i", which opens the mailboxes and settings. */
 .mailx-boxes .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -1338,7 +1406,9 @@ a.mailx-row { color: inherit; text-decoration: none; }
 /* Selecting: a row's circle becomes a checkbox when pointed at, and on every row while anything is selected. */
 /* Exactly over the circle: the same 34px, at the circle's place (6px row padding, the 8px dot column, the row's 12px gap). */
 .mailx-pick { position: absolute; left: 26px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; box-sizing: border-box; min-height: 0; padding: 0; border-radius: 50%; border: 2px solid var(--border); background: var(--mail-item); color: #fff; display: none; place-items: center; z-index: 1; cursor: pointer; }
-.mailx-item:hover .mailx-pick, .mailx.selecting .mailx-pick, .mailx-item.picked .mailx-pick { display: grid; }
+/* Seen only when the circle itself is pointed at (it is the only part that selects), or while anything is selected. */
+.mailx-pick { display: grid; opacity: 0; transition: opacity .1s; }
+.mailx-pick:hover, .mailx-pick:focus-visible, .mailx.selecting .mailx-pick, .mailx-item.picked .mailx-pick, .mailx-card.picked > .mailx-pick { opacity: 1; }
 /* Not picked: a dim checkmark in a darker ring, so it reads as a checkbox; brighter when pointed at; picked: full color. */
 .mailx-pick { color: var(--muted); border-color: var(--muted); }
 .mailx-pick .mailx-icon { opacity: .4; stroke-width: 2.4; }
@@ -1349,14 +1419,15 @@ a.mailx-row { color: inherit; text-decoration: none; }
 /* An open mail: the checkbox over its header's circle (14px in, 14px down), shown when its header is pointed at. */
 .mailx-card { position: relative; }
 .mailx-card > .mailx-pick { left: 14px; top: 14px; transform: none; }
-.mailx-card:has(> .mailx-card-head:hover) > .mailx-pick, .mailx-card > .mailx-pick:hover, .mailx.selecting .mailx-card > .mailx-pick, .mailx-card.picked > .mailx-pick { display: grid; }
 .mailx-card.picked > .mailx-pick { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .mailx-card.picked > .mailx-pick .mailx-icon { opacity: 1; color: #fff; }
 .mailx-item.picked { background: color-mix(in srgb, var(--accent) 8%, var(--mail-item)); }
-@media (hover: none) { .mailx-item:hover .mailx-pick { display: none; } .mailx.selecting .mailx-pick, .mailx-item.picked .mailx-pick { display: grid; } }
+@media (hover: none) { .mailx-pick { display: none; } .mailx.selecting .mailx-pick, .mailx-item.picked .mailx-pick, .mailx-card.picked > .mailx-pick { display: grid; opacity: 1; } }
+/* A selection's actions: on one line where they fit, on the next where they do not (never out of sight). */
 .mailx-selbar { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; flex-wrap: wrap; }
-.mailx-selbar h1 { margin-right: 10px; }
-.mailx-selbar button { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius); }
+.mailx-selbar .mailx-selcount { margin-right: 10px; white-space: nowrap; font-weight: 600; }
+.mailx-bar.selecting .mailx-bar-left > h1 { padding-right: 12px; margin-right: 4px; border-right: 1px solid rgb(255 255 255 / .4); }
+.mailx-selbar button { display: inline-flex; align-items: center; gap: 6px; border-radius: var(--radius); flex: none; white-space: nowrap; }
 .mailx-selbar button:hover { background: rgb(0 0 0 / .2); }
 .mailx-selclear { margin-left: auto; }
 .mailx-multisnooze { padding: 12px; margin-bottom: 12px; background: var(--mail-item); border: 1px solid var(--border); border-radius: var(--radius); align-items: center; }
@@ -1368,11 +1439,12 @@ a.mailx-row { color: inherit; text-decoration: none; }
 .mailx-help button.link, .mailx-keyshint { background: none; border: 0; padding: 0; min-height: 0; color: var(--link); cursor: pointer; font: inherit; font-size: 12px; }
 .mailx-keyshint { margin: 6px 10px; text-align: left; }
 @media (hover: none) { .mailx-keyshint { display: none; } }
-/* The owner's own bundles: eight colors of their own, apart from the built-in bundles' (white text on each). */
+/* The owner's own bundles: eight colors spread around the wheel (white text on each); they may repeat a built-in bundle's.
+   Kept in step with OWN_COLORS in web/src/lib/mail.ts. */
 .b-custom.cc0 { --c: #0f7c86; --barc: #0f7c86; } .b-custom.cc1 { --c: #2f6fd0; --barc: #2f6fd0; }
-.b-custom.cc2 { --c: #a83e8e; --barc: #a83e8e; } .b-custom.cc3 { --c: #8a5a2b; --barc: #8a5a2b; }
-.b-custom.cc4 { --c: #5560a8; --barc: #5560a8; } .b-custom.cc5 { --c: #c2416b; --barc: #c2416b; }
-.b-custom.cc6 { --c: #127a9c; --barc: #127a9c; } .b-custom.cc7 { --c: #8a7410; --barc: #8a7410; }
+.b-custom.cc2 { --c: #a83e8e; --barc: #a83e8e; } .b-custom.cc3 { --c: #b55d18; --barc: #b55d18; }
+.b-custom.cc4 { --c: #7048c0; --barc: #7048c0; } .b-custom.cc5 { --c: #c9413f; --barc: #c9413f; }
+.b-custom.cc6 { --c: #2f7d3a; --barc: #2f7d3a; } .b-custom.cc7 { --c: #8a7410; --barc: #8a7410; }
 .mailx-nav.b-custom .ico { color: var(--c); }
 .mailx-newbundle { color: var(--muted); }
 .mailx-editbundle { align-self: flex-start; }
@@ -1396,6 +1468,7 @@ a.mailx-row { color: inherit; text-decoration: none; }
 .mailx-fold[aria-expanded="true"] { color: var(--link); }
 /* A thread's messages in an open card: each a line that opens to the message. */
 .mailx-msg { border-top: 1px solid var(--border); }
+.mailx-msg.single { border-top: 0; }
 .mailx-msg-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 0; padding: 10px 14px 8px 60px; min-height: 0; cursor: pointer; font: inherit; color: inherit; }
 .mailx-msg-head:hover { background: var(--mail-hover); }
 .mailx-msg-head .who { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1417,7 +1490,25 @@ a.mailx-row { color: inherit; text-decoration: none; }
 .mailx-snooze-times button.link { background: none; border: 0; padding: 0; min-height: 0; color: var(--link); cursor: pointer; font: inherit; }
 .mailx-snooze-own { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .mailx-group h2 { display: flex; align-items: center; justify-content: space-between; min-height: 30px; }
-.mailx-sweep { font-size: 12px; padding: 4px 8px; }
+/*
+ * Pin, Snooze and Done (2026-11-22), and Sweep with them: each in its place's color (Pin the Inbox's blue, Snooze
+ * Snoozed's amber, Done and Sweep Done's green), the icon and words in that color on a light wash of it, turning solid
+ * with white on it when pointed at or on. On a row they are round, like the bar's buttons. The wash takes the page
+ * toward the color, so the words on it are the color moved a fifth of the way to the text color: they read at 4.5:1
+ * on the wash over the page (Sweep in a day's heading) and over a mail's row, in every look
+ * (web/src/lib/contrast.test.ts).
+ */
+.mailx-act.act-pin { --c: var(--b-inbox); --ct: var(--bt-inbox); }
+.mailx-act.act-snooze { --c: var(--b-snoozed); --ct: var(--bt-snoozed); }
+.mailx-act.act-done, .mailx-act.mailx-sweep { --c: var(--b-done); --ct: var(--bt-done); }
+.mailx-act.act-pin, .mailx-act.act-snooze, .mailx-act.act-done, .mailx-act.mailx-sweep { color: color-mix(in srgb, var(--ct) 80%, var(--text)); background: color-mix(in srgb, var(--ct) 14%, transparent); font-weight: 600; }
+.mailx-act.act-pin:hover, .mailx-act.act-snooze:hover, .mailx-act.act-done:hover, .mailx-act.mailx-sweep:hover,
+.mailx-act.act-pin.on, .mailx-act.act-snooze.on { background: var(--c); color: #fff; }
+.mailx-act.act-pin .mailx-icon, .mailx-act.act-snooze .mailx-icon, .mailx-act.act-done .mailx-icon, .mailx-act.mailx-sweep .mailx-icon { stroke-width: 2.2; }
+.mailx-acts { gap: 6px; padding: 4px; border-radius: 22px; background: var(--mail-item); box-shadow: 0 1px 6px rgb(0 0 0 / .18); }
+.mailx-acts .mailx-act { width: 34px; height: 34px; padding: 0; justify-content: center; border-radius: 50%; }
+.mailx-sweep { font-size: 13px; padding: 5px 12px 5px 9px; border-radius: 16px; }
+.mailx-sweep .mailx-icon { width: 16px; height: 16px; }
 .mailx-bundle-acts { display: flex; justify-content: flex-end; padding: 2px 8px; }
 /* Undo after Done or Sweep: at the bottom of the list, over it. */
 .mailx-undo { position: sticky; bottom: 8px; margin: 12px auto 0; width: fit-content; display: flex; gap: 16px; align-items: center; background: var(--text); color: var(--bg); padding: 8px 10px 8px 16px; border-radius: var(--radius); box-shadow: 0 6px 20px rgb(0 0 0 / .25); z-index: 3; }
@@ -1427,13 +1518,62 @@ a.mailx-row { color: inherit; text-decoration: none; }
 /* Bundles: the icon on the bundle's color; open, a band of it down the side. */
 .mailx-bundle.b-purchases, .mailx-nav.b-purchases, .mailx-module.b-purchases, .mailx-av.b-purchases { --c: var(--b-purchases); --ct: var(--bt-purchases); }
 .mailx-bundle.b-trips, .mailx-nav.b-trips, .mailx-module.b-trips, .mailx-av.b-trips { --c: var(--b-trips); --ct: var(--bt-trips); }
-.mailx-bundle.b-social, .mailx-nav.b-social, .mailx-module.b-social, .mailx-av.b-social { --c: var(--b-social); --ct: var(--bt-social); }
+.mailx-bundle.b-other, .mailx-nav.b-other, .mailx-module.b-other, .mailx-av.b-other { --c: var(--b-other); --ct: var(--bt-other); }
 .mailx-bundle.b-promos, .mailx-nav.b-promos, .mailx-module.b-promos, .mailx-av.b-promos { --c: var(--b-promos); --ct: var(--bt-promos); }
 .mailx-bundle.b-bills, .mailx-nav.b-bills, .mailx-module.b-bills, .mailx-av.b-bills { --c: var(--b-bills); --ct: var(--bt-bills); }
 .mailx-bundle.b-pet, .mailx-nav.b-pet, .mailx-module.b-pet, .mailx-av.b-pet { --c: var(--b-pet); --ct: var(--bt-pet); }
 .mailx-bundle.b-jobs, .mailx-nav.b-jobs, .mailx-module.b-jobs, .mailx-av.b-jobs { --c: var(--b-jobs); --ct: var(--bt-jobs); }
-.mailx-bundle.b-other, .mailx-nav.b-other, .mailx-module.b-other, .mailx-av.b-other { --c: var(--b-other); --ct: var(--bt-other); }
 .mailx-av.bundle { background: var(--c); color: #fff; border-color: transparent; }
+/*
+ * Cards: a mail's key facts (a package, a flight, a bill) in the color of the bundle they belong with. On a row, one
+ * line under the subject with a small icon; on an open mail, a box of them above its body, each with Track or Open.
+ */
+.mailx-cardline.b-purchases, .mailx-fact.b-purchases { --c: var(--b-purchases); --ct: var(--bt-purchases); }
+.mailx-cardline.b-trips, .mailx-fact.b-trips { --c: var(--b-trips); --ct: var(--bt-trips); }
+.mailx-cardline.b-bills, .mailx-fact.b-bills { --c: var(--b-bills); --ct: var(--bt-bills); }
+.mailx-cardline { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 2px; font-size: 13px; color: var(--ct); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailx-cardline .mailx-icon { width: 14px; height: 14px; }
+.mailx-facts { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; padding-bottom: 4px; }
+.mailx-fact { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-left: 3px solid var(--c); border-radius: 8px; background: var(--mail-item); }
+.mailx-fact .mailx-av { width: 28px; height: 28px; }
+.mailx-fact .what { flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.mailx-fact button { flex: none; }
+/* Writing mail (drafts): New mail in the bar; the writing box on an open mail (Reply) or atop the list. */
+.mailx-compose-btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; min-height: 0; padding: 0 18px 0 14px; border-radius: 16px; font-weight: 600; white-space: nowrap; }
+.mailx-compose-btn .mailx-icon { width: 18px; height: 18px; stroke-width: 2; }
+.mailx-compose { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; padding-bottom: 12px; margin-bottom: 12px; background: var(--mail-item); border: 1px solid var(--border); border-radius: var(--radius); padding-right: 12px; }
+.mailx-main > .mailx-compose { padding-left: 12px; }
+.mailx-card .mailx-compose { margin: 8px 12px 8px 0; border-left: 3px solid var(--accent); }
+.mailx-compose textarea { width: 100%; min-height: 120px; resize: vertical; font: inherit; }
+.mailx-compose-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.mailx-compose-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; margin: 0; font-size: 14px; }
+.mailx-compose-head dt { color: var(--muted); }
+.mailx-compose-head dd { margin: 0; overflow-wrap: anywhere; }
+.mailx-compose-text { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+/* The phone layout: New mail is its pencil alone, a 36px circle like the bar's other buttons, never squeezed. */
+@media (max-width: 767px) {
+  .mailx-compose-btn, .mailx-bar .mailx-compose-btn { width: 36px; height: 36px; padding: 0; border-radius: 50%; justify-content: center; flex: none; }
+  .mailx-bar .mailx-refresh { width: 36px; height: 36px; }
+  .mailx-compose-btn span { display: none; }
+}
+/* A trip (the Trips bundle): one box, its pieces as a timeline down a band of the Trips color. */
+.mailx-trip { --c: var(--b-trips); --ct: var(--bt-trips); margin-bottom: 12px; background: var(--mail-item); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+/* A trip that is over: gray where the Trips color was (its name, its band, its circle). Not faded: faded words do not read. */
+.mailx-trip.past .mailx-trip-head b { color: var(--muted); }
+.mailx-trip.past .mailx-trip-parts { border-left-color: var(--border); }
+.mailx-trip.past .mailx-av.bundle { background: var(--surface-2); color: var(--muted); border-color: var(--border); }
+.mailx-trip-head { display: flex; align-items: center; gap: 12px; padding: 10px 12px; }
+.mailx-trip-head b { color: var(--ct); }
+.mailx-trip-parts { list-style: none; margin: 0 12px 10px 28px; padding: 0 0 0 16px; border-left: 3px solid var(--c); }
+.mailx-trip-part { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 12px; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 6px; padding: 6px 8px; min-height: 0; font-size: 14px; }
+.mailx-trip-part:hover { background: var(--mail-hover); }
+.mailx-trip-part .when { color: var(--muted); font-variant-numeric: tabular-nums; }
+.mailx-trip-part .what { overflow-wrap: anywhere; }
+.mailx-trip-part.unread .what { font-weight: 700; }
+.mailx-trip-part[aria-expanded="true"] { background: var(--mail-hover); }
+.mailx-trip-part.cursor { box-shadow: inset 3px 0 0 var(--accent); }
+.mailx-trip > .mailx-card { margin: 0 8px 8px; }
+@media (max-width: 480px) { .mailx-trip-part { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 /* A verified brand logo: on white, as brands design them, clipped to the circle. */
 .mailx-av.logo { background: #fff; overflow: hidden; padding: 0; }
 .mailx-av.logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1476,7 +1616,9 @@ a.mailx-row { color: inherit; text-decoration: none; }
 @media (max-width: 767px) {
   .mailx { height: calc(100dvh - 120px); min-height: 360px; border-radius: 0; border-left: 0; border-right: 0; }
   .mailx-menu { display: flex; }
-  .mailx-bar { grid-template-columns: auto minmax(0, 1fr) auto; }
+  /* Refresh, search and Pinned only stay centered: the sides as wide as each other, never narrower than what they hold. */
+  .mailx-bar { grid-template-columns: minmax(max-content, 1fr) minmax(0, min(460px, calc(100% - 240px))) minmax(max-content, 1fr); }
+  .mailx-bar-mid { justify-content: center; }
   .mailx-switch .lbl { display: none; }
   .mailx-body { grid-template-columns: minmax(0, 1fr); }
   .mailx-rail { position: absolute; z-index: 5; top: 0; bottom: 0; left: 0; width: min(270px, 85%); transform: translateX(-105%); transition: transform .2s; box-shadow: 0 0 30px rgb(0 0 0 / .25); overflow-y: auto; }
@@ -1488,7 +1630,26 @@ a.mailx-row { color: inherit; text-decoration: none; }
   .mailx-page { margin-left: 6px; margin-right: 6px; }
   .mailx-module { padding-left: 12px; }
 }
-@media (max-width: 480px) { .mailx-search { display: none; } }
+/*
+ * A phone held upright (up to 560px, too narrow for a search box beside the menu, the title and the buttons): search is
+ * a magnifier beside Refresh; tapped, the search field takes the whole bar, with a close button. Open while a search is
+ * typed. A phone on its side has room for the search box, which shrinks to fit.
+ */
+.mailx-search-btn, .mailx-search-close { display: none; }
+@media (max-width: 560px) {
+  .mailx-search { display: none; }
+  .mailx-search-btn, .mailx-search-close { place-items: center; width: 36px; height: 36px; min-height: 0; padding: 0; border-radius: 50%; flex: none; }
+  .mailx-search-btn { display: grid; }
+  .mailx-search-close:hover { background: rgb(0 0 0 / .2); }
+  .mailx-bar:not(.search-open) { grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr); }
+  .mailx-bar.search-open { grid-template-columns: minmax(0, 1fr); }
+  .mailx-bar.search-open .mailx-bar-left, .mailx-bar.search-open .mailx-bar-right,
+  .mailx-bar.search-open .mailx-refresh, .mailx-bar.search-open .mailx-switch, .mailx-bar.search-open .mailx-search-btn { display: none; }
+  .mailx-bar.search-open .mailx-search { display: block; }
+  .mailx-bar.search-open .mailx-search-close { display: grid; font-size: 16px; }
+  /* The close button clears and closes: the browser's own clear button beside it would be a second ✕. */
+  .mailx-search::-webkit-search-cancel-button { display: none; }
+}
 @media (prefers-reduced-motion: reduce) { .mailx-bar, .mailx-rail, .mailx-switch .knob { transition: none; } }
 
 /* Wiki: sources and pages beside the page being read. */
@@ -1847,3 +2008,110 @@ table.compare tbody th { color: var(--muted); font-weight: 600; width: 22%; }
 .cal-color-row label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-color-row input[type="color"] { flex: none; width: 34px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: none; }
 .cal-color-row > .muted, .cal-color-row > button { flex: none; white-space: nowrap; }
+/* A reply's greeting and sign-off: lighter fields around the owner's own text, each with Remove. */
+.mailx-around { display: flex; align-items: flex-start; gap: 8px; }
+.mailx-around textarea { flex: 1; min-height: 0; resize: none; font: inherit; color: var(--muted); background: transparent; border-style: dashed; }
+.mailx-around textarea:focus { color: var(--text); border-style: solid; }
+.mailx-around-add { align-self: flex-start; }
+/* The other folders (Drafts, Sent, Spam, Trash, your own): one gray, as plain mail places, not a kind of mail. */
+.mailx-bar.v-folder { --barc: var(--b-folder); }
+.mailx-nav.v-folder { --c: var(--b-folder); --ct: var(--bt-folder); }
+.mailx-folder-note { margin: 0 0 8px 4px; }
+.mailx-more { align-self: center; margin-top: 10px; }
+/* Move to: a small menu among an open mail's actions, and the button that moves the mail to the folder chosen in it. */
+.mailx-move { display: inline-flex; align-items: center; gap: 4px; }
+.mailx-movemenu { width: auto; min-height: 32px; padding: 4px 8px; font-size: 13px; }
+/* New mail's From, with several mailboxes. */
+.mailx-from { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.mailx-from select { width: auto; }
+/* New mail the hub's model has not sorted yet: a quiet line above the Inbox, with Sort new mail. */
+.mailx-sort { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 12px; background: var(--mail-item); border: 1px solid var(--border); border-radius: var(--radius); color: var(--muted); }
+/*
+ * The narrowest phones (up to 420px): the bar's gaps and title smaller, and Pinned only a round pin button (a white
+ * circle, the pin in the bar's color, an outline while off and filled while on), so the whole bar fits in about 275px.
+ */
+@media (max-width: 420px) {
+  .mailx-bar { gap: 6px; padding: 10px 8px; }
+  .mailx-bar-left { gap: 6px; }
+  .mailx-bar-mid { gap: 4px; }
+  .mailx-bar h1 { font-size: 16px; }
+  /* A white circle like Refresh, Search and New mail beside it: the pin in the bar's color, an outline while off, filled while on. */
+  .mailx-switch .sw, .mailx-switch[aria-pressed="true"] .sw { width: 36px; height: 36px; border-radius: 50%; background: #fff; }
+  .mailx-switch .knob { top: 4px; left: 4px; width: 28px; height: 28px; background: transparent; color: var(--barc); }
+  .mailx-switch[aria-pressed="true"] .knob { transform: none; background: transparent; color: var(--barc); }
+  /* Pointed at, the whole circle turns, as Refresh beside it does. */
+  .mailx-switch:hover .sw { background: color-mix(in srgb, var(--barc) 80%, #000); box-shadow: inset 0 0 0 2px #fff; }
+  .mailx-bar .mailx-switch:hover .knob { background: transparent; box-shadow: none; color: #fff; }
+}
+/* Attachments: a paperclip on rows; on an open mail, its pictures' previews and a list of its files with Download. */
+.clipmark { color: var(--muted); display: flex; }
+.clipmark .mailx-icon { width: 14px; height: 14px; }
+.mailx-atts { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; padding-bottom: 4px; }
+.mailx-att-pics { display: flex; flex-wrap: wrap; gap: 8px; }
+.mailx-att-pic { padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); min-height: 0; width: 120px; height: 90px; }
+.mailx-att-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mailx-att-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mailx-att-list li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--mail-item); }
+.mailx-att-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mailx-att-list .mailx-icon { width: 16px; height: 16px; color: var(--muted); }
+/* Smart replies: the model's suggested answers as buttons above the text; one tapped goes in the text box. */
+.mailx-smart { display: flex; flex-wrap: wrap; gap: 6px; }
+.mailx-smart-one { min-height: 0; padding: 5px 12px; border-radius: 16px; font-size: 13px; text-align: left; background: var(--surface); }
+/* Attaching files to a draft: a paperclip button holding a hidden file field; Include its attachments on a forward. */
+.mailx-attach { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; }
+.mailx-attach input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.mailx-attach:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mailx-attach .mailx-icon { width: 16px; height: 16px; }
+.mailx-check { display: inline-flex; align-items: center; gap: 6px; }
+.mailx-check input { width: auto; min-height: 0; }
+/* Search hits and the people view: a heading with the count, rows that say where each mail is. */
+.mailx-hits { margin-top: 16px; }
+.mailx-hits-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 15px; margin: 0 0 8px 4px; }
+.mailx-hits-head .link { margin-left: auto; }
+.mailx-hits .who .chip { min-height: 0; padding: 1px 7px; line-height: 16px; flex: none; }
+/* Blocked senders in the info panel. */
+.mailx-blocked { display: flex; flex-direction: column; gap: 4px; }
+.mailx-blocked .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* The model's Needs you digest at the top of the Inbox, and the Reply? mark on rows. */
+.mailx-needs { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; margin-bottom: 12px; background: var(--mail-item); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius); }
+.mailx-needs h2 { margin: 0 0 4px; font-size: 15px; }
+.mailx-need { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; background: transparent; border: 0; border-radius: 6px; padding: 6px 8px; min-height: 0; }
+.mailx-need:hover { background: var(--mail-hover); }
+.mailx-need .who { display: flex; align-items: center; gap: 6px; }
+.mailx-need .chip { min-height: 0; padding: 1px 7px; line-height: 16px; }
+.mailx-need .line { color: var(--muted); font-size: 14px; }
+.replymark { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 5px; flex: none; }
+/* Which mail a reply answers: its first lines, quoted. */
+.mailx-replying blockquote { margin: 4px 0 0; padding: 2px 10px; border-left: 3px solid var(--border); color: var(--muted); font-size: 13px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.mailx-foldnote-btn { margin-left: 10px; }
+/* Select all: a box at the start of the selection bar (a dash while some are selected, a check when all are). */
+/*
+ * Select all: a circle like a row's select circle, the size of the bar's other icons (20px inside its 32px button, as
+ * theirs), so it sits in line with them; a dash while some are selected, a check (filled white) when all are.
+ */
+.mailx-selbar .mailx-selall { width: 32px; height: 32px; min-height: 0; padding: 0; display: grid !important; place-items: center; border: 0; border-radius: 50%; flex: none; margin-right: 2px; background: transparent; }
+.mailx-selbar .mailx-selall::before { content: ""; grid-area: 1 / 1; width: 20px; height: 20px; box-sizing: border-box; border: 2px solid #fff; border-radius: 50%; }
+.mailx-selbar .mailx-selall[aria-checked="true"]::before { background: #fff; }
+.mailx-selbar .mailx-selall .mailx-icon { grid-area: 1 / 1; width: 14px; height: 14px; stroke-width: 2.6; }
+.mailx-selbar .mailx-selall[aria-checked="true"] .mailx-icon { color: var(--barc); }
+/*
+ * With the side list shown (768px and up), select all sits right above the rows' select circles: the title keeps the
+ * side list's width (210px, less the bar's 14px padding and 12px gap), so the selection starts where the list does, and
+ * the circle's center is 59px in, as the rows' circles are (16px page padding, 26px, half of 34px).
+ */
+@media (min-width: 768px) {
+  .mailx-bar.selecting .mailx-bar-left > h1 { flex: none; width: calc(var(--mailx-rail, 210px) - 26px); max-width: none; padding-right: 0; margin-right: 0; border-right: 0; overflow: hidden; text-overflow: ellipsis; }
+  .mailx-bar.selecting .mailx-selbar .mailx-selall { margin-left: 43px; }
+}
+/*
+ * The bar keeps to the page's right margin: its right edge where the mail list's is (16px, and from 1200px the side
+ * list's width more, as .mailx-main's), so New mail lines up with the list. While mail is selected the bar is used to
+ * its end instead: the selection's actions need the room (at 1280px Delete and Spam were out of sight without it).
+ * And Pinned only's button is the height of its switch, so the bar's row is 36px with or without a selection (it was
+ * 40px, which set the title 2px lower than while selecting).
+ */
+.mailx-bar .mailx-switch { padding-top: 0; padding-bottom: 0; }
+@media (min-width: 768px) { .mailx-bar { padding-right: 16px; } }
+@media (min-width: 1200px) { .mailx-bar { padding-right: calc(var(--mailx-rail, 210px) + 16px); } .mailx-bar.selecting { padding-right: 16px; } }
+/* The selection's ✕ is the last on its line, at the right end. */
+.mailx-selbar .mailx-selclear { margin-left: auto; border-radius: 50%; }

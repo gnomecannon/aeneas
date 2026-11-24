@@ -37,6 +37,8 @@ export function replace(path: string): void {
 
 /** A pairing link's route (`/setup?hub=&code=`), or the setup screen itself. */
 const isSetup = (path: string) => path === "/setup" || path.startsWith("/setup?");
+/** A new device's join code (`/join?node=&s=...`), opened on a paired phone. */
+const isJoin = (path: string) => path === "/join" || path.startsWith("/join?");
 
 /**
  * The screen to show once this device is paired, or once the person keeps the hub it has: where they were. Setup shows
@@ -45,22 +47,26 @@ const isSetup = (path: string) => path === "/setup" || path.startsWith("/setup?"
  * before it; a link that started the app goes to the start screen. Never the link itself, which holds the code.
  */
 export function afterPairing(current: string, before: string | null): string {
-  if (!isSetup(current)) return current || "/now";
-  return before && !isSetup(before) ? before : "/now";
+  // A join code that opened an app with no hub showed Setup in its place; it was meant for a paired device.
+  if (!isSetup(current) && !isJoin(current)) return current || "/now";
+  return before && !isSetup(before) && !isJoin(before) ? before : "/now";
 }
 
-/** The screen before the latest pairing link, from the hash change that brought the link in. */
+/** The screen before the latest pairing link or join code, from the hash change that brought it in. */
 let beforeLink: string | null = null;
 if (typeof window !== "undefined") {
   window.addEventListener("hashchange", (e) => {
     const hash = (url: string) => { try { return new URL(url).hash.replace(/^#/, ""); } catch { return ""; } };
     const to = hash(e.newURL);
     const from = hash(e.oldURL);
-    if (isSetup(to) && !isSetup(from)) beforeLink = from || null;
+    if ((isSetup(to) || isJoin(to)) && !isSetup(from) && !isJoin(from)) beforeLink = from || null;
   });
 }
 
-/** Leave the setup screen for `afterPairing`'s screen, replacing the link in the history. */
+/**
+ * Leave the setup screen, or a join code's screen, for `afterPairing`'s screen, replacing the link in the history: a
+ * join code holds the new device's secret.
+ */
 export function leaveSetup(): void {
   replace(afterPairing(window.location.hash.replace(/^#/, ""), beforeLink));
 }

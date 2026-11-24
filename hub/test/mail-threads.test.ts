@@ -29,8 +29,10 @@ test("mail threads: a back-and-forth is one thread, the owner's reply from Sent 
     const gutters = ms.filter((m) => m.thread === ms.find((x) => x.subject === "Gutters")!.thread);
     assert.deepEqual(gutters.map((m) => [m.subject, m.state, !!m.mine]).sort(), [["Gutters", "inbox", false], ["Re: Gutters", "inbox", false], ["Re: Gutters", "sent", true]]);
     assert.notEqual(await threadOf(t, "Something else"), gutters[0].thread);
-    assert.ok(!ms.some((m) => m.subject === "Hello there"), "a sent mail answering nothing kept is not kept");
-    assert.equal(seen.calls.filter((c) => c === "download").length, 4, "its text is never fetched (3 Inbox mails and 1 reply)");
+    assert.ok(!ms.some((m) => m.subject === "Hello there"), "a sent mail answering nothing kept is in no thread");
+    // The Inbox's listing fetches the text of 3 Inbox mails and 1 reply; since 2026-11-20 the Sent folder is also a
+    // folder of its own on the screen (mail-folders.test.ts), which keeps its 2 mails' text like the Inbox's.
+    assert.equal(seen.calls.filter((c) => c === "download").length, 6);
     assert.ok(seen.opened.every((o) => o.readOnly === true), "Sent is read read-only too");
   } finally { done(t); }
 });

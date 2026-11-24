@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { AtlassianConn } from "./confluence.js";
 import type { GoogleAccount } from "./gmail.js";
-import type { ICloudAccount } from "./icloud.js";
+import type { ICloudAccount, ImapAccount } from "./icloud.js";
 import type { PasswordManagerConn } from "../secrets.js";
 import type { SecretBox } from "../secretbox.js";
 
@@ -17,7 +17,7 @@ import type { SecretBox } from "../secretbox.js";
 export interface SteamConn { api_key?: string; steam_id: string; persona?: string; profile_url?: string; last_sync?: string; last_error?: string; games?: number }
 export interface LetterboxdConn { username?: string; last_sync?: string; last_error?: string; films?: number }
 export interface HealthConn { last_import?: string; samples?: number; total?: number }
-export interface Connections { steam_key?: string; steam?: SteamConn; letterboxd?: LetterboxdConn; health?: HealthConn; atlassian_app?: { client_id: string; client_secret: string }; atlassian?: AtlassianConn; google_app?: { client_id: string; client_secret: string }; google?: GoogleAccount[]; icloud?: ICloudAccount[]; password_manager?: PasswordManagerConn; keepass?: { password: string; created_at: string };
+export interface Connections { steam_key?: string; steam?: SteamConn; letterboxd?: LetterboxdConn; health?: HealthConn; atlassian_app?: { client_id: string; client_secret: string }; atlassian?: AtlassianConn; google_app?: { client_id: string; client_secret: string }; google?: GoogleAccount[]; icloud?: ICloudAccount[]; imap?: ImapAccount[]; password_manager?: PasswordManagerConn; keepass?: { password: string; created_at: string };
   /** The master password of helper-passwords.kdbx (helpers.ts): passwords this person saved for their helper. */
   helper_vault?: { password: string; created_at: string };
   /** People this hub's owner helps with their devices (helping.ts): each one's hub on this machine and the key to it. */
@@ -104,9 +104,25 @@ export class ConnectionStore {
         app: !!((process.env.EA_GOOGLE_CLIENT_ID && process.env.EA_GOOGLE_CLIENT_SECRET) || c.google_app?.client_id),
         accounts: (c.google ?? []).map((a) => ({ email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null })),
       },
-      // Each field named on its own, so the password can never ride along.
+      // Each field named on its own, so the password can never ride along. Every mailbox whose mail is read, by Mail
+      // receipts or by the Mail screen (`receipts` and `inbox` say which): an app that lists only these can see and
+      // unlink a mailbox only the Mail screen reads. One linked for calendars alone is not a mailbox.
       icloud: {
-        accounts: (c.icloud ?? []).filter((a) => a.mail !== false).map((a) => ({ email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null })),
+        accounts: (c.icloud ?? []).filter((a) => a.mail !== false || a.inbox === true).map((a) => ({ email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, receipts: a.mail !== false, inbox: a.inbox ?? a.mail !== false })),
+      },
+      /**
+       * Internet Accounts (since 2026-11-22): every linked account once, with what each can do and what is on.
+       * A feature is null when the account cannot do it (Sign in with Google reads only: no Mail screen).
+       */
+      internet: [
+        ...(c.icloud ?? []).map((a) => ({ key: `icloud:${a.email}`, kind: "icloud" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false, calendars: !!a.calendar } })),
+        ...(c.google ?? []).map((a) => ({ key: a.email, kind: "google" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: null, receipts: true, calendars: null } })),
+        ...(c.imap ?? []).map((a) => ({ key: `imap:${a.email}`, kind: a.preset === "gmail" ? "gmail" as const : "imap" as const, email: a.email, host: a.host, port: a.port, user: a.user, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null,
+          features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false && !(c.google ?? []).some((g) => g.email === a.email), calendars: null } })),
+      ],
+      // Other mail accounts (since 2026-11-22): where they are and who signs in, never the password.
+      imap: {
+        accounts: (c.imap ?? []).map((a) => ({ email: a.email, preset: a.preset, host: a.host, port: a.port, user: a.user, linked_at: a.linked_at, last_error: a.last_error ?? null })),
       },
     };
   }

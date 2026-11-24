@@ -1414,6 +1414,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { machine, created: true });
     }
     if (path === "/machines/hub-key" && req.method === "GET") return json(res, 200, { public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockMockMockMockMockMockMockMockMockMock aeneas-hub@server" });
+    if (path === "/setup/link" && req.method === "GET") return json(res, 200, { method: "direct", options: { direct: { available: true }, tailscale: { available: true }, home: { available: true } }, direct: { state: "online", relay: "relay.example", relay_by: "n0", connected: 2, direct: 1 } });
     if (path === "/setup" && req.method === "GET") return json(res, 200, { owner: "Alex", named: true, ai: { ollama: null, openai: null, anthropic: null }, model_ready: true, password_manager: true });
     if (path === "/modules" && req.method === "PUT") {
       for (const [id, v] of Object.entries(await readBody(req))) if (typeof v === "boolean") mockModuleOn.set(id, v);

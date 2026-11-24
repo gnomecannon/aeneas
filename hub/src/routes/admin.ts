@@ -46,7 +46,7 @@ export function adminRoutes() {
   r.get("/setup/link", async (c) => c.json(await linkView(c.get("hub").cfg)));
   r.put("/setup/link", async (c) => {
     const hub = c.get("hub");
-    const res = await changeLink(hub.cfg, await readJsonObject<{ method?: unknown; home_route?: unknown; announce?: unknown }>(c));
+    const res = await changeLink(hub.cfg, await readJsonObject<{ method?: unknown; home_route?: unknown; announce?: unknown; tailscale_door?: unknown }>(c));
     if (!res.ok) throw new StoreError(res.status, res.error);
     return c.json(await linkView(hub.cfg));
   });

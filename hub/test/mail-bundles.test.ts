@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import { makeHub } from "./helpers.js";
 import { bundleContext, bundleOf, domainOf, hasWord, hostOf, NO_MODULES, sameSite, type BundleContext, type BundleMail, type CustomBundle } from "../src/mail-bundles.js";
 import { refuseToolCall } from "../src/ai/api-guard.js";
+import { bundleDelivery, mailNotify, openMailDb } from "../src/mail-inbox.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 // The Mail screen's bundles (src/mail-bundles.ts). Every mail here is made up.
 
@@ -57,12 +61,21 @@ test("mail bundles: when each bundle shows in the Inbox is kept on the hub, chec
     await t.api("/modules", { method: "PUT", json: { mail_inbox: true } });
     const put = (id: string, body: unknown) => t.api(`/mail/settings/bundles/${id}`, { method: "PUT", json: body });
     assert.deepEqual(await (await put("promos", { mode: "daily", time: "07:00" })).json(), { promos: { mode: "daily", time: "07:00" } });
-    assert.deepEqual(await (await put("social", { mode: "weekly", day: 0, time: "18:00" })).json(), { promos: { mode: "daily", time: "07:00" }, social: { mode: "weekly", time: "18:00", day: 0 } });
-    assert.deepEqual(await (await put("social", { mode: "now" })).json(), { promos: { mode: "daily", time: "07:00" } }, "as it arrives is no setting");
-    await put("other", { mode: "never" });
+    assert.deepEqual(await (await put("other", { mode: "weekly", day: 0, time: "18:00" })).json(), { promos: { mode: "daily", time: "07:00" }, other: { mode: "weekly", time: "18:00", day: 0 } });
+    assert.deepEqual(await (await put("other", { mode: "now" })).json(), { promos: { mode: "daily", time: "07:00" } }, "as it arrives is no setting");
+    await put("purchases", { mode: "never" });
     const list = await (await t.api("/mail")).json() as { bundle_delivery: Record<string, unknown> };
-    assert.deepEqual(list.bundle_delivery, { promos: { mode: "daily", time: "07:00" }, other: { mode: "never" } });
+    assert.deepEqual(list.bundle_delivery, { promos: { mode: "daily", time: "07:00" }, purchases: { mode: "never" } });
+    // The ids are the ones every shipped app knows (purchases, other, promos), whatever the bundles are called now.
+    assert.deepEqual(await (await put("promos", { mode: "weekly", day: 1, time: "08:00" })).json(), { promos: { mode: "weekly", time: "08:00", day: 1 }, purchases: { mode: "never" } });
+    // An app that still lists Social (no bundle any more) is told so, and nothing is kept for it.
+    const social = await put("social", { mode: "never" });
+    assert.equal(social.status, 409);
+    assert.match(((await social.json()) as { error: string }).error, /in another bundle now/);
+    // An id a build of the renaming used for a few days is taken as the bundle's real one.
+    assert.deepEqual(await (await put("promotions", { mode: "now" })).json(), { purchases: { mode: "never" } });
     assert.equal((await put("made-up", { mode: "never" })).status, 404);
+    assert.equal((await put("__proto__", { mode: "never" })).status, 404);
     for (const bad of [{}, { mode: "sometimes" }, { mode: "daily" }, { mode: "daily", time: "7am" }, { mode: "weekly", time: "07:00" }, { mode: "weekly", time: "07:00", day: 9 }]) {
       assert.equal((await put("promos", bad)).status, 422, JSON.stringify(bad));
     }
@@ -111,7 +124,7 @@ test("mail bundles: a person's mail stands alone, whatever its subject says", ()
   assert.equal(bundleOf(person("Sam", "sam@example.com", "Flight details for the trip"), ALL), null);
 });
 
-test("mail bundles: purchases", () => {
+test("mail bundles: transactions, buying and money moving", () => {
   assert.equal(bundleOf(sys("orders@northwind.example", "Your order has shipped"), NO_MODULES), "purchases");
   assert.equal(bundleOf(sys("receipts@larkspur.example", "Your receipt from Larkspur Books"), NO_MODULES), "purchases");
   assert.equal(bundleOf(sys("ship@parcel.example", "DELIVERED: your package"), NO_MODULES), "purchases", "any case");
@@ -133,14 +146,32 @@ test("mail bundles: trips", () => {
   assert.equal(bundleOf(sys("trips@travel.example", "Your itinerary"), NO_MODULES), "trips");
 });
 
-test("mail bundles: social networks", () => {
-  assert.equal(bundleOf(sys("notification@facebookmail.com", "Sam commented on your photo"), NO_MODULES), "social");
-  assert.equal(bundleOf(sys("messages-noreply@linkedin.com", "You have 1 new message", { unsubscribe: true }), NO_MODULES), "social", "social before promos");
+test("mail bundles: social networks are updates", () => {
+  assert.equal(bundleOf(sys("notification@facebookmail.com", "Sam commented on your photo"), NO_MODULES), "other");
+  assert.equal(bundleOf(sys("messages-noreply@linkedin.com", "You have 1 new message", { unsubscribe: true }), NO_MODULES), "other", "updates before promotions");
 });
 
-test("mail bundles: promos and other", () => {
+test("mail bundles: promotions, and updates for every other notice", () => {
   assert.equal(bundleOf(sys("deals@shop.example", "50% off this weekend only", { unsubscribe: true }), NO_MODULES), "promos");
-  assert.equal(bundleOf(sys("security@account.example", "Your password was changed"), NO_MODULES), "other");
+  assert.equal(bundleOf(sys("security@account.example", "Your password was changed"), NO_MODULES), "other", "no Other: a notice nothing else claims is an update");
+});
+
+test("mail bundles: money moving is a transaction, a message notice is not", () => {
+  assert.equal(bundleOf(sys("alerts@bank.example", "Your transfer to Savings is complete"), NO_MODULES), "purchases");
+  assert.equal(bundleOf(sys("alerts@bank.example", "A deposit was made to your account"), NO_MODULES), "purchases");
+  assert.equal(bundleOf(sys("money@pay.example", "Jordan paid you $20.00"), NO_MODULES), "purchases");
+  assert.equal(bundleOf(sys("help@shop.example", "Your refund has been processed"), NO_MODULES), "purchases");
+  assert.equal(bundleOf(sys("alerts@bank.example", "Account alert", { text: "Transfer amount: $250.00 from Checking." }), NO_MODULES), "purchases", "a money phrase in the text");
+  assert.equal(bundleOf(sys("notice@linkedin.com", "Sam sent you a message", { unsubscribe: true }), NO_MODULES), "other", "sent you alone is no payment");
+});
+
+test("mail bundles: a developer tool's notice is an update and a list's discussion stands alone, though they carry unsubscribe", () => {
+  const comment = sys("notifications@github.com", "Re: [alex/notes] Fix the sync (PR #12)", { unsubscribe: true, list_id: "alex/notes <notes.alex.github.com>" });
+  assert.equal(bundleOf(comment, NO_MODULES), "other", "a code host's notice");
+  const list = sys("garden-club@lists.example", "Re: Spring planting day", { unsubscribe: true, list_id: "garden-club.lists.example" });
+  assert.equal(bundleOf(list, NO_MODULES), null, "a reply in a mailing list's discussion: people talking");
+  const news = sys("news@lists.example", "Spring planting day", { unsubscribe: true, list_id: "news.lists.example" });
+  assert.equal(bundleOf(news, NO_MODULES), "promos", "a list's newsletter, not a reply");
 });
 
 test("mail bundles: jobs, from the applications and from hiring systems, a recruiter's own mail too", () => {
@@ -192,4 +223,32 @@ test("mail bundles: bills, from the renewals and bill words, before purchases", 
   assert.equal(bundleOf(sys("alerts@bank.example", "Your statement is ready"), ALL), "bills");
   assert.equal(bundleOf(sys("billing@power.example", "Payment due: order of service changes"), ALL), "bills", "bills is checked before purchases");
   assert.equal(bundleOf(sys("alerts@bank.example", "Your statement is ready"), NO_MODULES), "other", "Renewals off: no bills bundle");
+});
+
+test("mail bundles: Social's settings are dropped (Updates keeps Other's), and settings under the short-lived ids move back at start", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mail-ids-"));
+  try {
+    const file = path.join(dir, "mail.sqlite");
+    let db = openMailDb(file);
+    const set = (key: string, value: unknown) => db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, JSON.stringify(value));
+    // As 1.0.14 kept them: Social never shown, Other as it arrives (no setting), Promos once a day.
+    set("bundle_delivery", { promos: { mode: "daily", time: "07:00" }, social: { mode: "never" }, trips: { mode: "never" } });
+    set("mail_notify", { people: true, bundles: ["purchases", "social", "jobs"], detail: "sender" });
+    db.close();
+    db = openMailDb(file);
+    assert.deepEqual(bundleDelivery(db), { promos: { mode: "daily", time: "07:00" }, trips: { mode: "never" } }, "Social's never is not moved onto Updates: a changed password still shows");
+    assert.deepEqual(mailNotify(db), { people: true, bundles: ["purchases", "jobs"], detail: "sender" });
+    // A hub that ran a build of the renaming: its ids move back, and the real id's own setting wins.
+    set("bundle_delivery", { promotions: { mode: "weekly", time: "18:00", day: 0 }, updates: { mode: "never" }, other: { mode: "daily", time: "09:00" }, transactions: { mode: "never" } });
+    set("mail_notify", { people: false, bundles: ["transactions", "updates", "purchases"], detail: "count" });
+    db.close();
+    db = openMailDb(file);
+    assert.deepEqual(bundleDelivery(db), { other: { mode: "daily", time: "09:00" }, promos: { mode: "weekly", time: "18:00", day: 0 }, purchases: { mode: "never" } });
+    assert.deepEqual(mailNotify(db), { people: false, bundles: ["purchases", "other"], detail: "count" });
+    db.close();
+    // Nothing odd kept: nothing rewritten.
+    db = openMailDb(file);
+    assert.deepEqual(bundleDelivery(db), { other: { mode: "daily", time: "09:00" }, promos: { mode: "weekly", time: "18:00", day: 0 }, purchases: { mode: "never" } });
+    db.close();
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -478,7 +478,11 @@ public enum Mail {
 
     /// A bundle: a colored group of one kind of mail. The always-there ones, then the ones tied to a module, shown
     /// only while that module is on (`module`), with a link to its screen; then the owner's own (`custom`: its color,
-    /// 0 to 7). `Other` takes automated mail nothing stronger claimed.
+    /// 0 to 7). Updates takes automated mail nothing stronger claimed, the social networks' too.
+    ///
+    /// An id is what the hub and the kept settings know a bundle by, so it stays when the bundle is renamed: since
+    /// 2026-11-22 `purchases` is called Transactions, `promos` Promotions and `other` Updates, and there is no
+    /// Social bundle (the hub's list is `BUNDLE_IDS` in hub/src/mail-bundles.ts; a test holds the two together).
     public struct Bundle: Equatable, Hashable, Sendable, Identifiable {
         public var id: String
         public var name: String
@@ -491,14 +495,13 @@ public enum Mail {
     }
 
     public static let bundles: [Bundle] = [
-        Bundle(id: "purchases", name: "Purchases"),
+        Bundle(id: "purchases", name: "Transactions"),
+        Bundle(id: "other", name: "Updates"),
+        Bundle(id: "promos", name: "Promotions"),
         Bundle(id: "trips", name: "Trips"),
-        Bundle(id: "social", name: "Social"),
-        Bundle(id: "promos", name: "Promos"),
         Bundle(id: "bills", name: "Bills", module: "renewals", moduleName: "Renewals and bills"),
         Bundle(id: "pet", name: "Pet", module: "pet", moduleName: "Pet"),
         Bundle(id: "jobs", name: "Jobs", module: "jobs", moduleName: "Job search"),
-        Bundle(id: "other", name: "Other"),
     ]
 
     /// The bundles shown: the always-there ones, a module's only while it is on, then the owner's own.
@@ -589,14 +592,24 @@ public enum Mail {
         public init(title: String, rows: [Row<T>]) { self.title = title; self.rows = rows }
     }
 
+    /// The hold-back settings that count in this app: those of the bundles it shows. Mail of a bundle this app has no
+    /// view for is never held back (it would show nowhere until its time), so everything that asks when a mail shows
+    /// asks with these: the list, and the count of new mail beside Inbox.
+    public static func shownDelivery(_ delivery: [String: MailBundleDelivery], shown: [Bundle]) -> [String: MailBundleDelivery] {
+        delivery.filter { d in shown.contains { $0.id == d.key } }
+    }
+
     /// The Inbox as the screen lists it: newest first, under day headings. A bundle is one row, where its newest
     /// message is in each day; pinned mail always stands on its own. With `pinnedOnly`, only pinned mail, none bundled.
     public static func inboxSections<T: MailRowItem>(_ messages: [T], shown: [Bundle], pinnedOnly: Bool = false, now: Date = Date(),
                                                      delivery: [String: MailBundleDelivery] = [:], calendar: Calendar = .current) -> [DaySection<T>] {
         // Each mail at the time it shows: held mail (its bundle shows later) and bundles that skip the Inbox are left out.
+        // Only a bundle this app shows can hold its mail back: mail under an id it has no view for (a hub newer than
+        // the app, a module off here) would otherwise be out of the Inbox and in no bundle, so nowhere at all.
+        let held = shownDelivery(delivery, shown: shown)
         let timed: [(T, String)] = messages.compactMap { m in
             let s = m.summary
-            guard s.state == .inbox, !pinnedOnly || s.pinned, let w = inboxAt(s, delivery: delivery, now: now, calendar: calendar) else { return nil }
+            guard s.state == .inbox, !pinnedOnly || s.pinned, let w = inboxAt(s, delivery: held, now: now, calendar: calendar) else { return nil }
             return (m, w)
         }
         let sorted = timed.enumerated().sorted { a, b in a.element.1 == b.element.1 ? a.offset < b.offset : a.element.1 > b.element.1 }.map(\.element)

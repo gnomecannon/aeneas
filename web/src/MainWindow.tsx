@@ -4,6 +4,7 @@ import { ScreenStart, Shell, screenOf } from "./components/Shell";
 import { ReminderBanner } from "./components/ReminderBanner";
 import { ActivityBanner, DigestToast, DiskBanner, AppUpdateBanner, MailToast, MonitorBanner, QuizToast, SensorBanner } from "./components/NotifyBanners";
 import { UpdateToast } from "./components/UpdateToast";
+import { JoinedToast } from "./components/JoinedToast";
 import { IfModule, ModuleGate } from "./components/ModuleGate";
 import { HelperOfferBanner } from "./components/HelperOffer";
 import { startHelperAgent } from "./lib/helperAgent";
@@ -33,6 +34,7 @@ export function MainWindow({ route, view }: { route: Route; view: ReactNode }) {
           <ScreenStart screen={screenOf(route.path).key} />
         </Suspense>
       </ModuleGate>
+      <JoinedToast />
       <UpdateToast />
       <DigestToast />
       <IfModule id="quiz"><QuizToast /></IfModule>

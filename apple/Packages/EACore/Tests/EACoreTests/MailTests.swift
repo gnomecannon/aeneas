@@ -47,7 +47,28 @@ final class MailTests: XCTestCase {
         XCTAssertTrue(Mail.shownBundles(on: off).map(\.id).contains("promos"))
         XCTAssertNil(Mail.bundleOf(mail { $0.bundle = "pet" }, in: Mail.shownBundles(on: off)))
         XCTAssertNil(Mail.bundleOf(mail { $0.bundle = "made-up" }, in: Mail.shownBundles(on: allOn)))
-        XCTAssertEqual(Mail.bundleOf(mail { $0.bundle = "promos" }, in: Mail.shownBundles(on: allOn))?.name, "Promos")
+        XCTAssertEqual(Mail.bundleOf(mail { $0.bundle = "promos" }, in: Mail.shownBundles(on: allOn))?.name, "Promotions")
+    }
+
+    /// The ids are the hub's own, and so are the names: a bundle renamed on the hub alone would show its mail in no
+    /// bundle here, and one set to show later or never would show nowhere.
+    func testTheBundlesAreTheHubsOwn() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../..").standardized
+        let hub = try String(contentsOf: root.appendingPathComponent("hub/src/mail-bundles.ts"), encoding: .utf8)
+        func quoted(_ line: String) -> [String] { line.split(separator: "\"").enumerated().filter { $0.offset % 2 == 1 }.map { String($0.element) } }
+        let ids = try XCTUnwrap(hub.split(separator: "\n").first { $0.hasPrefix("export const BUNDLE_IDS = [") })
+        XCTAssertEqual(Set(quoted(String(ids))), Set(Mail.bundles.map(\.id)))
+        let names = try XCTUnwrap(hub.split(separator: "\n").first { $0.hasPrefix("export const BUNDLE_NAMES") })
+        for b in Mail.bundles { XCTAssertTrue(names.contains("\(b.id): \"\(b.name)\""), "\(b.id) is called \(b.name) on the hub") }
+    }
+
+    func testMailOfABundleThisAppHasNoViewForIsNeverHeldBack() {
+        // A hub newer than the app names a bundle the app does not know, set to never show in the Inbox.
+        let delivery = ["brand-new": MailBundleDelivery(mode: .never), "promos": MailBundleDelivery(mode: .never)]
+        let unknown = mail { $0.bundle = "brand-new"; $0.automated = true }
+        let promo = mail { $0.bundle = "promos"; $0.automated = true }
+        let rows = Mail.inboxSections([unknown, promo], shown: Mail.shownBundles(on: allOn), delivery: delivery, calendar: cal).flatMap(\.rows)
+        XCTAssertEqual(rows.map { r -> String in if case .mail(let m) = r { return m.id } else { return "bundle" } }, [unknown.id], "it shows on its own, as any mail in no bundle")
     }
 
     func testInboxNewestFirstUnderDayHeadingsABundleOneRowPinnedOnItsOwn() {
@@ -63,9 +84,9 @@ final class MailTests: XCTestCase {
         ]
         let s = Mail.inboxSections(ms, shown: shown, now: now, calendar: cal)
         XCTAssertEqual(s.map(\.title), ["Today", "Yesterday"])
-        XCTAssertEqual(s[0].rows.map(describe), ["Hike?", "[Purchases 2]", "Pinned receipt"])
+        XCTAssertEqual(s[0].rows.map(describe), ["Hike?", "[Transactions 2]", "Pinned receipt"])
         if case .bundle(_, let mails) = s[0].rows[1] { XCTAssertEqual(Mail.sendersLine(mails), "Northwind, Larkspur Books") } else { XCTFail("a bundle row") }
-        XCTAssertEqual(s[1].rows.map(describe), ["[Purchases 1]"])
+        XCTAssertEqual(s[1].rows.map(describe), ["[Transactions 1]"])
         XCTAssertEqual(Mail.inboxSections(ms, shown: shown, pinnedOnly: true, now: now, calendar: cal).flatMap(\.rows).map(describe), ["Pinned receipt"])
         XCTAssertEqual(Mail.viewMessages(ms, view: .done, shown: shown).map(\.subject), ["Done one"])
         XCTAssertEqual(Mail.viewMessages(ms, view: .snoozed, shown: shown).map(\.subject), ["Snoozed one"])
@@ -205,10 +226,10 @@ final class MailTests: XCTestCase {
         XCTAssertNil(Mail.deliveryAt(arrived, MailBundleDelivery(mode: .never), calendar: cal))
         XCTAssertEqual(Mail.deliveryAt(arrived, nil, calendar: cal), ISO.date(arrived))
 
-        let delivery = ["promos": MailBundleDelivery(mode: .daily, time: "07:00"), "social": MailBundleDelivery(mode: .never)]
+        let delivery = ["promos": MailBundleDelivery(mode: .daily, time: "07:00"), "other": MailBundleDelivery(mode: .never)]
         let promo = mail { $0.at = arrived; $0.bundle = "promos"; $0.automated = true }
         let pinned = mail { $0.at = arrived; $0.bundle = "promos"; $0.automated = true; $0.pinned = true }
-        let social = mail { $0.at = arrived; $0.bundle = "social"; $0.automated = true }
+        let social = mail { $0.at = arrived; $0.bundle = "other"; $0.automated = true }
         let person = mail { $0.at = arrived }
         let thuNoon = date(2026, 11, 19, 12)
         XCTAssertNil(Mail.inboxAt(promo, delivery: delivery, now: thuNoon, calendar: cal))

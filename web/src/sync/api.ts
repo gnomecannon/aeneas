@@ -6,8 +6,9 @@ import type { CheckRow, OpsData } from "../lib/ops";
 import type { Feel, FeelView } from "../feel/prefs";
 import type { Board, DashboardPrefs, MetricInfo, Series, Tile } from "../lib/dashboard";
 import type { WikiHit, WikiIndex, WikiPage } from "../lib/wiki";
-import type { BundleDelivery, CustomBundle, MailList, MailNotify, MailMessage, MailMoved, MailRefresh, SnoozeTimes } from "../lib/mail";
+import type { BundleDelivery, CustomBundle, FolderMail, FoldNote, SearchHit, UnsubscribeOptions, MailAttachment, MailBlocked, MailMovedTo, MoveTarget, MailDraft, MailDraftRequest, MailGreeting, MailList, MailNotify, MailMessage, MailMoved, MailRefresh, SnoozeTimes, TriageAnswer } from "../lib/mail";
 import { directBase, hubFetch, isDirect } from "./direct";
+import type { JoinRequest } from "./join";
 
 /** GET /feeds: keys that open one door each (the calendar feed, sensor readings). */
 export interface FeedKeysView { calendar: { key: string; path: string }; sensors: { key: string; path: string } }
@@ -38,7 +39,14 @@ export const isDeviceKey = (k: string | undefined | null): boolean => !!k && k.s
 export interface PairingLinks { hub: string; code: string; expires_at: string; app: string; web: string; link?: LinkMethod | null; node?: string | null }
 export type LinkMethod = "direct" | "tailscale" | "home";
 export interface DirectStatus { state: "off" | "starting" | "online" | "error"; id?: string; relay?: string; relay_by?: string; error?: string; /** After a failed start: when the hub tries again. */ retry_at?: string; connected: number; direct: number }
-export interface LinkView { method: LinkMethod | null; options: Record<LinkMethod, { available: boolean; how?: string }>; direct: DirectStatus }
+export interface LinkView {
+  method: LinkMethod | null; options: Record<LinkMethod, { available: boolean; how?: string }>; direct: DirectStatus;
+  /** The addresses a web browser opens the web app at (each ending `/app/`). Newer hubs (since 2026-11-23). */
+  browser?: string[];
+  /** A Direct link hub's door for browsers on the tailnet (hub/src/tsdoor.ts). Newer hubs (since 2026-11-23). */
+  tailscale_door?: TailscaleDoor;
+}
+export interface TailscaleDoor { available: boolean; on: boolean; url: string | null; how?: string; error?: string }
 /** GET /hub-update: what the hub runs, what is newer (after a check) and how the last update went (hub/src/update.ts). */
 export interface HubUpdateRun { state: "starting" | "checking" | "installing" | "restarting" | "rolling_back" | "done" | "up_to_date" | "rolled_back" | "failed"; message: string; from: string | null; to: string | null; at: string }
 export interface HubUpdateInfo {
@@ -200,6 +208,10 @@ export interface Connections {
   google?: GoogleConnection;
   /** iCloud Mail, read-only, one entry per mailbox linked with an app-specific password (never sent back). Absent on older hubs. */
   icloud?: ICloudConnection;
+  /** Other mail accounts for the Mail screen (Gmail or any IMAP server), linked with an app password (never sent back). Absent on older hubs. */
+  imap?: ImapConnection;
+  /** Internet Accounts: every linked account once, with what it can do and what is on. Absent on older hubs. */
+  internet?: InternetAccount[];
   /** LastPass or 1Password through its CLI, for secrets in the assistant's commands. Absent on older hubs. */
   password_manager?: PasswordManagerView;
 }
@@ -247,6 +259,30 @@ export interface GoogleConnection {
 export interface ICloudConnection {
   accounts: GmailAccount[];
 }
+/** Other mail accounts (GET /connections `imap`): where each is and who signs in, never the password. */
+export interface ImapAccountView { email: string; preset: "gmail" | "imap"; host: string; port: number; user: string; linked_at: string; last_error: string | null }
+export interface ImapConnection {
+  accounts: ImapAccountView[];
+}
+/**
+ * One account in Internet Accounts: iCloud, Google signed in with Google (receipts only), Gmail with an app password, or
+ * another IMAP server. A feature is null when the account cannot do it; `receipts` holds what receipts came to.
+ */
+export interface InternetAccount {
+  key: string;
+  kind: "icloud" | "google" | "gmail" | "imap";
+  email: string;
+  host?: string;
+  port?: number;
+  user?: string;
+  linked_at: string;
+  last_sync: string | null;
+  last_error: string | null;
+  features: { inbox: boolean | null; receipts: boolean | null; calendars: boolean | null };
+  receipts?: Pick<GmailAccount, "listed" | "to_read" | "read" | "failed" | "filed">;
+}
+/** Linking another mail account: Gmail (the hub fills in the server) or any IMAP server over TLS. */
+export type ImapLink = { email: string; password: string; user?: string } & ({ preset: "gmail" } | { preset: "imap"; host: string; port?: number });
 
 /** Calendar sync on the hub (Calendar accounts): an iCloud address, its calendars and the one new events go to. */
 export interface CalendarAccount {
@@ -703,16 +739,30 @@ export class HubClient {
   readMailNow() {
     return this.req<Record<string, { listed: number; queued: number } | { error: string }>>("POST", "/connections/google/sync", {});
   }
-  disconnectGoogle(email: string) {
-    return this.req<unknown>("DELETE", `/connections/google/${encodeURIComponent(email)}`);
-  }
   /** List every linked mailbox now, from the iCloud Mail panel (the same as readMailNow). */
   icloudReadNow() {
     return this.req<Record<string, { listed: number; queued: number } | { error: string }>>("POST", "/connections/icloud/sync", {});
   }
-  /** Unlink an iCloud mailbox: the hub deletes its password; `message` says to revoke it at account.apple.com. */
-  disconnectICloud(email: string) {
-    return this.req<ICloudConnection & { message: string }>("DELETE", `/connections/icloud/${encodeURIComponent(email)}`);
+
+  /** Link another mail account for the Mail screen; the hub checks it with the server once. */
+  linkImap(link: ImapLink) {
+    return this.req<ImapConnection>("PUT", "/connections/imap", link);
+  }
+  /**
+   * Switch what an account does: `inbox` (shown in Mail) and `receipts` (read for Mail receipts). Switching off the
+   * last thing it does removes the account, password and all: the answer then has `removed` and the hub's `message`.
+   */
+  setAccountFeatures(key: string, body: { inbox?: boolean; receipts?: boolean }) {
+    return this.req<{ inbox: boolean; receipts: boolean; removed?: boolean; message?: string }>("PUT", `/connections/accounts/${encodeURIComponent(key)}`, body);
+  }
+  /**
+   * Remove an account whole, of any kind, by its `key` (an InternetAccount's): its calendars stop syncing, its mail
+   * leaves the Mail screen, what waited to be read for receipts is dropped, and its password is deleted from the hub.
+   * `message` says what was done, and what is left to do at the provider. The one way the app removes an account:
+   * done in steps (calendars stopped, then the mailbox unlinked), the second step failed once the first had removed it.
+   */
+  removeAccount(key: string) {
+    return this.req<{ message: string }>("DELETE", `/connections/accounts/${encodeURIComponent(key)}`);
   }
 
   /** Calendar sync on the hub. */
@@ -869,6 +919,17 @@ export class HubClient {
 
   link() { return this.req<LinkView>("GET", "/setup/link"); }
   setLink(method: LinkMethod) { return this.req<LinkView>("PUT", "/setup/link", { method }); }
+  /** The Tailscale door: 409 with Tailscale's reason in a plain sentence (or `how` when it is not available). */
+  setTailscaleDoor(on: boolean) { return this.req<LinkView>("PUT", "/setup/link", { tailscale_door: on }); }
+
+  /**
+   * Joining a new device with this one's yes (CONTRACT, Devices): the hub reaches it over Direct link and hands it a
+   * pairing link. Up to about 100 seconds; `state: "sent"` when it took the link but had not paired within a minute.
+   */
+  joinDevice(j: JoinRequest) {
+    const signal = typeof AbortSignal !== "undefined" && "timeout" in AbortSignal ? AbortSignal.timeout(110_000) : undefined;
+    return this.req<{ device_id: string; name: string } | { name: string; state: "sent" }>("POST", "/devices/join", j, signal);
+  }
 
   pairing(name: string) {
     return this.req<PairingLinks>("POST", "/devices/pairing", { name });
@@ -965,7 +1026,7 @@ export class HubClient {
     return this.req<{ results: WikiHit[] }>("GET", `/wiki/search?q=${encodeURIComponent(q)}&limit=${limit}`, undefined, signal);
   }
 
-  /** The Mail screen (module mail_inbox): the iCloud Inbox, sorted into bundles. */
+  /** The Mail screen (module mail_inbox): the linked mailboxes' Inbox, sorted into bundles. */
   mailList(signal?: AbortSignal) {
     return this.req<MailList>("GET", "/mail", undefined, signal);
   }
@@ -982,7 +1043,7 @@ export class HubClient {
   mailShowPictures(id: string) {
     return this.req<MailMessage>("POST", `/mail/messages/${encodeURIComponent(id)}/pictures`, {});
   }
-  /** Done: the mails move to Archive in iCloud (a Sweep is many at once). */
+  /** Done: the mails move to Archive in their mailbox (a Sweep is many at once). */
   mailDone(ids: string[]) {
     return this.req<MailMoved>("POST", "/mail/done", { ids });
   }
@@ -1006,12 +1067,92 @@ export class HubClient {
   mailSeen(id: string, seen: boolean) {
     return this.req<{ ok: true; seen: boolean; synced: boolean }>("POST", `/mail/messages/${encodeURIComponent(id)}/seen`, { seen });
   }
+  /** A draft: a preview of what the hub would save, or saved to the mailbox's Drafts folder (never sent). */
+  mailDraft(body: MailDraftRequest) {
+    return this.req<MailDraft>("POST", "/mail/drafts", body);
+  }
+  /** A reply's greeting and sign-off, suggested by the hub's local model (or the plain ones), to edit or drop. */
+  mailGreeting(id: string) {
+    return this.req<MailGreeting>("POST", `/mail/messages/${encodeURIComponent(id)}/greeting`, {});
+  }
+  /**
+   * Delete (trash), Spam (junk), Not spam or Move to Inbox (inbox), or Move to one of the owner's folders (its key).
+   * `undo`: this move takes back one just made (the screen's Undo), so the hub puts mail going back to the Inbox
+   * back as it was: snoozed again, done again, with its note. Without it a move to the Inbox is a plain move.
+   */
+  mailMove(ids: string[], to: MoveTarget, undo = false) {
+    return this.req<MailMovedTo>("POST", "/mail/move", { ids, to, ...(undo ? { undo: true } : {}) });
+  }
+  /** An open mail's attachments now, with its pictures' previews (read from the mailbox by the hub, kept nowhere). */
+  mailAttachments(id: string) {
+    return this.req<{ attachments: MailAttachment[] }>("GET", `/mail/messages/${encodeURIComponent(id)}/attachments`);
+  }
+  /** One attachment, as a file to save. */
+  async mailAttachment(id: string, part: string): Promise<Blob> {
+    const res = await this.fetchImpl(this.url(`/mail/messages/${encodeURIComponent(id)}/attachments/${encodeURIComponent(part)}`), { headers: this.headers() });
+    if (!res.ok) {
+      let msg = `${res.status}`;
+      try { msg = ((await res.json()) as { error?: string }).error ?? msg; } catch { /* not JSON */ }
+      throw new HubError(res.status, msg);
+    }
+    return res.blob();
+  }
+  /** The ways a mail offers to unsubscribe, read from it now; then one of them (`direct`: the owner accepted no Tor). */
+  mailUnsubscribeOptions(id: string) {
+    return this.req<UnsubscribeOptions>("GET", `/mail/messages/${encodeURIComponent(id)}/unsubscribe`);
+  }
+  mailUnsubscribe(id: string, how: "one_click" | "mailto", direct = false) {
+    return this.req<{ ok: boolean; via?: "tor" | "direct"; draft?: boolean }>("POST", `/mail/messages/${encodeURIComponent(id)}/unsubscribe`, { how, ...(direct ? { direct: true } : {}) });
+  }
+  /** "Something important missing?": a folding note on a mail; every note; clearing them. Kept on the hub only. */
+  mailFolding(id: string, note: { lines: string[]; no_fold: boolean }) {
+    return this.req<FoldNote>("POST", `/mail/messages/${encodeURIComponent(id)}/folding`, note);
+  }
+  mailFoldNotes() {
+    return this.req<{ notes: { id: string; subject: string; from: string; note: FoldNote }[] }>("GET", "/mail/folding-notes");
+  }
+  mailClearFoldNotes() {
+    return this.req<{ cleared: number }>("DELETE", "/mail/folding-notes");
+  }
+  /** Triage on or off (off erases every kept triage). */
+  mailTriage(on: boolean) {
+    return this.req<{ triage: boolean }>("PUT", "/mail/settings/triage", { on });
+  }
+  /**
+   * Sort the mail that waits, now: the hub's model runs because the owner asked. The answer comes at once (it does not
+   * wait for the run) and says how sorting stands; the list's `triage_state` follows it.
+   */
+  mailTriageNow() {
+    return this.req<TriageAnswer>("POST", "/mail/triage", {});
+  }
+  /**
+   * Block or unblock a sender: an address, or @domain. The block's answer says what moved to Spam and where it is now,
+   * so the block can be undone (unblock, then move those back). The hub refuses to block the owner's own address, a
+   * mail provider's whole domain and an ending many sites share, with a sentence to show as it is.
+   */
+  mailBlock(sender: string) {
+    return this.req<MailBlocked>("POST", "/mail/settings/blocked", { sender });
+  }
+  mailUnblock(sender: string) {
+    return this.req<{ blocked: string[] }>("POST", "/mail/settings/unblock", { sender });
+  }
+  /** Every kept mail with each word of `q` (whole texts, Inbox and folders), or all mail with one person (`with`). */
+  mailSearch(q: string, withPerson = "") {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    if (withPerson) p.set("with", withPerson);
+    return this.req<{ hits: SearchHit[] }>("GET", `/mail/search?${p}`);
+  }
+  /** One of the mailbox's other folders: its kept mail, newest first. */
+  mailFolder(key: string) {
+    return this.req<{ messages: FolderMail[] }>("GET", `/mail/folders/${encodeURIComponent(key)}`);
+  }
   /** The owner's own bundles: add, change, delete. */
   mailBundleAdd(b: Omit<CustomBundle, "id">) {
     return this.req<CustomBundle>("POST", "/mail/settings/custom-bundles", b);
   }
   mailBundleUpdate(b: CustomBundle) {
-    return this.req<CustomBundle>("PUT", `/mail/settings/custom-bundles/${encodeURIComponent(b.id)}`, { name: b.name, color: b.color, addresses: b.addresses, domains: b.domains, words: b.words });
+    return this.req<CustomBundle>("PUT", `/mail/settings/custom-bundles/${encodeURIComponent(b.id)}`, { name: b.name, color: b.color, addresses: b.addresses, domains: b.domains, words: b.words, body_words: b.body_words ?? [], to: b.to ?? [] });
   }
   mailBundleDelete(id: string) {
     return this.req<{ ok: true }>("DELETE", `/mail/settings/custom-bundles/${encodeURIComponent(id)}`);
@@ -1028,9 +1169,12 @@ export class HubClient {
   mailSnoozeTimes(times: Partial<SnoozeTimes>) {
     return this.req<SnoozeTimes>("PUT", "/mail/settings/snooze", times);
   }
-  /** Pin or unpin a mail: kept on the hub only. */
+  /**
+   * Pin or unpin a mail: kept on the hub, and as the mail app's flag in the mailbox. `pending`: the mailbox had not
+   * answered within a few seconds; the pin holds on the hub and the flag follows, so this is a success like any other.
+   */
   mailPin(id: string, pinned: boolean) {
-    return this.req<{ ok: true; pinned: boolean }>("POST", `/mail/messages/${encodeURIComponent(id)}/pin`, { pinned });
+    return this.req<{ ok: true; pinned: boolean; synced?: number; pending?: boolean }>("POST", `/mail/messages/${encodeURIComponent(id)}/pin`, { pinned });
   }
 
   gamePick(body: { players: string[]; hours?: number; coop?: boolean; exclude?: string[] }) {

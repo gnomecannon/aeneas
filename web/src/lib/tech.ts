@@ -57,7 +57,8 @@ export function machineSections(machines: Thing[]): { title: string; things: Thi
 
 /** One line about what the machine is: what it runs or its model, and the VM it is; empty when it gave neither. */
 export function identityLine(t: Thing): string {
-  const vm = t.vm_of ? `${t.vm_state && t.vm_state !== "running" ? `${t.vm_state} ` : ""}virtual machine on ${t.vm_of}` : "";
+  // What it is, never how it is doing: a VM that is off is still a virtual machine (its status says the rest).
+  const vm = t.vm_of ? `virtual machine on ${t.vm_of}` : "";
   return [t.os_name ?? t.model, vm].filter(Boolean).join(", ");
 }
 

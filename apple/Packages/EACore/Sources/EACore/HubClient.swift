@@ -148,6 +148,8 @@ public struct HTTPTransport: HubTransport {
         // a mail's pictures are fetched from its sender while the request waits.
         if path == "mail/refresh" || (path.hasPrefix("mail/messages/") && path.hasSuffix("/pictures")) { return 120 }
         if path == "mail/done" || path == "mail/undo" || path == "mail/seen" { return 60 }
+        // devices/join: the hub reaches the new device (20 s), waits for its answer (20 s), then for it to claim its code (60 s).
+        if path == "devices/join" { return 110 }
         return path == "ai/chat" ? 300 : path == "agent/jobs" ? 60 : path == "machines/setup" ? 90 : nil
     }
 

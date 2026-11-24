@@ -31,7 +31,7 @@ final class HelpersStore: ObservableObject {
 }
 
 /// A card's look: a rounded panel with room around large text.
-private struct HelperCard: ViewModifier {
+struct HelperCard: ViewModifier {
     func body(content: Content) -> some View {
         content
             .font(.title3)
@@ -42,7 +42,7 @@ private struct HelperCard: ViewModifier {
 }
 
 extension View {
-    fileprivate func helperCard() -> some View { modifier(HelperCard()) }
+    func helperCard() -> some View { modifier(HelperCard()) }
 }
 
 /// The one question a helped person is asked: someone offered to help with their devices.
@@ -413,9 +413,9 @@ struct InvitationCard: View {
 
     private func use(_ t: String) {
         guard !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { note = nil; return }
-        if let url = SetupLink.find(in: t) {
+        if let link = SetupLink.find(in: t) {
             note = nil
-            model.handle(url: url)
+            model.useSetupLink(link)
         } else {
             note = "There is no invitation in that. Copy the whole message you were sent, then paste it here."
         }

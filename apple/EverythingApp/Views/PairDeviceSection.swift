@@ -1,6 +1,9 @@
 import SwiftUI
 import CoreImage.CIFilterBuiltins
 import EACore
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Settings, Connection: a one-time code that pairs another iPhone, iPad, Mac or a browser with this hub. The code is
 /// shown large to type, and as a QR code the other device's Camera opens. It works once, for 10 minutes, and gives the
@@ -28,7 +31,7 @@ struct PairDeviceSection: View {
                         .textSelection(.enabled)
                         .accessibilityLabel("Pairing code \(code.map(String.init).joined(separator: " "))")
                 }
-                if let image = qr(links.app) {
+                if let image = Self.qr(links.app) {
                     image.interpolation(.none).resizable().scaledToFit().frame(maxWidth: 240).padding(8).background(Color.white).clipShape(RoundedRectangle(cornerRadius: 8))
                         .frame(maxWidth: .infinity)
                         .accessibilityLabel("QR code that pairs the new device")
@@ -71,7 +74,7 @@ struct PairDeviceSection: View {
         } header: {
             Text("Pair another device")
         } footer: {
-            Text("On the new device, scan the QR code with the Camera, or open Aeneas and type the code with this hub's address. The code works once, for 10 minutes.")
+            Text(Self.footer)
         }
         .themedRow()
     }
@@ -92,6 +95,17 @@ struct PairDeviceSection: View {
         }
     }
 
+    /// A new phone scans this code. A Mac, iPad, Windows PC or Android tablet shows a code of its own instead, which a
+    /// paired phone scans (JoinRequestSheet), since a computer cannot scan this one.
+    private static var footer: String {
+        #if os(iOS)
+        let camera = UIDevice.current.userInterfaceIdiom == .phone ? "this phone's Camera" : "the Camera of a phone that uses Aeneas"
+        #else
+        let camera = "the Camera of a phone that uses Aeneas"
+        #endif
+        return "Scan the QR code with a new phone's Camera, or type the code with this hub's address in Aeneas on the new device. The code works once, for 10 minutes. A Mac, iPad, Windows PC or Android tablet can also be added by opening Aeneas on it and pointing \(camera) at the code it shows."
+    }
+
     /// "9 min 41 s left", or that it ran out.
     static func timeLeft(until end: Date, now: Date) -> String {
         let s = Int(end.timeIntervalSince(now).rounded(.down))
@@ -99,7 +113,8 @@ struct PairDeviceSection: View {
         return s >= 60 ? "Works for \(s / 60) min \(s % 60) s more" : "Works for \(s) s more"
     }
 
-    private func qr(_ text: String) -> Image? {
+    /// A QR code for `text`, drawn sharp at any size (also the join code in Set up, PhoneJoinCard).
+    static func qr(_ text: String) -> Image? {
         let f = CIFilter.qrCodeGenerator()
         f.message = Data(text.utf8)
         f.correctionLevel = "M"

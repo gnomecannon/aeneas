@@ -47,7 +47,7 @@ final class TechTests: XCTestCase {
         var dc1 = m("dc1"); dc1.os_name = "Windows Server 2022 Standard"; dc1.vm_of = "pve"; dc1.vm_state = "running"
         var dc2 = m("dc2"); dc2.vm_of = "pve"; dc2.vm_state = "stopped"
         XCTAssertEqual(Tech.identityLine(dc1), "Windows Server 2022 Standard, virtual machine on pve")
-        XCTAssertEqual(Tech.identityLine(dc2), "stopped virtual machine on pve")
+        XCTAssertEqual(Tech.identityLine(dc2), "virtual machine on pve")
         XCTAssertEqual(Tech.identityLine(m("x")), "")
         XCTAssertEqual(DeviceCategory.allCases.map(\.one), ["Computer", "Network device", "Printer", "Camera", "Device"])
     }

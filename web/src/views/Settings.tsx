@@ -267,7 +267,7 @@ function Connection() {
         <DevicesList />
       </div>
       <div className="card col">
-        <h2>How devices reach this hub</h2>
+        <h2>How devices reach the hub</h2>
         <LinkChoice />
       </div>
       <div className="card col">

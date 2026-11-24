@@ -502,6 +502,23 @@ test("web: a page on the owner's own network is never read, by address, by name 
     assert.equal(isNonPublicAddress("8.8.8.8"), false);
     assert.equal(isNonPublicAddress("2606:4700::1111"), false);
     assert.equal(isNonPublicAddress("fd7a:115c:a1e0::1"), true);
+    // An address inside the home written the long way, or as IPv4 inside IPv6, is still inside the home.
+    for (const a of ["0:0:0:0:0:0:0:1", "0000:0000:0000:0000:0000:0000:0000:0001", "::", "::ffff:10.0.0.5", "::ffff:a00:5", "0:0:0:0:0:ffff:a00:5", "::10.0.0.5", "::a00:5",
+      "64:ff9b::10.0.0.5", "64:ff9b::c0a8:101", "64:ff9b:1::1", "2002:0a00:0005::1", "2002:c0a8:101::", "2002:7f00:1::", "2001:0:4136:e378::1", "2001:db8::1", "100::1",
+      "fe80::1%en0", "FE80:0:0:0:0:0:0:1", "fec0::1", "fd00::1", "fc00::", "ff02::1", "[::1]"]) {
+      assert.equal(isNonPublicAddress(a), true, a);
+    }
+    // Outside the block the internet's addresses come from (2000::/3) nothing is public, whatever is written inside:
+    // the translated form of an IPv4 address was let through. Two blocks of 192.0 are kept for protocols and examples.
+    for (const a of ["::ffff:0:10.0.0.5", "::ffff:0:a00:5", "::ffff:0:8.8.8.8", "1::1", "4000::1", "e000::1", "192.0.0.1", "192.0.2.5"]) {
+      assert.equal(isNonPublicAddress(a), true, a);
+    }
+    // The rest of 192.0 is the internet (a blog host's addresses are there): it was refused whole.
+    for (const a of ["192.0.66.2", "192.0.78.9", "192.1.0.1"]) assert.equal(isNonPublicAddress(a), false, a);
+    // A public IPv4 address reached through NAT64 or 6to4 is public; so is any other global address.
+    for (const a of ["64:ff9b::8.8.8.8", "2002:0808:0808::1", "::ffff:8.8.8.8", "2a00:1450:4001:80e::200e", "2606:4700:0:0:0:0:0:1111"]) {
+      assert.equal(isNonPublicAddress(a), false, a);
+    }
   } finally { srv.close(); pageReads.allow.clear(); }
 });
 

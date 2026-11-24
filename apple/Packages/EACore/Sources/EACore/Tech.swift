@@ -308,7 +308,8 @@ public enum Tech {
 
     /// A card's one line about what the machine is: what it runs, or the VM it is, or nothing.
     public static func identityLine(_ t: TechThing) -> String {
-        let vm = t.vm_of.map { host in "\(t.vm_state.map { $0 == "running" ? "" : "\($0) " } ?? "")virtual machine on \(host)" } ?? ""
+        // What it is, never how it is doing: a VM that is off is still a virtual machine (its status says the rest).
+        let vm = t.vm_of.map { "virtual machine on \($0)" } ?? ""
         return [t.os_name ?? t.model ?? "", vm].filter { !$0.isEmpty }.joined(separator: ", ")
     }
 

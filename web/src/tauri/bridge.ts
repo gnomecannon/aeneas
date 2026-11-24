@@ -246,18 +246,54 @@ export async function stripSetupToken(): Promise<void> {
 }
 
 /**
- * Pairing links (`everythingapp://setup?...`, from a QR code scanned with the camera or a link clicked) that open the
- * Windows or Android app, now and while it runs: `cb` gets the setup route (`/setup?...`). Other links are ignored.
+ * Pairing links (`everythingapp://setup?...`, from a QR code scanned with the camera or a link clicked) and a new
+ * device's join code (`everythingapp://join?...`, CONTRACT, Devices) that open the Windows or Android app, now and
+ * while it runs: `cb` gets the route (`/setup?...` or `/join?...`). Other links are ignored.
  */
 export async function onSetupLink(cb: (route: string) => void): Promise<() => void> {
   if (!isTauri) return () => {};
   const { getCurrent, onOpenUrl } = await import("@tauri-apps/plugin-deep-link");
   const take = (urls: string[] | null | undefined) => {
     for (const u of urls ?? []) {
-      const m = /^everythingapp:\/\/setup\?(.+)$/i.exec(u.trim());
-      if (m) { cb(`/setup?${m[1]}`); return; }
+      const route = appLinkRoute(u);
+      if (route) { cb(route); return; }
     }
   };
   take(await getCurrent().catch(() => null));
   return onOpenUrl(take);
+}
+
+/** The app's route for one of its own links, or null for any other link. */
+export function appLinkRoute(url: string): string | null {
+  const m = /^everythingapp:\/\/(setup|join)\?(.+)$/i.exec(url.trim());
+  return m ? `/${m[1].toLowerCase()}?${m[2]}` : null;
+}
+
+/** The QR code a new device shows while it waits for a join (src-tauri/src/join.rs). */
+export interface JoinOffer { session: number; node: string; relay: string; secret: string; link: string }
+
+/**
+ * Starts waiting for a join (or keeps waiting with a new secret): `onLink` gets the pairing link once a hub's join
+ * checks out. Throws with a plain sentence when the endpoint cannot reach a relay. Windows and Android apps only.
+ */
+export async function startJoin(name: string, platform: "windows" | "android", onLink: (link: string) => void): Promise<JoinOffer> {
+  if (!isTauri) throw new Error("Only the Aeneas app can join a hub this way.");
+  const { invoke, Channel } = await import("@tauri-apps/api/core");
+  const onJoin = new Channel<{ kind: "joined"; link: string }>();
+  onJoin.onmessage = (ev) => { if (ev.kind === "joined") onLink(ev.link); };
+  return invoke<JoinOffer>("join_start", { name, platform, onJoin });
+}
+
+/** A new secret and QR code on the endpoint already waiting (every 5 minutes). Throws when none waits. */
+export async function renewJoin(): Promise<JoinOffer> {
+  if (!isTauri) throw new Error("Only the Aeneas app can join a hub this way.");
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<JoinOffer>("join_renew");
+}
+
+/** Stops waiting for a join, unless a newer start or renewal than `session` came since. */
+export async function stopJoin(session?: number): Promise<void> {
+  if (!isTauri) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("join_stop", { session: session ?? null });
 }

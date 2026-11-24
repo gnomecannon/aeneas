@@ -143,10 +143,37 @@ export function readableHtml(html: string, links: "marks" | "text", plain = ""):
     links === "marks" ? `[${label}](${url})` : `${label} (${url})`);
 }
 
-/** The line a mail app writes above a quoted reply ("On Fri, Nov 13 … Robin <robin@…> wrote:", and its French and German). */
-const QUOTE_INTRO = [/^on\b.{4,400}\bwrote:?$/i, /^le\b.{4,400}\ba écrit ?:$/i, /^am\b.{4,400}\bschrieb\b.{0,400}:$/i];
-/** Outlook's quoted reply: its separator, or a header block (From: then Sent: or Date: within the next three lines). */
-const ORIGINAL = /^-{2,}\s*original message\s*-{2,}$/i;
+/**
+ * The line a mail app writes above a quoted reply ("On Fri, Nov 13 … Robin <robin@…> wrote:"), in English, French,
+ * German, Spanish, Portuguese, Italian, Dutch, the Scandinavian languages and Polish, as their mail apps write it.
+ */
+const QUOTE_INTRO = [
+  /^on\b.{4,400}\bwrote:?$/i, /^le\b.{4,400}\ba écrit ?:$/i, /^am\b.{4,400}\bschrieb\b.{0,400}:$/i,
+  /^el\b.{4,400}\bescribió ?:$/i, /^em\b.{4,400}\bescreveu ?:$/i, /^il\b.{4,400}\bha scritto ?:$/i,
+  /^op\b.{4,400}\bschreef\b.{0,400}:$/i, /^den\b.{4,400}\bskrev\b.{0,400}:$/i, /^w dniu\b.{4,400}\bnapisał(\(a\)|a)? ?:$/i,
+];
+/** The words such a line starts with: only lines starting with one are joined and tried. */
+const INTRO_START = /^(on|le|am|el|em|il|op|den|w dniu)\b/i;
+/** Outlook's quoted reply: its separator ("Original Message" in the languages Outlook writes it in). */
+const ORIGINAL = /^-{2,}\s*(original message|ursprüngliche nachricht|message d'origine|mensaje original|messaggio originale|mensagem original|oorspronkelijk bericht|ursprungligt meddelande)\s*-{2,}$/i;
+/**
+ * Outlook's header block (bold or not, in its languages): a From line with the lines a mail's head has under it. Told
+ * from other lists that start with "From:" by what a mail's head has and they do not: the sender's address in the
+ * From line with one more header under it, or a Subject line among at least two headers (isHeadBlock). A From line
+ * followed by To alone is a bank's transfer notice ("From: Checking 1234", "To: Savings 5678") as often as a mail's
+ * head: taken for one, the notice's own facts were folded away and missing from its preview.
+ */
+const HEAD_FROM = /^\*?(from|de|von|da|van|från|od)\s?:\*?\s/i;
+const HEAD_NEXT = /^\*?(sent|date|to|subject|cc|envoyé|à|objet|gesendet|an|betreff|enviado|para|asunto|inviato|oggetto|verzonden|aan|onderwerp|skickat|till|ämne|wysłano|temat)\s?:/i;
+const HEAD_SUBJECT = /^\*?(subject|objet|betreff|asunto|oggetto|onderwerp|ämne|temat)\s?:/i;
+/** Whether a From line and the lines under it (the next few that are not empty) are a mail's head. */
+function isHeadBlock(from: string, under: string[]): boolean {
+  if (!HEAD_FROM.test(from)) return false;
+  const headers = under.filter((x) => HEAD_NEXT.test(x));
+  return from.includes("@") ? headers.length >= 1 : headers.length >= 2 && headers.some((x) => HEAD_SUBJECT.test(x));
+}
+/** Outlook's long line above its header block. */
+const OUTLOOK_LINE = /^_{20,}$/;
 /** The line a mail app writes above a forwarded mail. */
 const FORWARD_HEAD = /^(-{2,} ?forwarded message ?-{2,}|begin forwarded message:?)$/i;
 
@@ -171,8 +198,11 @@ export function quoteStart(text: string): number {
     const l = lines[i].trim();
     if (!l) continue;
     if (l.startsWith(">") || ORIGINAL.test(l)) { cut = i; break; }
-    if (/^from:\s/i.test(l) && lines.slice(i + 1, i + 4).some((x) => /^(sent|date):\s/i.test(x.trim()))) { cut = i; break; }
-    if (!/^(on|le|am)\b/i.test(l)) continue;
+    const next = lines.slice(i + 1, i + 6).map((x) => x.trim()).filter(Boolean);
+    // The long line counts only with a header block right under it: a line of underscores alone is not a quote.
+    if (OUTLOOK_LINE.test(l) && next[0] && HEAD_FROM.test(next[0]) && next.slice(1, 4).some((x) => HEAD_NEXT.test(x))) { cut = i; break; }
+    if (isHeadBlock(l, next.slice(0, 4))) { cut = i; break; }
+    if (!INTRO_START.test(l)) continue;
     for (let n = 1; n <= 3 && i + n <= lines.length; n++) {
       const joined = lines.slice(i, i + n).map((x) => x.trim()).join(" ");
       if (QUOTE_INTRO.some((re) => re.test(joined))) { cut = i; break; }
@@ -187,6 +217,27 @@ export function quoteStart(text: string): number {
   const above = before.split("\n").map((x) => x.trim()).filter(Boolean);
   if (!above.length || above.some((x) => FORWARD_HEAD.test(x))) return -1;
   return before.length + (cut > 0 ? 1 : 0);
+}
+
+/**
+ * The signature a phone or a mail app adds as a mail's last line ("Sent from my iPhone", "Get Outlook for iOS", in the
+ * languages those apps write it), or the standard signature line ("-- ") and all below it.
+ */
+const APP_SIGNATURE = /^(sent from (my )?\S.{0,40}|get outlook for (ios|android)|sent from (mail|outlook) for windows( \d+)?|enviado desde mi .{1,30}|enviado do meu .{1,30}|envoyé de mon .{1,30}|von meinem .{1,30} gesendet|inviato da(l mio)? .{1,30}|verzonden met .{1,30}|skickat från min .{1,30})$/i;
+
+/**
+ * A message's words without its signature, for previews: the "-- " line and all below it, or a phone's or mail app's
+ * last line. The whole text when nothing would be left.
+ */
+export function withoutSignature(text: string): string {
+  const lines = text.split("\n");
+  const dash = lines.findIndex((l) => l === "-- " || l === "--");
+  let end = dash > 0 ? dash : lines.length;
+  let last = end - 1;
+  while (last >= 0 && !lines[last].trim()) last--;
+  if (last > 0 && APP_SIGNATURE.test(lines[last].trim())) end = last;
+  const kept = lines.slice(0, end).join("\n").trim();
+  return kept ? kept : text;
 }
 
 /** A text part that is really HTML: five or more layout tags or comments (a text that mentions one tag is not). */

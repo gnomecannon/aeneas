@@ -39,7 +39,9 @@ test("reference reader: run on 127.0.0.1 at a free port, tied to the hub, outsid
     await waitFor(() => svc.reader.state === "failed", 5000, "the stop to be seen");
     assert.equal((await json(t, "/reference/status")).body.reader.state, "failed");
     assert.equal((await t.api("/reference/suggest?q=bluetooth")).status, 503, "search says the reader is starting");
-    await waitFor(() => svc.reader.state === "ready", 10_000, "the restart");
+    // The restart waits the reader's back-off (2 s, doubling after a slow start) and then its start; on a busy CI runner,
+    // with every test file running beside it, that has taken more than 10 s, so it gets 30.
+    await waitFor(() => svc.reader.state === "ready", 30_000, "the restart");
     assert.notEqual(svc.reader.base, before);
     assert.equal((await t.api("/reference/suggest?q=bluetooth")).status, 200);
   } finally { await stop(); }

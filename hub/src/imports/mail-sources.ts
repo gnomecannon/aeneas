@@ -1,6 +1,6 @@
 import type { Hub } from "../hub.js";
 import { gmailSource } from "./gmail.js";
-import { icloudSource } from "./icloud.js";
+import { icloudSource, imapSource } from "./icloud.js";
 
 /**
  * Where mail comes from. The mail filer (mail-filer.ts) reads mail only through a MailSource, so it does not know or
@@ -33,7 +33,7 @@ export interface MailRef {
 
 /** One kind of mailbox: Gmail, iCloud. */
 export interface MailSource {
-  kind: "gmail" | "icloud";
+  kind: "gmail" | "icloud" | "imap";
   /** The linked mailboxes, as the `mail` table names them. */
   accounts(hub: Hub): string[];
   /**
@@ -50,7 +50,7 @@ export interface MailSource {
 }
 
 /** Every mail source the hub knows, in the order Settings lists them. A new source is added here. */
-export const MAIL_SOURCES: MailSource[] = [gmailSource, icloudSource];
+export const MAIL_SOURCES: MailSource[] = [gmailSource, icloudSource, imapSource];
 
 /** The source an account name belongs to, from its prefix; a bare address is Gmail's. Null for an unknown prefix. */
 export function sourceOf(account: string): MailSource | null {

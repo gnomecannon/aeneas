@@ -192,9 +192,9 @@ extension Mail.Bundle {
     var symbol: String {
         if custom != nil { return "bookmark" }
         switch id {
-        case "purchases": return "cart"
+        case "purchases": return "arrow.left.arrow.right"
         case "trips": return "airplane"
-        case "social": return "person.2"
+        case "other": return "flag"
         case "promos": return "tag"
         case "bills": return "doc.text"
         case "pet": return "pawprint"

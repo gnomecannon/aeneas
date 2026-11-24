@@ -1,14 +1,19 @@
 import { Hono } from "hono";
 import type { Hub } from "../hub.js";
 import { StoreError } from "../store.js";
-import { bundleDelivery, listMail, mailboxStates, mailLogos, mailMessage, mailNotify, markDone, MOVE_MAX, refreshMail, saveBundleDelivery, saveMailNotify, saveSnoozeTimes, setPinned, setSeen, showPictures, SNOOZE_MAX_DAYS, snoozeMail, snoozeTimes, undoDone, unsnoozeMail, wakeSnoozed, SEEN_MAX, setSeenMany } from "../mail-inbox.js";
+import { blockedSenders, blockSender, clearFoldNotes, foldNotes, saveFoldNote, setTriage, triageOn, triageState, requestTriage, bundleDelivery, folderMail, searchMail, unblockSender, unsubscribe, unsubscribeOptions, mailAttachment, mailAttachments, moveMail, listMail, mailFolders, mailboxStates, mailLogos, mailMessage, mailNotify, markDone, MOVE_MAX, refreshMail, saveMailDraft, suggestGreeting, saveBundleDelivery, saveMailNotify, saveSnoozeTimes, setPinned, setPinnedSynced, setSeen, showPictures, SNOOZE_MAX_DAYS, snoozeMail, snoozeTimes, undoDone, unsnoozeMail, wakeSnoozed, SEEN_MAX, setSeenMany } from "../mail-inbox.js";
 import { readJsonObject } from "../http.js";
 import { addCustomBundle, bundleContext, customBundles, deleteCustomBundle, updateCustomBundle } from "../mail-bundles.js";
+import { rfc2231 } from "../mail-compose.js";
 
 /**
- * The Mail screen (module `mail_inbox`, CONTRACT.md Mail): the iCloud Inbox, sorted into bundles.
- * The whole `/mail` prefix is closed to the assistant's tools (ai/api-guard.ts): mail is the owner's to read.
+ * The Mail screen (module `mail_inbox`, CONTRACT.md Mail): each linked mailbox's Inbox, sorted into bundles, and its
+ * other folders. The whole `/mail` prefix is closed to the assistant's tools (ai/api-guard.ts): mail is the owner's
+ * to read.
  */
+/** How long a Pin's answer waits for the mailbox to take the flag. */
+const PIN_WAIT_MS = 4000;
+
 export function mailRoutes() {
   const r = new Hono<{ Variables: { hub: Hub } }>();
   // Mail is kept on the hub only: no device, browser or proxy may store an answer. (The Apple apps used to write every
@@ -19,7 +24,7 @@ export function mailRoutes() {
   r.get("/mail", (c) => {
     const hub = c.get("hub");
     wakeSnoozed(hub);
-    return c.json({ messages: listMail(hub.mailDb, bundleContext(hub)), logos: mailLogos(hub.mailDb), mailboxes: mailboxStates(hub), snooze_times: snoozeTimes(hub.mailDb), bundle_delivery: bundleDelivery(hub.mailDb), custom_bundles: customBundles(hub.mailDb), mail_notify: mailNotify(hub.mailDb) });
+    return c.json({ messages: listMail(hub.mailDb, bundleContext(hub)), logos: mailLogos(hub.mailDb), mailboxes: mailboxStates(hub), snooze_times: snoozeTimes(hub.mailDb), bundle_delivery: bundleDelivery(hub.mailDb), custom_bundles: customBundles(hub.mailDb), mail_notify: mailNotify(hub.mailDb), folders: mailFolders(hub.mailDb), blocked: blockedSenders(hub.mailDb), triage: triageOn(hub.mailDb), triage_state: triageState(hub) });
   });
 
   // The owner's snooze times (what "Tomorrow" and the rest mean).
@@ -29,11 +34,13 @@ export function mailRoutes() {
   r.delete("/mail/settings/custom-bundles/:id", (c) => {
     const db = c.get("hub").mailDb;
     const id = c.req.param("id");
-    // Its "Show in Inbox" setting goes with it (cleared first: that needs the bundle to exist).
-    if (bundleDelivery(db)[id] && customBundles(db).some((b) => b.id === id)) saveBundleDelivery(db, id, { mode: "now" });
-    // And its alerts switch: a deleted bundle's id is not left in the notify settings.
-    const n = mailNotify(db);
-    if (n.bundles.includes(id)) saveMailNotify(db, { bundles: n.bundles.filter((b) => b !== id) });
+    // Its "Show in Inbox" setting and its alerts switch go with it (cleared first: that needs the bundle to exist).
+    // Only for one of the owner's own: a built-in bundle's id here changes nothing and is answered as not found.
+    // (The alerts switch was sent as a list the settings do not read, so a deleted bundle's id stayed in them.)
+    if (customBundles(db).some((b) => b.id === id)) {
+      if (bundleDelivery(db)[id]) saveBundleDelivery(db, id, { mode: "now" });
+      if (mailNotify(db).bundles.includes(id)) saveMailNotify(db, { bundle: id, on: false });
+    }
     deleteCustomBundle(db, id);
     return c.json({ ok: true });
   });
@@ -54,6 +61,21 @@ export function mailRoutes() {
 
   // Show pictures, on a hub without Tor: this one mail's web pictures, fetched straight from the hub because the person
   // asked (its sender then sees the home's internet address). A hub with Tor fetches them itself and refuses this.
+  // A folder's kept mail (Drafts, Sent, Junk, Trash, the owner's own), newest first; read-only.
+  // Search every kept mail (whole texts, the Inbox and folders), or all mail with one person. Read-only, on the hub.
+  r.get("/mail/search", (c) => {
+    const q = c.req.query("q") ?? "";
+    const person = c.req.query("with") ?? "";
+    if (q.length > 300 || person.length > 254) throw new StoreError(422, "the search is too long");
+    return c.json({ hits: searchMail(c.get("hub").mailDb, { q, with: person }) });
+  });
+
+  r.get("/mail/folders/:key", (c) => {
+    const messages = folderMail(c.get("hub").mailDb, c.req.param("key"));
+    if (!messages) throw new StoreError(404, "there is no such folder");
+    return c.json({ messages });
+  });
+
   r.post("/mail/messages/:id/pictures", async (c) => {
     const m = await showPictures(c.get("hub"), c.req.param("id"));
     if (!m) throw new StoreError(404, "that message is not kept (it left the Inbox)");
@@ -78,15 +100,78 @@ export function mailRoutes() {
     return c.json({ ok: true, seen: body.seen, synced: r2.synced });
   });
 
-  // Pin: on the hub only; nothing changes in iCloud.
+  // A draft (a reply or a new mail): with preview, what would be saved; else saved to the mailbox's Drafts folder.
+  // Nothing is sent: the owner sends it from their mail app.
+  r.post("/mail/drafts", async (c) => c.json(await saveMailDraft(c.get("hub"), await readJsonObject(c))));
+  // A reply's greeting and sign-off, suggested by the local model (or the plain ones), for the owner to edit or drop.
+  r.post("/mail/messages/:id/greeting", async (c) => c.json(await suggestGreeting(c.get("hub"), c.req.param("id"))));
+
+  // Attachments: the list with pictures' previews, read when a mail opens; one file as a download. Read-only.
+  r.get("/mail/messages/:id/attachments", async (c) => {
+    const list = await mailAttachments(c.get("hub"), c.req.param("id"));
+    if (!list) throw new StoreError(404, "This mail is not in the mailbox any more. Refresh and try again.");
+    return c.json({ attachments: list });
+  });
+  r.get("/mail/messages/:id/attachments/:part", async (c) => {
+    const file = await mailAttachment(c.get("hub"), c.req.param("id"), c.req.param("part"));
+    if (!file) throw new StoreError(404, "This attachment is not in the mailbox any more. Refresh and try again.");
+    // A file to save, never a page to show: its own type is not trusted (an "image" may be HTML), the browser must not
+    // guess one, and nothing in it may run if it is opened here anyway.
+    return new Response(new Uint8Array(file.bytes), { headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${file.name.replace(/[^\x20-\x7e]|["\\]/g, "_")}"; filename*=UTF-8''${rfc2231(file.name)}`,
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "sandbox; default-src 'none'",
+      "Cache-Control": "no-store",
+    } });
+  });
+
+  // Unsubscribe: the ways the mail's headers offer now; then one of them, as the owner chose (confirmed on the screen).
+  r.get("/mail/messages/:id/unsubscribe", async (c) => {
+    const o = await unsubscribeOptions(c.get("hub"), c.req.param("id"));
+    if (!o) throw new StoreError(404, "This mail is not in the mailbox any more. Refresh and try again.");
+    return c.json(o);
+  });
+  r.post("/mail/messages/:id/unsubscribe", async (c) => {
+    const body = await readJsonObject(c);
+    return c.json(await unsubscribe(c.get("hub"), c.req.param("id"), body.how, body.direct === true));
+  });
+  // "Something important missing?": a folding note on a mail, the notes, and clearing them. Kept on the hub only.
+  r.post("/mail/messages/:id/folding", async (c) => c.json(saveFoldNote(c.get("hub").mailDb, c.req.param("id"), await readJsonObject(c))));
+  r.get("/mail/folding-notes", (c) => c.json({ notes: foldNotes(c.get("hub").mailDb) }));
+  r.delete("/mail/folding-notes", (c) => c.json({ cleared: clearFoldNotes(c.get("hub").mailDb) }));
+  // Triage on or off (off erases every kept triage).
+  r.put("/mail/settings/triage", async (c) => {
+    const body = await readJsonObject(c);
+    if (typeof body.on !== "boolean") throw new StoreError(422, "on is true or false");
+    return c.json({ triage: setTriage(c.get("hub").mailDb, body.on) });
+  });
+  // Sort new mail: the owner asks, and the local model triages what waits (it runs for nothing else on a hub that does
+  // not do model work on its own). Answers at once with how many wait; the list says when the run is over.
+  r.post("/mail/triage", (c) => c.json(requestTriage(c.get("hub"))));
+  // Block and unblock a sender (an address or @domain).
+  r.post("/mail/settings/blocked", async (c) => c.json(await blockSender(c.get("hub"), (await readJsonObject(c)).sender)));
+  r.post("/mail/settings/unblock", async (c) => c.json({ blocked: unblockSender(c.get("hub").mailDb, (await readJsonObject(c)).sender) }));
+
+  // Pin: on the hub at once, then as the mailbox's own flag. The answer does not wait long for the mailbox: the flag
+  // is set behind a refresh that may be running (minutes, the first time), and an app gives a request 20 seconds.
+  // `pending`: the mailbox had not answered yet when this did. The pin shows on the hub meanwhile and the flag is
+  // still being set, this one time: if the mailbox does not take it, the next refresh shows the pin as the mailbox
+  // has it.
   r.post("/mail/messages/:id/pin", async (c) => {
     const body = await readJsonObject(c);
     if (typeof body.pinned !== "boolean") throw new StoreError(422, "pinned is true or false");
-    if (!setPinned(c.get("hub").mailDb, c.req.param("id"), body.pinned)) throw new StoreError(404, "that message is not kept (it left the Inbox)");
-    return c.json({ ok: true, pinned: body.pinned });
+    const hub = c.get("hub");
+    if (!hub.mailDb.prepare("SELECT 1 FROM inbox WHERE key = ?").get(c.req.param("id"))) throw new StoreError(404, "that message is not kept (it left the Inbox)");
+    const syncing = setPinnedSynced(hub, c.req.param("id"), body.pinned);
+    let timer: NodeJS.Timeout | undefined;
+    const r2 = await Promise.race([syncing, new Promise<null>((done) => { timer = setTimeout(() => done(null), PIN_WAIT_MS); })]);
+    clearTimeout(timer);
+    if (r2 && !r2.ok) throw new StoreError(404, "that message is not kept (it left the Inbox)");
+    return c.json({ ok: true, pinned: body.pinned, synced: r2?.synced ?? 0, ...(r2 ? {} : { pending: true }) });
   });
 
-  // Done (a Sweep is many at once) and Undo: the only routes that change the mailbox, a MOVE between Inbox and Archive.
+  // Done (a Sweep is many at once) and Undo: a MOVE between the Inbox and the archive folder, nothing else.
   const ids = async (c: Parameters<typeof readJsonObject>[0]) => {
     const body = await readJsonObject(c);
     if (!Array.isArray(body.ids) || !body.ids.length || body.ids.length > MOVE_MAX || !body.ids.every((x) => typeof x === "string" && x.length <= 64)) {
@@ -96,8 +181,17 @@ export function mailRoutes() {
   };
   r.post("/mail/done", async (c) => c.json(await markDone(c.get("hub"), await ids(c))));
   r.post("/mail/undo", async (c) => c.json(await undoDone(c.get("hub"), await ids(c))));
+  // Delete (to Trash), Spam (to Junk), Not spam and Move to Inbox, or Move to one of your folders: MOVE only, nothing erased.
+  r.post("/mail/move", async (c) => {
+    const body = await readJsonObject(c);
+    if (typeof body.to !== "string") throw new StoreError(422, "to is inbox, trash, junk or one of your own folders");
+    if (!Array.isArray(body.ids) || !body.ids.length || body.ids.length > MOVE_MAX || !body.ids.every((x) => typeof x === "string")) throw new StoreError(422, `ids is a list of 1 to ${MOVE_MAX} mail ids`);
+    // `undo: true` (the screen's Undo of a Delete, a Spam, a Move or a block): mail going back to the Inbox is put
+    // back as it was. Without it, a move to the Inbox is a plain one.
+    return c.json(await moveMail(c.get("hub"), body.ids as string[], body.to, new Date(), { undo: body.undo === true }));
+  });
 
-  // Snooze: on the hub only (the mail stays in iCloud's Inbox); a task called "Snoozed mail" reminds at `until`.
+  // Snooze: on the hub only (the mail stays in the mailbox's Inbox); a task called "Snoozed mail" reminds at `until`.
   r.post("/mail/messages/:id/snooze", async (c) => {
     const body = await readJsonObject(c);
     const until = typeof body.until === "string" ? new Date(body.until) : new Date(NaN);

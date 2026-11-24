@@ -55,8 +55,7 @@ final class HelpersTests: XCTestCase {
         The invitation works once, until Saturday, November 22 at 2:47 PM.
         \(link)
         """
-        let url = try XCTUnwrap(SetupLink.find(in: message))
-        let parsed = try XCTUnwrap(SetupLink.parse(url))
+        let parsed = try XCTUnwrap(SetupLink.find(in: message))
         XCTAssertEqual(parsed.credential, .code("ABCDEFGH"))
         XCTAssertEqual(parsed.name, "Mom's phone")
         XCTAssertTrue(parsed.hub.hasPrefix("iroh://"))

@@ -4,7 +4,7 @@
  */
 const ROWS: { label: string; direct: string; tailscale: string; home: string }[] = [
   { label: "Setting up a phone or computer", direct: "Scan the QR code.", tailscale: "Sign in to Tailscale with the same account as the hub (in the Tailscale app, or inside Aeneas on iPhone, iPad and Mac), then scan the QR code.", home: "Scan the QR code while on your home network." },
-  { label: "Works away from home", direct: "Yes.", tailscale: "Yes.", home: "No." },
+  { label: "Works away from home", direct: "Yes, in the apps. A web browser reaches the hub at home, or over Tailscale when the hub allows it.", tailscale: "Yes.", home: "No." },
   { label: "Account needed", direct: "None.", tailscale: "A Tailscale account (Google, Apple, Microsoft or GitHub sign-in).", home: "None." },
   { label: "Can anyone read your data on the way?", direct: "No. Encrypted end to end between your device and the hub.", tailscale: "No. Encrypted end to end between your devices (WireGuard).", home: "No. Encrypted with the hub's own certificate." },
   { label: "Outside companies involved", direct: "n0, the makers of iroh, run the relay used when a direct path is blocked. It passes encrypted data and sees IP addresses and timing, not content. n0 offers its relays free but promises no uptime; if they stop, Direct link stops until the app moves to another relay (Tailscale and Home Wi-Fi only are not affected).", tailscale: "Tailscale runs the coordination server and relays. It keeps your account, a list of your devices, their names and when they're online.", home: "None." },

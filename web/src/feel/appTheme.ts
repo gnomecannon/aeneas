@@ -18,11 +18,12 @@ export const CLASSIC = {
  * The Mail screen's own colors as words and icons, in Classic (styles.css `--bt-*`, kept the same by
  * web/src/lib/contrast.test.ts): a bundle's name, its link and the side list's icons. Mail's fills (`--b-*`, with
  * white on them) are the same in every theme; these sit on the theme's page and cards, so a theme gets them made
- * readable there.
+ * readable there. A bundle's color goes by its id (web/src/lib/mail.ts, BUNDLES): `purchases` is Transactions, `other`
+ * is Updates and `promos` is Promotions; `folder` is the mailbox's other folders.
  */
 export const MAIL_WORDS = {
-  light: { purchases: "#27764b", trips: "#7048c0", social: "#be3735", promos: "#48740e", bills: "#1f6f43", pet: "#a25315", jobs: "#4352b8", other: "#5d6470", inbox: "#2f5fbf", snoozed: "#8f5f0e", done: "#30764b" },
-  dark: { purchases: "#40ab71", trips: "#a38cd9", social: "#d38280", promos: "#73a826", bills: "#40ab70", pet: "#d38649", jobs: "#8994d8", other: "#9399a5", inbox: "#7b98d4", snoozed: "#cc8c1a", done: "#42ab69" },
+  light: { purchases: "#0b6870", trips: "#be3735", other: "#7048c0", promos: "#b8185a", bills: "#8a5a2b", pet: "#a25315", jobs: "#4f5d75", folder: "#5d6470", inbox: "#2f5fbf", snoozed: "#8f5f0e", done: "#30764b" },
+  dark: { purchases: "#4fb3bd", trips: "#d38280", other: "#a38cd9", promos: "#e07aa6", bills: "#c9955f", pet: "#d38649", jobs: "#9aa6ba", folder: "#9399a5", inbox: "#7b98d4", snoozed: "#cc8c1a", done: "#42ab69" },
 } as const;
 
 /** Mail's color over a row being pointed at (styles.css `--mail-hover`): black or white, and how much of it. */

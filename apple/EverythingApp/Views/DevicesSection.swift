@@ -2,7 +2,8 @@ import SwiftUI
 import EACore
 
 /// Settings, Connection, Devices: every device paired with the hub (`GET /devices`), with Remove on each. Removing a
-/// device ends its key at once; it is told so the next time it asks. On this device the button signs it out.
+/// device ends its key at once; it is told so the next time it asks. On this device the button signs it out. A device
+/// that cannot reach its hub can still forget it here, so it is never stuck with a hub that is gone.
 struct DevicesSection: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -10,6 +11,9 @@ struct DevicesSection: View {
     @State private var message: String?
     @State private var tooOld = false
     @State private var confirm: PairedDevice?
+    /// The hub did not answer the list or Remove this device: Forget the hub on this device is offered.
+    @State private var unreachable = false
+    @State private var confirmForget = false
     @State private var watchRemoved = SharedConfig.shared.watchRemoved
 
     var body: some View {
@@ -20,7 +24,7 @@ struct DevicesSection: View {
             } else if let devices {
                 if devices.isEmpty { Text("No devices").foregroundStyle(.secondary) }
                 ForEach(devices) { d in row(d) }
-            } else {
+            } else if message == nil {
                 ProgressView().frame(maxWidth: .infinity)
             }
             #if os(iOS)
@@ -35,6 +39,12 @@ struct DevicesSection: View {
             }
             #endif
             if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
+            if unreachable {
+                Text("This device cannot reach your hub. It can still stop using it.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("Forget the hub on this device", role: .destructive) { confirmForget = true }
+                    .accessibilityIdentifier("devices.forget")
+            }
         } header: {
             Text("Devices")
         } footer: {
@@ -48,6 +58,11 @@ struct DevicesSection: View {
             Text(d.current == true
                  ? "This device signs out and stops syncing. What is on it stays here. To use it again, pair it with a new code."
                  : "\(d.name) stops syncing at once. To use it again, pair it with a new code.")
+        }
+        .confirmationDialog("Forget the hub on this device?", isPresented: $confirmForget, titleVisibility: .visible) {
+            Button("Forget the hub", role: .destructive) { model.forgetHub() }
+        } message: {
+            Text("Your hub still lists this device until you remove it from another device, under Settings, Connection, Devices. This device stops syncing and goes back to Set up. What is on it stays here.")
         }
     }
 
@@ -85,6 +100,7 @@ struct DevicesSection: View {
         case "mac": return "laptopcomputer"
         case "watch": return "applewatch"
         case "windows": return "pc"
+        case "android": return "smartphone"
         default: return "globe"
         }
     }
@@ -101,10 +117,12 @@ struct DevicesSection: View {
         do {
             devices = try await withDeadline(20) { try await c.devices() }
             tooOld = false
+            unreachable = false
         } catch HubError.http(let status, _) where status == 404 {
             tooOld = true
         } catch {
             message = (error as? HubError)?.errorDescription ?? error.localizedDescription
+            unreachable = AppModel.unreachable(error)
         }
     }
 
@@ -112,7 +130,7 @@ struct DevicesSection: View {
         confirm = nil
         Task {
             if d.current == true {
-                if let e = await model.removeThisDevice() { message = e }
+                if let e = await model.removeThisDevice() { message = e.message; unreachable = e.unreachable }
                 return
             }
             guard let c = engine.client else { return }

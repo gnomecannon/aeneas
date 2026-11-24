@@ -80,7 +80,7 @@ export function moduleSections(modules?: Pick<ModuleView, "id" | "on">[]): HelpS
     ...MODULES.map((m) => ({
       doc: "modules", docTitle: "Modules", heading: `Modules > ${m.title}`,
       text: [
-        `${m.summary}${on.has(m.id) ? ` It is ${on.get(m.id) ? "on" : "off"} on this hub (Settings, Modules).` : ""}`,
+        `${m.summary}${on.has(m.id) ? ` This hub has it switched ${on.get(m.id) ? "on" : "off"} (Settings, Modules).` : ""}`,
         m.example && `For example: ${m.example}`,
         m.reads && `What it reads: ${m.reads}`,
         m.permissions?.length && `What each Apple device asks for while it is on: ${m.permissions.join(", ")}.`,

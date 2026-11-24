@@ -109,6 +109,41 @@ public struct SetupLink: Equatable, Sendable {
     }
 }
 
+// MARK: Pasted links
+
+extension SetupLink {
+    /// The pairing link in pasted text: the app's `everythingapp://setup?...` or the web app's `<hub>/app/#/setup?...`
+    /// (the same query), alone or inside a whole message. An invitation someone sent (Settings, People on this machine on
+    /// their hub) is a few lines of steps with the link at the end; a Mac or iPad that cannot scan takes a link pasted
+    /// into Set up. Nil when there is none, or when the one there is not a complete setup link.
+    public static func find(in text: String) -> SetupLink? {
+        for pattern in [#"everythingapp://setup\?[^\s"'<>]+"#, #"#/setup\?[^\s"'<>]+"#] {
+            guard let r = text.range(of: pattern, options: [.regularExpression, .caseInsensitive]),
+                  let q = text[r].split(separator: "?", maxSplits: 1).last else { continue }
+            if let url = URL(string: "everythingapp://setup?" + trimmedQuery(String(q))), let link = parse(url) { return link }
+        }
+        return nil
+    }
+
+    /// A sentence's punctuation right after the link is not part of it. A relay's host may end in a dot (n0's do), so one
+    /// dot after a link that ends with its relay stays.
+    static func trimmedQuery(_ q: String) -> String {
+        var s = q, cut = ""
+        while let last = s.last, ".,;:)".contains(last) { cut.insert(last, at: cut.startIndex); s.removeLast() }
+        if cut.hasPrefix("."), let relay = s.range(of: #"(^|&)relay=[^&]*$"#, options: .regularExpression),
+           let host = s[relay].split(separator: "=", maxSplits: 1).last?.removingPercentEncoding, host.last?.isLetter == true || host.last?.isNumber == true {
+            s += "."
+        }
+        return s
+    }
+
+    /// Whether this link is for the hub this device is paired with now, at the same address, under the same certificate
+    /// and with the same id: following it only pairs this device again, which is asked first rather than done unseen.
+    public func pairsAgain(currentHub: String, currentPin: String?, currentHubId: String? = nil) -> Bool {
+        !needsConfirmation(currentHub: currentHub, currentPin: currentPin, currentHubId: currentHubId) && SyncEngine.sameHub(currentHub, hub)
+    }
+}
+
 // MARK: Hub routes
 
 public struct ClaimResponse: Codable, Equatable, Sendable {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { LinkMethod, LinkView } from "../../sync/api";
+import { HubError, type LinkMethod, type LinkView } from "../../sync/api";
 import { engine } from "../../sync/engine";
 import { errorText } from "./common";
 import { useHubReady } from "../../sync/hooks";
@@ -56,8 +56,12 @@ function Choice({ c, chosen, available, how, onPick, busy }: { c: (typeof LINK_C
   );
 }
 
-/** The three choices, the one in use, and what the Direct link is doing now. */
-export function LinkChoice({ onChanged }: { onChanged?: (v: LinkView) => void }) {
+/**
+ * The three choices, the one in use, and what the Direct link is doing now. Shown on every device, most of which are
+ * not the hub's machine, so the words never say where the hub runs. `inSetup` (first run) adds that it can be changed
+ * later in Settings.
+ */
+export function LinkChoice({ onChanged, inSetup = false }: { onChanged?: (v: LinkView) => void; inSetup?: boolean }) {
   const [view, setView] = useState<LinkView | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -81,8 +85,8 @@ export function LinkChoice({ onChanged }: { onChanged?: (v: LinkView) => void })
   if (!view) return msg ? <div className="error small">{msg.text}</div> : <div className="muted small">Asking the hub how devices reach it.</div>;
   const d = view.direct;
   return (
-    <div className="col" role="radiogroup" aria-label="How devices reach this hub">
-      <div className="muted small">Your hub runs on this computer. Your other devices need a private way to reach it, at home and when you're out. You can change this later in Settings.</div>
+    <div className="col" role="radiogroup" aria-label="How devices reach the hub">
+      <div className="muted small">Your hub is the computer that keeps your data. Your phones and computers need a private way to reach it, at home and when you're out.{inSetup ? " You can change this later in Settings." : ""}</div>
       {LINK_CHOICES.map((c) => (
         <Choice key={c.method} c={c} chosen={view.method === c.method} available={view.options[c.method].available} how={view.options[c.method].how} busy={busy} onPick={() => void pick(c.method)} />
       ))}
@@ -94,6 +98,70 @@ export function LinkChoice({ onChanged }: { onChanged?: (v: LinkView) => void })
         </div>
       )}
       {msg && <div className={msg.ok ? "ok small" : "error small"}>{msg.text}</div>}
+      <BrowserAccess view={view} onView={(v) => { setView(v); onChanged?.(v); }} />
+    </div>
+  );
+}
+
+/**
+ * What a web browser can use, from GET /setup/link (older hubs send neither part): the addresses it opens the hub at,
+ * and on a Direct link hub the Tailscale door, as `off`, `on` or `unavailable` with Tailscale's reason. A browser
+ * cannot use Direct link itself, so the door is how browsers away from home reach such a hub.
+ */
+export function browserAccess(view: LinkView): {
+  addresses: string[];
+  door: null | { state: "off" | "on" | "unavailable"; url: string | null; how: string | null; error: string | null };
+} {
+  const addresses = [...new Set((view.browser ?? []).filter((a) => /^https?:\/\//i.test(a)))];
+  const d = view.tailscale_door;
+  if (view.method !== "direct" || !d) return { addresses, door: null };
+  const state = d.on ? "on" : d.available ? "off" : "unavailable";
+  return { addresses, door: { state, url: d.on ? d.url ?? null : null, how: state === "unavailable" ? d.how ?? null : null, error: d.error ?? null } };
+}
+
+/** Why the hub refused to turn the door on or off: Tailscale's reason in a plain sentence. */
+export function doorRefusal(e: unknown): string {
+  const how = e instanceof HubError ? (e.detail as { how?: unknown } | undefined)?.how : undefined;
+  return typeof how === "string" && how ? how : errorText(e);
+}
+
+function BrowserAccess({ view, onView }: { view: LinkView; onView: (v: LinkView) => void }) {
+  const { addresses, door } = browserAccess(view);
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState("");
+  const [copied, setCopied] = useState("");
+  if (!addresses.length && !door) return null;
+  const copy = (a: string) => void navigator.clipboard.writeText(a).then(() => setCopied(a)).catch(() => setCopied(""));
+  const turn = async (on: boolean) => {
+    setBusy(true); setRefused("");
+    try { onView(await engine.client!.setTailscaleDoor(on)); } catch (e) { setRefused(doorRefusal(e)); } finally { setBusy(false); }
+  };
+  return (
+    <div className="col" style={{ gap: 6, marginTop: 8 }}>
+      {addresses.length > 0 && (
+        <>
+          <div><strong>A web browser opens this hub at</strong></div>
+          {addresses.map((a) => (
+            <div key={a} className="row" style={{ alignItems: "center" }}>
+              <code className="grow" style={{ overflowWrap: "anywhere" }}>{a}</code>
+              <button type="button" className="ghost small" onClick={() => copy(a)} aria-label={`Copy ${a}`}>{copied === a ? "Copied" : "Copy"}</button>
+            </div>
+          ))}
+        </>
+      )}
+      {door && door.state !== "unavailable" && (
+        <>
+          <label className="row" style={{ alignItems: "center", gap: 8 }}>
+            <input type="checkbox" role="switch" checked={door.state === "on"} disabled={busy} onChange={(e) => void turn(e.target.checked)} />
+            <span>Also answer web browsers on your tailnet</span>
+          </label>
+          <div className="muted small">Apps keep using Direct link. Browsers on your tailnet use the hub's Tailscale address, with a real certificate.</div>
+          {door.url && <div className="small">Browsers on your tailnet open <code>{door.url}</code>.</div>}
+        </>
+      )}
+      {door?.state === "unavailable" && door.how && <div className="muted small">Web browsers on your tailnet: {door.how}</div>}
+      {door?.error && <div className="error small">{door.error}</div>}
+      {refused && <div className="error small">{refused}</div>}
     </div>
   );
 }

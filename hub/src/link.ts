@@ -10,6 +10,7 @@ import { isLoopbackHost, isPrivateV4, loadTls, tlsFingerprint, type TlsFiles } f
 import { announce, announcement, type Announcement } from "./announce.js";
 import { HomeCertError, HomeListener, homeAddresses, homeCertificate, homeConnectionAllowed, hubId, portOfAnotherHub } from "./homeroute.js";
 import { errCode } from "./logsafe.js";
+import { doorView, setDoor, type DoorView } from "./tsdoor.js";
 
 /**
  * How devices reach the hub, chosen in the installer and changeable on the Welcome page and in Settings:
@@ -34,8 +35,8 @@ export type LinkMethod = "direct" | "tailscale" | "home";
 export const LINK_METHODS: LinkMethod[] = ["direct", "tailscale", "home"];
 export const LINK_ALPN = "aeneas/link/1";
 
-/** link.json. `home_route` and `announce` left out mean true. */
-interface LinkFile { method?: LinkMethod; relay?: string; home_route?: boolean; announce?: boolean }
+/** link.json. `home_route` and `announce` left out mean true; `tailscale_door` left out means off (tsdoor.ts). */
+interface LinkFile { method?: LinkMethod; relay?: string; home_route?: boolean; announce?: boolean; tailscale_door?: boolean }
 
 const linkFile = (dataDir: string) => path.join(dataDir, "link.json");
 
@@ -47,6 +48,7 @@ export function readLinkFile(dataDir: string): LinkFile {
       relay: typeof j.relay === "string" && /^https:\/\//.test(j.relay) ? j.relay : undefined,
       home_route: typeof j.home_route === "boolean" ? j.home_route : undefined,
       announce: typeof j.announce === "boolean" ? j.announce : undefined,
+      tailscale_door: typeof j.tailscale_door === "boolean" ? j.tailscale_door : undefined,
     };
   } catch { return {}; }
 }
@@ -451,7 +453,32 @@ async function homeView(cfg: Config): Promise<HomeView> {
 }
 
 export async function linkView(cfg: Config) {
-  return { method: currentMethod(cfg), options: linkAvailability(cfg), direct: directStatus(), home: await homeView(cfg) };
+  const method = currentMethod(cfg);
+  const [home, door] = await Promise.all([homeView(cfg), doorView(method, readLinkFile(cfg.dataDir).tailscale_door === true, cfg.port)]);
+  return { method, options: linkAvailability(cfg), direct: directStatus(), home, tailscale_door: door, browser: browserAddresses(cfg, method, home, door) };
+}
+
+/**
+ * Where a web browser opens the web app. A browser cannot use Direct link, so a Direct link hub offers its home route
+ * (at home) and its Tailscale door (on the tailnet) while each is on; the other methods have one address of their own.
+ */
+export function browserAddresses(cfg: Config, method: LinkMethod | null, home: HomeView, door: DoorView): string[] {
+  const app = (u: string) => `${u.replace(/\/+$/, "")}/app/`;
+  if (method === "home") return home.urls.map(app);
+  if (method === "tailscale") return /^https:\/\//.test(cfg.publicUrl) ? [app(cfg.publicUrl)] : [];
+  if (method === "direct") return [...(home.on ? home.urls : []), ...(door.on && door.url ? [door.url] : [])].map(app);
+  return [];
+}
+
+/**
+ * The running Direct link's endpoint and the relays it may hand a joining device (join.ts): EA_LINK_RELAYS when set
+ * (`own`: n0's are then not taken), else the relay it keeps.
+ */
+export function directForJoin(cfg: Config): { endpoint: Endpoint | null; status: DirectStatus; relays: string[]; own: boolean } {
+  const saved = readLinkFile(cfg.dataDir).relay;
+  const st = directStatus();
+  const relays = cfg.linkRelays.length ? cfg.linkRelays : [st.relay, saved].filter((r): r is string => !!r);
+  return { endpoint: active?.endpoint() ?? null, status: st, relays, own: cfg.linkRelays.length > 0 };
 }
 
 /** The Direct link address devices use away from home (`iroh://<hub key>?relay=<relay>`), or null without a relay yet. */
@@ -483,12 +510,16 @@ export async function chooseLink(cfg: Config, method: unknown): Promise<LinkChan
   return changeLink(cfg, { method });
 }
 
-/** `PUT /setup/link`: the method, the home route and its announcement, any of them at once. Kept in link.json. */
-export async function changeLink(cfg: Config, body: { method?: unknown; home_route?: unknown; announce?: unknown }): Promise<LinkChange> {
-  const { method, home_route: homeRoute, announce: announcing } = body;
-  if (method === undefined && homeRoute === undefined && announcing === undefined) return { ok: false, status: 422, error: "send method, home_route or announce" };
+/**
+ * `PUT /setup/link`: the method, the home route and its announcement, and the Tailscale door, any of them at once. Kept
+ * in link.json.
+ */
+export async function changeLink(cfg: Config, body: { method?: unknown; home_route?: unknown; announce?: unknown; tailscale_door?: unknown }): Promise<LinkChange> {
+  const { method, home_route: homeRoute, announce: announcing, tailscale_door: doorAsked } = body;
+  if (method === undefined && homeRoute === undefined && announcing === undefined && doorAsked === undefined) return { ok: false, status: 422, error: "send method, home_route, announce or tailscale_door" };
   if (homeRoute !== undefined && typeof homeRoute !== "boolean") return { ok: false, status: 422, error: "home_route is true or false" };
   if (announcing !== undefined && typeof announcing !== "boolean") return { ok: false, status: 422, error: "announce is true or false" };
+  if (doorAsked !== undefined && typeof doorAsked !== "boolean") return { ok: false, status: 422, error: "tailscale_door is true or false" };
   let m: LinkMethod | undefined;
   if (method !== undefined) {
     if (!LINK_METHODS.includes(method as LinkMethod)) return { ok: false, status: 422, error: "method is direct, tailscale or home" };
@@ -496,11 +527,31 @@ export async function changeLink(cfg: Config, body: { method?: unknown; home_rou
     const a = linkAvailability(cfg)[m];
     if (!a.available) return { ok: false, status: 409, error: a.how ?? "not available on this hub" };
   }
+  const saved = readLinkFile(cfg.dataDir);
+  const nextMethod = m ?? currentMethod(cfg);
+  // The door belongs to a Direct link hub. Another method closes it, except Tailscale, whose own Serve is the same one.
+  let door: boolean | undefined;
+  if (typeof doorAsked === "boolean") {
+    if (doorAsked) {
+      const v = await doorView(nextMethod, false, cfg.port);
+      if (!v.available) return { ok: false, status: 409, error: v.how ?? "not available on this hub" };
+    }
+    const refused = await setDoor(doorAsked, cfg.port);
+    if (refused) return { ok: false, status: 409, error: refused };
+    door = doorAsked;
+  } else if (m && m !== "direct" && saved.tailscale_door) {
+    if (m !== "tailscale") {
+      const refused = await setDoor(false, cfg.port);
+      if (refused) console.error(`[link] the Tailscale door stayed open: ${refused}`);
+    }
+    door = false;
+  }
   writeLinkFile(cfg.dataDir, {
-    ...readLinkFile(cfg.dataDir),
+    ...saved,
     ...(m ? { method: m } : {}),
     ...(typeof homeRoute === "boolean" ? { home_route: homeRoute } : {}),
     ...(typeof announcing === "boolean" ? { announce: announcing } : {}),
+    ...(typeof door === "boolean" ? { tailscale_door: door } : {}),
   });
   await Promise.all([m === "direct" ? active?.start() : m ? active?.stop() : null, syncHome(cfg, HOME_STOP_GRACE_MS)]);
   return { ok: true };

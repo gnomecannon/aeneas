@@ -44,6 +44,7 @@ import { BEFORE_YOU_INSTALL } from "./disclosure.js";
 import { readJsonObject } from "./http.js";
 import { registerDevice, removeDevice } from "./devices.js";
 import { hubAddress, pairingLinks } from "./setup.js";
+import { joinClaimed, joinDevice } from "./join.js";
 import { errCode } from "./logsafe.js";
 import { googleApp } from "./imports/gmail.js";
 
@@ -193,7 +194,7 @@ export function createApp(hub: Hub): App {
   const small = bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json({ error: "request body too large", detail: { max_bytes: MAX_BODY_BYTES } }, 413) });
   const upload = bodyLimit({ maxSize: MAX_UPLOAD_BYTES, onError: (c) => c.json({ error: "the file is over 25 MB", detail: { max_bytes: MAX_UPLOAD_BYTES } }, 413) });
   // An import upload streams to disk with its own limit (imports/bulk.ts); pasted text gets 25 MB.
-  app.use("*", (c, next) => c.req.path === "/imports/upload" ? next() : (c.req.path === "/images/library" || c.req.path === "/layouts/pictures" || c.req.path === "/imports/text" || c.req.path === "/music/hum" || c.req.path.startsWith("/ai/photos/") || c.req.path === "/connections/password-manager/keepass/import" ? upload : small)(c, next));
+  app.use("*", (c, next) => c.req.path === "/imports/upload" ? next() : (c.req.path === "/images/library" || c.req.path === "/layouts/pictures" || c.req.path === "/imports/text" || c.req.path === "/music/hum" || c.req.path === "/mail/drafts" || c.req.path.startsWith("/ai/photos/") || c.req.path === "/connections/password-manager/keepass/import" ? upload : small)(c, next));
 
   // The built web client, when present, is served at /app so any browser on the tailnet can use it.
   const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../web/dist");
@@ -411,6 +412,14 @@ ${p.contact ? `<h2>Contact</h2>\n<p>${esc(p.contact)}</p>` : ""}
     const days = c.get("auth") === "owner" && typeof body.days === "number" && body.days > 0 ? Math.min(body.days, 3) : 0;
     return c.json(pairingLinks(hub, address, name, c.get("auth") === "device" ? c.get("device_id") : undefined, days ? days * 24 * 3_600_000 : undefined), 200, { "cache-control": "no-store" });
   });
+  // A computer or tablet that shows a join QR code (join.ts): the phone that scanned it says yes here, and the hub
+  // reaches that device over Direct link and hands it a pairing link. Slow by nature (up to about 100 seconds).
+  app.post("/devices/join", async (c) => {
+    const body = await readJsonObject<Record<string, unknown>>(c);
+    const address = hubAddress(hub, c.req.url, c.req.header("x-forwarded-host"), c.req.header("x-forwarded-proto"));
+    const r = await joinDevice(hub, body, c.get("auth") === "device" ? c.get("device_id") : undefined, address);
+    return c.json(r.body, r.status, { "cache-control": "no-store" });
+  });
   // The new device sends the code with its name and platform and gets its own key, once.
   app.post("/devices/claim", async (c) => {
     const body = await readJsonObject<{ code?: unknown; name?: unknown; platform?: unknown; device_id?: unknown; push_token?: unknown }>(c);
@@ -429,6 +438,8 @@ ${p.contact ? `<h2>Contact</h2>\n<p>${esc(p.contact)}</p>` : ""}
     // A Watch's key is held by the iPhone that made the code for it, and goes when that iPhone is removed.
     const key = hub.deviceKeys.issue(d.device_id, { parent: d.platform === "watch" && claimed.by && claimed.by !== d.device_id ? claimed.by : undefined });
     console.log(`[devices] ${d.device_id.slice(0, 8)} paired (${d.platform})`);
+    // A device that joined with a phone's yes: the phone is told who it added.
+    joinClaimed(body.code as string, { device_id: d.device_id, name: d.name });
     return c.json({ device_id: d.device_id, key, name: d.name, version: VERSION }, 200, { "cache-control": "no-store" });
   });
   // A device paired before devices had keys (it holds the hub's main key) trades it for its own.
