@@ -396,7 +396,9 @@ struct ReferenceView: View {
                 .padding(.horizontal)
                 .padding(.vertical, 6)
             }
-            .background(.bar)
+            // Only behind the chips: by default a style background reaches up through the top safe area and covered
+            // the screen's large title (as on Tasks).
+            .background(.bar, ignoresSafeAreaEdges: [])
         }
     }
 

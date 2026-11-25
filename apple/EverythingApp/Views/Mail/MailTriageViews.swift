@@ -49,10 +49,12 @@ struct MailCardIcon: View {
 }
 
 /// A trip as one box (the Trips bundle): its name and days, then its pieces in time order (the flight out, the hotel,
-/// the flight back), each opening its own mail.
+/// the flight back), each opening its own mail. `cursor`: the keyboard's row (the Mac), shown on its pieces.
 struct MailTripBox: View {
     var trip: Mail.Trip<MailThread>
+    var cursor: String? = nil
     var open: (MailThread) -> Void
+    @Environment(\.eaTheme) private var theme
 
     var body: some View {
         let past = trip.end.addingTimeInterval(86_400) < Date()
@@ -75,6 +77,9 @@ struct MailTripBox: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 36)
+                .background(alignment: .leading) {
+                    if cursor == p.mail.key { RoundedRectangle(cornerRadius: 4).fill((theme?.accent ?? Color.accentColor).opacity(0.15)).padding(.leading, 30) }
+                }
             }
         }
         .opacity(past ? 0.7 : 1)

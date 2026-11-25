@@ -1,4 +1,4 @@
-import type { AppleReminderAlerts, Entity, Patch } from "@everythingapp/shared";
+import type { AppleReminderAlerts, Entity, Patch, TaskGroup } from "@everythingapp/shared";
 import type { Commitment, PlannerDay, PlannerToday, PlannerWeek } from "../lib/planner";
 import type { HostSummary, SessionClose } from "../lib/memory";
 import type { ProjectSummary } from "../lib/creative";
@@ -33,6 +33,8 @@ export interface SourcesView {
   contacts: { device: string | null; name: string | null };
   waiting: { id: string; name: string; platform: string; version: string | null }[];
   needs: string;
+  /** The owner's groups on the Tasks screen (since gnomecannon/aeneas#26; absent from older hubs). */
+  groups?: TaskGroup[];
 }
 
 export interface ModuleInfo {
@@ -1201,6 +1203,10 @@ export class HubClient {
   mailUnsubscribe(id: string, how: "one_click" | "mailto", direct = false) {
     return this.req<{ ok: boolean; via?: "tor" | "direct"; draft?: boolean }>("POST", `/mail/messages/${encodeURIComponent(id)}/unsubscribe`, { how, ...(direct ? { direct: true } : {}) });
   }
+  /** The mail to the sender's unsubscribe address, into the outbox (since 2026-11-24): sent 10 seconds later unless taken back. */
+  mailUnsubscribeSend(id: string) {
+    return this.req<{ ok: true; outbox: OutboxItem }>("POST", `/mail/messages/${encodeURIComponent(id)}/unsubscribe`, { how: "mailto", send: true });
+  }
   /** "Something important missing?": a folding note on a mail; every note; clearing them. Kept on the hub only. */
   mailFolding(id: string, note: { lines: string[]; no_fold: boolean }) {
     return this.req<FoldNote>("POST", `/mail/messages/${encodeURIComponent(id)}/folding`, note);
@@ -1480,7 +1486,7 @@ export class HubClient {
     return this.req<SourcesView>("GET", "/prefs/sources");
   }
   /** Change what comes in from the devices: only what is named changes (Settings, Accounts, From your iPhone, iPad and Mac). */
-  setSources(body: { lists?: { key: string; on?: boolean; space?: "personal" | "work" | null }[]; new_tasks?: string | null; calendars?: { key: string; work: boolean }[] }) {
+  setSources(body: { lists?: { key: string; on?: boolean; space?: "personal" | "work" | null }[]; new_tasks?: string | null; calendars?: { key: string; work: boolean }[]; groups?: TaskGroup[] }) {
     return this.req<SourcesView>("PUT", "/prefs/sources", body);
   }
   setFeel(patch: Partial<Feel>) {

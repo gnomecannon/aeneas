@@ -254,6 +254,12 @@ struct FromThisDeviceSection: View {
             if remindersOn { accessNote(reminders.access, what: "Reminders", pane: "Privacy_Reminders") }
             DeviceSourceRow(title: "Contacts", symbol: "person.crop.circle", summary: contactsSummary, isOn: contactsOn, disabled: sample || busy != nil,
                             set: setContacts, open: nil)
+                // On the row, so on the iPhone and iPad the question points at Contacts, not at the section's heading.
+                .confirmationDialog("Mirror Contacts on \(here)?", isPresented: Binding(get: { takeOver != nil }, set: { if !$0 { takeOver = nil } }), titleVisibility: .visible, presenting: takeOver) { _ in
+                    Button("Take over") { turnContactsOn() }
+                } message: { name in
+                    Text(AccountTexts.takeOverContacts(from: name, here: here))
+                }
             #if os(iOS)
             if healthHere {
                 DeviceSourceRow(title: "Apple Health", symbol: "heart.fill", summary: healthSummary, isOn: appleHealth.on(model), disabled: sample || appleHealth.busy,
@@ -271,11 +277,6 @@ struct FromThisDeviceSection: View {
             Text(AccountTexts.devicesFooter(deviceKind))
         }
         .themedRow()
-        .confirmationDialog("Mirror Contacts on \(here)?", isPresented: Binding(get: { takeOver != nil }, set: { if !$0 { takeOver = nil } }), titleVisibility: .visible, presenting: takeOver) { _ in
-            Button("Take over") { turnContactsOn() }
-        } message: { name in
-            Text(AccountTexts.takeOverContacts(from: name, here: here))
-        }
         .task {
             importer.refreshAccess()
             reminders.refreshAccess()
@@ -283,8 +284,21 @@ struct FromThisDeviceSection: View {
             #if os(iOS)
             appleHealth.refresh()
             #endif
+            #if DEBUG
+            // -EAContactsTakeOver <device name>: the question asked when another device mirrors Contacts, once, in
+            // sample mode too (where the switch is off), to see how it reads.
+            if !Self.debugTakeOverAsked, let who = UserDefaults.standard.string(forKey: "EAContactsTakeOver") {
+                Self.debugTakeOverAsked = true
+                try? await Task.sleep(for: .seconds(1))
+                takeOver = who
+            }
+            #endif
         }
     }
+
+    #if DEBUG
+    private static var debugTakeOverAsked = false
+    #endif
 
     /// Apple Health is on this device: the iPhone and iPad, not the Mac.
     private var healthHere: Bool {

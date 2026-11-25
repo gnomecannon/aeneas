@@ -1,6 +1,6 @@
 import { plainError } from "../lib/errors";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { datePhrase, datesSoon, peopleInPlans, plansToday, todayCards, todayShowsTop } from "@everythingapp/shared";
+import { datePhrase, datesSoon, peopleInPlans, plansToday, taskInLists, todayCards, todayShowsTop, todayTodoLists, type Entity } from "@everythingapp/shared";
 import { useHubPoll } from "../sync/useHubPoll";
 import { usePoll } from "../lib/usePoll";
 import { localToday, scheduleTask, unscheduleTask, conflictMessage, renewWatch } from "../sync/planner";
@@ -24,6 +24,7 @@ import { AckControl, ProposeFix } from "./Ops";
 import { useLocalDate } from "../lib/useLocalDate";
 import { useFeel } from "../feel/store";
 import { TODAY_TEXT } from "./settings/TodayParts";
+import { useSourceLists } from "../lib/sources";
 
 /** How many rows a card shows before it links to the rest. */
 const TODO_SHOWN = 6;
@@ -129,8 +130,15 @@ export function Today() {
     () => needsYou({ reminders: due, watches: on("renewals") ? t?.watches_due_soon ?? [] : [], followUps, meds, unsorted: t?.captures_unprocessed ?? 0, now }),
     [due, t, followUps, meds, now, on],
   );
-  const open = useMemo(() => openTasks(allTasks), [allTasks]);
-  const { current } = useMemo(() => pickCurrent(allTasks.filter((x) => x.fields.status === "doing" || x.fields.status === "next")), [allTasks]);
+  // To do holds the tasks of the lists chosen for it (Theme, Today, Lists in To do), or of every list.
+  const sourceLists = useSourceLists();
+  const todoLists = todayTodoLists(setting);
+  const todoKey = todoLists?.join("\n") ?? null;
+  const inTodo = useMemo(() => (todoLists ? taskInLists(todoLists, sourceLists) : null), [todoKey, sourceLists]);
+  const onlyTodo = useCallback((e: Entity) => !inTodo || inTodo(e.fields), [inTodo]);
+  const todoTasks = useMemo(() => (inTodo ? allTasks.filter(onlyTodo) : allTasks), [allTasks, inTodo, onlyTodo]);
+  const open = useMemo(() => openTasks(todoTasks), [todoTasks]);
+  const { current } = useMemo(() => pickCurrent(todoTasks.filter((x) => x.fields.status === "doing" || x.fields.status === "next")), [todoTasks]);
   const rest = open.filter((x) => x.id !== current?.id);
   const done = useMemo(() => soFar({ diary, tasks: allTasks, logs, now }), [diary, allTasks, logs, now]);
   const numbers = useMemo(() => (on("health") ? todayNumbers(logs, now) : []), [logs, now, on]);
@@ -276,7 +284,7 @@ export function Today() {
     todo: (
       <section className="card tcard todo" aria-label="To do">
         <h2>To do {open.length > 0 && <span className="count quiet">{open.length} open</span>}</h2>
-        <NowCard showNext={false} whenEmpty={null} />
+        <NowCard showNext={false} whenEmpty={null} only={inTodo ? onlyTodo : undefined} />
         {rest.length > 0 && (
           <ul className="todo-list">
             {rest.slice(0, TODO_SHOWN).map((task) => {
@@ -294,7 +302,11 @@ export function Today() {
             })}
           </ul>
         )}
-        {open.length === 0 && <p className="today-clear"><span className="dot up" aria-hidden="true" /> No open tasks.</p>}
+        {open.length === 0 && (todoLists?.length === 0 ? (
+          <p className="muted small" style={{ margin: 0 }}>{TODAY_TEXT.noneChosen} <a href="#/settings/theme/today">{TODAY_TEXT.edit}</a></p>
+        ) : (
+          <p className="today-clear"><span className="dot up" aria-hidden="true" /> No open tasks.</p>
+        ))}
         {rest.length > TODO_SHOWN && <a href="#/tasks" className="small more">All {open.length} in Tasks</a>}
         {rowErr?.key.startsWith("todo:") && <div className="error" role="alert">{rowErr.text}</div>}
       </section>

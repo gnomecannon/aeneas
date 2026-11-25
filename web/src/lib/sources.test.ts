@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Entity } from "@everythingapp/shared";
 import { db } from "../sync/db";
 import { localToday, localWeek } from "../sync/planner";
@@ -13,6 +13,7 @@ const TODO = { key: "icloud:iCloud/To do", title: "To do", on: true };
 
 describe("tasks of a Reminders list that is switched off", () => {
   afterEach(async () => {
+    vi.useRealTimers();
     keepSources(null);
     await db.entities.clear();
   });
@@ -34,6 +35,10 @@ describe("tasks of a Reminders list that is switched off", () => {
 
   it("stay out of the offline Today and week", async () => {
     keepSources({ lists: [SHOP, TODO] } as never);
+    // A fixed clock at local noon: half an hour later is still today (the real clock at 23:59 crossed midnight). Only
+    // Date is faked, so the database's own timers run.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 24, 12, 0, 0));
     const now = new Date();
     // Noon today: "in 30 minutes" fell on tomorrow when the tests ran after 11:30 PM.
     const noon = new Date(now); noon.setHours(12, 0, 0, 0);

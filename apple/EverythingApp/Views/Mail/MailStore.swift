@@ -279,6 +279,11 @@ final class MailStore: ObservableObject {
         guard let c = client else { throw HubError.notConfigured }
         return try await c.mailUnsubscribe(id, how: how, direct: direct)
     }
+    /// The mail to the sender's unsubscribe address, into the outbox with its Undo (a mailbox that sends).
+    func unsubscribeSend(_ id: String) async throws -> MailOutboxItem {
+        guard let c = client else { throw HubError.notConfigured }
+        return try await c.mailUnsubscribeSend(id)
+    }
 
     /// Block a sender (an address, or `@domain`): their mail moves to Spam now and at each refresh. The Undo bar says
     /// how many moved and undoes all of it: the sender is unblocked, then the mail that moved is moved back (the hub puts

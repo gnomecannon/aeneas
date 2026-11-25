@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { taskFilter, type Entity, type SourceList } from "@everythingapp/shared";
+import { readTaskGroups, taskFilter, type Entity, type SourceList, type TaskGroup } from "@everythingapp/shared";
 import type { SourcesView } from "../sync/api";
 import { HubError } from "../sync/api";
 import { engine } from "../sync/engine";
@@ -10,14 +10,34 @@ import { engine } from "../sync/engine";
  * and whenever the hub says it changed (`sources` on /live). Nothing known yet hides nothing.
  */
 const KEY = "ea-sources";
-let lists: SourceList[] = (() => {
+
+/** A Reminders list as this page keeps it: what hides its tasks, and what names it in a chooser. */
+export interface KeptList extends SourceList {
+  account?: string;
+  kind?: string;
+  /** The space its tasks are in now. */
+  space?: "personal" | "work";
+}
+
+function keptList(l: Partial<SourcesView["lists"][number]>): KeptList | null {
+  if (typeof l?.key !== "string" || typeof l.title !== "string") return null;
+  return {
+    key: l.key, title: l.title, on: l.on !== false, ...(l.was?.length ? { was: l.was } : {}),
+    ...(typeof l.account === "string" ? { account: l.account } : {}), ...(typeof l.kind === "string" ? { kind: l.kind } : {}),
+    ...(l.space === "work" || l.space === "personal" ? { space: l.space } : {}),
+  };
+}
+
+const kept = (() => {
   try {
-    const v = JSON.parse(localStorage.getItem(KEY) ?? "null") as { lists?: SourceList[] } | null;
-    return Array.isArray(v?.lists) ? v.lists : [];
+    return JSON.parse(localStorage.getItem(KEY) ?? "null") as { lists?: unknown[]; groups?: unknown } | null;
   } catch {
-    return [];
+    return null;
   }
 })();
+let lists: KeptList[] = Array.isArray(kept?.lists) ? kept.lists.map((l) => keptList(l as KeptList)).filter((l): l is KeptList => !!l) : [];
+/** The owner's groups on the Tasks screen (gnomecannon/aeneas#26), in their order. */
+let groups: TaskGroup[] = readTaskGroups(kept?.groups) ?? [];
 let shows = taskFilter(lists);
 let version = 0;
 const listeners = new Set<() => void>();
@@ -27,12 +47,13 @@ let subscribed = false;
 let fetched = false;
 
 /** Take a setting from the hub (null: a hub from before 1.0.18, which has none). */
-export function keepSources(v: Pick<SourcesView, "lists"> | null): void {
-  lists = (v?.lists ?? []).map((l) => ({ key: l.key, title: l.title, on: l.on, ...(l.was?.length ? { was: l.was } : {}) }));
+export function keepSources(v: Pick<SourcesView, "lists" | "groups"> | null): void {
+  lists = (v?.lists ?? []).map(keptList).filter((l): l is KeptList => !!l);
+  groups = readTaskGroups(v?.groups ?? []) ?? [];
   shows = taskFilter(lists);
   version++;
   try {
-    if (v) localStorage.setItem(KEY, JSON.stringify({ lists }));
+    if (v) localStorage.setItem(KEY, JSON.stringify({ lists, groups }));
     else localStorage.removeItem(KEY);
   } catch {
     /* private window */
@@ -71,9 +92,27 @@ function subscribe(f: () => void): () => void {
   return () => { listeners.delete(f); };
 }
 
+/** An Apple account's name in a chooser: its own name, or what kind of account it is. */
+export function sourceAccount(account: string, kind: string): string {
+  if (account) return account;
+  return kind === "icloud" ? "iCloud" : kind === "exchange" ? "Exchange" : kind === "local" ? "On the device" : "Other";
+}
+
+/** The Reminders lists the hub knows, on and off, by account and name: what the list choosers offer. */
+export function useSourceLists(): KeptList[] {
+  useSourcesVersion();
+  return useSyncExternalStore(subscribe, () => lists, () => lists);
+}
+
+/** The owner's groups on the Tasks screen, kept for every device by the hub. */
+export function useTaskGroups(): TaskGroup[] {
+  useSourcesVersion();
+  return useSyncExternalStore(subscribe, () => groups, () => groups);
+}
+
 /** A number that changes whenever the lists that are on change; reading it keeps a screen up to date. */
 export function useSourcesVersion(): number {
-  const v = useSyncExternalStore(subscribe, () => version);
+  const v = useSyncExternalStore(subscribe, () => version, () => version);
   useEffect(() => { if (!fetched) void refreshSources(); }, []);
   return v;
 }

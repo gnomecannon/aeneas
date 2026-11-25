@@ -143,7 +143,8 @@ final class FeelController: ObservableObject {
         }
         var left = config.feelPending
         for (k, v) in sent where left[k] == v { left.removeValue(forKey: k) }
-        // A hub from before the bottom bar (or Today's setting) answers without `bar` (or `today`): it did not keep it.
+        // A hub from before the bottom bar (or Today's setting, or Week's hidden calendars) answers without `bar` (or
+        // `today`, `hidden_calendars`): it did not keep it.
         // The choice stays on this device and goes out again with the next refresh, so it reaches the hub once that is
         // updated.
         var answer = fresh
@@ -156,6 +157,12 @@ final class FeelController: ObservableObject {
         if fresh.today == nil, left["today"] == nil, let v = sent["today"], let t = try? JSONCoding.typed(TodaySetting.self, from: v) {
             left["today"] = v
             answer.today = t
+            kept += 1
+        }
+        if fresh.hidden_calendars == nil, left["hidden_calendars"] == nil, let v = sent["hidden_calendars"],
+           let h = try? JSONCoding.typed([String].self, from: v), HiddenCalendars.isValid(h) {
+            left["hidden_calendars"] = v
+            answer.hidden_calendars = h
             kept += 1
         }
         config.feelPending = left
@@ -184,6 +191,20 @@ final class FeelController: ObservableObject {
     func setToday(_ today: TodaySetting) {
         guard today.isValid, let v = try? JSONCoding.value(today) else { return }
         change(["today": v])
+    }
+
+    // MARK: Week's calendars
+
+    /// The calendars Week leaves out (Week, Calendars): drawn at once on this device and sent to the hub, which hands
+    /// them to every device. A list that breaks a rule is never sent.
+    func setHiddenCalendars(_ hidden: [String]) {
+        guard HiddenCalendars.isValid(hidden) else { return }
+        change(["hidden_calendars": .array(hidden.map(JSONValue.string))])
+    }
+
+    /// One calendar shown or hidden on Week.
+    func setCalendar(_ key: String, shown: Bool) {
+        setHiddenCalendars(HiddenCalendars.with(settings.hiddenCalendars, key: key, shown: shown))
     }
 
     // MARK: calendar colors
@@ -352,9 +373,9 @@ final class FeelController: ObservableObject {
 
     // MARK: what is allowed right now
 
-    /// The Shapes switch alone decides; the system's Reduce Motion is not consulted (it reads as on for some desktops
-    /// with animations on).
-    var showsShapes: Bool { settings.motion }
+    /// Shapes are drawn in a window while the Shapes switch is on and the system's Reduce Motion is off, as on the web.
+    /// Each window's overlay reads Reduce Motion from its SwiftUI environment (`FeelShapes.reduceMotion`).
+    private func showsShapes(in shapes: FeelShapes) -> Bool { settings.showsShapes(reduceMotion: shapes.reduceMotion) }
 
     /// Notes on this device: the shared switch, and on a Mac its own switch too, off until turned on there.
     static let macSoundKey = "ea.feel.soundOnThisMac"
@@ -390,7 +411,7 @@ final class FeelController: ObservableObject {
         if let shapes {
             lastShapes = shapes
             lastPoint = point
-            if let point, showsShapes { shapes.burst(.tap, at: point, style: style) }
+            if let point, showsShapes(in: shapes) { shapes.burst(.tap, at: point, style: style) }
         }
         var press = Press(start: point, last: point, bend: settings.drag_bend && point != nil, shapes: shapes)
         if soundNow, let n = picker.next(from: FeelMusic.tapNotes(key: settings.playKey, scale: settings.playScale, octave: settings.octave)) {
@@ -433,7 +454,7 @@ final class FeelController: ObservableObject {
         p.last = point
         if p.travel >= FeelBend.trailSpacing {
             p.travel = 0
-            if showsShapes, let shapes = p.shapes { shapes.burst(.trail, at: point, style: style) }
+            if let shapes = p.shapes, showsShapes(in: shapes) { shapes.burst(.trail, at: point, style: style) }
         }
         presses[key] = p
     }
@@ -484,7 +505,7 @@ final class FeelController: ObservableObject {
 
     private func celebrate(_ m: FeelMoment) {
         if soundNow { playTriad(arpeggio: m == .create) }
-        guard showsShapes, let shapes = lastShapes ?? anyShapes else { return }
+        guard let shapes = lastShapes ?? anyShapes, showsShapes(in: shapes) else { return }
         let point = (shapes === lastShapes ? lastPoint : nil) ?? CGPoint(x: shapes.size.width / 2, y: shapes.size.height / 2)
         shapes.burst(m == .create ? .create : .complete, at: point, style: style)
     }

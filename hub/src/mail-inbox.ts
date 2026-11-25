@@ -1228,20 +1228,41 @@ export async function unsubscribeOptions(hub: Hub, key: string): Promise<{ one_c
   return { ...(w.one_click ? { one_click: { host: new URL(w.one_click).hostname } } : {}), ...(w.link ? { link: w.link } : {}), ...(w.mailto ? { mailto: w.mailto } : {}), tor: !!hub.cfg.torSocks };
 }
 
-/**
- * Unsubscribe the way the owner chose, from what the mail's headers say now (never from the request): `one_click`
- * POSTs to the mail's https address, through Tor when the hub has it; without Tor only with `direct` (the owner was told
- * the sender sees the home's address) and only to a public address. `mailto` saves a draft to the mail's unsubscribe
- * address, for the owner to send.
- */
-export async function unsubscribe(hub: Hub, key: string, how: unknown, direct: boolean): Promise<{ ok: boolean; via?: "tor" | "direct"; draft?: boolean }> {
+/** A kept mail's unsubscribe ways as its headers say now, with the mailbox it is in; refused when it is gone. */
+async function unsubscribeNow(hub: Hub, key: string): Promise<{ account: string; ways: ReturnType<typeof unsubscribeWays> }> {
   const r = keptRef(hub.mailDb, key);
   const source = r ? sourceOf(r.account) : null;
   if (!r || !source?.unsubscribeHeaders) throw new StoreError(404, "that message is not kept (it left the Inbox)");
   const h = await source.unsubscribeHeaders(hub, r.account, { id: r.id, message_id: r.message_id });
   if (!h) throw new StoreError(404, "This mail is not in the mailbox any more. Refresh and try again.");
-  const w = unsubscribeWays(h.header, h.post);
-  const label = mailboxLabel(hub, r.account);
+  return { account: r.account, ways: unsubscribeWays(h.header, h.post) };
+}
+
+/**
+ * The mail that unsubscribes by writing to the sender (since 2026-11-24 sent through the outbox, mail-outbox.ts
+ * sendUnsubscribe): from the mailbox the mail is in, to the address its List-Unsubscribe header gives now (never one
+ * from the request), with the header's subject and the word "unsubscribe". 409 when the mail gives no address.
+ */
+export async function unsubscribeMail(hub: Hub, key: string): Promise<{ to: string; subject: string; text: string; from: string }> {
+  const { account, ways } = await unsubscribeNow(hub, key);
+  if (!ways.mailto) throw new StoreError(409, "This mail has no unsubscribe address.");
+  return { to: ways.mailto.to, subject: ways.mailto.subject, text: "unsubscribe", from: account.slice(account.indexOf(":") + 1) };
+}
+
+/**
+ * Unsubscribe the way the owner chose, from what the mail's headers say now (never from the request): `one_click`
+ * POSTs to the mail's https address, through Tor when the hub has it; without Tor only with `direct` (the owner was told
+ * the sender sees the home's address) and only to a public address. `mailto` saves a draft to the mail's unsubscribe
+ * address, for the owner to send from their mail app (a mailbox without a sending server, and older apps); with
+ * `send` the route sends it instead (mail-outbox.ts sendUnsubscribe).
+ */
+export async function unsubscribe(hub: Hub, key: string, how: unknown, direct: boolean): Promise<{ ok: boolean; via?: "tor" | "direct"; draft?: boolean }> {
+  if (how === "mailto") {
+    await saveMailDraft(hub, await unsubscribeMail(hub, key));
+    return { ok: true, draft: true };
+  }
+  const { account, ways: w } = await unsubscribeNow(hub, key);
+  const label = mailboxLabel(hub, account);
   if (how === "one_click") {
     if (!w.one_click) throw new StoreError(409, "This mail has no one-click unsubscribe.");
     const socks = hub.cfg.torSocks;
@@ -1251,11 +1272,6 @@ export async function unsubscribe(hub: Hub, key: string, how: unknown, direct: b
     console.log(`[mail-inbox] ${label}: unsubscribe one-click ${ok ? "sent" : "refused"} (${socks ? "tor" : "direct"})`);
     if (!ok) throw new StoreError(502, "The sender did not accept the unsubscribe. Try its own link instead, from the mail.");
     return { ok: true, via: socks ? "tor" : "direct" };
-  }
-  if (how === "mailto") {
-    if (!w.mailto) throw new StoreError(409, "This mail has no unsubscribe address.");
-    await saveMailDraft(hub, { to: w.mailto.to, subject: w.mailto.subject, text: "unsubscribe", from: r.account.slice(r.account.indexOf(":") + 1) });
-    return { ok: true, draft: true };
   }
   throw new StoreError(422, "how is one_click or mailto");
 }

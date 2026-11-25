@@ -259,3 +259,83 @@ test("today: a file from before it, or with a Today that breaks a rule, reads wi
     assert.equal(store.get().today.order.length, 7);
   } finally { t.cleanup(); }
 });
+
+test("today: which Reminders lists fill the To do card, kept when an older app sends Today without them", async () => {
+  const t = makeHub();
+  try {
+    const put = (json: unknown) => t.api("/prefs/feel", { method: "PUT", json });
+    const read = async (r: Promise<Response>) => ((await (await r).json()) as Record<string, any>).today;
+    const usual = { order: ["now", "tech", "needs", "schedule", "todo", "sofar", "coming"], hidden: [] };
+    assert.equal("todo_lists" in (await read(t.api("/prefs/feel"))), false, "every list until one is chosen");
+
+    // Only the list To-Do and the tasks in no list.
+    const chosen = { ...usual, todo_lists: ["icloud:iCloud/To-Do", "none"] };
+    assert.deepEqual(await read(put({ today: chosen })), chosen);
+    // An app from before the choice moves a card and never names the lists: the choice stays.
+    const moved = { order: ["now", "todo", "tech", "needs", "schedule", "sofar", "coming"], hidden: ["sofar"] };
+    assert.deepEqual(await read(put({ today: moved })), { ...moved, todo_lists: ["icloud:iCloud/To-Do", "none"] });
+    assert.deepEqual((await read(t.api("/prefs/feel"))).todo_lists, ["icloud:iCloud/To-Do", "none"], "kept in the file");
+    // Nothing chosen is a choice too: the card shows no task.
+    assert.deepEqual((await read(put({ today: { ...moved, todo_lists: [] } }))).todo_lists, []);
+    // Null asks for every list again, and then the answer says nothing about lists.
+    const all = await read(put({ today: { ...moved, todo_lists: null } }));
+    assert.deepEqual(all, moved);
+    assert.equal("todo_lists" in all, false);
+
+    for (const bad of ["none", ["icloud:iCloud/To-Do", "icloud:iCloud/To-Do"], ["ab"], [7], Array.from({ length: 301 }, (_, i) => `icloud:iCloud/L${i}`)]) {
+      const r = await put({ today: { ...usual, todo_lists: bad } });
+      assert.equal(r.status, 422, JSON.stringify(bad).slice(0, 60));
+      assert.match(((await r.json()) as { error: string }).error, /todo_lists is null or a list of at most 300 list keys or none/);
+    }
+    assert.deepEqual(await read(t.api("/prefs/feel")), moved, "a refused body changes nothing");
+  } finally { t.cleanup(); }
+});
+
+test("week calendars: none hidden at first, a change kept beside the rest of the setting, and what is refused", async () => {
+  const t = makeHub();
+  try {
+    const put = (json: unknown) => t.api("/prefs/feel", { method: "PUT", json });
+    const first = await (await t.api("/prefs/feel")).json() as Record<string, any>;
+    assert.deepEqual(first.hidden_calendars, [], "a hub that was never told shows every calendar");
+
+    // Two calendars and the events made here on none; a key no calendar has any more is kept, and hides nothing.
+    const hidden = ["apple:iCloud/Family", "icloud:https://p42-caldav.icloud.com/1234/calendars/work/", "aeneas", "apple:Gone/Old"];
+    const set = await (await put({ hidden_calendars: hidden })).json() as Record<string, any>;
+    assert.deepEqual(set.hidden_calendars, hidden);
+    assert.equal(set.scale, "major_pentatonic", "the rest of the setting is as it was");
+    // An app from before this setting changes another field and never names it: it stays.
+    const later = await (await put({ key: "D" })).json() as Record<string, any>;
+    assert.deepEqual(later.hidden_calendars, hidden);
+    assert.deepEqual(((await (await put({ hidden_calendars: [] })).json()) as Record<string, any>).hidden_calendars, [], "every calendar shown again");
+
+    for (const bad of [null, "aeneas", {}, ["aeneas", "aeneas"], [""], [7], ["x".repeat(301)], ["line\nbreak"], Array.from({ length: 301 }, (_, i) => `apple:A/${i}`)]) {
+      const r = await put({ hidden_calendars: bad });
+      assert.equal(r.status, 422, JSON.stringify(bad).slice(0, 80));
+      assert.match(((await r.json()) as { error: string }).error, /^hidden_calendars: a list of at most 300 calendar keys/);
+    }
+    // Refused whole: the good field beside a bad list is not taken either.
+    assert.equal((await put({ key: "E", hidden_calendars: ["a", "a"] })).status, 422);
+    const after = await (await t.api("/prefs/feel")).json() as Record<string, any>;
+    assert.equal(after.key, "D");
+    assert.deepEqual(after.hidden_calendars, []);
+    assert.equal((await put({ hidden_calendars: Array.from({ length: 300 }, (_, i) => `apple:A/${i}`) })).status, 200, "300 is allowed");
+  } finally { t.cleanup(); }
+});
+
+test("week calendars: a file from before it, or with a list that breaks a rule, reads as none hidden and keeps the rest", () => {
+  const t = makeHub();
+  try {
+    const file = path.join(t.dir, "feel-week.json");
+    const store = new FeelStore(file);
+    store.set({ key: "A", hidden_calendars: ["apple:iCloud/Home"] });
+    assert.deepEqual(store.get().hidden_calendars, ["apple:iCloud/Home"]);
+    const { hidden_calendars: _h, ...older } = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify(older));
+    assert.deepEqual(store.get().hidden_calendars, []);
+    for (const broken of [["x", "x"], "aeneas", [3]]) {
+      fs.writeFileSync(file, JSON.stringify({ ...older, hidden_calendars: broken }));
+      assert.deepEqual(store.get().hidden_calendars, []);
+      assert.equal(store.get().key, "A", "a bad list does not cost the rest of the setting");
+    }
+  } finally { t.cleanup(); }
+});

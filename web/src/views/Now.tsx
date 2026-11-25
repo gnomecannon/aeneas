@@ -25,8 +25,10 @@ export function pickCurrent(tasks: Entity[]): { current: Entity | null; next: En
  * The one-task card with Done, Start block, Skip and Set aside. Reused in Today's To do, which passes `whenEmpty` (what to
  * show when nothing is being done or next; null for nothing): Today lists the open tasks itself.
  */
-export function NowCard({ showNext = true, whenEmpty }: { showNext?: boolean; whenEmpty?: ReactNode } = {}) {
-  const tasks = useEntities("task", (e) => e.fields.status === "doing" || e.fields.status === "next");
+export function NowCard({ showNext = true, whenEmpty, only }: { showNext?: boolean; whenEmpty?: ReactNode; only?: (e: Entity) => boolean } = {}) {
+  const all = useEntities("task", (e) => e.fields.status === "doing" || e.fields.status === "next");
+  // Today's To do passes the lists chosen for it: the task shown is the one being done, or the next one, among those.
+  const tasks = useMemo(() => (only ? all.filter(only) : all), [all, only]);
   const { current, next } = useMemo(() => pickCurrent(tasks), [tasks]);
 
   const done = () => current && completeTask(current);
@@ -38,7 +40,7 @@ export function NowCard({ showNext = true, whenEmpty }: { showNext?: boolean; wh
   };
   const skip = () => {
     if (!current) return;
-    const maxOrder = Math.max(0, ...tasks.filter((t) => t.fields.status === "next").map((t) => t.fields.order as number));
+    const maxOrder = Math.max(0, ...all.filter((t) => t.fields.status === "next").map((t) => t.fields.order as number));
     void updateEntity(current, { status: "next", order: maxOrder + 1 });
   };
   const startBlock = () => {

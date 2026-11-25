@@ -5,6 +5,7 @@ import { useEntities } from "../sync/hooks";
 import { convertCapture, discardCapture } from "../sync/actions";
 import { fmtDateTime } from "../lib/time";
 import { engine } from "../sync/engine";
+import { captureSourceLabel } from "../lib/links";
 
 const KINDS = ["task", "note", "reminder", "log", "fact"] as const;
 
@@ -54,7 +55,7 @@ export function Inbox() {
             <div key={c.id} className="card">
               <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{f.text}</div>
               <div className="meta muted small" style={{ marginTop: 4 }}>
-                {f.source} {fmtDateTime(c.created_at)}
+                {captureSourceLabel(f.source)} {fmtDateTime(c.created_at)}
                 {f.suggested_kind && f.suggested_kind !== "none" ? ` suggests ${f.suggested_kind}` : ""}
               </div>
               <div className="actions">

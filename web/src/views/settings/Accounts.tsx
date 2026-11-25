@@ -7,7 +7,7 @@ import { fmtDate, fmtDateTime } from "../../lib/time";
 import { useHubReady } from "../../sync/hooks";
 import { SubPage, Toggle, errorText } from "./common";
 import { setModules, useModules } from "../../lib/modules";
-import { keepSources } from "../../lib/sources";
+import { keepSources, sourceAccount } from "../../lib/sources";
 import { useConnections } from "./Connections";
 
 /**
@@ -335,11 +335,6 @@ function AccountsPage() {
   );
 }
 
-/** An Apple account's name for a group: its own name, or what kind of account it is. */
-export function sourceAccount(account: string, kind: string): string {
-  if (account) return account;
-  return kind === "icloud" ? "iCloud" : kind === "exchange" ? "Exchange" : kind === "local" ? "On the device" : "Other";
-}
 
 /**
  * From your iPhone, iPad and Mac (the web, Windows and Android apps have no device stores of their own): what comes in

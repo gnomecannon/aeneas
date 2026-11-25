@@ -25,7 +25,9 @@ import {
   msToNextDay,
   overlaps,
   parseLocalDate,
+  fmtRuleDay,
   ruleAppliesOn,
+  ruleHours,
   timeline,
   weekdayOf,
   weeksFromAnchor,
@@ -87,6 +89,17 @@ describe("plan rules", () => {
     expect(c[0].start).toBe(at(9, 30));
     expect(c[0].end).toBe(at(10));
     expect(c[1].type).toBe("preference");
+  });
+  it("shows a rule's hours and anchor day as Today and Week show times and dates, in the person's own format", () => {
+    expect(ruleHours({ start: "19:00", end: "23:00" }, THU)).toBe(`${fmtTime(at(19))} to ${fmtTime(at(23))}`);
+    expect(ruleHours({ start: "09:30", end: "10:00" }, THU)).toBe(`${fmtTime(at(9, 30))} to ${fmtTime(at(10))}`);
+    expect(ruleHours({ start: "19:00", end: "24:00" }, THU)).toBe(`${fmtTime(at(19))} to ${fmtTime(at(24))}`);
+    // A custody week runs midnight to midnight: "All day", as on Today, also on the day the clocks go forward.
+    expect(ruleHours({ start: "00:00", end: "24:00" }, THU)).toBe("All day");
+    expect(ruleHours({ start: "00:00", end: "24:00" }, new Date(2026, 2, 8))).toBe("All day");
+    expect(ruleHours({ start: "x", end: "10:00" }, THU)).toBe("x to 10:00");
+    expect(fmtRuleDay("2026-11-23")).toBe(fmtDate(new Date(2026, 10, 23).toISOString()));
+    expect(fmtRuleDay("2026-11-23")).not.toContain("2026");
   });
 });
 

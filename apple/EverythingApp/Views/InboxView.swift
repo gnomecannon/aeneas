@@ -44,11 +44,13 @@ struct InboxView: View {
     private func list(_ items: [Entity], _ done: [Entity]) -> some View {
         List {
             if !items.isEmpty {
-                SwiftUI.Section(done.isEmpty ? "" : "To sort") {
+                SwiftUI.Section {
                     ForEach(items) { cap in
                         CaptureRow(capture: cap)
                             .deleteSwipe(cap.id, label: "Discard")
                     }
+                } header: {
+                    if done.isEmpty { Text("") } else { Text("To sort").pinnedHeader() }
                 }
             }
             if !done.isEmpty {
@@ -132,7 +134,7 @@ struct CaptureRow: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(StyleGuard.dashes(capture.str("text"))).font(.title3)
             HStack {
-                Text(capture.str("source")).font(.caption).foregroundStyle(.secondary)
+                Text(Source.label(capture.str("source"))).font(.caption).foregroundStyle(.secondary)
                 Text(dateLabel(capture.created_at)).font(.caption).foregroundStyle(.secondary)
                 if let a = capture.fields["attachments"]?.arrayValue, !a.isEmpty { Image(systemName: "paperclip").font(.caption) }
             }

@@ -9,6 +9,10 @@ import EACore
 struct TodayView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.dynamicTypeSize) private var typeSize
+    #endif
     /// Days from today being shown; 0 is today.
     @State private var dayOffset = 0
     @State private var otherDay: PlannerDay?
@@ -17,6 +21,19 @@ struct TodayView: View {
     @State private var fromHub = false
     @State private var scheduling: FreeSlot?
     @State private var reloadTask: Task<Void, Never>?
+
+    /// The day as the title: "Wednesday, November 25", and on an iPhone "Wednesday, Nov 25", since the large title
+    /// does not shrink and the long month was cut to "Wednesday, Novembe..." there; at the accessibility text sizes
+    /// "Wed, Nov 25", where even that was cut to "Wednesday,...".
+    private var title: String {
+        #if os(iOS)
+        if sizeClass == .compact {
+            let weekday: Date.FormatStyle.Symbol.Weekday = typeSize.isAccessibilitySize ? .abbreviated : .wide
+            return shownDate.formatted(.dateTime.weekday(weekday).day().month(.abbreviated))
+        }
+        #endif
+        return shownDate.formatted(.dateTime.weekday(.wide).day().month(.wide))
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -47,7 +64,7 @@ struct TodayView: View {
             #endif
         }
         }
-        .navigationTitle(shownDate.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+        .navigationTitle(title)
         .toolbar {
             if dayOffset != 0 {
                 ToolbarItem(placement: .navigation) { Button("Today") { show(0) } }
@@ -149,9 +166,11 @@ struct NowCard: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
     var inCard = false
+    /// Today's To do passes the lists chosen for it: the task shown is the one being done, or the next one, among those.
+    var match: TaskListMatch? = nil
 
     var body: some View {
-        if let task = engine.nowTask {
+        if let task = match.map({ m in engine.nowTask(where: { m.contains($0) }) }) ?? engine.nowTask {
             let f = task.decoded(TaskFields.self)
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
@@ -172,10 +191,13 @@ struct NowCard: View {
                 }
                 .buttonStyle(.plain)
                 // With their symbols where they fit on one line each; words alone on a narrow card, where "Start 3 h"
-                // with its symbol broke in two.
+                // with its symbol broke in two; one above the other where even the words do not fit side by side (the
+                // largest text sizes), where the row of three was wider than the card and pushed all of Today past
+                // the screen's edge, so it scrolled sideways.
                 ViewThatFits(in: .horizontal) {
                     buttons(task, starts: f?.status != .doing, symbols: true)
                     buttons(task, starts: f?.status != .doing, symbols: false)
+                    buttons(task, starts: f?.status != .doing, symbols: false, stacked: true)
                 }
                 .controlSize(inCard ? .regular : .large)
             }
@@ -184,17 +206,19 @@ struct NowCard: View {
         }
     }
 
-    /// Done, Skip and, for a task not started, Start 3 h: three buttons of one width, each on one line.
-    private func buttons(_ task: Entity, starts: Bool, symbols: Bool) -> some View {
+    /// Done, Skip and, for a task not started, Start 3 h: three buttons of one width, each on one line. Stacked, they
+    /// are one under the other, each the card's width, and their words may wrap.
+    private func buttons(_ task: Entity, starts: Bool, symbols: Bool, stacked: Bool = false) -> some View {
         func label(_ title: String, _ symbol: String) -> some View {
             Group {
                 if symbols { Label(title, systemImage: symbol) } else { Text(title) }
             }
-            .lineLimit(1)
-            .fixedSize()
+            .lineLimit(stacked ? nil : 1)
+            .fixedSize(horizontal: !stacked, vertical: true)
             .frame(maxWidth: .infinity)
         }
-        return HStack(spacing: 8) {
+        let layout = stacked ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
             Button { Task { await engine.markDone(task.id) } } label: { label("Done", "checkmark") }
                 .buttonStyle(.themedProminent)
             Button { Task { await engine.skip(task.id) } } label: { label("Skip", "forward") }
@@ -270,6 +294,11 @@ struct TimelineList: View {
     /// list gives it 132, so every time is one line.
     var timeWidth: CGFloat = 96
     var onSchedule: (FreeSlot) -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// At the largest text sizes the time goes over the words instead of in a column beside them: the column of 96
+    /// points held only a few letters of each time, and squeezed the words beside it.
+    private var stacked: Bool { typeSize.isAccessibilitySize }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { ctx in
@@ -319,19 +348,25 @@ struct TimelineList: View {
                 Button("Done") { Task { await engine.ack(r.id) } }
             }
         case .free(let f):
-            let time = Text(timeRange(f.start, f.end)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: timeWidth, alignment: .leading)
+            let time = Text(timeRange(f.start, f.end)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             let free = Text("Free, \(f.hours.formatted()) h").font(.body.weight(.medium))
             let schedule = Button { onSchedule(f) } label: { Label("Schedule here", systemImage: "plus") }
                 .buttonStyle(.bordered)
-                .fixedSize()
-            // On a narrow phone the button goes under the words: squeezed beside them, "Schedule" broke in two.
+            // On a narrow phone the button goes under the words: squeezed beside them, "Schedule" broke in two. Where
+            // that is still too wide (the largest text sizes) the time, the words and the button each take a line and
+            // the button's words wrap: held to one line, it was wider than the screen and Today and Week scrolled
+            // sideways.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { time; free; Spacer(); schedule }
-                HStack(spacing: 12) {
-                    time
-                    VStack(alignment: .leading, spacing: 6) { free; schedule }
-                    Spacer(minLength: 0)
+                if !stacked {
+                    HStack(spacing: 12) { time.frame(width: timeWidth, alignment: .leading); free; Spacer(); schedule.fixedSize() }
+                    HStack(spacing: 12) {
+                        time.frame(width: timeWidth, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 6) { free; schedule.fixedSize() }
+                        Spacer(minLength: 0)
+                    }
                 }
+                VStack(alignment: .leading, spacing: 6) { time; free; schedule }
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(10)
             .background(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
@@ -342,11 +377,13 @@ struct TimelineList: View {
     private func timelineRow<M: View>(time: String, title: String, subtitle: String, color: AnyShapeStyle, dim: Bool, chip: String? = nil, @ViewBuilder menu: () -> M) -> some View {
         // Something already over is quieter: its color fades and its title takes the secondary color. The words are
         // not faded further: a whole row at 55% left its gray time and subtitle at about 2.5:1 on every theme.
+        let timeText = Text(time).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         HStack(spacing: 12) {
-            Text(time).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: timeWidth, alignment: .leading)
+            if !stacked { timeText.frame(width: timeWidth, alignment: .leading) }
             RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 4).opacity(dim ? 0.5 : 1)
             VStack(alignment: .leading, spacing: 2) {
-                Text(StyleGuard.dashes(title)).font(.body.weight(.medium)).lineLimit(2)
+                if stacked { timeText }
+                Text(StyleGuard.dashes(title)).font(.body.weight(.medium)).lineLimit(stacked ? 4 : 2)
                     .foregroundStyle(dim ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 HStack(spacing: 6) {
                     if let chip = chip { SpaceChip(text: chip) }

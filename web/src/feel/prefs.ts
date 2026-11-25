@@ -1,4 +1,4 @@
-import { defaultBar, defaultToday, readBar, readToday, type Bar, type CalendarColor, type TodaySetting } from "@everythingapp/shared";
+import { defaultBar, defaultToday, readBar, readHiddenCalendars, readToday, type Bar, type CalendarColor, type TodaySetting } from "@everythingapp/shared";
 import { KEYS, SCALES, SHAPES, SYNTHS, THEMES, type Key, type Scale, type ShapeName, type Synth, type Theme } from "./theory";
 
 /** A saved tap palette, chosen as `custom:<id>`. */
@@ -60,6 +60,8 @@ export interface Feel {
   bar: Bar;
   /** What Today shows and in what order (Theme, Today): the parts in the order chosen and the ones hidden. */
   today: TodaySetting;
+  /** The calendars whose events the Week screen leaves out, by key (Week, Calendars). */
+  hidden_calendars: string[];
 }
 
 export interface FeelView extends Feel {
@@ -117,6 +119,7 @@ export const DEFAULT_FEEL: FeelView = {
   appearance: "system",
   bar: defaultBar(),
   today: defaultToday(),
+  hidden_calendars: [],
   effective: { key: "C", scale: "major_pentatonic", from: null },
 };
 
@@ -217,6 +220,9 @@ export function cleanPatch(raw: unknown): Partial<Feel> {
   // The same for Today's setting.
   const today = readToday(r.today);
   if (today) out.today = today;
+  // And for the Week screen's hidden calendars.
+  const hidden = readHiddenCalendars(r.hidden_calendars);
+  if (hidden) out.hidden_calendars = hidden;
   return out;
 }
 

@@ -267,3 +267,65 @@ test("sources: the rule for hidden tasks, and the defaults", () => {
   assert.equal(versionAtLeast("1.1.0", "1.0.18"), true);
   assert.equal(versionAtLeast("1.0.17", "1.0.18"), false);
 });
+
+test("sources: task groups are kept for every device, checked whole, and change nothing about tasks", async () => {
+  const t = makeHub();
+  try {
+    const key = await phone(t, "Jamie's iPhone", "1.0.18");
+    const homework = linked(t, "Essay", { list_key: SCHOOL.key, list_title: "Homework" }, {}, "work");
+    await asDevice(t, key, "PUT", "/prefs/sources/seen", { lists: [ICLOUD_SHOP, ICLOUD_TODO, SCHOOL] });
+    const told: SourcesView[] = [];
+    const off = t.hub.sources.onChange((v) => told.push(v));
+    let v = await (await t.api("/prefs/sources")).json() as SourcesView;
+    assert.deepEqual(v.groups, [], "none until the owner makes one");
+
+    // School: the Exchange list and the tasks in no list. Names are kept trimmed; the list replaces the one kept.
+    const school = { id: "school", name: " School ", lists: [SCHOOL.key, "none"] };
+    v = await (await t.api("/prefs/sources", { method: "PUT", json: { groups: [school] } })).json() as SourcesView;
+    assert.deepEqual(v.groups, [{ ...school, name: "School" }]);
+    assert.deepEqual(told.at(-1)?.groups, [{ ...school, name: "School" }], "every device hears of it");
+    const home = { id: "home", name: "Home", lists: [ICLOUD_SHOP.key] };
+    v = await (await t.api("/prefs/sources", { method: "PUT", json: { groups: [home, { ...school, name: "Classes" }] } })).json() as SourcesView;
+    assert.deepEqual(v.groups.map((g) => g.name), ["Home", "Classes"]);
+    // Other changes leave the groups as they are.
+    v = await (await t.api("/prefs/sources", { method: "PUT", json: { lists: [{ key: ICLOUD_TODO.key, on: false }] } })).json() as SourcesView;
+    assert.equal(v.groups.length, 2);
+
+    // Refused whole, with what is wrong said plainly.
+    for (const [groups, error] of [
+      [[home, { ...home, id: "home-2" }], "groups: Another group has this name."],
+      [[{ ...home, name: "Work" }], "groups: Personal and Work are taken. Give the group another name."],
+      [[{ ...home, name: " " }], "groups: Give the group a name."],
+      [[{ ...home, id: "Home!" }], "groups: Each group needs an id of its own."],
+      [[{ ...home, lists: [ICLOUD_SHOP.key, ICLOUD_SHOP.key] }], "groups: A group holds at most 300 lists, each named once."],
+      [Array.from({ length: 21 }, (_, i) => ({ id: `g${i}`, name: `G${i}`, lists: [] })), "groups: There can be 20 groups at most."],
+      ["School", "groups: Each group is an id, a name and its lists."],
+    ] as const) {
+      const r = await t.api("/prefs/sources", { method: "PUT", json: { groups, lists: [{ key: ICLOUD_TODO.key, on: true }] } });
+      assert.equal(r.status, 422, error);
+      assert.equal(((await r.json()) as { error: string }).error, error);
+    }
+    v = await (await t.api("/prefs/sources")).json() as SourcesView;
+    assert.equal(v.lists.find((l) => l.key === ICLOUD_TODO.key)!.on, false, "the good part of a refused body is not taken either");
+    assert.deepEqual(v.groups.map((g) => g.id), ["home", "school"]);
+
+    // A list in a group stays known after no device has it, so the group can still name it.
+    await asDevice(t, key, "PUT", "/prefs/sources/seen", { lists: [ICLOUD_SHOP] });
+    v = await (await t.api("/prefs/sources")).json() as SourcesView;
+    assert.ok(v.lists.some((l) => l.key === SCHOOL.key));
+    assert.ok(v.lists.some((l) => l.key === ICLOUD_TODO.key), "switched off: a choice of its own");
+    // A group is a view: the task stays where it is kept, as it was.
+    const after = t.hub.store.get(homework.id)!;
+    assert.equal(after.space, "work");
+    assert.deepEqual(after.fields.apple, homework.fields.apple);
+
+    // An empty list deletes every group.
+    v = await (await t.api("/prefs/sources", { method: "PUT", json: { groups: [] } })).json() as SourcesView;
+    assert.deepEqual(v.groups, []);
+    // Kept in the file: read again from disk.
+    await t.api("/prefs/sources", { method: "PUT", json: { groups: [home] } });
+    t.hub.sources.reset();
+    assert.deepEqual(((await (await t.api("/prefs/sources")).json()) as SourcesView).groups, [home]);
+    off();
+  } finally { t.cleanup(); }
+});

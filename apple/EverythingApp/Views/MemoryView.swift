@@ -10,6 +10,9 @@ struct MemoryView: View {
     @State private var newFact = false
     @State private var newRule = false
     @State private var query = ""
+    /// The chevron's column, 12 points at the default text size, grows with the chevron: held at 12, the chevron ran
+    /// into the category's name at the largest text sizes.
+    @ScaledMetric(relativeTo: .caption) private var chevronWidth: CGFloat = 12
     @AppStorage("memory.folded") private var foldedRaw = ""
 
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -93,7 +96,7 @@ extension MemoryView {
     private func heading(_ cat: FactCategory, count: Int, open: Bool) -> some View {
         Button { toggle(cat) } label: {
             HStack(spacing: 6) {
-                Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold)).frame(width: 12)
+                Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold)).frame(width: chevronWidth)
                 Text(cat.rawValue.capitalized).font(.headline)
                 Text("\(count)").font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
@@ -140,11 +143,11 @@ extension MemoryView {
                             .swipeActions { Button("Delete", role: .destructive) { Task { await engine.softDelete(f.id) } } }
                     }
                 } header: {
-                    heading(cat, count: facts.count, open: open)
+                    heading(cat, count: facts.count, open: open).pinnedHeader()
                 }
             }
             if !searching || !shownRules.isEmpty {
-            SwiftUI.Section(header: Text("Rules").font(.headline)) {
+            SwiftUI.Section(header: Text("Rules").font(.headline).pinnedHeader()) {
                 ForEach(shownRules) { r in rule(r, card: false) }
                 if engine.rules.isEmpty { Text("No rules").foregroundStyle(.secondary) }
             }

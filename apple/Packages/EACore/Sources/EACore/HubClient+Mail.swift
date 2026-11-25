@@ -9,7 +9,8 @@ private struct NotifyBody: Encodable { var people: Bool?; var detail: String?; v
 private struct BundleBody: Encodable { var name: String; var color: Int; var addresses: [String]; var domains: [String]; var words: [String] }
 private struct MoveBody: Encodable { var ids: [String]; var to: String; var undo: Bool? }
 private struct SenderBody: Encodable { var sender: String }
-private struct UnsubscribeBody: Encodable { var how: String; var direct: Bool? }
+private struct UnsubscribeBody: Encodable { var how: String; var direct: Bool?; var send: Bool? = nil }
+private struct UnsubscribeSent: Decodable { var outbox: MailOutboxItem }
 private struct OnBody: Encodable { var on: Bool }
 private struct FoldBody: Encodable { var lines: [String]; var no_fold: Bool }
 private struct Empty: Codable {}
@@ -138,6 +139,11 @@ extension HubClient {
     public func mailUnsubscribeOptions(_ id: String) async throws -> MailUnsubscribeOptions { try await get(Self.mailPath(id, "/unsubscribe"), as: MailUnsubscribeOptions.self) }
     public func mailUnsubscribe(_ id: String, how: String, direct: Bool = false) async throws -> MailUnsubscribed {
         try await post(Self.mailPath(id, "/unsubscribe"), UnsubscribeBody(how: how, direct: direct ? true : nil), as: MailUnsubscribed.self)
+    }
+    /// The mail to the sender's unsubscribe address, into the hub's outbox (since 2026-11-24): sent 10 seconds later
+    /// unless taken back (`mailOutboxUndo`), like Send.
+    public func mailUnsubscribeSend(_ id: String) async throws -> MailOutboxItem {
+        try await post(Self.mailPath(id, "/unsubscribe"), UnsubscribeBody(how: "mailto", send: true), as: UnsubscribeSent.self).outbox
     }
 
     /// Block a sender (an address, or `@domain`): their mail goes to Spam, now and from now on. Unblock: it stops.

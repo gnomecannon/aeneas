@@ -10,6 +10,23 @@ public enum Space: String, Codable, CaseIterable, Sendable { case personal, work
 
 public enum Source: String, Codable, CaseIterable, Sendable {
     case watch, iphone, ipad, mac, windows, web, shortcut, voice, api
+
+    /// Where a capture came from, as people say it ("iPhone", not "iphone"): Unsorted Info's line under each
+    /// capture. A source a later hub adds shows as it is. The web's captureSourceLabel.
+    public static func label(_ raw: String) -> String {
+        switch Source(rawValue: raw) {
+        case .watch: return "Watch"
+        case .iphone: return "iPhone"
+        case .ipad: return "iPad"
+        case .mac: return "Mac"
+        case .windows: return "Windows"
+        case .web: return "Web"
+        case .shortcut: return "Shortcut"
+        case .voice: return "Voice"
+        case .api: return "API"
+        case nil: return raw
+        }
+    }
 }
 
 public enum TaskStatus: String, Codable, CaseIterable, Sendable { case inbox, next, scheduled, doing, done, parked }
@@ -25,7 +42,11 @@ public enum LogType: String, Codable, CaseIterable, Sendable { case weight, med,
 public enum FactCategory: String, Codable, CaseIterable, Sendable { case identity, constraint, preference, health, relationship, host, project, gear, history }
 public enum RuleEnforce: String, Codable, CaseIterable, Sendable { case prompt, filter, both }
 public enum ProjectStatus: String, Codable, CaseIterable, Sendable { case active, parked, done }
-public enum Platform: String, Codable, CaseIterable, Sendable { case watch, iphone, ipad, mac, windows, web }
+public enum Platform: String, Codable, CaseIterable, Sendable {
+    case watch, iphone, ipad, mac, windows, web
+    /// As people say it: "Mac", "iPhone" (Settings, About).
+    public var name: String { Source.label(rawValue) }
+}
 /// `auto` lets the hub pick per message (troubleshooting when hosts or failures come up).
 public enum TaskType: String, Codable, CaseIterable, Sendable { case auto, general, troubleshoot, draft, classify, plan }
 public enum WatchCategory: String, Codable, CaseIterable, Sendable { case cert, subscription, prescription, insurance, rma, warranty, domain, other }

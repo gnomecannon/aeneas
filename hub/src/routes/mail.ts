@@ -5,7 +5,7 @@ import { blockedSenders, blockSender, clearFoldNotes, foldNotes, saveFoldNote, s
 import { readJsonObject } from "../http.js";
 import { addCustomBundle, bundleContext, customBundles, deleteCustomBundle, updateCustomBundle } from "../mail-bundles.js";
 import { rfc2231 } from "../mail-compose.js";
-import { draftFromOutbox, outboxItem, outboxList, retrySend, sendMail, takeBack } from "../mail-outbox.js";
+import { draftFromOutbox, outboxItem, outboxList, retrySend, sendMail, sendUnsubscribe, takeBack } from "../mail-outbox.js";
 import { cancelProposal, editProposal, proposalView, retryProposal, sendProposal, undoProposal } from "../mail-proposals.js";
 
 /**
@@ -159,6 +159,8 @@ export function mailRoutes() {
   });
   r.post("/mail/messages/:id/unsubscribe", async (c) => {
     const body = await readJsonObject(c);
+    // A mail to the sender's unsubscribe address: sent through the outbox (with its Undo) when asked, else a draft.
+    if (body.how === "mailto" && body.send === true) return c.json(await sendUnsubscribe(c.get("hub"), c.req.param("id")));
     return c.json(await unsubscribe(c.get("hub"), c.req.param("id"), body.how, body.direct === true));
   });
   // "Something important missing?": a folding note on a mail, the notes, and clearing them. Kept on the hub only.

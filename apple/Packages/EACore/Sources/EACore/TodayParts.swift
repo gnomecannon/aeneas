@@ -27,33 +27,56 @@ public struct TodaySetting: Codable, Equatable, Sendable {
     public var order: [String]
     /// The parts not drawn.
     public var hidden: [String]
+    /// Which Reminders lists fill the To do card (gnomecannon/aeneas#28): nil is every list, as before; else the keys of
+    /// the lists chosen, and `none` for the tasks in no list (TaskLists.swift). Always sent, null for every list, so
+    /// the hub hears the change; a body from an app before it leaves it out and the hub keeps the choice it has.
+    public var todoLists: [String]?
 
-    public init(order: [String], hidden: [String]) {
-        self.order = order; self.hidden = hidden
+    public init(order: [String], hidden: [String], todoLists: [String]? = nil) {
+        self.order = order; self.hidden = hidden; self.todoLists = todoLists
     }
 
     /// Today as it was before it could be changed: every part shown, in the default order.
     public static let standard = TodaySetting(order: TodayPart.allCases.map(\.rawValue), hidden: [])
 
     /// Whether it keeps the rules: `order` and `hidden` are each a list of at most 40 part ids, each named once in its
-    /// list. An id this build does not know is fine: a newer app may have put it there, and it is only skipped when
-    /// Today is drawn.
+    /// list; `todoLists`, when there, is a choice of lists (`ListChoices.isValid`). An id this build does not know is
+    /// fine: a newer app may have put it there, and it is only skipped when Today is drawn.
     public var isValid: Bool {
         [order, hidden].allSatisfy { list in
             list.count <= Self.maxIds && list.allSatisfy(BarScreen.isId) && Set(list).count == list.count
-        }
+        } && (todoLists.map(ListChoices.isValid) ?? true)
     }
 
-    enum CodingKeys: String, CodingKey { case order, hidden }
+    enum CodingKeys: String, CodingKey { case order, hidden, todo_lists }
 
     /// A value that breaks a rule does not decode, so what reads it (`try?`) falls back to the default.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         order = try c.decode([String].self, forKey: .order)
         hidden = try c.decode([String].self, forKey: .hidden)
+        todoLists = try c.decodeIfPresent([String].self, forKey: .todo_lists)
         guard isValid else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Today's setting breaks a rule"))
         }
+    }
+
+    /// `todo_lists` is written as null for every list: left out, the hub would keep the lists chosen before.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(order, forKey: .order)
+        try c.encode(hidden, forKey: .hidden)
+        try c.encode(todoLists, forKey: .todo_lists)
+    }
+
+    /// The setting with the To do card's lists chosen: nil for every list, else the choice.
+    public func withTodoLists(_ chosen: [String]?) -> TodaySetting {
+        TodaySetting(order: order, hidden: hidden, todoLists: chosen)
+    }
+
+    /// The test for the To do card's tasks: nil while it holds every list.
+    public func todoMatch(_ lists: [SourcesSetting.ReminderList]) -> TaskListMatch? {
+        todoLists.map { TaskListMatch($0, lists: lists) }
     }
 
     /// Every part in the order chosen: the line at the top first, wherever `order` puts it, then the cards `order`
@@ -107,7 +130,7 @@ public struct TodaySetting: Codable, Equatable, Sendable {
         }
         var out = after[start] ?? []
         for p in parts { out.append(p.rawValue); out += after[p.rawValue] ?? [] }
-        return TodaySetting(order: out, hidden: hidden)
+        return TodaySetting(order: out, hidden: hidden, todoLists: todoLists)
     }
 
     /// Move a card to a place among the cards (0 is the first). A place past the end is the last.
@@ -132,7 +155,7 @@ public struct TodaySetting: Codable, Equatable, Sendable {
     public func showing(_ part: TodayPart, _ shown: Bool) -> TodaySetting {
         var h = hidden.filter { $0 != part.rawValue }
         if !shown, h.count < Self.maxIds { h.append(part.rawValue) }
-        return TodaySetting(order: order, hidden: h)
+        return TodaySetting(order: order, hidden: h, todoLists: todoLists)
     }
 }
 
@@ -154,6 +177,44 @@ public enum TodayText {
     public static let usual = "Usual order"
     public static let yours = "Your order"
     public static let allShown = "all shown"
+    public static let todoLists = "Lists in To do"
+    public static let todoListsNote = "Choose which Reminders lists fill the To do card. Every device follows."
+    public static let allLists = "All lists"
+    public static let chosenLists = "Only these lists"
+    public static let noList = "No list"
+    public static let noListNote = "Tasks made in Aeneas that are in no Reminders list."
+    public static let noListsYet = "No Reminders lists yet. They appear once an iPhone, iPad or Mac syncs Apple Reminders."
+    public static let noneChosen = "No lists are chosen for To do."
+    public static let work = "Work"
+
+    /// The line beside Lists in To do: "All lists", "None", the one list's name, or how many. A list chosen that the
+    /// hub no longer knows still counts. The same as `todoListsSummary` on the web.
+    public static func todoListsSummary(_ s: TodaySetting, lists: [SourcesSetting.ReminderList]) -> String {
+        guard let chosen = s.todoLists else { return allLists }
+        if chosen.isEmpty { return "None" }
+        if chosen.count > 1 { return "\(chosen.count) lists" }
+        if chosen[0] == ListChoices.noList { return noList }
+        return lists.first { ListChoices.contains(chosen, $0) }?.title ?? "1 list"
+    }
+
+    /// The lists a chooser offers: those that are on, by account and then by name.
+    public static func choosable(_ lists: [SourcesSetting.ReminderList]) -> [SourcesSetting.ReminderList] {
+        lists.filter(\.on).sorted {
+            let a = accountName($0.account, kind: $0.kind), b = accountName($1.account, kind: $1.kind)
+            return a != b ? a.localizedStandardCompare(b) == .orderedAscending : $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+    }
+
+    /// An Apple account's name in a chooser: its own name, or what kind of account it is.
+    public static func accountName(_ account: String, kind: String) -> String {
+        if !account.isEmpty { return account }
+        switch kind {
+        case "icloud": return "iCloud"
+        case "exchange": return "Exchange"
+        case "local": return "On the device"
+        default: return "Other"
+        }
+    }
 
     /// A part's name.
     public static func name(_ p: TodayPart) -> String {

@@ -137,7 +137,7 @@ struct SettingsView: View {
 
     @ViewBuilder private func aboutLink(card: Bool) -> some View {
         SettingsAreaLink(card: card) { AboutSettingsView() } label: {
-            SettingsRow(title: "About", symbol: "info.circle", summary: "\(model.platform.rawValue), version \(Self.version)")
+            SettingsRow(title: "About", symbol: "info.circle", summary: "\(model.platform.name), version \(Self.version)")
         }
     }
 
@@ -203,7 +203,7 @@ struct SettingsView: View {
 /// Accounts (`-EAAccount <address>` then opens that account's page), `addAccount` its Add account, `calendar` From this
 /// iPhone, Calendars, `appleHealth` From this iPhone, Apple Health (Settings, Accounts on the Mac, which has none).
 enum SettingsPage: String, Hashable, Identifiable {
-    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, appleHealth, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, today, modules, reference, helpers
+    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, appleHealth, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, today, todoLists, modules, reference, helpers
     var id: String { rawValue }
 
     /// A page named by a launch argument, once per launch.
@@ -236,6 +236,7 @@ enum SettingsPage: String, Hashable, Identifiable {
         case .calendarColors: CalendarColorsView()
         case .bottomBar: BottomBarSettingsView()
         case .today: TodayPartsSettingsView()
+        case .todoLists: TodoListsSettingsView()
         case .modules: ModulesSettingsView()
         case .reference: ReferenceSettingsView()
         case .helpers: HelpersSettingsView()
@@ -269,15 +270,21 @@ struct SettingsRow: View {
     var summary: String
     var warning = false
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        HStack(spacing: 12) {
+        // At the largest text sizes the symbol goes over the words: in its column of 28 points it ran over the
+        // title, and a column that grew with it left the title a few letters a line.
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 12))
+        layout {
             Image(systemName: symbol)
                 .font(.body.weight(.medium))
                 .foregroundStyle(.tint)
-                .frame(width: 28)
+                .frame(width: stacked ? nil : 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                Text(summary).font(.caption).foregroundStyle(warning ? AnyShapeStyle(.dangerText) : AnyShapeStyle(.secondary)).lineLimit(1)
+                Text(summary).font(.caption).foregroundStyle(warning ? AnyShapeStyle(.dangerText) : AnyShapeStyle(.secondary)).lineLimit(stacked ? 3 : 1)
             }
         }
         .padding(.vertical, 2)
@@ -541,7 +548,7 @@ struct AboutSettingsView: View {
             HubUpdateSection().themedRow()
             SwiftUI.Section {
                 LabeledContent("Version", value: "\(SettingsView.version) (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "?"))")
-                LabeledContent("Platform", value: model.platform.rawValue)
+                LabeledContent("Platform", value: model.platform.name)
                 #if DEBUG
                 // For whoever builds the app: whether it runs with the app group, and the store's file.
                 LabeledContent("App group", value: model.config.usesAppGroup ? "yes" : "no (using standard defaults)")

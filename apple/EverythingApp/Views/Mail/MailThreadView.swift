@@ -3,16 +3,19 @@ import EACore
 
 /// An open thread: its messages oldest first, the newest and the newest few unread open, the others one tap away. A
 /// single mail opens as itself. Opening reads the thread's unread mail, on the hub and in the mailbox (its read flag
-/// only), with one request.
+/// only), with one request. On its own page on the iPhone and iPad; on the Mac in place in the list (`inline`), as on
+/// the web, where its heading closes it.
 struct MailThreadView: View {
     @ObservedObject var store: MailStore
     var id: String
     /// Snooze: the screen's snooze choices for this thread.
     var snooze: (MailThread) -> Void
-    /// The thread left (Done, Mark unread): the screen goes back to the list.
+    /// The thread left (Done, Mark unread), or its heading was pressed in place: the screen goes back to the list.
     var closed: () -> Void
     /// All mail with one person (from All with), in the list's place.
     var showPerson: ((MailAddress) -> Void)? = nil
+    /// In place in the list (the Mac): no scrolling of its own, no title, and its heading closes it.
+    var inline = false
     @Environment(\.dismiss) private var dismiss
     /// The unread messages that open by themselves: the newest few, fixed when the thread opens. Each open message is
     /// a page of its own, and a long thread opening all at once is more than a screen should carry.
@@ -26,29 +29,15 @@ struct MailThreadView: View {
         #endif
         Group {
             if let t = store.thread(id) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        header(t)
-                        actions(t)
-                        if t.state == .snoozed, let u = t.summary.snooze_until, let d = ISO.date(u) {
-                            Text("Snoozed until \(d.shortDateTime). It comes back to the top of your Inbox then; its task, called Snoozed mail, is in Tasks and Reminders.")
-                                .font(.footnote).foregroundStyle(.secondary)
-                        }
-                        // One mail or many, each is drawn the same way, so a mail (and a reply being written under it)
-                        // stays as it is when another arrives in the thread.
-                        ForEach(Array(t.members.enumerated()), id: \.element.id) { i, m in
-                            MailThreadMessage(store: store, mail: m, single: t.members.count == 1, startOpen: i == t.members.count - 1 || (openAtStart ?? []).contains(m.id))
-                            if i < t.members.count - 1 { Divider() }
-                        }
+                if inline {
+                    content(t)
+                } else {
+                    ScrollView {
+                        content(t)
+                            .padding()
+                            .frame(maxWidth: 820, alignment: .leading)
+                            .frame(maxWidth: .infinity)
                     }
-                    .padding()
-                    .frame(maxWidth: 820, alignment: .leading)
-                    .frame(maxWidth: .infinity)
-                }
-                .task(id: t.id) {
-                    if openAtStart == nil { openAtStart = Set(t.members.filter { Mail.isUnread($0) }.suffix(Mail.openUnreadMax).map(\.id)) }
-                    // Only when it opens: Mark unread must not be undone by the screen that is closing.
-                    if !t.unreadIds.isEmpty { await store.read([t], true) }
                 }
             } else {
                 MailEmpty(title: "Not here any more", text: "This mail left the place you opened it from.")
@@ -59,7 +48,29 @@ struct MailThreadView: View {
         .navigationBarTitleDisplayMode(.inline)
         .mailMoveQuestion(store)
         #endif
-        .navigationTitle(store.thread(id).map { $0.summary.subject.isEmpty ? "(no subject)" : $0.summary.subject } ?? "Mail")
+        .modifier(MailPageTitle(title: store.thread(id).map { $0.summary.subject.isEmpty ? "(no subject)" : $0.summary.subject } ?? "Mail", shown: !inline))
+    }
+
+    private func content(_ t: MailThread) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            MailOpenHeading(inline: inline, close: closed) { header(t) }
+            actions(t)
+            if t.state == .snoozed, let u = t.summary.snooze_until, let d = ISO.date(u) {
+                Text("Snoozed until \(d.shortDateTime). It comes back to the top of your Inbox then; its task, called Snoozed mail, is in Tasks and Reminders.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            // One mail or many, each is drawn the same way, so a mail (and a reply being written under it) stays as it
+            // is when another arrives in the thread.
+            ForEach(Array(t.members.enumerated()), id: \.element.id) { i, m in
+                MailThreadMessage(store: store, mail: m, single: t.members.count == 1, startOpen: i == t.members.count - 1 || (openAtStart ?? []).contains(m.id))
+                if i < t.members.count - 1 { Divider() }
+            }
+        }
+        .task(id: t.id) {
+            if openAtStart == nil { openAtStart = Set(t.members.filter { Mail.isUnread($0) }.suffix(Mail.openUnreadMax).map(\.id)) }
+            // Only when it opens: Mark unread must not be undone by the screen that is closing.
+            if !t.unreadIds.isEmpty { await store.read([t], true) }
+        }
     }
 
     private func header(_ t: MailThread) -> some View {
@@ -68,10 +79,10 @@ struct MailThreadView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(verbatim: t.summary.subject.isEmpty ? "(no subject)" : t.summary.subject)
                     .font(.title3.weight(.semibold))
-                    .textSelection(.enabled)
+                    .mailSelectable(!inline)
                 // The real address, always: a display name can say anything. A thread shows each message's below.
                 if t.members.count == 1, let m = t.members.first {
-                    Text(verbatim: "\(Mail.personLabel(m.from)) <\(m.from.address)>").font(.subheadline).textSelection(.enabled)
+                    Text(verbatim: "\(Mail.personLabel(m.from)) <\(m.from.address)>").font(.subheadline).mailSelectable(!inline)
                     Text(verbatim: ISO.date(m.at)?.shortDateTime ?? "").font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text(verbatim: t.people).font(.subheadline).foregroundStyle(.secondary)

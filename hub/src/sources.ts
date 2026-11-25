@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { nowIso, taskFilter, type Entity, type SourceList } from "@everythingapp/shared";
+import { nowIso, readTaskGroups, taskFilter, taskGroupsProblem, type Entity, type SourceList, type TaskGroup } from "@everythingapp/shared";
 import type { Hub } from "./hub.js";
 import { StoreError } from "./store.js";
 import { errCode } from "./logsafe.js";
@@ -18,6 +18,9 @@ import { errCode } from "./logsafe.js";
  * - Calendars: which Apple Calendar calendars are work, one choice for all devices. One the hub itself keeps in step
  *   from iCloud (calendar-sync.ts) cannot be work: its events would come in twice.
  * - Contacts: the one device that mirrors Apple Contacts.
+ * - Task groups (gnomecannon/aeneas#26): the owner's own groups on the Tasks screen beside Personal and Work, each a
+ *   name and the lists in it. A group is a view: it changes nothing about where a task is kept or synced. The rules
+ *   are `taskGroupsProblem` in packages/shared (taskLists.ts), the same ones the apps edit by.
  *
  * The devices say which lists and calendars they see (`PUT /prefs/sources/seen`), under a key that is the same on
  * every device (`<account kind>:<account name>/<title>`); the hub keeps that catalog, so every device shows the same
@@ -68,8 +71,9 @@ interface Stored {
   /** Devices whose own work calendar ticks were added to the set, once each. */
   moved: string[];
   contacts: { device: string | null };
+  groups: TaskGroup[];
 }
-const EMPTY: Stored = { lists: [], new_tasks: null, calendars: [], moved: [], contacts: { device: null } };
+const EMPTY: Stored = { lists: [], new_tasks: null, calendars: [], moved: [], contacts: { device: null }, groups: [] };
 
 export interface SourcesView {
   lists: Array<{ key: string; title: string; account: string; kind: SourceKind; on: boolean; space: TaskSpace; work_default: boolean; wants?: TaskSpace; was?: string[]; devices: string[] }>;
@@ -79,6 +83,8 @@ export interface SourcesView {
   /** iPhones, iPads and Macs that do not run `needs` yet: a Personal or Work choice waits for them. */
   waiting: Array<{ id: string; name: string; platform: string; version: string | null }>;
   needs: string;
+  /** The owner's task groups, in their order. */
+  groups: TaskGroup[];
 }
 
 const Key = z.string().min(3).max(300);
@@ -98,6 +104,8 @@ const Change = z.object({
   new_tasks: Key.nullable().optional(),
   calendars: z.array(z.object({ key: Key, work: z.boolean() })).max(MAX_ENTRIES).optional(),
   contacts: z.object({ device: z.string().min(1).max(64).nullable() }).optional(),
+  /** Every group, in its order: the list replaces the one kept (`taskGroupsProblem` says what it must be). */
+  groups: z.unknown().optional(),
 });
 
 const problems = (e: z.ZodError) => e.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
@@ -137,6 +145,7 @@ export class SourcesStore {
         calendars: Array.isArray(raw.calendars) ? raw.calendars : [],
         moved: Array.isArray(raw.moved) ? raw.moved.filter((x): x is string => typeof x === "string") : [],
         contacts: { device: typeof raw.contacts?.device === "string" ? raw.contacts.device : null },
+        groups: readTaskGroups(raw.groups) ?? [],
       };
     } catch (e) {
       // No file is the start. A damaged one is left on disk to mend and reads as nothing chosen, so nothing is hidden.
@@ -226,8 +235,11 @@ export class SourcesStore {
         if (!l.devices.includes(device)) l.devices.push(device);
       }
       for (const l of next.lists) if (!named.has(l.key)) l.devices = l.devices.filter((d) => d !== device);
-      next.lists = next.lists.filter((l) => l.devices.length || l.on !== undefined || l.space !== undefined || l.applied !== undefined || next.new_tasks === l.key);
-      trim(next.lists, (l) => l.on !== undefined || l.space !== undefined || l.applied !== undefined);
+      // A list in a group is a choice too: it stays known while no device has it, so the group can name it.
+      const grouped = new Set(next.groups.flatMap((g) => g.lists));
+      const chosen = (l: StoredList) => l.on !== undefined || l.space !== undefined || l.applied !== undefined || grouped.has(l.key);
+      next.lists = next.lists.filter((l) => l.devices.length || chosen(l) || next.new_tasks === l.key);
+      trim(next.lists, chosen);
     }
 
     if (given.data.calendars) {
@@ -305,6 +317,12 @@ export class SourcesStore {
         if (!d || d.kind !== "device" || d.deleted_at || !APPLE_PLATFORMS.has(String(d.fields.platform))) throw new StoreError(422, "contacts: device is an iPhone, iPad or Mac paired with this hub, or null");
       }
       next.contacts = { device: id };
+    }
+
+    if (given.data.groups !== undefined) {
+      const problem = taskGroupsProblem(given.data.groups);
+      if (problem) throw new StoreError(422, `groups: ${problem}`);
+      next.groups = readTaskGroups(given.data.groups) ?? [];
     }
     this.write(next);
   }
@@ -387,6 +405,7 @@ export function sourcesView(hub: Hub): SourcesView {
     contacts: { device: mirrorLive ? s.contacts.device : null, name: mirrorLive ? String(mirror!.fields.name ?? "") || null : null },
     waiting,
     needs: SOURCES_MIN_VERSION,
+    groups: s.groups.map((g) => ({ ...g, lists: [...g.lists] })),
   };
 }
 

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import {
-  TODAY_CARDS, TODAY_PARTS, TODAY_TOP, defaultToday, isDefaultToday, todayCardOrder, todayMove, todayWithOrder, todayWithShown,
-  type TodayCard, type TodayPart, type TodaySetting,
+  NO_LIST, TODAY_CARDS, TODAY_PARTS, TODAY_TOP, defaultToday, isDefaultToday, listChosen, todayCardOrder, todayMove, todayTodoLists,
+  todayWithOrder, todayWithShown, todayWithTodoLists, type TodayCard, type TodayPart, type TodaySetting,
 } from "@everythingapp/shared";
 import { updateFeel, useFeel } from "../../feel/store";
+import { useSourceLists, type KeptList } from "../../lib/sources";
+import { LIST_CHOOSER_TEXT, ListBoxes } from "../../components/ListChooser";
 import { SubPage } from "./common";
 
 /**
@@ -26,6 +28,12 @@ export const TODAY_TEXT = {
   usual: "Usual order",
   yours: "Your order",
   allShown: "all shown",
+  todoLists: "Lists in To do",
+  todoListsNote: "Choose which Reminders lists fill the To do card. Every device follows.",
+  allLists: "All lists",
+  chosenLists: "Only these lists",
+  noneChosen: "No lists are chosen for To do.",
+  ...LIST_CHOOSER_TEXT,
 } as const;
 
 /** Each part's name and the line under it saying what it holds; the same words as EACore `TodayText.parts`. */
@@ -47,15 +55,28 @@ export function todaySummary(s: TodaySetting): string {
 }
 
 /**
- * Theme, Today: the line at the top with its switch, then the cards in their order, each with a switch, a handle to
- * drag it by, and Move up and Move down for the keyboard. Saved to the feel setting at once, so every device follows.
+ * The line under Lists in To do: "All lists", "None", the one list's name, or how many. A list chosen that the hub no
+ * longer knows still counts.
  */
-export function TodayPartsPage() {
-  return <TodayParts saved={useFeel().today} edit={(next) => updateFeel({ today: next })} />;
+export function todoListsSummary(s: TodaySetting, lists: readonly KeptList[]): string {
+  const chosen = todayTodoLists(s);
+  if (!chosen) return TODAY_TEXT.allLists;
+  if (!chosen.length) return "None";
+  if (chosen.length > 1) return `${chosen.length} lists`;
+  return chosen[0] === NO_LIST ? TODAY_TEXT.noList : (lists.find((l) => listChosen(chosen, l))?.title ?? "1 list");
 }
 
-/** The page itself, for the setting `saved`; `edit` keeps a change. */
-export function TodayParts({ saved, edit }: { saved: TodaySetting; edit: (next: TodaySetting) => void }) {
+/**
+ * Theme, Today: the line at the top with its switch, then the cards in their order, each with a switch, a handle to
+ * drag it by, and Move up and Move down for the keyboard, then which lists fill To do. Saved to the feel setting at
+ * once, so every device follows.
+ */
+export function TodayPartsPage() {
+  return <TodayParts saved={useFeel().today} edit={(next) => updateFeel({ today: next })} lists={useSourceLists()} />;
+}
+
+/** The page itself, for the setting `saved`; `edit` keeps a change. `lists` are the Reminders lists the hub knows. */
+export function TodayParts({ saved, edit, lists = [] }: { saved: TodaySetting; edit: (next: TodaySetting) => void; lists?: readonly KeptList[] }) {
   /** The card being dragged and the order it would leave, drawn while the drag lasts. */
   const [drag, setDrag] = useState<{ card: TodayCard; order: TodayCard[] } | null>(null);
   const rows = useRef(new Map<TodayCard, HTMLLIElement>());
@@ -159,6 +180,7 @@ export function TodayParts({ saved, edit }: { saved: TodaySetting; edit: (next: 
         <ol className={`list rows today-parts${dragging ? " dragging" : ""}`} aria-labelledby="today-cards-h">{cards.map((c, i) => row(c, i))}</ol>
         <div className="muted small">{TODAY_TEXT.drag} {TODAY_TEXT.wide}</div>
       </section>
+      <TodoLists saved={saved} edit={edit} lists={lists} />
       <div className="row">
         <button
           type="button"
@@ -166,12 +188,42 @@ export function TodayParts({ saved, edit }: { saved: TodaySetting; edit: (next: 
           onClick={() => {
             if (!confirm(TODAY_TEXT.resetAsk)) return;
             setDrag(null);
-            edit(defaultToday());
+            // The parts and their order: which lists fill To do is a choice of its own, and stays.
+            edit({ ...defaultToday(), ...(saved.todo_lists !== undefined ? { todo_lists: saved.todo_lists } : {}) });
           }}
         >
           {TODAY_TEXT.reset}
         </button>
       </div>
     </SubPage>
+  );
+}
+
+/**
+ * Lists in To do (gnomecannon/aeneas#28): All lists, or Only these lists with a box for each list that is on and one for
+ * the tasks in no list (ListBoxes).
+ */
+function TodoLists({ saved, edit, lists }: { saved: TodaySetting; edit: (next: TodaySetting) => void; lists: readonly KeptList[] }) {
+  const chosen = todayTodoLists(saved);
+  return (
+    <section className="col">
+      <h2 className="settings-h" id="today-todo-h">{TODAY_TEXT.todoLists}</h2>
+      <div className="muted small">{TODAY_TEXT.todoListsNote}</div>
+      <ul className="list rows today-parts" role="radiogroup" aria-labelledby="today-todo-h">
+        <li className="item today-part">
+          <label className="today-part-label">
+            <input type="radio" name="today-todo-lists" checked={chosen === null} onChange={() => edit(todayWithTodoLists(saved, null))} />
+            <span className="body"><span className="t">{TODAY_TEXT.allLists}</span></span>
+          </label>
+        </li>
+        <li className="item today-part">
+          <label className="today-part-label">
+            <input type="radio" name="today-todo-lists" checked={chosen !== null} onChange={() => edit(todayWithTodoLists(saved, chosen ?? []))} />
+            <span className="body"><span className="t">{TODAY_TEXT.chosenLists}</span></span>
+          </label>
+        </li>
+      </ul>
+      {chosen !== null && <ListBoxes chosen={chosen} lists={lists} label={TODAY_TEXT.chosenLists} onChange={(next) => edit(todayWithTodoLists(saved, next))} />}
+    </section>
   );
 }

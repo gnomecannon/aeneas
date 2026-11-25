@@ -63,12 +63,32 @@ order, the same on every device:
   after it, or under the card before it when it is last. It still shows only when it has something to watch.
 - With every card hidden, Today says so, with Edit Today to bring them back. Reset puts every part back, in the order
   above.
+- **Lists in To do** chooses which Apple Reminders lists fill the To do card: All lists, or Only these lists with a box
+  for each list that is on and one for No list (tasks made in Aeneas that are in no Reminders list). To do then shows
+  the task you are doing or the next one, and your other open tasks, from those lists only. Reset leaves this choice
+  as it is.
 
 ## Now
 
 Now shows the one task you are doing, or the first one in Next, with Done, Set aside, Skip and Start block. When
 nothing is being done it lists your open tasks, each with Start. On a wide window, what is due today and what is up
 next sit beside the task.
+
+## Week
+
+Week is your calendar, laid out the way Apple's Calendar app does it:
+
+- **Day, Week, Month, Year** at the top choose the view. Week is the plan as it always was: the hours of each day with
+  your blocks, events and free time (on a phone, a strip of days and the chosen day's plan). Day is one day of that.
+  Month shows each day's events (titles on a wide window or the Mac, dots on a phone); tap a day to open it. Year shows
+  twelve small months; tap one to open it. Each device remembers the view you used last.
+- **The arrows** move back and forward a day, a week, a month or a year, and **Today** comes back to today.
+- **Search** finds events by their title and place, on every date your devices have, grouped by day: today and later
+  first, then Earlier. Tap one to open it.
+- **Calendars** lists the calendars your events come from, by account, with their colors. Untick one to hide its events
+  in Week (every view and search); tick it to bring them back. Show all ticks them all. The choice is the same on every
+  device. Today, your free time and the assistant still count those events. Events made in Aeneas on no calendar are
+  listed as Made in Aeneas.
 
 ## Tasks
 
@@ -80,6 +100,11 @@ next sit beside the task.
 - **Personal and Work**: Work holds tasks you add under Work, tasks from work Reminders accounts (Exchange, or one
   named after your work email's domain) and captures that start with "work:". Everything else is Personal. Move to
   Work or Move to Personal in a task's edit changes it; a task from a work Reminders account stays in Work.
+- **Groups**: beside Personal and Work you can make your own groups, like School. New group, beside the selector at
+  the top of Tasks, asks for a name and which Reminders lists are in it (and No list, for tasks made in Aeneas). The
+  group then shows the tasks of those lists, from Personal and Work alike. Edit group renames it, changes its lists or
+  deletes it. A group only changes what Tasks shows: its tasks stay where they are kept and sync as before. Groups
+  are the same on every device.
 
 ## Wide windows
 
@@ -287,17 +312,23 @@ These are in every app, the web, Windows and Android apps and the iPhone, iPad a
   own also does it after each refresh). Its lines are kept a week. The switch under the Mail screen's "i" turns it
   off and erases them. It can be wrong.
 - **Unsubscribe and Block sender.** Unsubscribe uses the mail's own unsubscribe address, through Tor when your hub
-  has Tor; without Tor it asks first, because the sender then sees your home's internet address. Block sender moves
+  has Tor; without Tor it asks first, because the sender then sees your home's internet address. When the mail gives
+  only an address to write to, Send the unsubscribe mail shows the whole mail (it says unsubscribe), then sends it
+  like any mail you send, with 10 seconds of Undo; a mailbox that cannot send saves it to Drafts. Block sender moves
   a sender's mail to Spam now and whenever more arrives. You can block one address, or a whole domain that is the
   sender's own (not one like gmail.com that many people use).
 
 On every device:
 
-- **On the iPhone, iPad and Mac** the title is the menu of places (Inbox, Snoozed, Done, each bundle). Swipe a mail
-  for Done, Snooze, Pin and Mark read, or touch and hold it for the rest; Select (in the menu at the top right) picks
-  several. Pull the list down to refresh. A mail's page shows in a view where nothing in it runs or loads, and a
-  link in it opens in your browser. On the Mac the open mail shows beside the list, and an iPad or Mac keyboard has
-  the same letters as the web (Mailboxes and settings lists them).
+- **On the iPhone and iPad** the title is the menu of places (Inbox, Snoozed, Done, each bundle). Swipe a mail for
+  Done, Snooze, Pin and Mark read, or touch and hold it for the rest; Select (in the menu at the top right) picks
+  several. Pull the list down to refresh. An iPad keyboard has the same letters as the web (Keyboard keys, in the
+  menu at the top right, lists them).
+- **On the Mac** the Mail screen is the web's: the places are in the side list, and a mail opens in place in the
+  list, in one column; click its heading, or press Esc, to close it. New mail opens its box at the top of the list.
+  Point at a mail for Pin, Snooze and Done, or Control-click it for the rest; Command-click or Shift-click selects
+  several. The keyboard has the web's keys (Keyboard keys, in the side list, lists them).
+- A mail's page shows in a view where nothing in it runs or loads, and a link in it opens in your browser.
 - The mail is kept on the hub only: the Inbox's while it is there (done mail for 30 days) and the other folders'
   newest mail, never in a backup, and the assistant cannot read it. Unlinking a mailbox or switching the module off
   deletes it from the hub at once.
@@ -305,9 +336,10 @@ On every device:
   sender sees neither your device nor your home's internet address, nor whether you opened it. A hub without Tor
   fetches no picture until you press Show pictures on a mail; that mail's sender then sees your home's internet
   address. Pictures a mail hides in order to track you are never fetched.
-- **Colors.** The bar across the top is the color of where you are (Inbox, Snoozed, Done or a bundle), and those
-  colors are the same in every theme, so a color always means the same bundle. The list itself follows your theme
-  (Settings, Theme): the page and each mail take the theme's own page and card colors.
+- **Colors.** The bar across the top (on the iPhone and iPad the title, on the Mac the side list) is the color of
+  where you are (Inbox, Snoozed, Done or a bundle), and those colors are the same in every theme, so a color always
+  means the same bundle. The list itself follows your theme (Settings, Theme): the page and each mail take the
+  theme's own page and card colors.
 
 Linking a mailbox:
 

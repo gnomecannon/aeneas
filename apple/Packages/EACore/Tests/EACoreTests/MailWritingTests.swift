@@ -364,6 +364,81 @@ final class MailWritingTests: XCTestCase {
         XCTAssertEqual(Mail.keys.last?.does, "Show these keys")
     }
 
+    // MARK: The rows on the screen, where mail opens in place (the Mac, as the web; gnomecannon/aeneas#29)
+
+    private var rowsNow: Date { cal.date(from: DateComponents(year: 2026, month: 11, day: 19, hour: 15))! }
+    private func rowsDay(_ h: Int) -> String { ISO.string(cal.date(from: DateComponents(year: 2026, month: 11, day: 19, hour: h))!) }
+    private var rowThreads: [MailThread] {
+        func s(_ id: String, _ h: Int, bundle: String? = nil, state: MailState = .inbox, until: Int? = nil) -> MailSummary {
+            MailSummary(id: id, at: rowsDay(h), from: MailAddress(name: "Alex", address: "alex@example.com"), subject: id, automated: bundle != nil, bundle: bundle, state: state,
+                        snooze_until: until.map { rowsDay($0) })
+        }
+        return Mail.threads([s("alex", 10), s("order", 9, bundle: "purchases"), s("receipt", 8, bundle: "purchases"), s("snoozed", 9, state: .snoozed, until: 18), s("done", 9, state: .done)])
+    }
+    private func rowsInbox(_ open: Set<String> = [], searching: Bool = false) -> Mail.ShownList {
+        let shown = Mail.shownBundles(on: { _ in true })
+        let ts = rowThreads
+        let due = searching ? [] : [Mail.DueReminder(id: "task1", title: "Call the plumber", at: rowsNow, friction: "none")]
+        return .inbox(back: searching ? [] : Mail.backLaterToday(ts, now: rowsNow, calendar: cal), reminders: due,
+                      sections: Mail.inboxSections(ts, shown: shown, now: rowsNow, calendar: cal), openBundles: open)
+    }
+
+    func testWalksTheInboxAsItIsDrawnBackLaterTodayTheRemindersEachMailABundlesRowAndItsMailOnlyWhileOpen() {
+        XCTAssertEqual(Mail.screenRows(rowsInbox()), ["snoozed", Mail.reminderRow("task1"), "alex", "bundle:Today:purchases"])
+        XCTAssertEqual(Mail.screenRows(rowsInbox(["Today:purchases"])), ["snoozed", Mail.reminderRow("task1"), "alex", "bundle:Today:purchases", "order", "receipt"])
+        // While searching there is the mail itself and nothing else; the search's hits follow it.
+        XCTAssertEqual(Mail.screenRows(rowsInbox(searching: true), hits: ["alex", "h2"]), ["alex", "bundle:Today:purchases", Mail.hitRow("alex"), Mail.hitRow("h2")])
+        // A folder's view lists none of the Inbox's threads.
+        let folder = Mail.screenRows(.folder(["f1", "f2"]))
+        XCTAssertEqual(folder, [Mail.folderRow("f1"), Mail.folderRow("f2")])
+        XCTAssertTrue(rowThreads.allSatisfy { !folder.contains($0.key) })
+    }
+
+    func testWalksAFlatViewAsItIsDrawnAndATripsMailOnceWhereItsFirstPieceIs() {
+        let shown = Mail.shownBundles(on: { _ in true })
+        let done = Mail.flatScreen(Mail.viewMessages(rowThreads, view: .done, shown: shown), bundle: nil)
+        XCTAssertEqual(Mail.screenRows(.flat(trips: done.trips, rest: done.rest)), ["done"])
+        let both = trip("both", [MailCard(kind: "flight", to: "JFK", at: local(3, 8)), MailCard(kind: "flight", to: "SFO", at: local(6, 10))])
+        let hotel = trip("hotel", [MailCard(kind: "stay", title: "Harbor Inn", at: "2026-12-03", until: "2026-12-06")])
+        let other = trip("other", [])
+        let flat = Mail.flatScreen(Mail.threads([other, hotel, both]), bundle: "trips", now: tripNow, calendar: cal)
+        XCTAssertEqual(flat.trips.map { $0.parts.map(\.mail.key) }, [["both", "hotel", "both"]])
+        XCTAssertEqual(Mail.screenRows(.flat(trips: flat.trips, rest: flat.rest)), ["both", "hotel", "other"])
+    }
+
+    func testAKeyActsOnTheSelectionElseTheOpenMailElseTheHighlightedRowNeverOneOutOfSight() {
+        let rows = Mail.screenRows(rowsInbox())
+        XCTAssertEqual(Mail.keyTarget(rows, selected: ["alex", "order"], open: "snoozed", cursor: "snoozed"), ["alex"])
+        XCTAssertEqual(Mail.keyTarget(rows, selected: [], open: "alex", cursor: "snoozed"), ["alex"])
+        XCTAssertEqual(Mail.keyTarget(rows, selected: [], open: nil, cursor: "snoozed"), ["snoozed"])
+        XCTAssertEqual(Mail.keyTarget(rows, selected: [], open: nil, cursor: nil), [])
+        // An Inbox thread highlighted, opened or selected, then a folder took the list's place.
+        let folder = Mail.screenRows(.folder(["f1"]))
+        XCTAssertEqual(Mail.keyTarget(folder, selected: ["alex"], open: "alex", cursor: "alex"), [])
+        XCTAssertEqual(Mail.keyTarget(folder, selected: [], open: nil, cursor: Mail.folderRow("f1")), [Mail.folderRow("f1")])
+        // All mail with a person: only its hits are there, and a hit is not the thread of the same mail.
+        let person = Mail.screenRows(.none, hits: ["alex", "h2"])
+        XCTAssertEqual(person, [Mail.hitRow("alex"), Mail.hitRow("h2")])
+        XCTAssertEqual(Mail.keyTarget(person, selected: ["alex"], open: "alex", cursor: "alex"), [])
+        // A mail in a bundle that was closed again is out of sight.
+        XCTAssertEqual(Mail.keyTarget(rows, selected: ["order"], open: "order", cursor: "order"), [])
+        XCTAssertEqual(Mail.keyTarget(Mail.screenRows(rowsInbox(["Today:purchases"])), selected: ["order"], open: nil, cursor: nil), ["order"])
+    }
+
+    func testAKeyDoesOnlyWhatAppliesToTheRow() {
+        let acts: [Mail.Key] = [.done, .snooze, .pin, .unread, .read, .delete, .spam]
+        XCTAssertEqual(["alex", "bundle:Today:purchases", Mail.reminderRow("task1"), Mail.folderRow("f1"), Mail.hitRow("alex")].map(Mail.rowKind), [.thread, .bundle, .reminder, .folder, .hit])
+        XCTAssertEqual(acts.filter { Mail.rowTakes(.thread, $0) }, acts)
+        XCTAssertEqual(acts.filter { Mail.rowTakes(.hit, $0) }, [])
+        XCTAssertEqual(acts.filter { Mail.rowTakes(.bundle, $0) }, [])
+        XCTAssertEqual(acts.filter { Mail.rowTakes(.reminder, $0) }, [.done, .snooze])
+        // A folder's mail: Delete, and only where it can be undone.
+        XCTAssertEqual([MailFolderRole.junk, .own, .trash, .sent, .drafts].map { r in acts.filter { Mail.rowTakes(.folder, $0, folder: r) } }, [[.delete], [.delete], [], [], []])
+        // The keys list where mail opens in place is the web's, with Space and Esc closing the open thread.
+        XCTAssertEqual(Mail.keysInPlace.map(\.does).filter { $0.hasPrefix("Close the open") || $0.hasPrefix("Select or unselect") }.count, 2)
+        XCTAssertEqual(Mail.keysInPlace.last?.does, "Show these keys")
+    }
+
     // MARK: Cards and trips
 
     func testSaysACardsFactsInOneLine() {

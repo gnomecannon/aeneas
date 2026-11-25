@@ -952,6 +952,104 @@ public enum Mail {
         default: return nil
         }
     }
+
+    /// The keys where a mail opens in place in the list (the Mac since 2026-11-24, gnomecannon/aeneas#29, as the web):
+    /// the web's MAIL_KEYS, in the Mac's names. The arrows walk the rows (`screenRows`), Return opens one in place, Esc
+    /// closes it, and the letters act on the selection, else the open mail, else the highlighted row (`keyTarget`).
+    public static let keysInPlace: [(keys: String, does: String)] = [
+        ("\u{2191} \u{2193}", "Previous / next row"),
+        ("Shift + \u{2191} \u{2193}", "Select while moving"),
+        ("Return", "Open the thread, or open or close a bundle"),
+        ("Esc", "Close the open thread, then clear the selection"),
+        ("Space", "Select or unselect the row"),
+        ("D", "Done (Move to Inbox in Done)"),
+        ("S", "Snooze"),
+        ("P", "Pin or unpin"),
+        ("U / R", "Mark unread / read"),
+        ("Delete", "Delete (moves it to Trash)"),
+        ("!", "Spam (moves it to Spam)"),
+        ("/", "Search mail"),
+        ("?", "Show these keys"),
+    ]
+
+    // MARK: The rows on the screen: what the arrow keys walk, and what a key may act on (where mail opens in place)
+
+    /// A row's kind, read from the id the screen knows it by: a thread (its `key`), a bundle's row (`bundle:<day>:<id>`),
+    /// a due reminder (`rem:<task>`), a folder's mail (`folder:<id>`) or a search hit (`hit:<id>`), as on the web
+    /// (web/src/lib/mail.ts rowKind). A mail's id and a thread's are hex, so none of them starts like another kind.
+    public enum RowKind: String, Sendable { case thread, bundle, reminder, folder, hit }
+    public static func rowKind(_ id: String) -> RowKind {
+        id.hasPrefix("bundle:") ? .bundle : id.hasPrefix("rem:") ? .reminder : id.hasPrefix("folder:") ? .folder : id.hasPrefix("hit:") ? .hit : .thread
+    }
+    public static func bundleRow(day: String, bundle: String) -> String { "bundle:\(day):\(bundle)" }
+    public static func reminderRow(_ task: String) -> String { "rem:\(task)" }
+    public static func folderRow(_ id: String) -> String { "folder:\(id)" }
+    public static func hitRow(_ id: String) -> String { "hit:\(id)" }
+
+    /// What the list part of the screen shows: nothing of its own (not loaded yet, no mailbox, or all mail with one
+    /// person, which is only search hits), a folder's mail (by id), the Inbox as drawn (snoozed mail back later today,
+    /// the due reminders leading the first day, the days; `openBundles`: the bundle rows open, as `<day>:<bundle>`), or
+    /// a flat view (Snoozed, Done, a bundle: its trips, then the rest).
+    public enum ShownList {
+        case none
+        case folder([String])
+        case inbox(back: [MailThread], reminders: [DueReminder], sections: [DaySection<MailThread>], openBundles: Set<String>)
+        case flat(trips: [Trip<MailThread>], rest: [MailThread])
+    }
+
+    /// Every row on the screen, top to bottom, by the id the screen knows it by: the list's own rows, then the search
+    /// hits listed under it (`hits`, by mail id). A bundle's mail is on the screen only while the bundle is open; a mail
+    /// in a trip's box is there once, where its first piece is (web/src/lib/mail.ts screenRows).
+    public static func screenRows(_ list: ShownList, hits: [String] = []) -> [String] {
+        var out: [String] = []
+        switch list {
+        case .none: break
+        case .folder(let ids): out += ids.map(folderRow)
+        case .flat(let trips, let rest):
+            for t in trips { for p in t.parts where !out.contains(p.mail.key) { out.append(p.mail.key) } }
+            out += rest.map(\.key)
+        case .inbox(let back, let reminders, let sections, let openBundles):
+            out += back.map(\.key)
+            for (i, s) in sections.enumerated() {
+                if i == 0 { out += reminders.map { reminderRow($0.id) } }
+                for r in s.rows {
+                    switch r {
+                    case .mail(let t): out.append(t.key)
+                    case .bundle(let b, let ms):
+                        out.append(bundleRow(day: s.title, bundle: b.id))
+                        if openBundles.contains("\(s.title):\(b.id)") { out += ms.map(\.key) }
+                    }
+                }
+            }
+        }
+        return out + hits.map(hitRow)
+    }
+
+    /// The rows a key acts on (D, S, P, U, R, Delete, !): the selected threads; else the open mail; else the highlighted
+    /// row. Only rows on the screen now (`rows`) count: a selection, an open mail or a highlight left over from another
+    /// view, a closed bundle or a search is never acted on (web/src/lib/mail.ts keyTarget).
+    public static func keyTarget(_ rows: [String], selected: Set<String>, open: String?, cursor: String?) -> [String] {
+        let picked = rows.filter { selected.contains($0) && rowKind($0) == .thread }
+        if !picked.isEmpty { return picked }
+        if let open, rows.contains(open) { return [open] }
+        if let cursor, rows.contains(cursor) { return [cursor] }
+        return []
+    }
+
+    /// Whether a key's action applies to a row of this kind: all of them to a thread; Done and Snooze to a reminder;
+    /// Delete to a folder's mail, and only where it can be undone (`folder`: its folder's part; so not in Trash, Sent or
+    /// Drafts); none to a bundle's row or a search hit, which only open (web/src/lib/mail.ts rowTakes).
+    public static func rowTakes(_ kind: RowKind, _ key: Key, folder: MailFolderRole? = nil) -> Bool {
+        switch kind {
+        case .thread: return [.done, .snooze, .pin, .unread, .read, .delete, .spam].contains(key)
+        case .reminder: return key == .done || key == .snooze
+        case .folder:
+            guard key == .delete, let folder else { return false }
+            let can = folderActs(folder)
+            return can.trash && can.undo
+        case .bundle, .hit: return false
+        }
+    }
 }
 
 /// Host names in another alphabet's letters as a browser reads them (RFC 3492 Punycode, `xn--`), so a look-alike

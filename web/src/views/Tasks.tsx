@@ -1,7 +1,9 @@
 import { plainError } from "../lib/errors";
 import { useCallback, useEffect, useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
-import type { Entity } from "@everythingapp/shared";
-import { completeTaskPatch, reopenTaskPatch, restoreTaskPatch, taskAlertAt, undoPatch } from "@everythingapp/shared";
+import type { Entity, TaskGroup } from "@everythingapp/shared";
+import { NO_LIST as NO_LIST_KEY, completeTaskPatch, listChosen, reopenTaskPatch, restoreTaskPatch, taskAlertAt, taskInLists, undoPatch } from "@everythingapp/shared";
+import { useSourceLists, useTaskGroups } from "../lib/sources";
+import { TASK_GROUP_TEXT, TaskGroupEditor } from "../components/TaskGroupEditor";
 import { useEntities } from "../sync/hooks";
 import { createEntity, updateEntity, softDelete, moveToSpace } from "../sync/edits";
 import { engine } from "../sync/engine";
@@ -85,12 +87,29 @@ function writePref(key: string, v: string) {
   }
 }
 
+/**
+ * Tasks by status. The selector at the top shows Personal, Work (while the work space is on) or one of the owner's
+ * groups (gnomecannon/aeneas#26): a group shows the tasks of the lists in it, from both spaces, and changes nothing
+ * about where they are kept. New group and Edit group beside it make and change them for every device.
+ */
 export function Tasks({ focus }: { focus?: string | null } = {}) {
   const allTasks = useEntities("task");
+  const taskGroups = useTaskGroups();
+  const sourceLists = useSourceLists();
+  /** "personal", "work" or "group:<id>". */
   const [spacePref, setSpacePref] = useState(() => readPref("ea.tasks.space", "personal"));
   const [listFilter, setListFilter] = useState(() => readPref("ea.tasks.list", ""));
+  // Whether the hub's work space is on (Settings, Accounts, Work); offline, whether any work task is here.
+  const [workOn, setWorkOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    engine.client?.workSpace().then((w) => setWorkOn(w.enabled), () => setWorkOn(null));
+  }, []);
   const hasWork = allTasks.some((t) => t.space === "work");
-  const space = hasWork && spacePref === "work" ? "work" : "personal";
+  const workShown = workOn ?? hasWork;
+  // A group deleted on another device leaves Personal showing.
+  const group = spacePref.startsWith("group:") ? taskGroups.find((g) => `group:${g.id}` === spacePref) ?? null : null;
+  const space = !group && workShown && spacePref === "work" ? "work" : "personal";
+  const [editingGroup, setEditingGroup] = useState<{ group: TaskGroup | null } | null>(null);
   const chooseSpace = (v: string) => {
     setSpacePref(v);
     writePref("ea.tasks.space", v);
@@ -101,8 +120,14 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
     setListFilter(v);
     writePref("ea.tasks.list", v);
   };
-  const inSpace = useMemo(() => allTasks.filter((t) => t.space === space), [allTasks, space]);
-  const listTitles = useMemo(() => [...new Set(inSpace.map(listOf).filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b)), [inSpace]);
+  const inGroup = useMemo(() => (group ? taskInLists(group.lists, sourceLists) : null), [group, sourceLists]);
+  const inSpace = useMemo(() => allTasks.filter((t) => (inGroup ? inGroup(t.fields) : t.space === space)), [allTasks, space, inGroup]);
+  // In a group: its lists that are on, with tasks or not.
+  const groupLists = useMemo(() => (group ? sourceLists.filter((l) => l.on && listChosen(group.lists, l)) : []), [group, sourceLists]);
+  const listTitles = useMemo(
+    () => [...new Set([...groupLists.map((l) => l.title), ...inSpace.map(listOf).filter((x): x is string => !!x)])].sort((a, b) => a.localeCompare(b)),
+    [inSpace, groupLists],
+  );
   // A focused task (from a link) is shown even when it is outside the chosen list.
   const tasks = useMemo(
     () => inSpace.filter((t) => t.id === focus || listFilter === "" || (listFilter === NO_LIST ? !listOf(t) : listOf(t) === listFilter)),
@@ -110,7 +135,12 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
   );
   const openIn = (match: (t: Entity) => boolean) => inSpace.filter((t) => t.fields.status !== "done" && match(t)).length;
   const looseCount = openIn((t) => !listOf(t));
-  const newList = listFilter && listFilter !== NO_LIST ? listFilter : null;
+  // Where a new task goes: the list chosen below. In a group with All chosen, nowhere when the group holds the tasks in
+  // no list, else its first list, so the task shows in the group; its space is that list's.
+  const newList = listFilter && listFilter !== NO_LIST
+    ? listFilter
+    : group && !listFilter && !group.lists.includes(NO_LIST_KEY) ? (groupLists.map((l) => l.title).sort((a, b) => a.localeCompare(b))[0] ?? null) : null;
+  const newSpace = group ? (groupLists.find((l) => l.title === newList)?.space ?? "personal") : space;
   const projects = useEntities("project", (e) => e.fields.status !== "done");
   const projectName = useMemo(() => new Map(projects.map((p) => [p.id, String(p.fields.name)])), [projects]);
   const [title, setTitle] = useState("");
@@ -126,12 +156,7 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
     const h = setTimeout(() => setUndo(null), 10_000);
     return () => clearTimeout(h);
   }, [undo]);
-  // Whether the hub's work space is on (Settings, Calendar and work); offline, whether any work task is here.
-  const [workOn, setWorkOn] = useState<boolean | null>(null);
-  useEffect(() => {
-    engine.client?.workSpace().then((w) => setWorkOn(w.enabled), () => setWorkOn(null));
-  }, []);
-  const canMove = workOn ?? hasWork;
+  const canMove = workShown;
 
   useEffect(() => {
     if (!focus) return;
@@ -164,11 +189,11 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
     const inList = newList ? { apple: { id: "", list: "", list_title: newList } } : {};
     if (at) {
       // With a reminder time it waits in Scheduled and notifies then, instead of joining Next.
-      await createEntity("task", { title: t, status: "scheduled", order: Date.now(), remind_at: at, friction: "none", ...inList }, space);
+      await createEntity("task", { title: t, status: "scheduled", order: Date.now(), remind_at: at, friction: "none", ...inList }, newSpace);
     } else {
       const nextOnes = allTasks.filter((x) => x.fields.status === "next");
       const maxOrder = Math.max(0, ...nextOnes.map((x) => x.fields.order as number));
-      await createEntity("task", { title: t, status: "next", order: maxOrder + 1, ...inList }, space);
+      await createEntity("task", { title: t, status: "next", order: maxOrder + 1, ...inList }, newSpace);
     }
     setTitle("");
     setRemindAt("");
@@ -281,6 +306,9 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
       : {};
 
   const nextCount = tasks.filter((x) => x.fields.status === "next").length;
+  // Personal, Work while it is on, and each group; New group once there are lists to put in one.
+  const choices = 1 + (workShown ? 1 : 0) + taskGroups.length;
+  const canGroup = taskGroups.length > 0 || sourceLists.some((l) => l.on);
 
   const renderTask = (t: Entity) => {
     const f = t.fields as TaskF;
@@ -508,14 +536,39 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
     <div>
       <span className="title-row"><h1 style={{ margin: 0 }}>Tasks</h1><CsvButton kind="task" /></span>
       <div className="task-scope">
-        {hasWork && (
-          <div className="seg" role="tablist" aria-label="Space">
-            {(["personal", "work"] as const).map((v) => (
-              <button key={v} type="button" role="tab" aria-selected={space === v} className={space === v ? "on" : ""} onClick={() => chooseSpace(v)}>
-                {v === "personal" ? "Personal" : "Work"}
+        {(choices > 1 || canGroup) && (
+          <div className="scope-row">
+            {choices > 1 && (
+              <div className="seg" role="tablist" aria-label={TASK_GROUP_TEXT.show}>
+                <ScopeTab title={TASK_GROUP_TEXT.personal} on={!group && space === "personal"} onClick={() => chooseSpace("personal")} />
+                {workShown && <ScopeTab title={TASK_GROUP_TEXT.work} on={!group && space === "work"} onClick={() => chooseSpace("work")} />}
+                {taskGroups.map((g) => <ScopeTab key={g.id} title={g.name} on={group?.id === g.id} onClick={() => chooseSpace(`group:${g.id}`)} />)}
+              </div>
+            )}
+            {canGroup && (
+              <button type="button" className="small ghost" onClick={() => setEditingGroup({ group: null })} aria-expanded={editingGroup?.group === null}>
+                {TASK_GROUP_TEXT.newGroup}
               </button>
-            ))}
+            )}
+            {group && (
+              <button type="button" className="small ghost" onClick={() => setEditingGroup({ group })} aria-expanded={editingGroup?.group?.id === group.id}>
+                {TASK_GROUP_TEXT.editGroup}
+              </button>
+            )}
           </div>
+        )}
+        {editingGroup && (
+          <TaskGroupEditor
+            key={editingGroup.group?.id ?? "new"}
+            group={editingGroup.group}
+            groups={taskGroups}
+            lists={sourceLists}
+            onDone={(saved) => {
+              setEditingGroup(null);
+              if (saved) chooseSpace(`group:${saved.id}`);
+              else if (saved === null) chooseSpace("personal");
+            }}
+          />
         )}
         {listTitles.length > 0 && (
           <div className="list-chips" role="tablist" aria-label="Lists">
@@ -527,7 +580,9 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
           </div>
         )}
       </div>
-      {hasWork && (
+      {group ? (
+        <div className="muted small">{TASK_GROUP_TEXT.note}</div>
+      ) : workShown && (
         <div className="muted small">Work holds tasks you add under Work, tasks from work Reminders accounts and captures that start with "work:". The rest are Personal. To move one, open it with edit.</div>
       )}
       <form
@@ -543,7 +598,7 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
           Add
         </button>
       </form>
-      {!tasks.length && <div className="empty">No tasks.</div>}
+      {!tasks.length && <div className="empty">{group && !group.lists.length ? TASK_GROUP_TEXT.empty : "No tasks."}</div>}
       {nextCount > 1 && <div className="muted small">Reorder next with the arrows, by dragging, or with Alt+Up and Alt+Down on a row.</div>}
       {groups.map((g) => (
         <section key={g.s} style={{ marginTop: 16 }}>
@@ -566,6 +621,14 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
         </div>
       )}
     </div>
+  );
+}
+
+function ScopeTab({ title, on, onClick }: { title: string; on: boolean; onClick: () => void }) {
+  return (
+    <button type="button" role="tab" aria-selected={on} className={on ? "on" : ""} onClick={onClick}>
+      {title}
+    </button>
   );
 }
 

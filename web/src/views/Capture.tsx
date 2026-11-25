@@ -170,8 +170,9 @@ export function Capture({ mini = false }: { mini?: boolean }) {
       )}
       </div>
       {!mini && (
-        <aside className="card capture-today" aria-label="Today so far">
-          <h2>Today so far {diary && <a href={`#/notes/${diary.id}`} className="small">Open today's diary</a>}</h2>
+        <aside className="card capture-today" aria-label="Captured today">
+          {/* "Captured today", as the Apple apps call it: Today's own "Today so far" card also lists what was done and logged. */}
+          <h2>Captured today {diary && <a href={`#/notes/${diary.id}`} className="small">Open today's diary</a>}</h2>
           {said.length > 0 ? (
             <ol className="sofar-list">
               {said.map((r) => (
@@ -182,7 +183,7 @@ export function Capture({ mini = false }: { mini?: boolean }) {
               ))}
             </ol>
           ) : (
-            <p className="muted small" style={{ margin: 0 }}>Nothing captured yet today.</p>
+            <p className="muted small" style={{ margin: 0 }}>Nothing captured today yet.</p>
           )}
         </aside>
       )}

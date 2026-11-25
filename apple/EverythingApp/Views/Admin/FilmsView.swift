@@ -63,7 +63,7 @@ struct FilmsView: View {
 
     private var orderPicker: some View {
         Picker("Order", selection: $sort) { ForEach(FilmSort.allCases) { Text($0.rawValue).tag($0) } }
-            .pickerStyle(.segmented)
+            .segmentedOrMenu()
     }
 
     var body: some View {

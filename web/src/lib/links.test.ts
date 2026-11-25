@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { kindLabel, platformLabel } from "./links";
+import { captureSourceLabel, kindLabel, platformLabel } from "./links";
 
 describe("plain names for Status and Devices", () => {
   it("kinds as people say them", () => {
@@ -13,5 +13,12 @@ describe("plain names for Status and Devices", () => {
     expect(platformLabel("windows")).toBe("Windows");
     expect(platformLabel("web")).toBe("Web");
     expect(platformLabel("plan9")).toBe("plan9");
+  });
+  it("where a capture came from, as people say it", () => {
+    expect(captureSourceLabel("iphone")).toBe("iPhone");
+    expect(captureSourceLabel("watch")).toBe("Watch");
+    expect(captureSourceLabel("shortcut")).toBe("Shortcut");
+    expect(captureSourceLabel("api")).toBe("API");
+    expect(captureSourceLabel("newthing")).toBe("newthing");
   });
 });

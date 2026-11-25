@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_TODAY, TODAY_PARTS } from "@everythingapp/shared";
-import { TODAY_PART_TEXT, TODAY_TEXT, todaySummary } from "../views/settings/TodayParts";
+import { TODAY_PART_TEXT, TODAY_TEXT, todaySummary, todoListsSummary } from "../views/settings/TodayParts";
+import { choosableLists } from "../components/ListChooser";
 import { cleanPatch, viewFrom } from "../feel/prefs";
 
 const swift = fs.readFileSync(path.join(__dirname, "../../../apple/Packages/EACore/Sources/EACore/TodayParts.swift"), "utf8");
@@ -59,5 +60,51 @@ describe("Theme, Today page", () => {
     expect(custom.match(/type="checkbox" checked=""/g)).toHaveLength(TODAY_PARTS.length - 2);
     expect(custom.match(/class="item today-part off"/g)).toHaveLength(2);
     expect(custom).toMatch(/<button type="button">Reset<\/button>/);
+  });
+});
+
+describe("Theme, Today, Lists in To do", () => {
+  const TODO = { key: "icloud:iCloud/To-Do", title: "To-Do", on: true, account: "iCloud", kind: "icloud", space: "personal" as const };
+  const SHOP = { key: "icloud:iCloud/Shopping", title: "Shopping", on: true, account: "iCloud", kind: "icloud", space: "personal" as const };
+  const HOMEWORK = { key: "exchange:/Homework", title: "Homework", on: true, account: "", kind: "exchange", space: "work" as const };
+  const OFF = { key: "caldav:Google/Errands", title: "Errands", on: false, account: "Google", kind: "caldav" };
+
+  it("sums the choice up in one line, as the Apple apps do", () => {
+    const lists = [TODO, SHOP];
+    expect(todoListsSummary(DEFAULT_TODAY, lists)).toBe("All lists");
+    expect(todoListsSummary({ ...DEFAULT_TODAY, todo_lists: null }, lists)).toBe("All lists");
+    expect(todoListsSummary({ ...DEFAULT_TODAY, todo_lists: [] }, lists)).toBe("None");
+    expect(todoListsSummary({ ...DEFAULT_TODAY, todo_lists: [TODO.key] }, lists)).toBe("To-Do");
+    expect(todoListsSummary({ ...DEFAULT_TODAY, todo_lists: ["none"] }, lists)).toBe("No list");
+    expect(todoListsSummary({ ...DEFAULT_TODAY, todo_lists: ["icloud:iCloud/Gone"] }, lists)).toBe("1 list");
+    expect(todoListsSummary({ ...DEFAULT_TODAY, todo_lists: [TODO.key, "none"] }, lists)).toBe("2 lists");
+    for (const w of ["None", "lists", "1 list"]) expect(swift).toContain(w);
+  });
+
+  it("offers the lists that are on, by account and name", () => {
+    expect(choosableLists([SHOP, OFF, TODO, HOMEWORK]).map((l) => l.title)).toEqual(["Homework", "Shopping", "To-Do"]);
+  });
+
+  it("draws All lists, or a box for each list that is on and one for tasks in no list", async () => {
+    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { TodayParts } = await import("../views/settings/TodayParts");
+    const page = (saved: typeof DEFAULT_TODAY) => renderToStaticMarkup(createElement(TodayParts, { saved, edit: () => {}, lists: [TODO, SHOP, HOMEWORK, OFF] }));
+    const all = page(DEFAULT_TODAY);
+    expect(all).toContain(TODAY_TEXT.todoLists);
+    expect(all.match(/type="radio"/g)).toHaveLength(2);
+    expect(all).toMatch(/type="radio" name="today-todo-lists" checked=""\/><span class="body"><span class="t">All lists/);
+    expect(all).not.toContain("Shopping");
+    const only = page({ ...DEFAULT_TODAY, todo_lists: [TODO.key, "none"] });
+    expect(only).toMatch(/type="radio" name="today-todo-lists" checked=""\/><span class="body"><span class="t">Only these lists/);
+    expect(only).toContain('<span class="t">Shopping</span><span class="meta">iCloud</span>');
+    expect(only).toContain('<span class="t">Homework</span><span class="meta">Exchange, Work</span>');
+    expect(only).not.toContain("Errands");
+    expect(only).toMatch(/checked=""\/><span class="body"><span class="t">To-Do/);
+    expect(only).toMatch(/type="checkbox"\/><span class="body"><span class="t">Shopping/);
+    expect(only).toMatch(/checked=""\/><span class="body"><span class="t">No list<\/span><span class="meta">Tasks made in Aeneas/);
+    // No list known yet: the box for tasks in no list, and a line saying where lists come from.
+    const none = renderToStaticMarkup(createElement(TodayParts, { saved: { ...DEFAULT_TODAY, todo_lists: [] }, edit: () => {}, lists: [] }));
+    expect(none).toContain(TODAY_TEXT.noListsYet);
   });
 });

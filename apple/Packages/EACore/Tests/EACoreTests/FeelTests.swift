@@ -264,6 +264,16 @@ final class FeelTests: XCTestCase {
         XCTAssertTrue(none.palettes.isEmpty)
     }
 
+    /// Tap shapes, as the web's `motionOn`: the Shapes switch, and never while the system's Reduce Motion is on.
+    func testShapesFollowReduceMotion() {
+        var f = FeelSettings.defaults
+        XCTAssertTrue(f.showsShapes(reduceMotion: false))
+        XCTAssertFalse(f.showsShapes(reduceMotion: true))
+        f.motion = false
+        XCTAssertFalse(f.showsShapes(reduceMotion: false))
+        XCTAssertFalse(f.showsShapes(reduceMotion: true))
+    }
+
     func testImageUploadIsPNG() {
         XCTAssertEqual(HTTPTransport.contentType(path: "prefs/feel/images"), "image/png")
         XCTAssertEqual(HTTPTransport.contentType(path: "prefs/feel"), "application/json")

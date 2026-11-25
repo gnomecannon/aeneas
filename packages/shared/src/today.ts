@@ -1,3 +1,5 @@
+import { readListChoices } from "./taskLists.js";
+
 /**
  * What Today shows and in what order: one setting for every device, `today` in the feel setting (CONTRACT.md, Feel).
  * The hub checks it with `readToday`; the web client draws and edits Today by it. The Apple apps carry the same rules
@@ -25,6 +27,12 @@ export interface TodaySetting {
   order: string[];
   /** The parts not drawn. */
   hidden: string[];
+  /**
+   * Which Reminders lists fill the To do card (gnomecannon/aeneas#28): absent or null is every list, as before; else the
+   * keys of the lists chosen, and `none` for the tasks in no list (taskLists.ts). A body that leaves it out keeps the
+   * choice the hub has, so an app from before it changes nothing about it; null asks for every list again.
+   */
+  todo_lists?: string[] | null;
 }
 
 /** Today as it was before it could be changed: every part shown, in the default order. */
@@ -46,8 +54,9 @@ function isPart(id: string): id is TodayPart {
 
 /**
  * The setting from an unknown value (a request, a file, a cached copy), or null when it breaks a rule: `order` and
- * `hidden` are each a list of at most 40 part ids, each named once in its list. An id this build does not know is kept:
- * a newer app may have put it there, and it is only skipped when Today is drawn.
+ * `hidden` are each a list of at most 40 part ids, each named once in its list; `todo_lists`, when there, is null or a
+ * choice of lists (`readListChoices`: at most 300, each a list key or `none`, each named once). An id this build does
+ * not know is kept: a newer app may have put it there, and it is only skipped when Today is drawn.
  */
 export function readToday(raw: unknown): TodaySetting | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -57,7 +66,14 @@ export function readToday(raw: unknown): TodaySetting | null {
     if (!Array.isArray(list) || list.length > TODAY_MAX_IDS || !list.every(isTodayId) || new Set(list).size !== list.length) return null;
     lists.push([...list]);
   }
-  return { order: lists[0], hidden: lists[1] };
+  const out: TodaySetting = { order: lists[0], hidden: lists[1] };
+  if (r.todo_lists === null) out.todo_lists = null;
+  else if (r.todo_lists !== undefined) {
+    const chosen = readListChoices(r.todo_lists);
+    if (!chosen) return null;
+    out.todo_lists = chosen;
+  }
+  return out;
 }
 
 /** The setting from an unknown value, the default when it is absent or breaks a rule. */
@@ -121,7 +137,7 @@ export function todayWithOrder(s: TodaySetting, cards: readonly TodayCard[]): To
   }
   const order = [...(after.get(null) ?? [])];
   for (const p of parts) order.push(p, ...(after.get(p) ?? []));
-  return { order, hidden: [...s.hidden] };
+  return { ...keepTodo(s), order, hidden: [...s.hidden] };
 }
 
 /** Move a card to a place among the cards (0 is the first). A place past the end is the last. */
@@ -135,5 +151,20 @@ export function todayMove(s: TodaySetting, card: TodayCard, to: number): TodaySe
 export function todayWithShown(s: TodaySetting, part: TodayPart, shown: boolean): TodaySetting {
   const hidden = s.hidden.filter((id) => id !== part);
   if (!shown && hidden.length < TODAY_MAX_IDS) hidden.push(part);
-  return { order: [...s.order], hidden };
+  return { ...keepTodo(s), order: [...s.order], hidden };
+}
+
+/** The To do card's lists as a setting carries them: `{}` when it says nothing, so an edit never adds a choice. */
+function keepTodo(s: TodaySetting): Pick<TodaySetting, "todo_lists"> {
+  return s.todo_lists === undefined ? {} : { todo_lists: s.todo_lists && [...s.todo_lists] };
+}
+
+/** The lists chosen for the To do card, or null for every list. */
+export function todayTodoLists(s: TodaySetting): string[] | null {
+  return s.todo_lists ?? null;
+}
+
+/** The setting with the To do card's lists chosen: null for every list, else the choice (taskLists.ts). */
+export function todayWithTodoLists(s: TodaySetting, chosen: readonly string[] | null): TodaySetting {
+  return { order: [...s.order], hidden: [...s.hidden], todo_lists: chosen && [...chosen] };
 }

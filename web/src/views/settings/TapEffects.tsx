@@ -7,6 +7,7 @@ import { forgetImage, shrinkImage, useImageUrl } from "../../feel/images";
 import { MAX_IMAGES, MAX_PALETTE_COLORS, MAX_PALETTES, newId, type FeelView, type ImageShape, type Palette } from "../../feel/prefs";
 import { SHAPES, SHAPE_NAMES, THEMES, THEME_COLORS, THEME_NAMES, monoColors, themeColors, type ShapeName } from "../../feel/theory";
 import { SubPage, Toggle, errorText } from "./common";
+import { isWindowsApp } from "../../tauri/bridge";
 
 function accent(): string {
   return typeof document !== "undefined" ? getComputedStyle(document.documentElement).getPropertyValue("--accent") : "";
@@ -54,7 +55,8 @@ export function TapEffects() {
 
   return (
     <SubPage path="/settings/theme/taps">
-      <Toggle checked={f.motion} onChange={(motion) => updateFeel({ motion })} label="Shapes on taps and new things" />
+      {/* The Windows app goes by the switch alone (motionOn), so only the others say Reduce Motion turns shapes off. */}
+      <Toggle checked={f.motion} onChange={(motion) => updateFeel({ motion })} label="Shapes on taps and new things" note={isWindowsApp ? undefined : "No shapes are drawn while the system is set to reduce motion."} />
 
       <section className="col">
         <div className="row between">

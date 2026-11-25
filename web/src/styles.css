@@ -327,6 +327,14 @@ button.back.link { background: none; border: 0; color: var(--link); cursor: poin
 .form-page { max-width: 920px; }
 .fact-rows { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 760px), 1fr)); gap: 6px 28px; }
 .fact-rows .kv { max-width: 920px; }
+/* On a phone the key, the value and the buttons do not fit on one line: the value was cut to two letters. The key and
+   the buttons share the first line, and the value has the whole second. */
+@media (max-width: 480px) {
+  .fact-rows .kv { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "key acts" "value value"; }
+  .fact-rows .kv > :nth-child(1) { grid-area: key; }
+  .fact-rows .kv > :nth-child(2) { grid-area: value; }
+  .fact-rows .kv > :nth-child(3) { grid-area: acts; }
+}
 .card.activity { max-width: 920px; }
 /* Reference's search page is a column to read, as a search engine's results are: the box, what it found and what was
    read lately keep 920 px on a wide window, the box as wide as that column. (The reader has its own 70 characters a
@@ -425,6 +433,8 @@ details[open] > summary::before { content: "- "; }
   .assistant > .side { position: static; max-height: none; }
 }
 .chat { display: flex; flex-direction: column; gap: 10px; min-height: 40vh; }
+/* The message box and its buttons stay on one row at every width; notes under them take the full width. */
+.chat-compose-row { flex-wrap: nowrap; }
 .msg { padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); max-width: 100%; }
 .msg.user { background: var(--surface-2); margin-left: 10%; }
 .msg .meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
@@ -636,14 +646,89 @@ table.proof .narrow { display: none; }
   .today-now .aside { display: block; margin: 2px 0 0; }
 }
 
-.week .wk-bar { margin-bottom: 10px; }
+/* Week's bar: the views (Day, Week, Month, Year) as a segmented control, search and Calendars; then the arrows, the
+   period's title and Today. On a phone the views span the width and search fills its row. */
+.week .wk-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-bottom: 8px; }
+.wk-tools { gap: 8px; flex-wrap: nowrap; min-width: 0; }
+.wk-find { width: 220px; min-width: 0; }
+.wk-tools button.on { border-color: var(--accent); }
+.week .wk-nav { margin-bottom: 10px; flex-wrap: wrap; gap: 6px 12px; }
+.wk-title { min-width: 8.5em; text-align: center; font-variant-numeric: tabular-nums; }
+.week.phone .wk-bar { flex-direction: column; align-items: stretch; }
+.week.phone .wk-views { display: flex; align-self: stretch; }
+.week.phone .wk-views button { flex: 1; padding-left: 0; padding-right: 0; }
+.week.phone .wk-find { flex: 1; width: auto; }
+.wk-cals { margin-bottom: 12px; max-width: 520px; }
+.wk-cals h3 { margin: 0; }
+.wk-cal-group h4 { margin: 10px 0 2px; font-weight: 600; }
+.wk-cal-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--cal, var(--accent)); flex: none; }
+.wk-cals > .muted.small:last-child { margin-top: 10px; }
+
+/* Month: a grid of weeks, each day a button with its events as short titles (wide) or dots (phone). */
+.mo-grid { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.mo-row { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.mo-row + .mo-row { border-top: 1px solid var(--border); }
+.mo-name { padding: 4px 6px; font-size: 12px; color: var(--muted); text-align: right; }
+.mo-grid button.mo-cell {
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-width: 0; min-height: 104px; padding: 4px;
+  border: 0; border-radius: 0; background: transparent; color: var(--text); font: inherit; text-align: left; overflow: hidden;
+}
+.mo-grid button.mo-cell + button.mo-cell { border-left: 1px solid var(--border); }
+.mo-grid button.mo-cell:hover { background: var(--surface-2); }
+.mo-cell.out { color: var(--muted); }
+.mo-cell.out .mo-ev, .mo-cell.out .mo-dot { opacity: 0.55; }
+.mo-num { align-self: flex-end; width: 24px; height: 24px; line-height: 24px; border-radius: 50%; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+.mo-cell.today .mo-num { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.mo-evs { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mo-ev { padding: 0 4px; border-left: 3px solid var(--cal, var(--accent)); border-radius: 3px; font-size: 11px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mo-ev.allday { background: color-mix(in srgb, var(--cal, var(--accent)) 22%, transparent); }
+.mo-ev .time { margin-right: 4px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mo-more { padding-left: 4px; font-size: 11px; color: var(--muted); }
+.mo-grid.narrow .mo-name { text-align: center; padding: 4px 0; }
+.mo-grid.narrow button.mo-cell { align-items: center; min-height: 56px; padding: 4px 0; }
+.mo-grid.narrow button.mo-cell + button.mo-cell { border-left: 0; }
+.mo-grid.narrow .mo-num { align-self: center; }
+.mo-dots { display: flex; justify-content: center; gap: 3px; min-height: 6px; }
+.mo-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cal, var(--accent)); }
+
+/* Year: twelve small months; one opens in Month. */
+.yr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px; }
+.week.phone .yr-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 6px; }
+button.yr-month {
+  display: flex; flex-direction: column; gap: 4px; min-width: 0; min-height: 0; padding: 8px;
+  border: 1px solid transparent; border-radius: var(--radius); background: transparent; color: var(--text); font: inherit; text-align: left;
+}
+button.yr-month:hover { border-color: var(--border); background: var(--surface); }
+.yr-name { font-weight: 600; }
+.yr-month.now .yr-name { color: var(--link); }
+.yr-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 2px; font-size: 11px; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+.yr-wd { color: var(--muted); font-size: 10px; }
+.yr-day.today { border-radius: 50%; background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.week.phone .yr-days { font-size: 9px; line-height: 14px; }
+.week.phone .yr-wd { display: none; }
+.week.phone button.yr-month { padding: 4px 2px; }
+
+/* Search results by day. */
+.wk-search { display: flex; flex-direction: column; max-width: 720px; }
+.wk-found-day h4 { margin: 12px 0 4px; font-size: 13px; color: var(--text-2); }
+.wk-found {
+  display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; margin-bottom: 4px; padding: 6px 8px;
+  border-left: 3px solid var(--cal, var(--accent)); border-radius: 4px; background: color-mix(in srgb, var(--cal, var(--accent)) 8%, var(--surface));
+  color: var(--text); text-decoration: none;
+}
+.wk-found:hover { background: color-mix(in srgb, var(--cal, var(--accent)) 16%, var(--surface)); }
+.wk-found .when { font-size: 12px; line-height: 21px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wk-found .what { display: flex; flex-direction: column; min-width: 0; }
+.wk-found .t { overflow-wrap: anywhere; }
+.wk-earlier { margin: 16px 0 0; font-size: 15px; }
+.wk-search > .muted { margin-top: 8px; }
 .week .conflict { margin-bottom: 10px; padding: 6px 10px; border: 1px solid var(--danger); border-radius: var(--radius); background: var(--surface); }
 .wk-layout { display: grid; grid-template-columns: 1fr 220px; gap: 16px; align-items: start; }
 .wk-side { position: sticky; top: 16px; }
 .wk-side .item.drag { cursor: grab; }
 .wk-grid {
   --row-h: 40px;
-  display: grid; grid-template-columns: 44px repeat(7, minmax(0, 1fr));
+  display: grid; grid-template-columns: 44px repeat(var(--days, 7), minmax(0, 1fr));
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden;
   user-select: none;
 }
@@ -1284,6 +1369,12 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 .seg { display: inline-flex; align-self: flex-start; background: var(--surface-2); border-radius: 10px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: none; border-radius: 8px; padding: 5px 16px; font: inherit; font-size: 14px; color: var(--text-2); cursor: pointer; min-height: 0; }
 .seg button.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+/* Personal, Work and the owner's groups, with New group and Edit group beside them; many groups scroll sideways. */
+.scope-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.scope-row .seg { overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.scope-row .seg button { white-space: nowrap; }
+.group-edit { gap: 10px; }
+.group-edit input[type="text"], .group-edit #task-group-name { width: 100%; max-width: 360px; }
 .list-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .list-chips::-webkit-scrollbar { display: none; }
 .list-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid transparent; background: var(--surface-2); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 14px; color: var(--text); cursor: pointer; min-height: 0; }

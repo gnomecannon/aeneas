@@ -37,6 +37,13 @@ struct PlanRulesView: View {
     }
 }
 
+/// A rule's hours as Today shows them: "All day" for one that lasts the whole day (a custody week), else its start and
+/// end in the person's own time format ("7:00 PM to 11:00 PM", or "19:00 to 23:00" on a 24-hour clock).
+func planRuleHours(start: String, end: String, on day: Date = Date()) -> String {
+    guard let s = LocalPlanner.time(on: day, hhmm: start), let e = LocalPlanner.time(on: day, hhmm: end) else { return "\(start) to \(end)" }
+    return TodayBoard.wholeDay(start: s, end: e) ? "All day" : "\(s.shortTime) to \(e.shortTime)"
+}
+
 struct PlanRuleRow: View {
     @EnvironmentObject var engine: SyncEngine
     var rule: Entity
@@ -55,7 +62,7 @@ struct PlanRuleRow: View {
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .background(Color.secondary.opacity(0.15), in: Capsule())
                         .fixedSize()
-                    Text("\(f?.start ?? "") to \(f?.end ?? "")").fixedSize()
+                    Text(planRuleHours(start: f?.start ?? "", end: f?.end ?? "")).fixedSize()
                     if f?.alternating_anchor != nil { Text("alternating weeks").lineLimit(1) }
                 }
                 .font(.caption).foregroundStyle(.secondary)
@@ -124,7 +131,7 @@ struct PlanRuleEditView: View {
                     DatePicker("Start", selection: $start, displayedComponents: [.hourAndMinute])
                     Toggle("Until midnight", isOn: $untilMidnight)
                     if !untilMidnight { DatePicker("End", selection: $end, displayedComponents: [.hourAndMinute]) }
-                    Text("\(startString) to \(endString)").font(.caption).foregroundStyle(.secondary)
+                    Text(planRuleHours(start: startString, end: endString)).font(.caption).foregroundStyle(.secondary)
                 }
                 SwiftUI.Section("Alternating weeks") {
                     Toggle("Only every other week", isOn: $alternating)

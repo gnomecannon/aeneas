@@ -91,12 +91,18 @@ struct LibraryRow: View {
     var section: Section
     var summary: String?
 
+    @Environment(\.dynamicTypeSize) private var typeSize
+
     var body: some View {
-        HStack(spacing: 12) {
+        // At the largest text sizes the symbol goes over the words: in its column of 28 points it ran over the
+        // title, and a column that grew with it left the title a few letters a line.
+        let stacked = typeSize.isAccessibilitySize
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 12))
+        layout {
             Image(systemName: section.symbol)
                 .font(.body.weight(.medium))
                 .foregroundStyle(.tint)
-                .frame(width: 28)
+                .frame(width: stacked ? nil : 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(section.title)
                 if let s = summary, !s.isEmpty { Text(s).font(.caption).foregroundStyle(.secondary) }

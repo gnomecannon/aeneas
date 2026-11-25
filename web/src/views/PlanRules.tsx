@@ -3,7 +3,8 @@ import { usePetName } from "../lib/profile";
 import type { Entity } from "@everythingapp/shared";
 import { useEntities } from "../sync/hooks";
 import { createEntity, updateEntity, softDelete } from "../sync/edits";
-import { WEEKDAYS, type Weekday } from "../lib/planner";
+import { WEEKDAYS, fmtRuleDay, ruleHours, type Weekday } from "../lib/planner";
+import { fmtTime } from "../lib/time";
 import { useEscape } from "../lib/keys";
 
 type RuleType = "blackout" | "commitment" | "preference" | "info";
@@ -76,6 +77,9 @@ function RuleForm({ value, onChange, idPrefix }: { value: RuleF; onChange: (v: R
   );
 }
 
+/** "HH:MM" in the person's own time format, as the time boxes show it. */
+const clock = (hhmm: string) => fmtTime(new Date(2000, 0, 1, Number(hhmm.slice(0, 2)), Number(hhmm.slice(3, 5))).toISOString());
+
 const valid = (r: RuleF) => !!r.title.trim() && r.days.length > 0 && /^\d{2}:\d{2}$/.test(r.start) && /^\d{2}:\d{2}$/.test(r.end) && r.start < r.end;
 
 function toFields(r: RuleF): Record<string, unknown> {
@@ -144,7 +148,7 @@ export function PlanRules() {
         </div>
       </div>
       <p className="muted small" style={{ marginTop: 6 }}>
-        The planner never schedules inside a blackout, shows commitments as fixed, and prefers preferences. Info rules are only shown, like a custody week: title it "{pet} week", all days, 00:00 to 24:00, with an alternating anchor.
+        The planner never schedules inside a blackout, shows commitments as fixed, and prefers preferences. Info rules are only shown, like a custody week: title it "{pet} week", all days, {clock("00:00")} to {clock("23:59")}, with an alternating anchor.
       </p>
       {adding && (
         <form
@@ -176,13 +180,11 @@ export function PlanRules() {
                 <div className="row">
                   <span className={`chip static ${f.type}`}>{f.type}</span>
                   <span className="t grow">{f.title}</span>
-                  <span className="muted small mono">
-                    {f.start} to {f.end}
-                  </span>
+                  <span className="muted small">{ruleHours(f)}</span>
                 </div>
                 <div className="meta">
                   <span>{(f.days ?? []).join(" ")}</span>
-                  {f.alternating_anchor && <span>every other week from {f.alternating_anchor}</span>}
+                  {f.alternating_anchor && <span>every other week from {fmtRuleDay(f.alternating_anchor)}</span>}
                   {f.active === false && <span>inactive</span>}
                   {f.note && <span>{f.note}</span>}
                   <button className="ghost small" onClick={() => (isOpen ? setOpen(null) : openRule(r))} aria-expanded={isOpen} aria-label={`${isOpen ? "Close" : "Edit"} ${f.title}`}>

@@ -54,7 +54,7 @@ function Person({ id }: { id: string }) {
   );
 }
 
-/** People: contacts (synced both ways with Apple Contacts by the Mac) and what the owner has said about each. */
+/** People: contacts (synced both ways with Apple Contacts by the one iPhone, iPad or Mac where Contacts is on) and what the owner has said about each. */
 export function People({ id }: { id?: string }) {
   const people = useEntities("person").sort((a, b) => String(a.fields.name).localeCompare(String(b.fields.name)));
   const [q, setQ] = useState("");
@@ -64,7 +64,8 @@ export function People({ id }: { id?: string }) {
     <div>
       <h1>People</h1>
       <input type="search" placeholder="Search people" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", marginBottom: 12 }} />
-      {!people.length && <div className="empty">No contacts yet. Turn on Settings, People, "Sync Apple Contacts" in the Mac app.</div>}
+      {/* The switch moved to Settings, Accounts, From this iPhone (iPad, Mac), Contacts with Accounts, part 2. */}
+      {!people.length && <div className="empty">No people yet. They come from Apple Contacts once Contacts is switched on in Settings, Accounts, on your iPhone, iPad or Mac.</div>}
       <div className="list">
         {shown.map((p) => (
           <a key={p.id} className="item" href={`#/people/${p.id}`}>

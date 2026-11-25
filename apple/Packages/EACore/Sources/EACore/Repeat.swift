@@ -29,6 +29,26 @@ public struct RepeatRule: Equatable, Sendable {
         return RepeatRule(n: n, unit: unit, on: on)
     }
 
+    /// A rule in words, as Renewals shows it: "every month", "every 2 weeks on Mon and Thu", "every weekday", "every
+    /// month on day 15". Anything it cannot read stays as written. The same words as the web's repeatWords.
+    public static func words(_ rule: String) -> String {
+        let r = rule.trimmingCharacters(in: .whitespaces)
+        guard let m = r.wholeMatch(of: #/every (\d+) (minute|hour|day|week|month|year)s( on ([a-z0-9,]+))?/#), let n = Int(m.1) else { return r }
+        let unit = String(m.2)
+        let every = n == 1 ? "every \(unit)" : "every \(n) \(unit)s"
+        guard let on = m.4.map(String.init) else { return every }
+        let names = ["mon": "Mon", "tue": "Tue", "wed": "Wed", "thu": "Thu", "fri": "Fri", "sat": "Sat", "sun": "Sun"]
+        let days = on.split(separator: ",").map(String.init)
+        if unit == "week", days.allSatisfy({ names[$0] != nil }) {
+            if n == 1 && on == "mon,tue,wed,thu,fri" { return "every weekday" }
+            let said = days.compactMap { names[$0] }
+            let list = said.count > 1 ? said.dropLast().joined(separator: ", ") + " and " + said.last! : said[0]
+            return "\(every) on \(list)"
+        }
+        if unit == "month", let d = on.wholeMatch(of: #/day(\d{1,2})/#), let day = Int(d.1) { return "\(every) on day \(day)" }
+        return r
+    }
+
     /// Canonical hub-valid form, e.g. `every 1 months on day15`, `every 2 weeks on mon,thu`.
     public var description: String {
         var s = "every \(n) \(unit.rawValue)"

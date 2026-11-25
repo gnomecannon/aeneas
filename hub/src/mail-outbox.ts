@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { Hub } from "./hub.js";
 import { StoreError } from "./store.js";
 import { buildMessage, foldedHeader } from "./mail-compose.js";
-import { composeMail, composedFiles, exclusive, listInFolder, refreshMail, saveDraftRaw, sourceOf, trashOldDraft, type DraftResult } from "./mail-inbox.js";
+import { composeMail, composedFiles, exclusive, listInFolder, refreshMail, saveDraftRaw, sourceOf, trashOldDraft, unsubscribeMail, type DraftResult } from "./mail-inbox.js";
 import { noSendingServer, readOnly, readOnlyText } from "./imports/icloud.js";
 import { mailboxLabel } from "./mail-filer.js";
 import { errCode } from "./logsafe.js";
@@ -91,6 +91,19 @@ export async function sendMail(hub: Hub, body: Record<string, unknown>, now = ne
   scheduleOutbox(hub);
   const { saved: _saved, bcc: _bcc, id: _id, ...out } = c.out;
   return { ...out, ...(files.length ? { files: files.map((f) => ({ name: f.name, size: f.bytes.length })) } : {}), id, send_at: sendAt, state: "waiting" };
+}
+
+/**
+ * Unsubscribe by mail (`POST /mail/messages/:id/unsubscribe` with `{ how: "mailto", send: true }`, since 2026-11-24):
+ * the mail to the address the mail's own List-Unsubscribe header gives now (never one from the request), from the
+ * mailbox it is in, saying "unsubscribe", into the outbox as Send puts a mail there: the same checks (409 for a Read
+ * only mailbox and one without a sending server) and the same 10 seconds of Undo. The screen asked first.
+ */
+export async function sendUnsubscribe(hub: Hub, key: string): Promise<{ ok: true; outbox: OutboxItem }> {
+  const sent = await sendMail(hub, await unsubscribeMail(hub, key));
+  const item = outboxItem(hub, sent.id);
+  if (!item) throw new StoreError(404, "This mail is not in the outbox any more.");
+  return { ok: true, outbox: item };
 }
 
 /** One mail in the outbox (`GET /mail/outbox/:id`); null when it is not there (taken back, or sent a day ago). */

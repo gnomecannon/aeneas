@@ -2,6 +2,23 @@ import XCTest
 @testable import EACore
 
 final class RepeatTests: XCTestCase {
+    /// A repeat rule in words, as Renewals shows it: the same cases as the web's reminders.test.ts.
+    func testARuleInWords() {
+        XCTAssertEqual(RepeatRule.words("every 1 months"), "every month")
+        XCTAssertEqual(RepeatRule.words("every 1 years"), "every year")
+        XCTAssertEqual(RepeatRule.words("every 1 days"), "every day")
+        XCTAssertEqual(RepeatRule.words("every 2 weeks"), "every 2 weeks")
+        XCTAssertEqual(RepeatRule.words("every 3 months"), "every 3 months")
+        XCTAssertEqual(RepeatRule.words("every 1 weeks on mon,tue,wed,thu,fri"), "every weekday")
+        XCTAssertEqual(RepeatRule.words("every 2 weeks on mon,thu"), "every 2 weeks on Mon and Thu")
+        XCTAssertEqual(RepeatRule.words("every 1 weeks on mon,wed,fri"), "every week on Mon, Wed and Fri")
+        XCTAssertEqual(RepeatRule.words("every 1 weeks on sat"), "every week on Sat")
+        XCTAssertEqual(RepeatRule.words("every 1 months on day15"), "every month on day 15")
+        XCTAssertEqual(RepeatRule.words("every fortnight"), "every fortnight")
+        XCTAssertEqual(RepeatRule.words("every 1 weeks on someday"), "every 1 weeks on someday")
+        XCTAssertEqual(RepeatRule.words(""), "")
+    }
+
     private var cal: Calendar {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "America/New_York")!

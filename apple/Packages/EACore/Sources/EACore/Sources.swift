@@ -104,12 +104,16 @@ public struct SourcesSetting: Codable, Equatable, Sendable {
     public var waiting: [Waiting]
     /// The app version a Personal or Work choice waits for.
     public var needs: String
+    /// The owner's groups on the Tasks screen (gnomecannon/aeneas#26), in their order; none from an older hub, or when
+    /// the hub's set breaks a rule (`TaskGroups.problem`).
+    public var groups: [TaskGroup]
 
-    public init(lists: [ReminderList] = [], new_tasks: String? = nil, calendars: [WorkCalendar] = [], contacts: Contacts = Contacts(), waiting: [Waiting] = [], needs: String = "1.0.18") {
+    public init(lists: [ReminderList] = [], new_tasks: String? = nil, calendars: [WorkCalendar] = [], contacts: Contacts = Contacts(), waiting: [Waiting] = [], needs: String = "1.0.18", groups: [TaskGroup] = []) {
         self.lists = lists; self.new_tasks = new_tasks; self.calendars = calendars; self.contacts = contacts; self.waiting = waiting; self.needs = needs
+        self.groups = groups
     }
 
-    enum CodingKeys: String, CodingKey { case lists, new_tasks, calendars, contacts, waiting, needs }
+    enum CodingKeys: String, CodingKey { case lists, new_tasks, calendars, contacts, waiting, needs, groups }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         lists = (try? c.decodeIfPresent([ReminderList].self, forKey: .lists)) ?? []
@@ -118,9 +122,17 @@ public struct SourcesSetting: Codable, Equatable, Sendable {
         contacts = (try? c.decodeIfPresent(Contacts.self, forKey: .contacts)) ?? Contacts()
         waiting = (try? c.decodeIfPresent([Waiting].self, forKey: .waiting)) ?? []
         needs = (try? c.decodeIfPresent(String.self, forKey: .needs)) ?? "1.0.18"
+        let g = (try? c.decodeIfPresent([TaskGroup].self, forKey: .groups)) ?? []
+        groups = TaskGroups.problem(g) == nil ? g : []
     }
 
     public func list(_ key: String) -> ReminderList? { lists.first { $0.key == key } }
+    public func group(_ id: String) -> TaskGroup? { groups.first { $0.id == id } }
+
+    /// The lists of a group that are on, by name: what its chips offer on Tasks.
+    public func lists(in group: TaskGroup) -> [ReminderList] {
+        lists.filter { $0.on && ListChoices.contains(group.lists, $0) }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
     public func calendar(_ key: String) -> WorkCalendar? { calendars.first { $0.key == key } }
 }
 

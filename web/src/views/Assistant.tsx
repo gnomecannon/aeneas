@@ -823,8 +823,10 @@ export function Assistant({ id }: { id?: string }) {
                 ))}
               </div>
             )}
+            {/* The text box and its buttons share a row; notes go on their own lines under it, full width, so a long one
+                never widens the button column and squeezes the box. */}
             <form
-              className="row top"
+              className="col chat-compose"
               onSubmit={(e) => {
                 e.preventDefault();
                 void send();
@@ -832,52 +834,54 @@ export function Assistant({ id }: { id?: string }) {
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files); }}
             >
-              <textarea
-                className="grow"
-                rows={3}
-                value={dictation.listening && dictation.interim ? `${input}${input ? " " : ""}${dictation.interim}` : input}
-                onChange={(e) => setInput(e.target.value)}
-                onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); void addFiles(files); } }}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                placeholder={dictation.listening ? "Listening. Tap Stop when you are done." : showKeyboardHints() ? "Message. Ctrl+Enter sends. Paste or drop a screenshot to attach it." : "Message"}
-                aria-label="Message"
-              />
-              <div className="col">
-                <button className="primary" type="submit" disabled={busy || !!remote || (!input.trim() && !images.length)} aria-busy={busy || !!remote}>
-                  {busy || remote ? <><span className="spinner" aria-hidden="true" /> Working</> : "Send"}
-                </button>
-                {imagesOk && (
-                  <>
-                    <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
-                    <button type="button" className="small" onClick={() => fileRef.current?.click()} disabled={images.length >= 4} aria-label="Attach image">
-                      Image
+              <div className="row top chat-compose-row">
+                <textarea
+                  className="grow"
+                  rows={3}
+                  value={dictation.listening && dictation.interim ? `${input}${input ? " " : ""}${dictation.interim}` : input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onPaste={(e) => { const files = [...e.clipboardData.files]; if (files.some((f) => f.type.startsWith("image/"))) { e.preventDefault(); void addFiles(files); } }}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  placeholder={dictation.listening ? "Listening. Tap Stop when you are done." : showKeyboardHints() ? "Message. Ctrl+Enter sends. Paste or drop a screenshot to attach it." : "Message"}
+                  aria-label="Message"
+                />
+                <div className="col">
+                  <button className="primary" type="submit" disabled={busy || !!remote || (!input.trim() && !images.length)} aria-busy={busy || !!remote}>
+                    {busy || remote ? <><span className="spinner" aria-hidden="true" /> Working</> : "Send"}
+                  </button>
+                  {imagesOk && (
+                    <>
+                      <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ""; }} />
+                      <button type="button" className="small" onClick={() => fileRef.current?.click()} disabled={images.length >= 4} aria-label="Attach image">
+                        Image
+                      </button>
+                      <button type="button" className="small" onClick={() => { sessionStorage.removeItem("ea.imageRef"); window.location.hash = "/images"; }} aria-label="Create image">Create image</button>
+                    </>
+                  )}
+                  {talkOk && (
+                    <button type="button" className={`small${dictation.listening ? " danger" : ""}`} onClick={() => { if (dictation.listening) dictation.stop(); else { stopSpeaking(); dictation.start(); } }} aria-pressed={dictation.listening}>
+                      {dictation.listening ? "Stop" : "Talk"}
                     </button>
-                <button type="button" className="small" onClick={() => { sessionStorage.removeItem("ea.imageRef"); window.location.hash = "/images"; }} aria-label="Create image">Create image</button>
-                  </>
-                )}
-                {talkOk && (
-                  <button type="button" className={`small${dictation.listening ? " danger" : ""}`} onClick={() => { if (dictation.listening) dictation.stop(); else { stopSpeaking(); dictation.start(); } }} aria-pressed={dictation.listening}>
-                    {dictation.listening ? "Stop" : "Talk"}
-                  </button>
-                )}
-                {talkOk && speechSupported && localVoice && (
-                  <label className="small" style={{ margin: 0 }} title="When you talk to it, the answer is read out">
-                    <input type="checkbox" checked={speakReplies} onChange={(e) => { setSpeakReplies(e.target.checked); setSpeakVoiceReplies(e.target.checked); if (!e.target.checked) stopSpeaking(); }} /> speak answers
-                  </label>
-                )}
-                {talkOk && speechSupported && !localVoice && <span className="small muted">{NO_LOCAL_VOICE}</span>}
-                {dictation.error && <span className="small error">{dictation.error}</span>}
-                {busy && (
-                  <button type="button" className="small" onClick={() => abort.current?.abort()}>
-                    Stop
-                  </button>
-                )}
+                  )}
+                  {talkOk && speechSupported && localVoice && (
+                    <label className="small" style={{ margin: 0 }} title="When you talk to it, the answer is read out">
+                      <input type="checkbox" checked={speakReplies} onChange={(e) => { setSpeakReplies(e.target.checked); setSpeakVoiceReplies(e.target.checked); if (!e.target.checked) stopSpeaking(); }} /> speak answers
+                    </label>
+                  )}
+                  {busy && (
+                    <button type="button" className="small" onClick={() => abort.current?.abort()}>
+                      Stop
+                    </button>
+                  )}
+                </div>
               </div>
+              {talkOk && speechSupported && !localVoice && <span className="small muted">{NO_LOCAL_VOICE}</span>}
+              {dictation.error && <span className="small error">{dictation.error}</span>}
               <DictationNotice d={dictation} />
             </form>
           </div>

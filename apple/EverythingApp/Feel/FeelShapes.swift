@@ -51,6 +51,9 @@ final class FeelShapes {
 
     private(set) var bursts: [Burst] = []
     @ObservationIgnored var size: CGSize = .zero
+    /// The system's Reduce Motion as this window's SwiftUI environment reads it (set by `FeelOverlay`); while it is on,
+    /// taps and new things draw no shapes here. The previews in Settings never set it.
+    @ObservationIgnored var reduceMotion = false
     @ObservationIgnored private var nextId = 0
 
     func burst(_ kind: Kind, at point: CGPoint, style: Style) {
@@ -110,11 +113,13 @@ final class FeelShapes {
 /// Mounted over the root view: draws the bursts and tracks touches for the window it is in.
 struct FeelOverlay: View {
     @State private var shapes = FeelShapes()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         FeelCanvas(shapes: shapes)
             .background(FeelAnchor(shapes: shapes))
             .onGeometryChange(for: CGSize.self) { $0.size } action: { shapes.size = $0 }
+            .onChange(of: reduceMotion, initial: true) { _, on in shapes.reduceMotion = on }
             .allowsHitTesting(false)
             .ignoresSafeArea()
             .accessibilityHidden(true)

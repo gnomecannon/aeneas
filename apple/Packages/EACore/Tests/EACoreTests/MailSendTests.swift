@@ -75,6 +75,24 @@ final class MailSendTests: XCTestCase {
         XCTAssertEqual(body, ["to": "alex@example.com", "subject": "Plans", "text": "Hi"], "the draft's own request, with no preview")
     }
 
+    func testUnsubscribeByMailIsSentAfterTheWholeMailIsShownElseSavedToDrafts() async throws {
+        XCTAssertEqual(Mail.UnsubscribeTexts.send, "Send the unsubscribe mail\u{2026}")
+        XCTAssertEqual(Mail.unsubscribeNote(to: "unsub@news.example", sends: true), "To unsub@news.example. You see the whole mail before it goes.")
+        XCTAssertEqual(Mail.unsubscribeNote(to: "unsub@news.example", sends: false), "To unsub@news.example, saved in Drafts for you to send.")
+        XCTAssertEqual(Mail.UnsubscribeTexts.confirm, "This is the whole mail. Send it?")
+        XCTAssertEqual(Mail.unsubscribeSent(to: "unsub@news.example"), "Sent. The unsubscribe mail went to unsub@news.example.")
+        for t in [Mail.UnsubscribeTexts.send, Mail.UnsubscribeTexts.write, Mail.UnsubscribeTexts.confirm, Mail.unsubscribeNote(to: "a@b.example", sends: true), Mail.unsubscribeSent(to: "a@b.example")] {
+            XCTAssertNil(t.range(of: "[\u{2013}\u{2014}]", options: .regularExpression), t)
+        }
+        let t = FakeTransport()
+        t.responses = [(200, Data(#"{"ok":true,"outbox":{"id":"o2","mailbox":"robin@example.com","to":["unsub@news.example"],"subject":"stop","state":"waiting","send_at":"2026-11-24T10:00:10.000Z"}}"#.utf8))]
+        let item = try await HubClient(transport: t).mailUnsubscribeSend("m1")
+        XCTAssertEqual(item, MailOutboxItem(id: "o2", mailbox: "robin@example.com", to: ["unsub@news.example"], subject: "stop", state: "waiting", send_at: "2026-11-24T10:00:10.000Z"))
+        XCTAssertEqual(t.calls.map { "\($0.method) \($0.path)" }, ["POST mail/messages/m1/unsubscribe"])
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: t.calls[0].body ?? Data()) as? NSDictionary)
+        XCTAssertEqual(body, ["how": "mailto", "send": true], "only how and send: the hub reads the address from the mail")
+    }
+
     func testASendingServerIsShownInWordsAndTypedWithThePortFromTheSecurity() async throws {
         XCTAssertEqual(SendingServer(host: "smtp.gmail.com", port: 465, security: "tls").line, "smtp.gmail.com, port 465, TLS")
         XCTAssertEqual(SendingServer(host: "smtp.mail.me.com", port: 587, security: "starttls").line, "smtp.mail.me.com, port 587, STARTTLS")

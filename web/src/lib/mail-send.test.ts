@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canSend, outboxFace, outboxLine, previewNote, SEND_TEXTS, smtpGuess, writeNote, type MailMailbox, type OutboxItem } from "./mail";
+import { canSend, outboxFace, outboxLine, previewNote, SEND_TEXTS, smtpGuess, UNSUBSCRIBE_TEXTS, unsubscribeNote, unsubscribeSent, writeNote, type MailMailbox, type OutboxItem } from "./mail";
 
 // Sending from the Mail screen (since 2026-11-24): when Send is offered, what the box says, and how a mail in the
 // outbox shows. The same cases as EACore's MailSendTests.
@@ -39,6 +39,17 @@ describe("mail send: a mail in the outbox", () => {
   });
   it("no text has a dash used as a pause", () => {
     for (const t of Object.values(SEND_TEXTS)) expect(t).not.toMatch(/[–—]/);
+  });
+});
+
+describe("mail send: unsubscribe by mail", () => {
+  it("is sent after the whole mail is shown from a mailbox that sends, else saved to Drafts", () => {
+    expect(UNSUBSCRIBE_TEXTS.send).toBe("Send the unsubscribe mail…");
+    expect(unsubscribeNote("unsub@news.example", true)).toBe("To unsub@news.example. You see the whole mail before it goes.");
+    expect(unsubscribeNote("unsub@news.example", false)).toBe("To unsub@news.example, saved in Drafts for you to send.");
+    expect(UNSUBSCRIBE_TEXTS.confirm).toBe("This is the whole mail. Send it?");
+    expect(unsubscribeSent("unsub@news.example")).toBe("Sent. The unsubscribe mail went to unsub@news.example.");
+    for (const t of [...Object.values(UNSUBSCRIBE_TEXTS), unsubscribeNote("a@b.example", true), unsubscribeSent("a@b.example")]) expect(t).not.toMatch(/[–—]/);
   });
 });
 

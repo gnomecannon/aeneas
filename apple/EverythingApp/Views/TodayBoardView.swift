@@ -22,6 +22,7 @@ struct TodayBoardView: View {
     /// What Today shows and in what order (Theme, Today).
     @ObservedObject private var feel = FeelController.shared
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var today: PlannerToday
     var fromHub: Bool
@@ -47,6 +48,16 @@ struct TodayBoardView: View {
     /// How many open tasks To do lists, and how many lines Today so far shows, before a link to the rest.
     private static let todoShown = 6
     private static let soFarShown = 10
+
+    /// The largest text sizes: what sits side by side in a row (a time and its words, a task and Start) goes one
+    /// under the other, so the words keep the card's width.
+    private var large: Bool { typeSize.isAccessibilitySize }
+
+    /// A time or a label beside its words, or over them at the largest text sizes.
+    private func lineLayout<Content: View>(spacing: CGFloat, @ViewBuilder _ content: () -> Content) -> some View {
+        let layout = large ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: spacing))
+        return layout { content() }
+    }
 
     var body: some View {
         // Every half minute: "46 min left" counts down and a reminder whose time has come joins Needs you.
@@ -222,9 +233,12 @@ struct TodayBoardView: View {
                 // Plain colors: inside a button the hierarchical .primary and .secondary would take the tint.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "circle.fill").font(.system(size: 10)).foregroundStyle(light.tone.status.fill(else: .gray))
-                    Text("Tech").font(.headline).foregroundStyle(Color.primary)
-                    Text(light.label).font(.subheadline.weight(.semibold)).foregroundStyle(light.tone.status.text(else: .secondary))
-                        .multilineTextAlignment(.leading)
+                    // What the light says goes under "Tech" at the largest text sizes, where beside it it had a sliver.
+                    lineLayout(spacing: 8) {
+                        Text("Tech").font(.headline).foregroundStyle(Color.primary)
+                        Text(light.label).font(.subheadline.weight(.semibold)).foregroundStyle(light.tone.status.text(else: .secondary))
+                            .multilineTextAlignment(.leading)
+                    }
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
@@ -246,11 +260,11 @@ struct TodayBoardView: View {
                     techRow(look)
                 }
                 Divider()
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                lineLayout(spacing: 12) {
                     Button("Open Tech") { model.section = .ops }.buttonStyle(.borderless).font(.subheadline)
                     if !watched.isEmpty { Text(watched).font(.caption).foregroundStyle(.secondary) }
-                    Spacer(minLength: 0)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -389,22 +403,22 @@ struct TodayBoardView: View {
         return card("Schedule", count: left > 0 ? "\(left) left" : nil) {
             ForEach(allDay) { e in
                 Button { model.open(itemId: e.id) } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    lineLayout(spacing: 8) {
                         Text("All day").font(.caption).foregroundStyle(.secondary)
                         Text(StyleGuard.dashes(e.str("title"))).multilineTextAlignment(.leading)
-                        Spacer(minLength: 0)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
             ForEach(dayRules) { c in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                lineLayout(spacing: 8) {
                     Text("All day").font(.caption).foregroundStyle(.secondary)
                     Text(StyleGuard.dashes(c.title)).multilineTextAlignment(.leading)
                     Text(c.type.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityElement(children: .combine)
             }
             // All-day plans are named above: the list is what has a time. Free time that has ended is not offered (a
@@ -417,7 +431,7 @@ struct TodayBoardView: View {
                 ForEach(seeing) { p in
                     Button { model.open(itemId: p.id) } label: {
                         VStack(alignment: .leading, spacing: 3) {
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            lineLayout(spacing: 6) {
                                 Text(p.name).font(.body.bold())
                                 Text(StyleGuard.dashes(p.plans.map { $0.title + ($0.at.map { ", " + $0.shortTime } ?? "") }.joined(separator: "; ")))
                                     .font(.subheadline).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
@@ -438,23 +452,49 @@ struct TodayBoardView: View {
     // MARK: to do
 
     private func todoCard() -> some View {
-        let open = TodayBoard.openTasks(engine.list(.task))
-        let current = engine.nowTask
+        // The tasks of the lists chosen for To do (Theme, Today, Lists in To do), or of every list.
+        let match = setting.todoMatch(engine.sources?.lists ?? [])
+        let tasks = engine.list(.task)
+        let open = TodayBoard.openTasks(match.map { m in tasks.filter { m.contains($0) } } ?? tasks)
+        let current = match.map { m in engine.nowTask(where: { m.contains($0) }) } ?? engine.nowTask
         let rest = open.filter { $0.id != current?.id }
         return card("To do", count: open.isEmpty ? nil : "\(open.count) open") {
             // The task being done (or the first one in Next) with its buttons; nothing when there is none.
-            if current != nil { NowCard(inCard: true) }
+            if current != nil { NowCard(inCard: true, match: match) }
             ForEach(rest.prefix(Self.todoShown)) { task in todoRow(task) }
-            if open.isEmpty { clear("No open tasks.") }
+            if open.isEmpty {
+                if setting.todoLists?.isEmpty == true {
+                    Text(TodayText.noneChosen).font(.subheadline).foregroundStyle(.secondary)
+                    editLink.font(.subheadline)
+                } else {
+                    clear("No open tasks.")
+                }
+            }
             if rest.count > Self.todoShown {
                 Button("All \(open.count) in Tasks") { model.section = .tasks }.buttonStyle(.borderless).font(.subheadline)
             }
         }
     }
 
-    /// An open task: one press finishes it, one makes it the task being done, and its words open it.
+    /// An open task: one press finishes it, one makes it the task being done, and its words open it. At the largest
+    /// text sizes Start goes under the words, which beside it kept a few letters a line.
     private func todoRow(_ task: Entity) -> some View {
         let title = StyleGuard.dashes(task.str("title"))
+        let open = Button { model.open(itemId: task.id) } label: {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).multilineTextAlignment(.leading).lineLimit(large ? 4 : 2)
+                if !task.str("due").isEmpty {
+                    Text("Due \(TaskDue.label(task.str("due")))").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        let start = Button("Start") { Task { await engine.makeNow(task.id) } }
+            .buttonStyle(.borderless)
+            .help("Make this the thing you are doing now")
+            .accessibilityLabel("Start \(title)")
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Button { Task { await engine.markDone(task.id) } } label: {
                 Image(systemName: "circle").font(.title3).foregroundStyle(.secondary)
@@ -464,21 +504,12 @@ struct TodayBoardView: View {
             .buttonStyle(.plain)
             .help("Done")
             .accessibilityLabel("Done: \(title)")
-            Button { model.open(itemId: task.id) } label: {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title).multilineTextAlignment(.leading).lineLimit(2)
-                    if !task.str("due").isEmpty {
-                        Text("Due \(TaskDue.label(task.str("due")))").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+            if large {
+                VStack(alignment: .leading, spacing: 4) { open; start }
+            } else {
+                open
+                start
             }
-            .buttonStyle(.plain)
-            Button("Start") { Task { await engine.makeNow(task.id) } }
-                .buttonStyle(.borderless)
-                .help("Make this the thing you are doing now")
-                .accessibilityLabel("Start \(title)")
         }
     }
 
@@ -490,7 +521,8 @@ struct TodayBoardView: View {
         let numbers = model.isOn(.health) ? TodayBoard.todayNumbers(engine.logs, now: now) : []
         return card("Today so far", count: rows.isEmpty ? nil : "\(rows.count)") {
             if !numbers.isEmpty {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10, alignment: .topLeading)], alignment: .leading, spacing: 8) {
+                // Wider columns at the largest text sizes: three of 104 points broke "Weight" and "158.4 lb" in two.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: large ? 240 : 104), spacing: 10, alignment: .topLeading)], alignment: .leading, spacing: 8) {
                     ForEach(numbers) { n in
                         VStack(alignment: .leading, spacing: 1) {
                             Text(n.label).font(.caption).foregroundStyle(.secondary)
@@ -505,13 +537,13 @@ struct TodayBoardView: View {
                 Text("Nothing recorded yet today.").font(.subheadline).foregroundStyle(.secondary)
             } else {
                 ForEach(rows.suffix(Self.soFarShown)) { r in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    lineLayout(spacing: 10) {
                         Text(r.time).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                             .frame(minWidth: 58, alignment: .leading)
-                        Text(StyleGuard.dashes(r.text)).font(.subheadline).lineLimit(3)
+                        Text(StyleGuard.dashes(r.text)).font(.subheadline).lineLimit(large ? 6 : 3)
                             .foregroundStyle(r.kind == .capture ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
-                        Spacer(minLength: 0)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             if let diary, rows.count > Self.soFarShown || !diary.lines.isEmpty {
@@ -553,11 +585,11 @@ struct TodayBoardView: View {
     }
 
     private func comingRow(when: String, what: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        lineLayout(spacing: 10) {
             Text(when).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 58, alignment: .leading)
-            Text(StyleGuard.dashes(what)).font(.subheadline).lineLimit(2).multilineTextAlignment(.leading)
-            Spacer(minLength: 0)
+            Text(StyleGuard.dashes(what)).font(.subheadline).lineLimit(large ? 4 : 2).multilineTextAlignment(.leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
 }

@@ -84,7 +84,7 @@ struct GamesView: View {
         Picker("Order", selection: Binding(get: { order }, set: { sort = $0 })) {
             ForEach(GameSort.allCases) { Text($0.rawValue).tag($0) }
         }
-        .pickerStyle(.segmented)
+        .segmentedOrMenu()
     }
 
     /// One game as a list row or a card: a click edits it, the right-click menu edits or deletes it.

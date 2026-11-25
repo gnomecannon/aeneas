@@ -126,7 +126,8 @@ test("repeats and reminders keep their day and time (2026-11-05 review)", () => 
 
 test("Undo after Done puts back every field Done wrote, for a one-off and a repeating task", () => {
   const now = new Date("2026-11-20T15:00:00Z");
-  const oneOff = { title: "Call Robin", status: "next", order: 3 };
+  // Typed as the stored fields are: a one-off task has none of the repeat fields completeTaskPatch reads.
+  const oneOff: Record<string, unknown> = { title: "Call Robin", status: "next", order: 3 };
   const done = completeTaskPatch(oneOff, now);
   assert.deepEqual(undoPatch(oneOff, done), { status: "next", done_at: null, snoozed_until: null });
   const pill = { title: "Pill", status: "scheduled", order: 1, repeat: "every 1 days", remind_at: "2026-11-20T14:00:00.000Z", due: "2026-11-20", done_at: "2026-11-19T14:05:00.000Z" };

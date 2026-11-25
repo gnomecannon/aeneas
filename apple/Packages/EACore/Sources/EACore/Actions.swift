@@ -8,8 +8,11 @@ extension SyncEngine {
     public var tasks: [Entity] { list(.task) }
 
     /// The single current task: status doing, else the lowest order next task.
-    public var nowTask: Entity? {
-        let t = tasks
+    public var nowTask: Entity? { nowTask(where: { _ in true }) }
+
+    /// The current task among those `keep` lets through (Today's To do, holding the lists chosen for it).
+    public func nowTask(where keep: (Entity) -> Bool) -> Entity? {
+        let t = tasks.filter(keep)
         if let doing = t.filter({ $0.str("status") == "doing" }).sorted(by: { ($0.number("order") ?? 0) < ($1.number("order") ?? 0) }).first { return doing }
         return t.filter { $0.str("status") == "next" }.sorted { ($0.number("order") ?? 0) < ($1.number("order") ?? 0) }.first
     }

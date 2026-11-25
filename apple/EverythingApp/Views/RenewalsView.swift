@@ -61,7 +61,7 @@ struct RenewalsView: View {
                 Text(line).font(.footnote).foregroundStyle(.secondary).listRowSeparator(.hidden)
             }
             ForEach(groups) { g in
-                SwiftUI.Section(header: Text(g.title).font(.headline)) {
+                SwiftUI.Section(header: Text(g.title).font(.headline).pinnedHeader()) {
                     ForEach(g.items) { w in
                         WatchRow(watch: w, onEdit: { editing = w })
                     }
@@ -99,6 +99,7 @@ struct WatchRow: View {
     var onEdit: () -> Void
     /// A card in the wide window's grid instead of a list row: the same words on a card's fill, all of it clickable.
     var card = false
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var probeStatus: (text: String, ok: Bool?)? {
         guard let f = watch.decoded(WatchFields.self), let url = f.probe_url, !url.isEmpty else { return nil }
@@ -110,22 +111,32 @@ struct WatchRow: View {
     var body: some View {
         let f = watch.decoded(WatchFields.self)
         let due = watch.date("due")
-        HStack(alignment: .top, spacing: 12) {
+        // At the largest text sizes Renewed goes under the words and each line of small words wraps: held to one
+        // line beside one another, the kind, the days left and Renewed made the row wider than the screen, and the
+        // list showed it cut at both edges.
+        let stacked = typeSize.isAccessibilitySize
+        let row = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+        let line = stacked ? AnyLayout(FlowLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        row {
             VStack(alignment: .leading, spacing: 4) {
                 Text(StyleGuard.dashes(watch.str("title"))).font(.title3)
-                HStack(spacing: 8) {
-                    Text(f?.category.rawValue.capitalized ?? "Other")
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Color.secondary.opacity(0.15), in: Capsule())
-                        .fixedSize()
-                    Text(daysLeftLabel(due)).font(.subheadline.weight(.semibold)).foregroundStyle(daysLeftColor(due)).fixedSize()
-                    if let d = due { Text(d.formatted(date: .abbreviated, time: .omitted)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                if stacked {
+                    FlowLayout(spacing: 8) { kindAndDaysLeft(f, due); dueDate(due) }
+                } else {
+                    // Beside Renewed on a phone the date was cut ("Dec 6, 2..."): this year's date goes without its year,
+                    // and a date that still does not fit goes on a line of its own.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) { kindAndDaysLeft(f, due); dueDate(due) }
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 8) { kindAndDaysLeft(f, due) }
+                            dueDate(due)
+                        }
+                    }
                 }
-                HStack(spacing: 8) {
+                line {
                     if f?.autopay == true { Text("Autopay") }
                     if let c = f?.cost { Text(c.formatted(.currency(code: Locale.current.currency?.identifier ?? "USD"))) }
-                    if let r = f?.repeat, !r.isEmpty { Text(r) }
+                    if let r = f?.repeat, !r.isEmpty { Text(RepeatRule.words(r)) }
                     if let p = probeStatus {
                         HStack(spacing: 3) {
                             Image(systemName: p.ok == true ? "checkmark.shield" : (p.ok == false ? "exclamationmark.shield" : "shield"))
@@ -139,7 +150,7 @@ struct WatchRow: View {
                     Text("Renewed \(d.formatted(date: .abbreviated, time: .omitted))").font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            Spacer(minLength: 8)
+            if !stacked { Spacer(minLength: 8) }
             // Autopay renews by itself; only a renewal the owner has to do gets the button.
             if f?.autopay != true {
                 Button("Renewed") { Task { await engine.renewWatch(watch.id) } }.buttonStyle(.themedProminent).fixedSize()
@@ -153,6 +164,25 @@ struct WatchRow: View {
             Button("Edit") { onEdit() }
             if let u = f?.url, let link = URL(string: u) { Link("Open renewal page", destination: link) }
             Button("Delete", role: .destructive) { Task { await engine.softDelete(watch.id) } }
+        }
+    }
+
+    /// The kind (Subscription, Domain...) and the days left.
+    @ViewBuilder private func kindAndDaysLeft(_ f: WatchFields?, _ due: Date?) -> some View {
+        Text(f?.category.rawValue.capitalized ?? "Other")
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Color.secondary.opacity(0.15), in: Capsule())
+            .fixedSize()
+        Text(daysLeftLabel(due)).font(.subheadline.weight(.semibold)).foregroundStyle(daysLeftColor(due)).fixedSize()
+    }
+
+    /// The due date: "Dec 6" this year, "Jan 5, 2027" in another.
+    @ViewBuilder private func dueDate(_ due: Date?) -> some View {
+        if let d = due {
+            let thisYear = Calendar.current.isDate(d, equalTo: Date(), toGranularity: .year)
+            Text(thisYear ? d.formatted(.dateTime.month(.abbreviated).day()) : d.formatted(date: .abbreviated, time: .omitted))
+                .font(.caption).foregroundStyle(.secondary).fixedSize()
         }
     }
 }

@@ -10,6 +10,7 @@ import { fmtDate, fmtDateTime, relative } from "../lib/time";
 import { useEscape } from "../lib/keys";
 import { usePoll } from "../lib/usePoll";
 import { money } from "../lib/calc";
+import { repeatWords } from "../lib/reminders";
 
 const CATEGORIES = ["cert", "subscription", "prescription", "insurance", "rma", "warranty", "domain", "other"] as const;
 type Category = (typeof CATEGORIES)[number];
@@ -225,9 +226,9 @@ export function Renewals({ focus }: { focus?: string | null } = {}) {
             </span>
           </div>
           <div className="meta">
-            {f.cost != null && <span>{f.cost} cost</span>}
+            {f.cost != null && <span>{money(f.cost)}</span>}
             <span>{f.lead_days ?? 7} d lead</span>
-            {f.repeat && <span>{f.repeat}</span>}
+            {f.repeat && <span>{repeatWords(f.repeat)}</span>}
             <span>{f.autopay ? "autopay, no reminder" : reminderState(f)}</span>
             {probe && (
               <span className={f.last_probe_error ? "error" : ""}>

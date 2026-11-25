@@ -144,7 +144,8 @@ struct HostRow: View {
             "\(s.journal_entries) change\(s.journal_entries == 1 ? "" : "s")",
             "\(s.snippets) snippet\(s.snippets == 1 ? "" : "s")"
         ]
-        parts.append(s.last_change.map { "changed \(Homelab.ago($0))" } ?? "no changes logged")
+        // "0 changes" says it already: "no changes logged" after it said it twice.
+        if let last = s.last_change { parts.append("changed \(Homelab.ago(last))") }
         return parts.joined(separator: ", ")
     }
 }

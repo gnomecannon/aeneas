@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { readBar, readToday } from "@everythingapp/shared";
+import { readBar, readHiddenCalendars, readToday } from "@everythingapp/shared";
 import { engine } from "../sync/engine";
 import { HubError } from "../sync/api";
 import { isWindowsApp } from "../tauri/bridge";
@@ -91,15 +91,19 @@ function flush(): Promise<void> {
     savePending();
     try {
       const out = await c.setFeel(body);
-      // A hub from before the bottom bar (or Today's setting) leaves `bar` (or `today`) out of its answer: it did not
-      // keep it. The choice stays on this device and goes out again with the next refresh, so it reaches the hub once
-      // that is updated.
+      // A hub from before the bottom bar (or Today's setting, or Week's hidden calendars) leaves `bar` (or `today`,
+      // `hidden_calendars`) out of its answer: it did not keep it. The choice stays on this device and goes out again
+      // with the next refresh, so it reaches the hub once that is updated.
       if (body.bar && !pending.bar && readBar((out as { bar?: unknown }).bar) === null) {
         pending = { ...pending, bar: body.bar };
         savePending();
       }
       if (body.today && !pending.today && readToday((out as { today?: unknown }).today) === null) {
         pending = { ...pending, today: body.today };
+        savePending();
+      }
+      if (body.hidden_calendars && !pending.hidden_calendars && readHiddenCalendars((out as { hidden_calendars?: unknown }).hidden_calendars) === null) {
+        pending = { ...pending, hidden_calendars: body.hidden_calendars };
         savePending();
       }
       set(mergeFeel(viewFrom(out), pending));

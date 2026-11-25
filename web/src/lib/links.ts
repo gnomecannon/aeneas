@@ -83,3 +83,5 @@ export const PLATFORM_LABEL: Record<LayoutPlatform, string> = {
   iphone: "iPhone", ipad: "iPad", mac: "Mac", watch: "Watch", windows: "Windows", web: "Web", other: "Other",
 };
 export const platformLabel = (platform: string) => (PLATFORM_LABEL as Record<string, string>)[platform] ?? platform;
+/** Where a capture came from, as people say it (Unsorted Info): a device, or a Shortcut, Voice or the API (EACore `Source.label`). */
+export const captureSourceLabel = (source: string) => ({ shortcut: "Shortcut", voice: "Voice", api: "API" } as Record<string, string>)[source] ?? platformLabel(source);

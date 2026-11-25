@@ -107,6 +107,9 @@ import {
   outboxLine,
   previewNote,
   SEND_TEXTS,
+  UNSUBSCRIBE_TEXTS,
+  unsubscribeNote,
+  unsubscribeSent,
   writeNote,
   type OutboxItem,
   type Bundle,
@@ -2050,7 +2053,7 @@ function OutboxNotices({ items, composing }: { items: OutboxItem[]; composing: b
   const { act } = useContext(Look);
   const [busy, setBusy] = useState(false);
   const shownInBox = (id: string) => [...WRITING.typed.entries()].some(([k, t]) => t.outbox === id && (k === NEW_MAIL ? composing : WRITING.open.has(k.slice(k.indexOf(":") + 1))));
-  const failed = items.filter((x) => x.state === "failed" && !shownInBox(x.id));
+  const failed = items.filter((x) => x.state === "failed" && !shownInBox(x.id) && !UNSUBSCRIBING.has(x.id));
   if (!failed.length) return null;
   const run = async (f: (c: HubClient) => Promise<unknown>) => { setBusy(true); await act(async (c) => { await f(c); }); setBusy(false); };
   return (
@@ -2094,7 +2097,8 @@ function AroundLine({ label, value, rows, waiting, set }: { label: string; value
 /**
  * Unsubscribe and Block for a mail's sender. Unsubscribe reads the mail's own ways now and says what each does: one
  * click through Tor, or (a hub without Tor) only after the owner accepts that the sender sees the home's address; the
- * sender's own page, opened in the browser with its host shown; or a draft to their unsubscribe address. Block sends
+ * sender's own page, opened in the browser with its host shown; or a mail to their unsubscribe address, sent with its
+ * Undo (UnsubscribeByMail) or, from a mailbox without a sending server, saved to Drafts. Block sends
  * the sender's (or their domain's) mail to Spam, now and from now on; its Undo unblocks and moves that mail back. A
  * block the hub refuses (the owner's own address, a mail provider's whole domain) shows the hub's sentence.
  */
@@ -2152,12 +2156,14 @@ function SenderTools({ m, close }: { m: MailSummary; close: () => void }) {
           <span className="muted small">Opens {linkHost} in your browser.</span>
         </div>
       )}
-      {ways?.mailto && !readOnlyBox(boxes, m.mailbox) && (
-        <div className="mailx-compose-acts">
-          <button type="button" disabled={busy} onClick={() => void run(async () => { await engine.client!.mailUnsubscribe(m.id, "mailto"); return `A mail to ${ways.mailto!.to} is in Drafts: send it from ${app}.`; })}>Write the unsubscribe mail</button>
-          <span className="muted small">To {ways.mailto.to}, saved in Drafts for you to send.</span>
-        </div>
-      )}
+      {ways?.mailto && !readOnlyBox(boxes, m.mailbox) && (canSend(mailboxOf(boxes, m.mailbox))
+        ? <UnsubscribeByMail m={m} from={mailboxOf(boxes, m.mailbox)!.email} to={ways.mailto.to} subject={ways.mailto.subject} />
+        : (
+          <div className="mailx-compose-acts">
+            <button type="button" disabled={busy} onClick={() => void run(async () => { await engine.client!.mailUnsubscribe(m.id, "mailto"); return `A mail to ${ways.mailto!.to} is in Drafts: send it from ${app}.`; })}>{UNSUBSCRIBE_TEXTS.write}</button>
+            <span className="muted small">{unsubscribeNote(ways.mailto.to, false)}</span>
+          </div>
+        ))}
       <b>Block</b>
       <div className="mailx-compose-acts">
         <button type="button" disabled={busy} onClick={() => void block(m.from.address, m.from.address)}>Block {m.from.address}</button>
@@ -2166,6 +2172,106 @@ function SenderTools({ m, close }: { m: MailSummary; close: () => void }) {
       {msg && <div className="small" role="status">{msg}</div>}
       {err && <div className="error small" role="alert">{err}</div>}
       <div><button type="button" className="link small" onClick={close}>Close</button></div>
+    </div>
+  );
+}
+
+/** Unsubscribe mail in the outbox that an open Unsubscribe or block card shows: the screen's notices leave it to that card. */
+const UNSUBSCRIBING = new Set<string>();
+
+/**
+ * Unsubscribe by mail from a mailbox that sends (since 2026-11-24): the button shows the whole mail (from the mailbox
+ * the mail is in, to the address its header gives, the header's subject and the word "unsubscribe"); Send puts it in
+ * the hub's outbox, and the card then shows it as a writing box shows a sent mail: Sending with Undo while it waits,
+ * Sent, or Not sent with the hub's words, Try again, Save draft and Discard.
+ */
+function UnsubscribeByMail({ m, from, to, subject }: { m: MailSummary; from: string; to: string; subject: string }) {
+  const { act } = useContext(Look);
+  const [asking, setAsking] = useState(false);
+  const [id, setId] = useState<string | null>(null);
+  const [item, setItem] = useState<OutboxItem | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [looks, setLooks] = useState(0);
+  useEffect(() => {
+    const c = engine.client;
+    if (!id || !c) return;
+    UNSUBSCRIBING.add(id);
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const look = async () => {
+      let got: OutboxItem | null;
+      try { got = await c.mailOutbox(id); } catch (e) {
+        if (!(e instanceof HubError && e.status === 404)) { if (live) timer = setTimeout(() => void look(), 2000); return; }
+        got = null;
+      }
+      if (!live) return;
+      // Gone (taken back on another device, or long since sent): the button shows again.
+      if (!got) { setId(null); setItem(null); return; }
+      setItem(got);
+      if (got.state === "waiting" || got.state === "sending") timer = setTimeout(() => void look(), 1000);
+    };
+    void look();
+    // Closed with a mail that was not sent: the screen's notice shows it, with Try again.
+    return () => { live = false; clearTimeout(timer); UNSUBSCRIBING.delete(id); void act(async () => undefined); };
+  }, [id, looks]);
+  const run = async (f: (c: HubClient) => Promise<void>) => {
+    const c = engine.client;
+    if (!c) return;
+    setBusy(true); setErr("");
+    try { await f(c); } catch (e) { setErr(plainError(e)); }
+    setBusy(false);
+  };
+  const send = () => run(async (c) => { const r = await c.mailUnsubscribeSend(m.id); setItem(r.outbox); setId(r.outbox.id); setAsking(false); });
+  const takeBack = () => run(async (c) => { await c.mailOutboxUndo(id!); setId(null); setItem(null); });
+  const retry = () => run(async (c) => { setItem(await c.mailOutboxRetry(id!)); setLooks((n) => n + 1); });
+  const draft = () => run(async (c) => { await c.mailOutboxDraft(id!); setId(null); setItem(null); setErr(""); });
+  if (id) {
+    const face = outboxFace(item);
+    if (face.face === "sent") return <div className="small" role="status">{unsubscribeSent(to)}</div>;
+    if (face.face === "failed") {
+      return (
+        <div className="mailx-compose-acts" role="alert">
+          <b>{SEND_TEXTS.failed}</b>
+          <span className="error small">{face.text}</span>
+          <button type="button" className="primary small" disabled={busy} onClick={() => void retry()}>Try again</button>
+          <button type="button" className="small" disabled={busy} onClick={() => void draft()}>Save draft</button>
+          <button type="button" className="link small" disabled={busy} onClick={() => { if (window.confirm(SEND_TEXTS.discard)) void takeBack(); }}>Discard</button>
+          {err && <span className="error small">{err}</span>}
+        </div>
+      );
+    }
+    return (
+      <div className="mailx-compose-acts" role="status">
+        <b>{SEND_TEXTS.sending}</b>
+        <span className="muted small">To {to}</span>
+        {face.undo && <button type="button" className="small" autoFocus disabled={busy} onClick={() => void takeBack()}>Undo</button>}
+        {err && <span className="error small" role="alert">{err}</span>}
+      </div>
+    );
+  }
+  if (asking) {
+    return (
+      <div role="group" aria-label="The unsubscribe mail as it will be sent">
+        <div className="muted small">{UNSUBSCRIBE_TEXTS.confirm}</div>
+        <dl className="mailx-compose-head">
+          <dt>From</dt><dd>{from}</dd>
+          <dt>To</dt><dd>{to}</dd>
+          <dt>Subject</dt><dd>{subject}</dd>
+        </dl>
+        <div className="mailx-compose-text">{UNSUBSCRIBE_TEXTS.text}</div>
+        <div className="mailx-compose-acts">
+          <button type="button" className="primary" autoFocus disabled={busy} onClick={() => void send()}>Send</button>
+          <button type="button" disabled={busy} onClick={() => setAsking(false)}>Cancel</button>
+          {err && <span className="error small" role="alert">{err}</span>}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mailx-compose-acts">
+      <button type="button" onClick={() => { setErr(""); setAsking(true); }}>{UNSUBSCRIBE_TEXTS.send}</button>
+      <span className="muted small">{unsubscribeNote(to, true)}</span>
     </div>
   );
 }

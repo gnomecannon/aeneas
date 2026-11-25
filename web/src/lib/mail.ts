@@ -766,6 +766,26 @@ export const whereLabel = (h: Pick<SearchHit, "where" | "folder_name" | "state">
 /** How a mail can be unsubscribed from (GET /mail/messages/:id/unsubscribe), and whether this hub goes through Tor. */
 export interface UnsubscribeOptions { one_click?: { host: string }; link?: string; mailto?: { to: string; subject: string }; tor: boolean }
 
+/**
+ * Unsubscribe by mail (since 2026-11-24): from a mailbox that sends, the mail to the sender's unsubscribe address is
+ * shown whole, then sent through the outbox with the same 10 seconds of Undo as Send; from one without a sending server
+ * it is saved to Drafts, as before. The same words on every device (EACore `Mail.UnsubscribeTexts`).
+ */
+export const UNSUBSCRIBE_TEXTS = {
+  /** The button, for a mailbox that sends: it shows the whole mail first. */
+  send: "Send the unsubscribe mail…",
+  /** The button, for a mailbox that does not send. */
+  write: "Write the unsubscribe mail",
+  /** Above the whole mail, before it goes. */
+  confirm: "This is the whole mail. Send it?",
+  /** What the mail says. */
+  text: "unsubscribe",
+} as const;
+/** Under the button: where the mail goes, and whether it is sent or saved to Drafts. */
+export const unsubscribeNote = (to: string, sends: boolean) => (sends ? `To ${to}. You see the whole mail before it goes.` : `To ${to}, saved in Drafts for you to send.`);
+/** Once the unsubscribe mail went. */
+export const unsubscribeSent = (to: string) => `Sent. The unsubscribe mail went to ${to}.`;
+
 /** Snoozed threads coming back later today (after `now`, before midnight), soonest first: the Inbox's "Back later today". */
 export function backLaterToday<T extends MailSummary>(threads: T[], now: Date = new Date()): T[] {
   const end = new Date(now); end.setHours(24, 0, 0, 0);

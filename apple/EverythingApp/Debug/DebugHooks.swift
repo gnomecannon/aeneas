@@ -39,6 +39,8 @@ import EACore
 ///   -EAAccountsScroll <part>     with -EASettingsPage accounts, the page opens scrolled to device (From this iPhone)
 ///                                or work; with -EAAccount too, signin scrolls that account's page to Sign-in; with
 ///                                -EASettingsPage appleHealth, writes or hub scrolls the Apple Health page there
+///   -EAContactsTakeOver <name>   with -EASettingsPage accounts, From this iPhone asks whether to take Contacts over from
+///                                the device of that name, as when another device mirrors them (sample mode too)
 ///   -EABarOpen YES               the bottom bar's second row shows open at launch (PhoneRoot)
 ///   -EABarReveal <points>        the bottom bar's panel held as if pulled up that far (0 folded, the second row's
 ///                                height open, more for a pull past open), to photograph each stage (PhoneBar)
@@ -49,6 +51,16 @@ import EACore
 ///   -EATodayOrder <ids>          Today's order, ids comma separated (now,coming,todo...), or default for the default
 ///                                (TodayDebug); -EATodayHidden <ids> the parts hidden. -EASettingsPage today opens the
 ///                                editor, Theme, Today
+///   -EATodoLists <keys>          the lists that fill To do, keys comma separated (none for tasks in no list, all for
+///                                every list); -EASettingsPage todoLists opens Lists in To do, and with
+///                                -EASettingsPage today, -EAScrollTo todoLists scrolls the editor to its row
+///   -EASourcesSample YES         in sample mode, the sample hub's sources setting with a list for each list the sample's
+///                                tasks name, so the list choosers have lists (sample mode reads no setting itself);
+///                                with -EATaskGroups "School=Jamie Shopping|none;Home=Alex Shopping" the groups on Tasks
+///                                (lists by name, none for tasks in no list), -tasks.space group:<id> shows one, and
+///                                -EAGroupEdit <id, or new> opens the group editor over Tasks
+///   -EAWeekView, -EAWeekDate, -EAWeekSearch, -EAWeekCalendars, -EAWeekSample, -EAWeekHide  Week's view, day, search,
+///                                Calendars list and sample calendars (WeekDebug in WeekCalendarViews.swift)
 @MainActor
 enum DebugHooks {
     /// The machine page `-EAMachine` asked for opens once, not again each time the Overview shows.
@@ -57,6 +69,7 @@ enum DebugHooks {
     static func applyLaunchArguments(_ model: AppModel) async {
         let d = UserDefaults.standard
         if d.bool(forKey: "EASample"), !model.isConfigured { await model.startSample() }
+        if d.bool(forKey: "EASourcesSample") { await sourcesSample(model.engine) }
         applyTheme()
         if let id = d.string(forKey: "EAOpenItem"), !id.isEmpty {
             Task { try? await Task.sleep(for: .seconds(1.5)); model.open(itemId: id) }
@@ -70,6 +83,30 @@ enum DebugHooks {
         if let name = d.string(forKey: "EAWatchCaptureFile") { watchCaptureFile(name) }
         if d.bool(forKey: "EAMachinesStart") { model.machinesStart = true }
         if let page = d.string(forKey: "EASourcesPage") { sourcesPage(model, page) }
+        // Week's sample calendars (WeekDebug): after the launch's own read of the feel setting, which would put the
+        // sample's (none) back.
+        if d.bool(forKey: "EAWeekSample") { Task { try? await Task.sleep(for: .seconds(3)); await WeekDebug.seed(model.engine) } }
+    }
+
+    /// `-EASourcesSample YES`: the sample hub's sources setting, with an iCloud list for each list the sample's tasks
+    /// name, and the groups `-EATaskGroups` names. Sample mode only.
+    static func sourcesSample(_ engine: SyncEngine) async {
+        guard engine.config.sampleMode, var s = try? await engine.client?.sources() else { return }
+        for title in Set(engine.tasks.compactMap(\.reminderList)).sorted() where !s.lists.contains(where: { $0.title == title }) {
+            s.lists.append(.init(key: SourceKey.make(kind: "icloud", account: "iCloud", title: title), title: title, account: "iCloud"))
+        }
+        if let spec = UserDefaults.standard.string(forKey: "EATaskGroups") {
+            var groups: [TaskGroup] = []
+            for part in spec.split(separator: ";") {
+                let pair = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                guard let name = pair.first, !name.isEmpty else { continue }
+                let lists = (pair.count > 1 ? pair[1] : "").split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+                    .compactMap { t in t == ListChoices.noList ? t : s.lists.first { $0.title == t }?.key }
+                groups.append(TaskGroup(id: TaskGroups.newId(name, groups: groups), name: name, lists: lists))
+            }
+            if TaskGroups.problem(groups) == nil { s.groups = groups }
+        }
+        engine.adoptSources(s)
     }
 
     /// `-EASourcesPage reminders|calendars`: the page over the screen shown, as a sheet of its own.

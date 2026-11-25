@@ -107,8 +107,23 @@ extension SyncEngine {
     }
 }
 
-/// Tasks by status, inside one space (Personal or Work) and one list (all of them, one Reminders list, or none).
-/// Drag a task into another section to move it, or within Next to reorder. Done is a drawer. Edit, set aside, block.
+/// The test for a group's tasks, made once per drawing of Tasks rather than once per task (`GroupMatchBox.refresh`).
+private final class GroupMatchBox {
+    private var key: (lists: [String], sources: [SourcesSetting.ReminderList])?
+    private(set) var match: TaskListMatch?
+
+    func refresh(_ group: TaskGroup?, lists: [SourcesSetting.ReminderList]) {
+        guard let group else { key = nil; match = nil; return }
+        if let k = key, k.lists == group.lists, k.sources == lists { return }
+        key = (group.lists, lists)
+        match = TaskListMatch(group.lists, lists: lists)
+    }
+}
+
+/// Tasks by status, inside one space (Personal or Work) or one of the owner's groups (gnomecannon/aeneas#26: the tasks
+/// of the lists in it, from both spaces), and one list (all of them, one Reminders list, or none). New group and Edit
+/// group beside the selector make and change groups for every device. Drag a task into another section to move it, or
+/// within Next to reorder. Done is a drawer. Edit, set aside, block.
 struct TasksView: View {
     @EnvironmentObject var engine: SyncEngine
     @ObservedObject private var reminders = RemindersSync.shared
@@ -117,32 +132,96 @@ struct TasksView: View {
     @State private var parking: Entity?
     @State private var showDone = false
     @StateObject private var undo = TaskUndo()
+    /// `personal`, `work` or `group:<id>`.
     @AppStorage("tasks.space") private var spaceRaw = Space.personal.rawValue
     /// "" is every list; `noList` is tasks in no Reminders list; anything else is a list name.
     @AppStorage("tasks.list") private var listFilter = ""
     private static let noList = "\u{1}none"
+    /// Whether the hub's work space is on; nil until it answers (then: whether any work task or list is here).
+    @State private var workOn: Bool?
+    /// The group being made (nil group) or changed.
+    @State private var groupEdit: GroupEdit?
+    @State private var groupMatch = GroupMatchBox()
+
+    #if DEBUG
+    @MainActor private static var debugEditShown = false
+    #endif
+
+    struct GroupEdit: Identifiable {
+        var group: TaskGroup?
+        var id: String { group?.id ?? "\u{1}new" }
+    }
 
     private let order: [TaskStatus] = [.doing, .next, .scheduled, .inbox, .parked, .done]
 
-    private var hasWork: Bool { engine.tasks.contains { $0.space == .work } || reminders.lists.contains(where: \.isWork) }
-    private var space: Space { hasWork ? (Space(rawValue: spaceRaw) ?? .personal) : .personal }
+    private var groups: [TaskGroup] { engine.sources?.groups ?? [] }
+    /// The group shown; nil for Personal or Work (a group deleted on another device leaves Personal showing).
+    private var group: TaskGroup? {
+        guard spaceRaw.hasPrefix("group:") else { return nil }
+        return groups.first { "group:" + $0.id == spaceRaw }
+    }
+    private var hasWork: Bool { workOn ?? (engine.tasks.contains { $0.space == .work } || reminders.lists.contains(where: \.isWork)) }
+    private var space: Space { group == nil && hasWork ? (Space(rawValue: spaceRaw) ?? .personal) : .personal }
+    /// The tag the selector shows: the one chosen, or Personal when that is not there.
+    private var scopeTag: String { group.map { "group:" + $0.id } ?? space.rawValue }
+    /// In the space or group shown, before the list chips.
+    private func inView(_ t: Entity) -> Bool {
+        if group != nil { return groupMatch.match?.contains(t) ?? false }
+        return t.space == space
+    }
     private func inScope(_ t: Entity) -> Bool {
-        guard t.space == space else { return false }
+        guard inView(t) else { return false }
         switch listFilter {
         case "": return true
         case Self.noList: return t.reminderList == nil
         default: return t.reminderList == listFilter
         }
     }
-    private func openCount(_ match: (Entity) -> Bool) -> Int { engine.tasks.filter { $0.space == space && $0.str("status") != "done" && match($0) }.count }
+    private func openCount(_ match: (Entity) -> Bool) -> Int { engine.tasks.filter { inView($0) && $0.str("status") != "done" && match($0) }.count }
+
+    /// The list chips: in a space, its lists; in a group, its lists that are on and any its tasks name.
+    private var chipTitles: [String] {
+        guard let g = group else { return engine.taskListTitles(space: space) }
+        var names = Set((engine.sources?.lists(in: g) ?? []).map(\.title))
+        for t in engine.tasks where inView(t) { if let l = t.reminderList { names.insert(l) } }
+        return names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// Where a new task goes: the list chosen. In a group with every list showing, nowhere when the group holds the
+    /// tasks in no list, else its first list, so the task shows in the group; its space is that list's.
+    private var newTarget: (space: Space, list: String?) {
+        let chosen = listFilter == Self.noList || listFilter.isEmpty ? nil : listFilter
+        guard let g = group else { return (space, chosen) }
+        let lists = engine.sources?.lists(in: g) ?? []
+        let title = chosen ?? (listFilter.isEmpty && !g.lists.contains(ListChoices.noList) ? lists.first?.title : nil)
+        return (lists.first { $0.title == title }?.space ?? .personal, title)
+    }
 
     var body: some View {
+        let _ = groupMatch.refresh(group, lists: engine.sources?.lists ?? [])
         // Each column of the board is a list of its own, so swipes, drags and drops work in it as in the one list.
         WideReader { wide in
             if wide { board } else { list }
         }
         .safeAreaInset(edge: .top, spacing: 0) { scopeBar }
         .onChange(of: spaceRaw) { _, _ in listFilter = "" }
+        .task(id: engine.client == nil) {
+            guard let c = engine.client, let w = try? await withDeadline(15, { try await c.workSpace() }) else { return }
+            workOn = w.enabled
+        }
+        #if DEBUG
+        // `-EAGroupEdit <id, or new>` (DebugHooks): the group editor over Tasks, once, for screenshots.
+        .onAppear {
+            guard !Self.debugEditShown, let id = UserDefaults.standard.string(forKey: "EAGroupEdit") else { return }
+            Self.debugEditShown = true
+            groupEdit = GroupEdit(group: id == "new" ? nil : groups.first { $0.id == id })
+        }
+        #endif
+        .sheet(item: $groupEdit) { e in
+            TaskGroupEditor(group: e.group) { saved in
+                if let saved { spaceRaw = "group:" + saved.id } else if e.group != nil { spaceRaw = Space.personal.rawValue }
+            }
+        }
         .navigationTitle("Tasks")
         // Personal tasks only: no work item leaves the device in an export (contract, work space rule 6).
         .toolbar { ToolbarItem(placement: .automatic) { CSVExportButton(kind: .task, filter: ["space": "personal"]) } }
@@ -153,10 +232,14 @@ struct TasksView: View {
             ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Label("New", systemImage: "plus") } }
         }
         .sheet(item: $editing) { t in TaskEditView(task: t, undo: undo) }
-        .sheet(isPresented: $creating) { TaskEditView(task: nil, newSpace: space, newList: listFilter == Self.noList || listFilter.isEmpty ? nil : listFilter) }
+        .sheet(isPresented: $creating) { TaskEditView(task: nil, newSpace: newTarget.space, newList: newTarget.list) }
         .sheet(item: $parking) { t in ParkSheet(task: t) }
         .refreshable { await engine.sync() }
-        .overlay { if !engine.tasks.contains(where: inScope) { EmptyState(text: listFilter.isEmpty ? "No tasks yet" : "Nothing in this list") } }
+        .overlay {
+            if !engine.tasks.contains(where: inScope) {
+                EmptyState(text: group?.lists.isEmpty == true ? TaskGroupText.empty : listFilter.isEmpty ? "No tasks yet" : "Nothing in this list")
+            }
+        }
         .overlay(alignment: .bottom) { TaskUndoBar(undo: undo) }
     }
 
@@ -263,6 +346,7 @@ struct TasksView: View {
                 Button("Hide") { withAnimation { showDone = false } }.font(.subheadline).buttonStyle(.borderless)
             }
         }
+        .pinnedHeader()
     }
 
     /// Set aside asks for its reason; Scheduled without a time opens the editor to set one.
@@ -274,22 +358,40 @@ struct TasksView: View {
         }
     }
 
-    /// Personal or Work, then the lists in it with how many open tasks each holds. Stays on top while scrolling.
+    /// Personal, Work while it is on, and the owner's groups (segmented while they fit, else a menu), with a menu beside
+    /// them for New group and Edit group; then the lists in it with how many open tasks each holds. Stays on top while
+    /// scrolling.
     private var scopeBar: some View {
         VStack(spacing: 8) {
-            if hasWork {
-                Picker("Space", selection: $spaceRaw) {
-                    Text("Personal").tag(Space.personal.rawValue)
-                    Text("Work").tag(Space.work.rawValue)
+            let choices = 1 + (hasWork ? 1 : 0) + groups.count
+            let canGroup = !groups.isEmpty || engine.sources?.lists.contains(where: \.on) == true
+            if choices > 1 || canGroup {
+                HStack(spacing: 10) {
+                    if choices > 1 {
+                        ViewThatFits(in: .horizontal) {
+                            scopePicker.pickerStyle(.segmented).fixedSize()
+                            scopePicker.pickerStyle(.menu)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                    if canGroup { groupMenu }
                 }
-                .pickerStyle(.segmented)
                 .padding(.horizontal)
-                Text(verbatim: "Work holds tasks you add under Work, tasks from work Reminders accounts and captures that start with \"work:\". The rest are Personal. To move one, open it.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
+                if group != nil {
+                    Text(TaskGroupText.note)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                } else if hasWork {
+                    Text(verbatim: "Work holds tasks you add under Work, tasks from work Reminders accounts and captures that start with \"work:\". The rest are Personal. To move one, open it.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                }
             }
-            let titles = engine.taskListTitles(space: space)
+            let titles = chipTitles
             let loose = openCount { $0.reminderList == nil }
             if !titles.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -307,7 +409,148 @@ struct TasksView: View {
             }
         }
         .padding(.vertical, 8)
-        .background(.bar)
+        // Only behind the bar itself: by default a style background reaches up through the top safe area, and there it
+        // covered the large title, so the iPhone showed a blank band where "Tasks" belongs.
+        .background(.bar, ignoresSafeAreaEdges: [])
+    }
+
+    private var scopePicker: some View {
+        Picker(TaskGroupText.show, selection: Binding(get: { scopeTag }, set: { spaceRaw = $0 })) {
+            Text(TaskGroupText.personal).tag(Space.personal.rawValue)
+            if hasWork { Text(TaskGroupText.work).tag(Space.work.rawValue) }
+            ForEach(groups) { g in Text(StyleGuard.dashes(g.name)).tag("group:" + g.id) }
+        }
+    }
+
+    /// New group, and Edit group while one is shown.
+    private var groupMenu: some View {
+        Menu {
+            Button { groupEdit = GroupEdit(group: nil) } label: { Label(TaskGroupText.newGroup, systemImage: "plus") }
+            if let g = group {
+                Button { groupEdit = GroupEdit(group: g) } label: { Label(TaskGroupText.editGroup, systemImage: "pencil") }
+            }
+        } label: {
+            Label(group == nil ? TaskGroupText.newGroup : TaskGroupText.editGroup, systemImage: "folder.badge.gearshape")
+                .labelStyle(.iconOnly)
+                .font(.title3)
+                .frame(minWidth: 36, minHeight: 32)
+                .contentShape(Rectangle())
+        }
+        .fixedSize()
+        .accessibilityLabel("Groups")
+    }
+}
+
+/// Making or changing a group on Tasks (gnomecannon/aeneas#26): its name and its lists (each list that is on, and the
+/// tasks in no list), or Delete group. The whole set of groups goes to the hub (`groups` in the sources setting),
+/// checked first by the same rules the hub keeps (`TaskGroups.problem`). The same words as the web's editor.
+struct TaskGroupEditor: View {
+    @EnvironmentObject var engine: SyncEngine
+    @Environment(\.dismiss) private var dismiss
+    /// Nil for a new group.
+    let group: TaskGroup?
+    /// The group saved, or nil once it is deleted.
+    var onDone: (TaskGroup?) -> Void
+    @State private var name = ""
+    @State private var chosen: [String] = []
+    @State private var error: String?
+    @State private var busy = false
+    @State private var asksDelete = false
+
+    private var groups: [TaskGroup] { engine.sources?.groups ?? [] }
+    private var lists: [SourcesSetting.ReminderList] { TodayText.choosable(engine.sources?.lists ?? []) }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                SwiftUI.Section(TaskGroupText.name) {
+                    TextField(TaskGroupText.name, text: $name, prompt: Text(TaskGroupText.namePlaceholder))
+                        .onChange(of: name) { _, n in if n.unicodeScalars.count > TaskGroups.nameMax { name = String(String.UnicodeScalarView(n.unicodeScalars.prefix(TaskGroups.nameMax))) } }
+                }
+                .themedRow()
+                SwiftUI.Section {
+                    ForEach(lists) { l in
+                        Toggle(isOn: Binding(get: { ListChoices.contains(chosen, l) }, set: { chosen = ListChoices.with(chosen, l, $0) })) {
+                            label(l.title, TodayText.accountName(l.account, kind: l.kind) + (l.space == .work ? ", \(TodayText.work)" : ""))
+                        }
+                    }
+                    Toggle(isOn: Binding(get: { chosen.contains(ListChoices.noList) }, set: { chosen = ListChoices.withNoList(chosen, $0) })) {
+                        label(TodayText.noList, TodayText.noListNote)
+                    }
+                } header: {
+                    Text(TaskGroupText.lists)
+                } footer: {
+                    Text(lists.isEmpty ? "\(TodayText.noListsYet) \(TaskGroupText.note)" : TaskGroupText.note)
+                }
+                .themedRow()
+                if let error {
+                    SwiftUI.Section { Text(error).foregroundStyle(.dangerText) }.themedRow()
+                }
+                if group != nil {
+                    SwiftUI.Section {
+                        Button(TaskGroupText.delete, role: .destructive) { asksDelete = true }
+                    }
+                    .themedRow()
+                }
+            }
+            #if os(macOS)
+            .toggleStyle(.switch)
+            .frame(minWidth: 420, minHeight: 460)
+            #endif
+            .formStyle(.grouped)
+            .themedScreen()
+            .navigationTitle(group == nil ? TaskGroupText.newGroup : TaskGroupText.editGroup)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button(TaskGroupText.cancel) { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(TaskGroupText.save) { save() }
+                        .disabled(busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .alert(TaskGroupText.deleteAsk, isPresented: $asksDelete) {
+                Button(TaskGroupText.delete, role: .destructive) { if let g = group { send(TaskGroups.without(groups, id: g.id), result: nil) } }
+                Button(TaskGroupText.cancel, role: .cancel) {}
+            }
+            .disabled(busy)
+        }
+        .onAppear {
+            name = group?.name ?? ""
+            chosen = group?.lists ?? []
+        }
+    }
+
+    private func label(_ title: String, _ note: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(StyleGuard.dashes(title))
+            Text(note).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func save() {
+        let g = TaskGroup(id: group?.id ?? TaskGroups.newId(name, groups: groups), name: name.trimmingCharacters(in: .whitespacesAndNewlines), lists: chosen)
+        send(TaskGroups.with(groups, g), result: g)
+    }
+
+    /// The whole set to the hub; its answer is the whole sources setting, which every screen then follows.
+    private func send(_ next: [TaskGroup], result: TaskGroup?) {
+        if let p = TaskGroups.problem(next) { error = p; return }
+        guard engine.client != nil else { error = TaskGroupText.offline; return }
+        guard let value = try? JSONCoding.value(next) else { return }
+        error = nil
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                try await engine.changeSources(["groups": value])
+                onDone(result)
+                dismiss()
+            } catch {
+                self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
     }
 }
 

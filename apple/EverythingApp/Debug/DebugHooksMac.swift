@@ -32,6 +32,8 @@ import EACore
 ///   -EASettingsWindow <page>   a Settings page (theme, appColors, calendarColors, accounts, addAccount...) in a window
 ///                              of its own (640x860, or the size -EAWindowSize gives); with accounts, -EAAccount
 ///                              <address> then opens that account's page
+///   -EAContactsTakeOver <name> with -EASettingsWindow accounts, From this Mac asks whether to take Contacts over from
+///                              the device of that name, as when another device mirrors them (sample mode too)
 ///   -EAAppKey <service>        an app key's page from Settings, Connections, App keys (google, atlassian or steam) in
 ///                              a window of its own (640x860, or the size -EAWindowSize gives)
 ///   -EASourcesPage <page>      a page of Settings, Accounts, From this Mac in a window of its own (640x860, or the size
@@ -57,10 +59,13 @@ import EACore
 /// And three links, for a test copy that is running (`open -g -a <the test copy> <link>`), so a screen can be tested
 /// from a shell with no control of the Mac: the copy does to its own main window what a hand would.
 ///   everythingapp://debug/click?x=<points>&y=<points>   a click at that point, counted from the window's top left
-///                                                       corner as in a screenshot at 1x
+///                                                       corner as in a screenshot at 1x (in a sheet open over the
+///                                                       window when the point is inside it)
 ///   everythingapp://debug/size?w=<points>&h=<points>    the window takes that size, its top left corner staying put
 ///   everythingapp://debug/key                           the window draws as the key window of the app in front,
 ///                                                       without coming to the front (`actLikeKey`)
+///   everythingapp://debug/press?key=<name>&shift=1      a key pressed in the window, as a hand's: a letter or sign
+///                                                       (d, /, ?, !), or up, down, return, escape, space or delete
 /// Screenshots are then taken from outside (screencapture -o -l <window id>), which needs Screen Recording.
 @MainActor
 enum DebugHooksMac {
@@ -77,6 +82,8 @@ enum DebugHooksMac {
         if let a = d.string(forKey: "EAAppearance"), ["system", "light", "dark"].contains(a) { theme["appearance"] = .string(a) }
         if !theme.isEmpty { FeelController.shared.change(theme) }
         TodayDebug.apply()
+        // Week's sample calendars (WeekDebug): after the launch's own read of the feel setting.
+        if d.bool(forKey: "EAWeekSample") { Task { try? await Task.sleep(for: .seconds(3)); await WeekDebug.seed(model.engine) } }
         if let id = d.string(forKey: "EAOpenItem"), !id.isEmpty {
             Task { try? await Task.sleep(for: .seconds(1.5)); model.open(itemId: id) }
         }
@@ -174,12 +181,15 @@ enum DebugHooksMac {
         switch url.pathComponents.dropFirst().first {
         case "click":
             guard let x = number("x"), let y = number("y") else { say("click needs x and y"); return }
-            // A window counts from its bottom left corner.
-            let at = NSPoint(x: x, y: window.frame.height - y)
+            // A window counts from its bottom left corner. A sheet open over the window (the permission offer, an
+            // editor) is a window of its own: a point inside it goes to it, as a hand's click would.
+            let onScreen = NSPoint(x: window.frame.minX + x, y: window.frame.maxY - y)
+            let target = window.attachedSheet.flatMap { $0.frame.contains(onScreen) ? $0 : nil } ?? window
+            let at = NSPoint(x: onScreen.x - target.frame.minX, y: onScreen.y - target.frame.minY)
             func send(_ type: NSEvent.EventType) {
                 guard let e = NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else { return }
-                window.sendEvent(e)
+                                                 windowNumber: target.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) else { return }
+                target.sendEvent(e)
             }
             send(.leftMouseDown)
             // The release in a later turn of the run loop, as a hand's is.
@@ -192,6 +202,20 @@ enum DebugHooksMac {
             let f = window.frame
             window.setFrame(NSRect(x: f.minX, y: f.maxY - h, width: w, height: h), display: true)
             say("size \(Int(window.frame.width))x\(Int(window.frame.height))")
+        case "press":
+            // A key press and release handed to the window, which gives it to whatever has the keyboard in it.
+            let named: [String: (chars: String, code: UInt16)] = [
+                "up": (String(UnicodeScalar(NSUpArrowFunctionKey)!), 126), "down": (String(UnicodeScalar(NSDownArrowFunctionKey)!), 125),
+                "return": ("\r", 36), "escape": ("\u{1b}", 53), "space": (" ", 49), "delete": ("\u{7f}", 51),
+            ]
+            guard let k = items.first(where: { $0.name == "key" })?.value, let key = named[k] ?? (k.count == 1 ? (k, 0) : nil) else { say("press needs a key"); return }
+            let flags: NSEvent.ModifierFlags = number("shift") == 1 ? [.shift] : []
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                guard let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                               context: nil, characters: key.chars, charactersIgnoringModifiers: key.chars, isARepeat: false, keyCode: key.code) else { continue }
+                window.sendEvent(e)
+            }
+            say("pressed \(k) (first responder: \(window.firstResponder.map { String(String(describing: type(of: $0)).prefix { $0 != "<" }) } ?? "none"))")
         case "key":
             actLikeKey(window)
             say("key \(window.isKeyWindow) main \(window.isMainWindow) active \(NSApp.isActive)")

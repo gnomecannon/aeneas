@@ -150,6 +150,57 @@ test("mail send: Undo inside the window takes it back and nothing is sent; once 
   } finally { await finish(t, [server]); }
 });
 
+test("mail send: Unsubscribe by mail goes through the outbox with its Undo, to the header's address only, as the header asks", async () => {
+  const t = makeHub();
+  const server = await smtp({ secure: false, user: EMAIL, pass: PASSWORD });
+  const NEWS = "List-Unsubscribe: <mailto:unsub@news.example?subject=stop%20please>\r\n";
+  try {
+    setSendDelay(400);
+    const { seen, list } = await icloud(t, [{ uid: 2, folder: "INBOX", at: ago(2), subject: "This week", from: { name: "News", address: "letters@news.example" }, messageId: "n1@x", headers: NEWS, plain: "Stories" }]);
+    const news = list.messages.find((m) => m.subject === "This week")!.id;
+    const ask = (body: unknown) => t.api(`/mail/messages/${news}/unsubscribe`, { method: "POST", json: body });
+    const r = await ask({ how: "mailto", send: true, to: "evil@x.example", subject: "Other", text: "Other words" });
+    assert.equal(r.status, 200);
+    const got = (await r.json()) as { ok: boolean; outbox: Item & { send_at: string } };
+    assert.deepEqual([got.ok, got.outbox.state, got.outbox.to, got.outbox.subject, got.outbox.mailbox], [true, "waiting", ["unsub@news.example"], "stop please", EMAIL], "the header's address and subject, never the request's");
+    assert.equal(((await (await t.api("/mail")).json()) as { outbox: Item[] }).outbox[0].id, got.outbox.id, "the Mail screen sees it waiting");
+    // Undo inside the window: nothing is sent.
+    assert.deepEqual(await (await t.api(`/mail/outbox/${got.outbox.id}/undo`, { method: "POST" })).json(), { undone: true });
+    await sleep(700);
+    assert.equal(server.got.length, 0, "taken back: nothing was sent");
+    assert.equal(seen.appends.length, 0, "and no draft was saved");
+
+    setSendDelay(20);
+    const again = (await (await ask({ how: "mailto", send: true })).json()) as { outbox: Item };
+    assert.equal((await settled(t, again.outbox.id)).state, "sent");
+    assert.equal(server.got.length, 1, "sent once");
+    const m = server.got[0];
+    assert.deepEqual([m.from, m.to], [EMAIL, ["unsub@news.example"]]);
+    const h = headersOf(m.raw);
+    assert.ok(h.includes("To: unsub@news.example"));
+    assert.ok(h.includes("Subject: stop please"));
+    assert.match(bodyOf(m.raw), /^unsubscribe/);
+
+    // Without `send` (older apps) it is the draft it was; a mail with no address in its header has nothing to send.
+    const drafts = seen.appends.length;
+    assert.deepEqual(await (await ask({ how: "mailto" })).json(), { ok: true, draft: true });
+    assert.equal(seen.appends.length, drafts + 1);
+    const lunch = list.messages.find((m) => m.subject === "Gutters")!.id;
+    assert.equal((await t.api(`/mail/messages/${lunch}/unsubscribe`, { method: "POST", json: { how: "mailto", send: true } })).status, 409);
+  } finally { await finish(t, [server]); }
+
+  // A Read only mailbox sends nothing and keeps nothing, saying why.
+  const o = makeHub();
+  try {
+    const { list } = await icloud(o, [{ uid: 2, folder: "INBOX", at: ago(2), subject: "This week", from: { address: "letters@news.example" }, messageId: "n1@x", headers: NEWS, plain: "Stories" }], { read_only: true });
+    const news = list.messages.find((m) => m.subject === "This week")!.id;
+    const r = await o.api(`/mail/messages/${news}/unsubscribe`, { method: "POST", json: { how: "mailto", send: true } });
+    assert.equal(r.status, 409);
+    assert.match(((await r.json()) as { error: string }).error, /Read only/);
+    assert.equal((o.hub.mailDb.prepare("SELECT COUNT(*) AS n FROM outbox").get() as { n: number }).n, 0);
+  } finally { await finish(o); }
+});
+
 test("mail send: a hub that restarts inside the window sends the mail once, at its time", async () => {
   const a = makeHub();
   const server = await smtp({ secure: false, user: EMAIL, pass: PASSWORD });

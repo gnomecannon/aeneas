@@ -145,7 +145,7 @@ struct FlowLayout: Layout {
         let width = proposal.width ?? 320
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
         for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
+            let size = Self.size(of: s, width: width)
             if x + size.width > width, x > 0 { x = 0; y += rowH + spacing; rowH = 0 }
             x += size.width + spacing
             rowH = max(rowH, size.height)
@@ -155,12 +155,20 @@ struct FlowLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x: CGFloat = bounds.minX, y: CGFloat = bounds.minY, rowH: CGFloat = 0
         for s in subviews {
-            let size = s.sizeThatFits(.unspecified)
+            let size = Self.size(of: s, width: bounds.width)
             if x + size.width > bounds.maxX, x > bounds.minX { x = bounds.minX; y += rowH + spacing; rowH = 0 }
             s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
             x += size.width + spacing
             rowH = max(rowH, size.height)
         }
+    }
+
+    /// A chip at its own size, but never wider than the row: one wider than that (a button at the largest text
+    /// sizes) is given the row's width and its words wrap, where it used to run past the edge of the screen.
+    private static func size(of s: LayoutSubview, width: CGFloat) -> CGSize {
+        let size = s.sizeThatFits(.unspecified)
+        guard size.width > width, width > 0 else { return size }
+        return s.sizeThatFits(ProposedViewSize(width: width, height: nil))
     }
 }
 

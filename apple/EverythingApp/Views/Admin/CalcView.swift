@@ -53,7 +53,10 @@ private struct NumberRow: View {
             Text(label)
             Spacer()
             if let p = prefix { Text(p).foregroundStyle(.secondary) }
-            TextField(placeholder, text: $text)
+            // The placeholder as a prompt, and the field's own label hidden: in a Mac form a text field's title is
+            // drawn as a label beside it, so the row read "Tax  0  6.25 %".
+            TextField(label, text: $text, prompt: Text(placeholder))
+                .labelsHidden()
                 .numericKeyboard()
                 .multilineTextAlignment(.trailing)
                 .frame(maxWidth: 140)
@@ -297,7 +300,7 @@ private struct AdminUnitCalc: View {
                     HStack {
                         Text("Unit")
                         Spacer()
-                        TextField("oz", text: $r.unit).multilineTextAlignment(.trailing).frame(maxWidth: 100).autocorrectionDisabled()
+                        TextField("Unit", text: $r.unit, prompt: Text("oz")).labelsHidden().multilineTextAlignment(.trailing).frame(maxWidth: 100).autocorrectionDisabled()
                             #if os(iOS)
                             .textInputAutocapitalization(.never)
                             #endif

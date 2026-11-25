@@ -231,6 +231,22 @@ export function wholeDay(it: { start: string; end: string }): boolean {
   return Date.parse(it.end) - Date.parse(it.start) >= 23 * HOUR;
 }
 
+/**
+ * A plan rule's hours as Today shows them on `date`: "All day" for one that lasts the whole day, else its start and end
+ * in the person's own time format ("7:00 PM to 11:00 PM", or "19:00 to 23:00" where the clock has 24 hours).
+ */
+export function ruleHours(rule: Pick<RuleLike, "start" | "end">, date = new Date()): string {
+  if (Number.isNaN(hhmmToMinutes(rule.start)) || Number.isNaN(hhmmToMinutes(rule.end))) return `${rule.start} to ${rule.end}`;
+  const span = ruleSpan(rule, date);
+  return wholeDay(span) ? "All day" : `${fmtTime(span.start)} to ${fmtTime(span.end)}`;
+}
+
+/** A plan rule's day ("2026-11-23", its alternating anchor) as the screens show a date: that local day, "Nov 23". */
+export function fmtRuleDay(day: string): string {
+  const d = parseLocalDate(day);
+  return Number.isNaN(d.getTime()) ? day : fmtDate(d.toISOString());
+}
+
 /** The commitments, blackouts and preferences in force on one date, from plan_rule entities. */
 export function commitmentsFor(rules: Entity[], date: Date): Commitment[] {
   const out: Commitment[] = [];

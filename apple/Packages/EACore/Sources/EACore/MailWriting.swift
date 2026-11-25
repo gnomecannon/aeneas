@@ -277,6 +277,26 @@ extension Mail {
         }
     }
 
+    /// Unsubscribe by mail (since 2026-11-24): from a mailbox that sends, the mail to the sender's unsubscribe address
+    /// is shown whole, then sent through the outbox with the same 10 seconds of Undo as Send; from one without a sending
+    /// server it is saved to Drafts, as before. The web's UNSUBSCRIBE_TEXTS.
+    public enum UnsubscribeTexts {
+        /// The button, for a mailbox that sends: it shows the whole mail first.
+        public static let send = "Send the unsubscribe mail\u{2026}"
+        /// The button, for a mailbox that does not send.
+        public static let write = "Write the unsubscribe mail"
+        /// Above the whole mail, before it goes.
+        public static let confirm = "This is the whole mail. Send it?"
+        /// What the mail says.
+        public static let text = "unsubscribe"
+    }
+    /// Under the button: where the mail goes, and whether it is sent or saved to Drafts.
+    public static func unsubscribeNote(to: String, sends: Bool) -> String {
+        sends ? "To \(to). You see the whole mail before it goes." : "To \(to), saved in Drafts for you to send."
+    }
+    /// Once the unsubscribe mail went.
+    public static func unsubscribeSent(to: String) -> String { "Sent. The unsubscribe mail went to \(to)." }
+
     /// A notice for a mail that was not sent, on the Mail screen: its subject and who it was for.
     public static func outboxLine(_ item: MailOutboxItem) -> String {
         let subject = item.subject.trimmingCharacters(in: .whitespaces).isEmpty ? "(no subject)" : item.subject.trimmingCharacters(in: .whitespaces)

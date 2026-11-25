@@ -29,6 +29,8 @@ struct TapEffectsView: View {
             SwiftUI.Section {
                 Toggle("Shapes on taps and new things", isOn: Binding(get: { s.motion }, set: { feel.change(["motion": .bool($0)]) }))
                 BurstPreview(style: feel.style, tick: previewTick)
+            } footer: {
+                Text("No shapes are drawn while Reduce Motion is on in the system's Accessibility settings.")
             }
             .themedRow()
 

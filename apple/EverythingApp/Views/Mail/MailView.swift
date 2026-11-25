@@ -1,10 +1,15 @@
 import SwiftUI
 import EACore
+#if os(macOS)
+import AppKit
+#endif
 
 /// Mail (module mail_inbox): each linked mailbox's Inbox in the app's own look, with Pin, Done and Snooze, as on the web
 /// (web/src/views/Mail.tsx). Mail grouped by day, kinds of mail gathered into colored bundles, and the Inbox, Snoozed,
-/// Done and each bundle as places to look, picked from the title. A thread (a back-and-forth, the owner's replies in
-/// it) is one row and opens on its own screen (on the Mac, beside the list).
+/// Done and each bundle as places to look, picked from the title (on the Mac from the side list, as on the web). A
+/// thread (a back-and-forth, the owner's replies in it) is one row. On the iPhone and iPad it opens on its own screen;
+/// on the Mac, as on the web, in place in the list, one column of a readable width with no reading pane beside it
+/// (since 2026-11-24, gnomecannon/aeneas#29), and New mail's box opens at the top of the list.
 ///
 /// Mail is hostile input: its HTML only as the hub cleaned it, in a view where nothing of it runs or loads
 /// (MailPageView), else as text with links only through `Mail.textParts`, which checks them; the sender's real
@@ -23,7 +28,8 @@ struct MailView: View {
     @State private var openBundles: Set<String> = []
     /// Selected rows: thread ids, or one folder's mail (`folder:<id>`). Bundle and reminder rows are never kept selected.
     @State private var selection: Set<String> = []
-    /// The thread, or a folder's mail, open on its own screen (iPhone and iPad).
+    /// The thread, a folder's mail or a search hit open: on its own screen on the iPhone and iPad, in place in the list
+    /// on the Mac.
     @State private var opened: OpenThread?
     /// A folder lists its mail 100 at a time.
     @State private var folderShown = 100
@@ -36,14 +42,27 @@ struct MailView: View {
     @State private var snoozing: SnoozeTarget?
     @State private var editing: BundleEdit?
     @State private var showSettings = false
-    /// New mail's writing box: a sheet on the iPhone and iPad; on the Mac in the reading pane, open again when it was
-    /// open the last time the screen showed, and kept until Close once saved (saving lets the screen's keeping go).
+    /// New mail's writing box: a sheet on the iPhone and iPad; on the Mac at the top of the list, as on the web, open
+    /// again when it was open the last time the screen showed, and kept until Close once saved (saving lets the screen's
+    /// keeping go).
     @State private var composingNew = MailWriting.shared.open[Mail.newMailKey] != nil
     @State private var newMailPressed = false
     /// A mail that was not sent, asked about before it is discarded.
     @State private var discarding: MailOutboxItem?
     @State private var clock = Date()
     @FocusState private var searchFocused: Bool
+    #if os(macOS)
+    /// The keyboard's highlighted row (as the web's cursor), by the id the screen knows it by (Mail.screenRows), and the
+    /// row a Shift-click selects from.
+    @State private var cursor: String?
+    @State private var anchor: String?
+    /// The list has the keyboard: the arrows and the letters are its own.
+    @FocusState private var listFocused: Bool
+    /// The column's widest, as the web's lists: a mail's lines stay readable in a wide window.
+    private static let columnMax: CGFloat = 920
+    /// New mail's box at the top of the list, to bring it into view.
+    private static let composeRow = "mail-compose"
+    #endif
     #if os(iOS)
     @State private var editMode: EditMode = .inactive
     /// A wide iPad, where a keyboard is likely: the keys list is offered.
@@ -101,12 +120,11 @@ struct MailView: View {
         #endif
         Group {
             #if os(macOS)
+            // The side list of places, then the mail in one column: a mail opens in place in it, as on the web.
             HStack(spacing: 0) {
                 macRail.frame(width: 210)
                 Divider()
-                list.frame(minWidth: 320, idealWidth: 400, maxWidth: 460)
-                Divider()
-                macDetail.frame(maxWidth: .infinity, maxHeight: .infinity)
+                list.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             #else
             list
@@ -158,8 +176,9 @@ struct MailView: View {
         .confirmationDialog(Mail.SendTexts.discard, isPresented: Binding(get: { discarding != nil }, set: { if !$0 { discarding = nil } }), titleVisibility: .visible) {
             Button("Discard", role: .destructive) { if let x = discarding { Task { await store.act { try await $0.mailOutboxUndo(x.id) } } }; discarding = nil }
         }
-        // Asked here while the list shows (a page open over it on the iPhone and iPad asks on that page).
-        .mailMoveQuestion(store, when: opened == nil)
+        // Asked here while the list shows (a page open over it on the iPhone and iPad asks on that page; on the Mac the
+        // open mail is in the list).
+        .mailMoveQuestion(store, when: isMac || opened == nil)
         #if os(iOS)
         // The selection's actions, above the tab bar (a toolbar at the bottom sits under it).
         .safeAreaInset(edge: .bottom, spacing: 0) { if editMode == .active { selectionBar } }
@@ -182,6 +201,9 @@ struct MailView: View {
         }
         .onChange(of: place) { _, _ in
             selection = []; opened = nil; folderShown = 100; person = nil
+            #if os(macOS)
+            cursor = nil
+            #endif
             if let id = pendingOpen { pendingOpen = nil; open(id) }
         }
         // While the hub's model sorts new mail and the Inbox shows, the list is asked for again every 4 seconds, so
@@ -202,7 +224,7 @@ struct MailView: View {
         // A mail the assistant wrote, opened with Edit on its card: New mail's box, filled with it.
         .onReceive(NotificationCenter.default.publisher(for: .mailOpenNewMail)) { _ in
             #if os(macOS)
-            selection = []
+            reveal = Self.composeRow
             #endif
             composingNew = true
         }
@@ -211,8 +233,10 @@ struct MailView: View {
         #endif
     }
 
+    #if os(iOS)
     /// The title takes the color of where you are, as the web's bar does: white words on the place's fill. It is the
-    /// menu of places, too.
+    /// menu of places, too. (The Mac has none: its side list holds the places and shows where you are, and the window's
+    /// title says it, as on the web.)
     private var barKey: MailColors.Key { here.map(MailColors.key) ?? MailColors.key(place) }
     private var placeSymbol: String {
         switch place {
@@ -224,16 +248,11 @@ struct MailView: View {
         }
     }
 
-    @ViewBuilder private var titleMenu: some View {
-        #if os(macOS)
-        // The side list beside the mail holds the places, as the web's does.
-        titleLabel(chevron: false).accessibilityElement(children: .combine)
-        #else
+    private var titleMenu: some View {
         Menu { placeMenu } label: { titleLabel(chevron: true) }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .accessibilityLabel("\(title). Show Inbox, Snoozed, Done and the bundles")
-        #endif
     }
 
     private func titleLabel(chevron: Bool) -> some View {
@@ -246,41 +265,44 @@ struct MailView: View {
         .padding(.horizontal, 14).padding(.vertical, 6)
         .background(Capsule().fill(MailFill(key: barKey)))
     }
+    #endif
 
     // MARK: The list
 
+    /// What the list shows, top to bottom: the notes, then the place's mail (or a person's, or the search's hits).
+    @ViewBuilder private var listContent: some View {
+        notes
+        if store.list == nil {
+            if let e = store.loadError { Text(verbatim: e).foregroundStyle(.dangerText) } else { ProgressView().frame(maxWidth: .infinity) }
+        } else if store.list?.mailboxes.isEmpty == true {
+            noMailbox
+        } else if let p = person {
+            hitsSection("With \(Mail.personLabel(p))", sub: p.address) { person = nil }
+        } else if let f = folder {
+            folderList(f)
+        } else if place == .inbox {
+            inbox
+        } else {
+            flat
+        }
+        // Typing a search: beside the place's own matches, every kept mail's (whole texts, folders too).
+        if person == nil, searchKey != nil {
+            hitsSection("In all your mail")
+        }
+        if store.list?.mailboxes.contains(where: \.more) == true {
+            Text("Bringing in more of your Inbox. The rest arrives over the next few minutes.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    #if os(iOS)
     private var list: some View {
         ScrollViewReader { proxy in
         List(selection: $selection) {
-            notes
-            if store.list == nil {
-                if let e = store.loadError { Text(verbatim: e).foregroundStyle(.dangerText) } else { ProgressView().frame(maxWidth: .infinity) }
-            } else if store.list?.mailboxes.isEmpty == true {
-                noMailbox
-            } else if let p = person {
-                hitsSection("With \(Mail.personLabel(p))", sub: p.address) { person = nil }
-            } else if let f = folder {
-                folderList(f)
-            } else if place == .inbox {
-                inbox
-            } else {
-                flat
-            }
-            // Typing a search: beside the place's own matches, every kept mail's (whole texts, folders too).
-            if person == nil, searchKey != nil {
-                hitsSection("In all your mail")
-            }
-            if store.list?.mailboxes.contains(where: \.more) == true {
-                Text("Bringing in more of your Inbox. The rest arrives over the next few minutes.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
+            listContent
         }
-        #if os(iOS)
         .listStyle(.insetGrouped)
         .refreshable { await store.refresh() }
-        #else
-        .listStyle(.inset)
-        #endif
         .contextMenu(forSelectionType: String.self) { ids in
             rowMenu(ids)
         } primaryAction: { ids in
@@ -294,6 +316,7 @@ struct MailView: View {
         }
         }
     }
+    #endif
 
     /// What the hub is searched for now: all mail with the person shown, else the typed words from 3 letters on; nil
     /// for no search (or no mailbox yet).
@@ -324,7 +347,7 @@ struct MailView: View {
                 Text(verbatim: e).foregroundStyle(.dangerText)
             } else if let hits = store.hits {
                 if hits.isEmpty { Text("Nothing found.").foregroundStyle(.secondary) }
-                ForEach(hits) { h in MailHitRow(hit: h).tag("hit:\(h.id)") }
+                ForEach(hits) { h in hitRow(h) }
             } else {
                 Text("Searching").foregroundStyle(.secondary)
             }
@@ -335,6 +358,7 @@ struct MailView: View {
                 Spacer()
                 if let close { Button("Close", action: close).buttonStyle(.borderless) }
             }
+            .mailHeading()
         }
     }
 
@@ -374,9 +398,12 @@ struct MailView: View {
     /// Mail the hub's model is sorting now, while the Inbox shows.
     private var sorting: Bool { store.list?.triage != false && store.list?.triage_state?.running == true && place == .inbox }
 
-    /// Open a thread: beside the list on the Mac, on its own page on the iPhone and iPad.
+    /// Open a thread: in place in the list on the Mac, on its own page on the iPhone and iPad.
     private func open(_ id: String) {
-        if isMac { selection = [id] } else { opened = OpenThread(id: id) }
+        opened = OpenThread(id: id)
+        #if os(macOS)
+        cursor = id
+        #endif
         reveal = id
     }
 
@@ -447,22 +474,24 @@ struct MailView: View {
         let back = only ? [] : Mail.backLaterToday(threads, now: clock)
         // In the Needs you place, and there when Needs you is empty too.
         if !only, let row = Mail.triageRow(on: store.list?.triage, store.list?.triage_state) {
-            SwiftUI.Section { MailSortRow(store: store, row: row) }
+            SwiftUI.Section { MailSortRow(store: store, row: row).mailInset() }
         }
         if !needs.isEmpty {
             SwiftUI.Section {
                 ForEach(needs, id: \.key) { t in
-                    Button { showThread(t) } label: { MailNeedRow(thread: t) }.buttonStyle(.plain)
+                    Button { showThread(t) } label: { MailNeedRow(thread: t).mailRowPadding() }.buttonStyle(.plain).mailBox()
                 }
             } header: {
-                Text("Needs you")
+                Text("Needs you").mailHeading()
             } footer: {
-                Text("Sorted by your hub's model from each mail's own words. It can be wrong.")
+                Text("Sorted by your hub's model from each mail's own words. It can be wrong.").mailFootnote()
             }
         }
         if !back.isEmpty {
-            SwiftUI.Section("Back later today") {
+            SwiftUI.Section {
                 ForEach(back, id: \.key) { t in threadRow(t) }
+            } header: {
+                Text("Back later today").mailHeading()
             }
         }
         if sections.isEmpty && due.isEmpty && back.isEmpty {
@@ -474,9 +503,7 @@ struct MailView: View {
                 MailEmpty(title: pinnedOnly ? "No pinned mail" : "You're all done", text: pinnedOnly ? "Pinned mail stays here." : "Nothing left in your Inbox.")
             }
         } else {
-            // Due reminders lead Today (a Today of their own when no mail came today).
-            let list = due.isEmpty || sections.first?.title == "Today" ? sections : [Mail.DaySection<MailThread>(title: "Today", rows: [])] + sections
-            ForEach(Array(list.enumerated()), id: \.element.title) { i, s in
+            ForEach(Array(inboxDays(sections, due: due).enumerated()), id: \.element.title) { i, s in
                 SwiftUI.Section {
                     if i == 0 {
                         ForEach(due) { r in reminderRow(r) }
@@ -496,16 +523,27 @@ struct MailView: View {
         }
     }
 
+    /// The Inbox's days as drawn: the due reminders lead Today (a Today of their own when no mail came today).
+    private func inboxDays(_ sections: [Mail.DaySection<MailThread>], due: [Mail.DueReminder]) -> [Mail.DaySection<MailThread>] {
+        due.isEmpty || sections.first?.title == "Today" ? sections : [Mail.DaySection<MailThread>(title: "Today", rows: [])] + sections
+    }
+
+    /// A flat place's mail as listed (Snoozed, Done, a bundle), with Pinned only in a bundle.
+    private var flatMails: [MailThread] {
+        let all = Mail.viewMessages(threads, view: place, shown: shown)
+        return here != nil && pinnedOnly ? all.filter(\.pinned) : all
+    }
+
     @ViewBuilder private var flat: some View {
         let all = Mail.viewMessages(threads, view: place, shown: shown)
-        let ms = here != nil && pinnedOnly ? all.filter(\.pinned) : all
+        let ms = flatMails
         if let b = here {
             SwiftUI.Section {
-                MailModuleLink(bundle: b)
+                MailModuleLink(bundle: b).mailInset()
                 if b.custom != nil, let c = store.customBundles.first(where: { $0.id == b.id }) {
-                    Button { editing = BundleEdit(start: c) } label: { Label("Edit bundle", systemImage: "pencil") }
+                    Button { editing = BundleEdit(start: c) } label: { Label("Edit bundle", systemImage: "pencil") }.mailInset()
                 }
-                MailDeliveryControl(store: store, bundle: b, mails: all)
+                MailDeliveryControl(store: store, bundle: b, mails: all).mailInset()
             }
         }
         if ms.isEmpty {
@@ -523,7 +561,15 @@ struct MailView: View {
             // The Trips bundle: each trip's mail as one box first, then the mail in no trip as rows.
             let fs = Mail.flatScreen(ms, bundle: here?.id, now: clock)
             ForEach(fs.trips, id: \.id) { trip in
-                SwiftUI.Section { MailTripBox(trip: trip) { open($0.key) } }
+                SwiftUI.Section {
+                    #if os(macOS)
+                    // A piece of the trip opens its mail in place, under the trip's box.
+                    MailTripBox(trip: trip, cursor: cursor) { press($0.key) }.mailRowPadding().mailBox()
+                    if let o = opened, o.folder == nil, !o.hit, let t = trip.parts.first(where: { $0.mail.key == o.id })?.mail { threadRow(t) }
+                    #else
+                    MailTripBox(trip: trip) { open($0.key) }
+                    #endif
+                }
             }
             if !fs.rest.isEmpty {
                 SwiftUI.Section {
@@ -564,11 +610,24 @@ struct MailView: View {
         }
     }
 
-    private func folderRow(_ m: MailFolderMail, _ f: MailFolder) -> some View {
+    @ViewBuilder private func folderRow(_ m: MailFolderMail, _ f: MailFolder) -> some View {
+        #if os(macOS)
+        let row = Mail.folderRow(m.id)
+        let o = OpenThread(id: m.id, folder: f.key)
+        if opened == o {
+            MailFolderMailView(store: store, id: m.id, folder: f, inline: true) { close(o) }
+                .mailBox(cursor: cursor == row, padded: true)
+                .id(row)
+        } else {
+            MailMacRow(cursor: cursor == row, selectable: false) { _, _ in press(row) } label: { MailFolderRow(mail: m) } actions: { EmptyView() }
+                .contextMenu { rowMenu([row]) }
+                .id(row)
+        }
+        #else
         // A Read only mailbox's folders take no move.
         let can = store.readOnly(mailbox: f.email) ? .none : Mail.folderActs(f.role)
         let here = Mail.moveTarget(f)
-        return MailFolderRow(mail: m)
+        MailFolderRow(mail: m)
             .tag("folder:\(m.id)")
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 if can.trash {
@@ -583,6 +642,7 @@ struct MailView: View {
                     .tint(MailFill(key: .place("inbox")))
                 }
             }
+        #endif
     }
 
     private func sectionHeader(_ title: String, mails: [MailThread]) -> some View {
@@ -598,14 +658,18 @@ struct MailView: View {
                     .accessibilityLabel("Sweep: mark \(ids.count) done, pinned mail stays")
             }
         }
+        .mailHeading()
     }
 
     // MARK: Rows
 
-    private func threadRow(_ t: MailThread) -> some View {
+    @ViewBuilder private func threadRow(_ t: MailThread) -> some View {
+        #if os(macOS)
+        macThread(t)
+        #else
         // A Read only mailbox's mail has no Done, Delete or Pin to swipe to (Snooze and the read mark are the hub's own).
         let ro = store.readOnly(t)
-        return MailThreadRow(thread: t, logos: store.list?.logos ?? [:], shown: shown)
+        MailThreadRow(thread: t, logos: store.list?.logos ?? [:], shown: shown)
             .tag(t.key)
             .id(t.key)
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -633,9 +697,13 @@ struct MailView: View {
                 }
                 .tint(MailFill(key: .place("folder")))
             }
+        #endif
     }
 
     @ViewBuilder private func bundleRows(_ b: Mail.Bundle, _ mails: [MailThread], day: String) -> some View {
+        #if os(macOS)
+        macBundle(b, mails, day: day)
+        #else
         let key = "\(day):\(b.id)"
         let open = openBundles.contains(key)
         MailBundleRow(bundle: b, mails: mails, open: open)
@@ -661,9 +729,37 @@ struct MailView: View {
             }
             ForEach(mails, id: \.key) { t in threadRow(t).padding(.leading, 20) }
         }
+        #endif
     }
 
-    private func reminderRow(_ r: Mail.DueReminder) -> some View {
+    /// A search hit's row; on the Mac the hit open in place.
+    @ViewBuilder private func hitRow(_ h: MailSearchHit) -> some View {
+        let row = Mail.hitRow(h.id)
+        #if os(macOS)
+        let o = OpenThread(id: h.id, hit: true)
+        if opened == o {
+            MailHitView(store: store, id: h.id, inPersonView: person != nil, showInPlace: showInPlace, showPerson: showPerson, inline: true) { close(o) }
+                .mailBox(cursor: cursor == row, padded: true)
+                .id(row)
+        } else {
+            MailMacRow(cursor: cursor == row, selectable: false) { _, _ in press(row) } label: { MailHitRow(hit: h) } actions: { EmptyView() }
+                .id(row)
+        }
+        #else
+        MailHitRow(hit: h).tag(row)
+        #endif
+    }
+
+    @ViewBuilder private func reminderRow(_ r: Mail.DueReminder) -> some View {
+        #if os(macOS)
+        let row = Mail.reminderRow(r.id)
+        MailMacRow(cursor: cursor == row, selectable: false) { _, _ in press(row) } label: { MailReminderRow(reminder: r, now: clock) } actions: {
+            Button { snoozing = SnoozeTarget(reminder: r) } label: { Label("Snooze", systemImage: "clock") }.help("Snooze the reminder")
+            Button { Task { await engine.ack(r.id) } } label: { Label("Done", systemImage: "checkmark") }.help("Done: marks the task done")
+        }
+        .contextMenu { rowMenu([row]) }
+        .id(row)
+        #else
         MailReminderRow(reminder: r, now: clock)
             .tag("rem:\(r.id)")
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -672,35 +768,43 @@ struct MailView: View {
                 Button { snoozing = SnoozeTarget(reminder: r) } label: { Label("Snooze", systemImage: "clock") }
                     .tint(MailFill(key: .place("snoozed")))
             }
+        #endif
     }
 
     // MARK: Opening and acting
 
-    /// New mail: its writing box, in the reading pane on the Mac (the mail picked there gives way to it), in a sheet on
+    /// New mail: its writing box, at the top of the list on the Mac (brought into view), as on the web; in a sheet on
     /// the iPhone and iPad. What was typed before is there again.
     private func newMail() {
         newMailPressed = true
         #if os(macOS)
-        selection = []
         MailWriting.shared.open[Mail.newMailKey] = .new
+        reveal = Self.composeRow
         #endif
         composingNew = true
     }
 
-    /// A tap (or Return) on a row: a thread opens, a bundle opens or closes in place, a reminder opens its task.
+    /// A tap (or Return) on a row: a thread, a folder's mail or a hit opens, a bundle opens or closes in place, a
+    /// reminder opens its task.
     private func openRow(_ id: String) {
-        if id.hasPrefix("bundle:") {
+        switch Mail.rowKind(id) {
+        case .bundle:
             let key = String(id.dropFirst("bundle:".count))
             withAnimation(.snappy(duration: 0.2)) { if openBundles.contains(key) { openBundles.remove(key) } else { openBundles.insert(key) } }
-        } else if id.hasPrefix("rem:") {
-            model.open(itemId: String(id.dropFirst("rem:".count)))
-        } else if id.hasPrefix("hit:") {
-            if !isMac { opened = OpenThread(id: String(id.dropFirst("hit:".count)), hit: true) }
-        } else if id.hasPrefix("folder:") {
-            if !isMac, let f = folder { opened = OpenThread(id: String(id.dropFirst("folder:".count)), folder: f.key) }
-        } else if !isMac {
-            opened = OpenThread(id: id)
+        case .reminder: model.open(itemId: String(id.dropFirst("rem:".count)))
+        case .hit: show(OpenThread(id: String(id.dropFirst("hit:".count)), hit: true))
+        case .folder: if let f = folder { show(OpenThread(id: String(id.dropFirst("folder:".count)), folder: f.key)) }
+        case .thread: show(OpenThread(id: id))
         }
+    }
+
+    /// A row's mail open: on its own page on the iPhone and iPad; in place on the Mac, where the open one closes again.
+    private func show(_ o: OpenThread) {
+        #if os(macOS)
+        opened = opened == o ? nil : o
+        #else
+        opened = o
+        #endif
     }
 
     /// The folder's mail selected (one at a time: its actions are each one's own).
@@ -709,17 +813,11 @@ struct MailView: View {
         return store.folderMail[f.key]?.first { $0.id == id.dropFirst("folder:".count) }
     }
 
-    /// On the Mac a click selects: a bundle or reminder row acts at once and is not kept selected, and a folder's mail
-    /// is selected one at a time.
+    /// A bundle or reminder row is never kept selected, and a folder's mail or a hit only one at a time.
     private func takeRowTaps(_ s: Set<String>) {
-        guard isMac, s.count == 1, let id = s.first, id.hasPrefix("bundle:") || id.hasPrefix("rem:") else {
-            var kept = s.filter { !$0.hasPrefix("bundle:") && !$0.hasPrefix("rem:") }
-            if kept.count > 1 { kept = kept.filter { !$0.hasPrefix("folder:") && !$0.hasPrefix("hit:") } }
-            if kept != s { selection = kept }
-            return
-        }
-        selection = []
-        openRow(id)
+        var kept = s.filter { !$0.hasPrefix("bundle:") && !$0.hasPrefix("rem:") }
+        if kept.count > 1 { kept = kept.filter { !$0.hasPrefix("folder:") && !$0.hasPrefix("hit:") } }
+        if kept != s { selection = kept }
     }
 
     @ViewBuilder private func rowMenu(_ ids: Set<String>) -> some View {
@@ -797,8 +895,9 @@ struct MailView: View {
         return false
     }
 
-    // MARK: Keys (iPad and Mac keyboards)
+    // MARK: Keys (iPad keyboards; the Mac's are macKeyPress)
 
+    #if os(iOS)
     private func keyPress(_ press: KeyPress) -> KeyPress.Result {
         let name: String
         switch press.key {
@@ -826,6 +925,7 @@ struct MailView: View {
         }
         return .handled
     }
+    #endif
 
     // MARK: Toolbar and places
 
@@ -878,8 +978,8 @@ struct MailView: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .principal) { titleMenu }
         #if os(iOS)
+        ToolbarItem(placement: .principal) { titleMenu }
         if editMode == .active {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Done") { editMode = .inactive; selection = [] }
@@ -908,13 +1008,10 @@ struct MailView: View {
     }
 
     /// Pinned only (in the Inbox), Refresh and the rest. On the iPhone the bar has room for the title, Pinned only and
-    /// one menu, so Refresh (also a pull on the list) and Select are in the menu.
+    /// one menu, so Refresh (also a pull on the list) and Select are in the menu. The Mac has the web's bar: Refresh,
+    /// the search, Pinned only and New mail; New bundle, the keys and the mailboxes are in the side list, as on the web.
     @ToolbarContentBuilder private var commonItems: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            if place == .inbox || here != nil {
-                Toggle(isOn: $pinnedOnly) { Label("Pinned only", systemImage: pinnedOnly ? "pin.fill" : "pin") }
-                    .help("Pinned only")
-            }
             #if os(macOS)
             Button { Task { await store.refresh() } } label: {
                 if store.refreshing { ProgressView() } else { Label("Refresh", systemImage: "arrow.clockwise") }
@@ -922,26 +1019,30 @@ struct MailView: View {
             .disabled(store.refreshing || engine.client == nil)
             .help("Refresh")
             #endif
+            if place == .inbox || here != nil {
+                Toggle(isOn: $pinnedOnly) { Label("Pinned only", systemImage: pinnedOnly ? "pin.fill" : "pin") }
+                    .help("Pinned only")
+            }
             // A draft is saved to a mailbox: none while every mailbox is Read only (or none is linked).
             if !Mail.writableBoxes(store.boxes).isEmpty {
                 Button { newMail() } label: { Label("New mail", systemImage: "square.and.pencil") }
                     .help(Mail.writableBoxes(store.boxes).contains(where: Mail.canSend) ? "Write a new mail, to send or save as a draft" : "Write a new mail, saved to Drafts in your mailbox")
             }
+            #if os(iOS)
             Menu {
-                #if os(iOS)
                 Button { editMode = .active } label: { Label("Select", systemImage: "checkmark.circle") }
                 Button { Task { await store.refresh() } } label: { Label(store.refreshing ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise") }
                     .disabled(store.refreshing || engine.client == nil)
                 if sizeClass == .regular {
                     Button { showKeys = true } label: { Label("Keyboard keys", systemImage: "keyboard") }
                 }
-                #endif
                 Button { editing = BundleEdit(start: nil) } label: { Label("New bundle", systemImage: "plus") }
                 Button { showSettings = true } label: {
                     Label(store.list?.mailboxes.contains { $0.last_error != nil } == true ? "Mailboxes and settings (a mailbox has a problem)" : "Mailboxes and settings",
                           systemImage: store.list?.mailboxes.contains { $0.last_error != nil } == true ? "exclamationmark.circle" : "info.circle")
                 }
             } label: { Label("More", systemImage: "ellipsis.circle") }
+            #endif
         }
     }
 
@@ -992,7 +1093,7 @@ struct MailView: View {
         }
     }
 
-    // MARK: Mac: the open thread beside the list
+    // MARK: Mac: the side list of places
 
     #if os(macOS)
     /// The places beside the mail, as the web's side list: Inbox, Snoozed and Done, then the bundles (built in, a
@@ -1068,29 +1169,262 @@ struct MailView: View {
         .accessibilityAddTraits(here ? .isSelected : [])
     }
 
-    @ViewBuilder private var macDetail: some View {
-        if selection.count == 1, let id = selection.first, store.thread(id) != nil {
-            MailThreadView(store: store, id: id, snooze: { snoozing = SnoozeTarget(threads: [$0]) }, closed: { selection = [] }, showPerson: showPerson)
-                .id(id)
-        } else if selection.count == 1, let id = selection.first, id.hasPrefix("hit:") {
-            MailHitView(store: store, id: String(id.dropFirst("hit:".count)), inPersonView: person != nil, showInPlace: showInPlace, showPerson: showPerson)
-                .id(id)
-        } else if selection.count == 1, let id = selection.first, id.hasPrefix("folder:"), let f = folder {
-            MailFolderMailView(store: store, id: String(id.dropFirst("folder:".count)), folder: f) { selection = [] }
-                .id(id)
-        } else if selection.count > 1 {
-            Text("\(chosen.count) selected").font(.title3).foregroundStyle(.secondary)
-        } else if composingNew {
+    // MARK: Mac: one column, each mail opening in place (as the web)
+
+    /// The mail in one column of a readable width, as on the web: New mail's box at the top, then the list, where a
+    /// click opens a mail in place and the keys walk the rows (macKeyPress).
+    private var list: some View {
+        ScrollViewReader { proxy in
             ScrollView {
-                // Open from before the screen showed, it does not take the focus.
-                MailComposer(store: store, target: .fresh, takesFocus: newMailPressed) { MailWriting.shared.open[Mail.newMailKey] = nil; composingNew = false }
-                    .padding()
-                    .frame(maxWidth: 820, alignment: .leading)
-                    .frame(maxWidth: .infinity)
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    if composingNew {
+                        // Open from before the screen showed, it does not take the focus.
+                        MailComposer(store: store, target: .fresh, takesFocus: newMailPressed) { MailWriting.shared.open[Mail.newMailKey] = nil; composingNew = false }
+                            .id(Self.composeRow)
+                            .padding(.bottom, 10)
+                    }
+                    listContent
+                }
+                .padding(.horizontal, 16)
+                .frame(maxWidth: Self.columnMax, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-        } else {
-            Text("Pick a mail to read it.").font(.title3).foregroundStyle(.secondary)
+            // Room above and below the list, kept when a mail is brought to the top.
+            .contentMargins(.vertical, 12, for: .scrollContent)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($listFocused)
+            .onKeyPress(phases: .down) { press in macKeyPress(press) }
+            .onAppear { listFocused = true }
+            .onChange(of: reveal) { _, r in
+                guard let r else { return }
+                reveal = nil
+                Task { try? await Task.sleep(for: .milliseconds(150)); withAnimation { proxy.scrollTo(r, anchor: .top) } }
+            }
+            // The highlighted row stays in view.
+            .onChange(of: cursor) { _, c in if let c { proxy.scrollTo(c) } }
         }
+    }
+
+    /// A thread's row, or the thread open in place (`boxed` false: inside a bundle's box).
+    @ViewBuilder private func macThread(_ t: MailThread, boxed: Bool = true) -> some View {
+        let o = OpenThread(id: t.key)
+        if opened == o {
+            MailThreadView(store: store, id: t.key, snooze: { snoozing = SnoozeTarget(threads: [$0]) }, closed: { close(o) }, showPerson: showPerson, inline: true)
+                .mailBox(cursor: cursor == t.key, picked: selection.contains(t.key), padded: true, boxed: boxed)
+                .id(t.key)
+        } else {
+            // A Read only mailbox's mail has no Done or Pin (Snooze is the hub's own).
+            let ro = store.readOnly(t)
+            MailMacRow(cursor: cursor == t.key, picked: selection.contains(t.key), picking: !selection.isEmpty, boxed: boxed) { command, shift in
+                press(t.key, command: command, shift: shift)
+            } label: {
+                MailThreadRow(thread: t, logos: store.list?.logos ?? [:], shown: shown)
+            } actions: {
+                if !ro {
+                    Button { Task { await store.pin([t]) } } label: { Label(t.pinned ? "Unpin" : "Pin", systemImage: t.pinned ? "pin.fill" : "pin") }
+                        .help(t.pinned ? "Unpin" : "Pin")
+                }
+                if t.state != .done {
+                    Button { snoozing = SnoozeTarget(threads: [t]) } label: { Label("Snooze", systemImage: "clock") }
+                        .help(t.state == .snoozed ? "Change when it comes back" : "Snooze: hide it until a time you pick")
+                }
+                if !ro {
+                    Button { Task { await store.done([t], inDone: t.state == .done) } } label: {
+                        Label(t.state == .done ? "Move to Inbox" : "Done", systemImage: t.state == .done ? "tray" : "checkmark")
+                    }
+                    .help(t.state == .done ? "Move back to the Inbox" : "Done: moves it to Archive")
+                }
+            }
+            .contextMenu { rowMenu(selection.contains(t.key) ? selection : [t.key]) }
+            .id(t.key)
+        }
+    }
+
+    /// A bundle as one box: its row, and while open its module's note, Sweep, and its mail, each opening in place.
+    @ViewBuilder private func macBundle(_ b: Mail.Bundle, _ mails: [MailThread], day: String) -> some View {
+        let key = "\(day):\(b.id)"
+        let row = Mail.bundleRow(day: day, bundle: b.id)
+        let isOpen = openBundles.contains(key)
+        let ids = store.sweepIds(mails)
+        VStack(alignment: .leading, spacing: 0) {
+            MailMacRow(cursor: cursor == row, selectable: false, boxed: false) { _, _ in press(row) } label: {
+                MailBundleRow(bundle: b, mails: mails, open: isOpen)
+            } actions: {
+                if !ids.isEmpty {
+                    Button { Task { await store.move(ids, toDone: true) } } label: { Label("Sweep", systemImage: "checkmark") }
+                        .help("Sweep: mark \(ids.count) done (pinned mail stays)")
+                }
+            }
+            .contextMenu { rowMenu([row]) }
+            if isOpen {
+                if b.moduleName != nil || !ids.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        MailModuleLink(bundle: b)
+                        if !ids.isEmpty {
+                            Button { Task { await store.move(ids, toDone: true) } } label: { Label("Sweep", systemImage: "checkmark") }
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(MailWord(key: b.colorKey))
+                                .buttonStyle(.borderless)
+                                .help("Mark \(ids.count) done (pinned mail stays)")
+                                .accessibilityLabel("Sweep \(b.name): mark \(ids.count) done, pinned mail stays")
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                }
+                ForEach(mails, id: \.key) { t in
+                    Divider()
+                    macThread(t, boxed: false)
+                }
+            }
+        }
+        .mailBox()
+        .id(row)
+    }
+
+    /// A click on a row: it opens in place, or closes (a bundle opens or closes, a reminder opens its task);
+    /// Command-click selects or unselects a thread, and Shift-click selects every one from the last one picked.
+    private func press(_ row: String, command: Bool = false, shift: Bool = false) {
+        listFocused = true
+        if Mail.rowKind(row) == .thread && (command || shift) { pick(row, range: shift) } else { openRow(row) }
+        cursor = row
+    }
+
+    /// The open mail closes (its heading pressed, or it left: Done, Mark unread, a move); the keys go on from its row.
+    private func close(_ o: OpenThread) {
+        if opened == o { opened = nil }
+        listFocused = true
+    }
+
+    /// Select or unselect a thread; `range`: every thread from the last one picked to this one.
+    private func pick(_ key: String, range: Bool) {
+        let rows = macRows
+        if range, let a = anchor, let from = rows.firstIndex(of: a), let to = rows.firstIndex(of: key) {
+            for x in rows[min(from, to)...max(from, to)] where Mail.rowKind(x) == .thread { selection.insert(x) }
+        } else if selection.contains(key) {
+            selection.remove(key)
+        } else {
+            selection.insert(key)
+        }
+        anchor = key
+    }
+
+    /// The open mail's row, by the id the screen knows it by.
+    private var openRowId: String? {
+        opened.map { $0.hit ? Mail.hitRow($0.id) : $0.folder != nil ? Mail.folderRow($0.id) : $0.id }
+    }
+
+    /// Every row on the screen, top to bottom, as drawn: what the arrows walk and what a key may act on.
+    private var macRows: [String] {
+        guard store.list?.mailboxes.isEmpty == false else { return [] }
+        let hits = (person != nil || searchKey != nil) && store.hitsError == nil ? (store.hits ?? []).map(\.id) : []
+        if person != nil { return Mail.screenRows(.none, hits: hits) }
+        if let f = folder {
+            let q = query.trimmingCharacters(in: .whitespaces)
+            let all = store.folderMail[f.key] ?? []
+            let ms = q.isEmpty ? all : all.filter { Mail.matches($0.summary, q) }
+            return Mail.screenRows(.folder(ms.prefix(folderShown).map(\.id)), hits: hits)
+        }
+        if place == .inbox {
+            let only = pinnedOnly || !query.trimmingCharacters(in: .whitespaces).isEmpty
+            let due = reminders
+            let sections = Mail.inboxSections(threads, shown: shown, pinnedOnly: pinnedOnly, now: clock, delivery: store.delivery)
+            let back = only ? [] : Mail.backLaterToday(threads, now: clock)
+            return Mail.screenRows(.inbox(back: back, reminders: due, sections: inboxDays(sections, due: due), openBundles: openBundles), hits: hits)
+        }
+        let fs = Mail.flatScreen(flatMails, bundle: here?.id, now: clock)
+        return Mail.screenRows(.flat(trips: fs.trips, rest: fs.rest), hits: hits)
+    }
+
+    /// The keys, as the web's: the arrows walk the rows (Shift selects while moving), Return opens or closes one, Space
+    /// selects it, Esc closes the open mail and then clears the selection, and D, S, P, U, R, Delete and ! act on the
+    /// selection, else the open mail, else the highlighted row. A key typed in a field (the search, a writing box) is
+    /// the field's own.
+    private func macKeyPress(_ press: KeyPress) -> KeyPress.Result {
+        if NSApp.keyWindow?.firstResponder is NSText { return .ignored }
+        let rows = macRows
+        if press.key == .upArrow || press.key == .downArrow {
+            guard !rows.isEmpty, press.modifiers.isDisjoint(with: [.command, .option, .control]) else { return .ignored }
+            let at = cursor.flatMap { rows.firstIndex(of: $0) }
+            let next = rows[at.map { max(0, min(rows.count - 1, $0 + (press.key == .downArrow ? 1 : -1))) } ?? 0]
+            if press.modifiers.contains(.shift) {
+                for x in [cursor, next].compactMap({ $0 }) where rows.contains(x) && Mail.rowKind(x) == .thread { selection.insert(x) }
+            }
+            cursor = next
+            return .handled
+        }
+        let name: String
+        switch press.key {
+        case .escape: name = "escape"
+        case .return: name = "return"
+        case .delete: name = "delete"
+        case .deleteForward: name = "deleteForward"
+        default: name = press.characters
+        }
+        guard let a = Mail.keyAction(name, control: press.modifiers.contains(.control), command: press.modifiers.contains(.command), option: press.modifiers.contains(.option)) else { return .ignored }
+        let on = cursor.flatMap { rows.contains($0) ? $0 : nil }
+        switch a {
+        case .escape:
+            if opened != nil { opened = nil; return .handled }
+            guard !selection.isEmpty else { return .ignored }
+            selection = []
+            return .handled
+        case .search: searchFocused = true; return .handled
+        case .help: showKeys = true; return .handled
+        case .open:
+            guard let on else { return .ignored }
+            openRow(on)
+            return .handled
+        case .select:
+            guard let on, Mail.rowKind(on) == .thread else { return .ignored }
+            pick(on, range: false)
+            return .handled
+        default: break
+        }
+        let ids = Mail.keyTarget(rows, selected: selection, open: openRowId, cursor: cursor)
+        guard let first = ids.first else { return .ignored }
+        // The key is this row's from here on, and does nothing where its action does not apply to the row.
+        switch Mail.rowKind(first) {
+        case .reminder:
+            let rid = String(first.dropFirst("rem:".count))
+            if a == .done { Task { await engine.ack(rid) } } else if a == .snooze, let r = reminders.first(where: { $0.id == rid }) { snoozing = SnoozeTarget(reminder: r) }
+            return .handled
+        case .folder:
+            // A folder's mail: Delete, where the folder's own Delete has an Undo.
+            guard a == .delete, let f = folder, let m = store.folderMail[f.key]?.first(where: { Mail.folderRow($0.id) == first }) else { return .handled }
+            if store.readOnly(mailbox: f.email) { store.actionError = Mail.readOnlyText(f.email) } else if Mail.rowTakes(.folder, a, folder: f.role) {
+                let o = OpenThread(id: m.id, folder: f.key)
+                Task { await store.relocate([m.id], to: "trash", said: "Moved to Trash", back: Mail.moveTarget(f)) { close(o) } }
+            }
+            return .handled
+        case .bundle, .hit:
+            return .handled
+        case .thread:
+            break
+        }
+        let all = byId
+        let ts = ids.compactMap { all[$0] }
+        guard !ts.isEmpty, Mail.rowTakes(.thread, a) else { return .handled }
+        switch a {
+        case .done:
+            Task { await store.done(ts, inDone: ts.allSatisfy { $0.state == .done }); selection = [] }
+        case .snooze:
+            // Done mail is not snoozed.
+            let can = ts.filter { $0.state != .done }
+            if !can.isEmpty { snoozing = SnoozeTarget(threads: can) }
+        case .pin:
+            Task { await store.pin(ts) }
+        case .read, .unread:
+            // Marked unread, the open mail closes, as on the web: open, it would be read again.
+            if a == .unread, let o = opened, ts.contains(where: { $0.key == o.id }) { opened = nil }
+            Task { await store.read(ts, a == .read) }
+        case .delete, .spam:
+            let to = a == .delete ? "trash" : "junk"
+            Task { await store.relocate(ts.flatMap { $0.openIds + $0.doneIds }, to: to, said: a == .delete ? "Moved to Trash" : "Moved to Spam", back: "inbox") { selection = [] } }
+        default:
+            break
+        }
+        return .handled
     }
     #endif
 
@@ -1109,7 +1443,7 @@ struct MailView: View {
         if let words = d.string(forKey: "EAMailOpen"), let t = store.threads.first(where: { $0.summary.subject.localizedCaseInsensitiveContains(words) }) {
             // -EAMailWrite reply: the reply box under it is open when the thread shows.
             if d.string(forKey: "EAMailWrite") == "reply" { MailWriting.shared.open[t.id] = .one }
-            if isMac { selection = [t.key] } else { opened = OpenThread(id: t.key) }
+            open(t.key)
         }
         if d.string(forKey: "EAMailWrite") == "new" { newMail() }
         let n = d.integer(forKey: "EAMailSelect")

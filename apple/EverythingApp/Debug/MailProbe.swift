@@ -87,7 +87,8 @@ enum MailProbe {
             return MailSummary(id: String(format: "fake%020d", i), at: ISO.string(now.addingTimeInterval(-Double(i) * 1700)),
                                from: MailAddress(name: p.0, address: p.1), subject: "Plans for week \(i % 52 + 1)",
                                preview: "A made-up mail to measure the screen with. Line \(i) of the list, with a few more words to fill two lines.",
-                               bundle: bundles[i % bundles.count], seen: i % 3 != 0, mailbox: fakeBox)
+                               // Only mail a system sent is bundled (a person's never is), so those are marked so.
+                               automated: bundles[i % bundles.count] != nil, bundle: bundles[i % bundles.count], seen: i % 3 != 0, mailbox: fakeBox)
         }
         return MailList(messages: messages, mailboxes: [MailMailbox(email: fakeBox, last_refresh: ISO.string(now), provider: "Gmail", kind: "gmail", read_only: false, can_send: true)])
     }

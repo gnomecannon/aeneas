@@ -100,6 +100,20 @@ extension View {
     /// For one list or form row, where a screen draws its own rows.
     func themedRow() -> some View { modifier(ThemedRow()) }
 
+    /// For a section header of a plain list, which stays at the top while its rows scroll under it: the theme's
+    /// background behind it, the system's in Classic.
+    func pinnedHeader() -> some View { modifier(PinnedHeader()) }
+
+    /// For a picker of a few choices: segmented while every segment fits its words, else a menu with the same choices
+    /// (a row that names the picker and shows the choice). On the iPhone, four segments of a word or two each were
+    /// cut to "Last 2 wee..." and "Most watc..."; a segmented picker cuts its words rather than grow.
+    func segmentedOrMenu() -> some View {
+        ViewThatFits(in: .horizontal) {
+            pickerStyle(.segmented)
+            pickerStyle(.menu)
+        }
+    }
+
     /// `navigationDestination(item:)` with the app theme on the page it opens (`themedPage()`).
     func pageDestination<Item: Hashable, Page: View>(item: Binding<Item?>, @ViewBuilder page: @escaping (Item) -> Page) -> some View {
         navigationDestination(item: item) { page($0).themedPage() }
@@ -224,6 +238,33 @@ struct ThemedRow: ViewModifier {
 
     func body(content: Content) -> some View {
         content.listRowBackground(theme?.surface)
+    }
+}
+
+/// On iOS 26 a plain list draws its section headers with no background of their own: a header pinned at the top lay
+/// over the row scrolling under it, the two sets of words drawn into each other (Tasks, under its bar of lists). The
+/// header now draws the screen's background itself, so the rows pass under it. A header takes no
+/// `listRowBackground`, so the color is the header's own: its top and bottom room is padding inside it instead of
+/// the list's, and the color reaches past both sides to the list's edges (the list clips it there), while the words
+/// keep the system's side insets. Earlier iOS and the Mac keep their own.
+struct PinnedHeader: ViewModifier {
+    @Environment(\.eaTheme) private var theme
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            content
+                // 10 points keeps the header where the list's own room put it.
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background { (theme?.background ?? Color(uiColor: .systemBackground)).padding(.horizontal, -80) }
+                .listRowInsets(.vertical, 0)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
     }
 }
 
