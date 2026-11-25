@@ -85,7 +85,7 @@ struct MusicView: View {
                 SwiftUI.Section { NoIdeasYet() } footer: { ReferenceNotesLine() }
             }
         }
-        .navigationTitle("Music")
+        .navigationTitle("Song ideas")
         .refreshable { await engine.sync() }
         .pageDestination(item: $opened) { MusicIdeaView(ideaId: $0) }
         .musicHum(hum, opened: $opened)

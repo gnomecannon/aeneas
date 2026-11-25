@@ -113,6 +113,25 @@ const CASES: Case[] = [
       if (!f) return "no fact";
       return f.fields.person_id === jamie?.id ? null : `fact not linked to Jamie (person ${String(f.fields.person ?? "none")})`;
     } },
+  // A gift idea goes to the person (since 2026-11-25); a task only when a day is named for it.
+  { id: "gift-idea", text: "Gift idea for Jamie: a pottery class",
+    check: ({ made, hub }) => {
+      const jamie = hub.store.list({ kind: "person" }).find((p) => p.fields.name === "Jamie");
+      const f = of(made, "fact").find((x) => /pottery/i.test(String(x.fields.value)));
+      if (!f) return `no fact (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
+      if (f.fields.category !== "gift_idea") return `fact category ${String(f.fields.category)}`;
+      if (f.fields.person_id !== jamie?.id) return "gift idea not linked to Jamie";
+      return of(made, "task").length ? `also made a task: ${of(made, "task").map(title).join(" | ")}` : null;
+    } },
+  { id: "gift-idea-dated", text: "Get Jamie a pottery class for her birthday, need it by Friday",
+    check: ({ made, at }) => {
+      const f = of(made, "fact").find((x) => x.fields.category === "gift_idea" && /pottery/i.test(String(x.fields.value)));
+      if (!f) return "no gift idea";
+      const t = of(made, "task").find((x) => /pottery/i.test(title(x)));
+      if (!t) return "no task, though a day was named";
+      const friday = diaryDay(nextWeekday(at, 5));
+      return String(t.fields.due ?? "").startsWith(friday) ? null : `due ${String(t.fields.due ?? "missing")}, wanted ${friday}`;
+    } },
   { id: "person-birthday", text: "Devon's birthday is March 14",
     check: ({ hub }) => {
       const s = hub.store.list({ kind: "person" }).find((p) => /devon/i.test(String(p.fields.name)));

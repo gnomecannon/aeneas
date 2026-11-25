@@ -43,6 +43,10 @@ company and what goes before it starts:
   writes captures down itself with a public speech model that your hub downloads once from Hugging Face and your
   iPhone copies from the hub; Hugging Face sees only the hub's address and which public files it fetched, never
   anything you say.
+- **Apple Music** (the Music module, off until you turn it on, on iPhone, iPad and Mac): after you allow Apple Music,
+  the app reads your library on the device with Apple's MusicKit. With a subscription, the songs you played recently
+  come from Apple Music's servers for your own account, as in the Music app. A summary goes only to your own hub
+  and your own devices.
 - **Location** (only if you allow it, for the meals tax in the calculator) is used once, approximately, on your device
   and hub to find your state; it is not kept or sent anywhere else.
 

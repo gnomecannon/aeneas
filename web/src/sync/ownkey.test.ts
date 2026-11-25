@@ -4,7 +4,7 @@ import path from "node:path";
 import { HubClient, OWN_KEY_SAVE, type Connections } from "./api";
 import { APP_KEYS, APP_KEYS_INTRO, appKeys, atlassianSignedIn, connectionsSummary } from "../views/settings/Connections";
 import { accountsSummary, googleRemovedNote, hasReadOnlySwitch, lastUseOff, OLDER_GOOGLE_NOTE, olderHubAccounts, syncNowResult } from "../views/settings/Accounts";
-import { listedHere, modulesSummary, nestedOrder } from "../views/settings/Modules";
+import { groupOrder, listedHere, modulesSummary, nestedOrder } from "../views/settings/Modules";
 import { readOnlyBox, writableBoxes } from "../lib/mail";
 
 describe("guided setup", () => {
@@ -239,7 +239,7 @@ describe("Settings, Modules leaves out a switch that lives elsewhere", () => {
     const list = [
       { id: "renewals", title: "Renewals", summary: "", group: "Plan", on: true },
       { id: "apple_reminders", title: "Apple Reminders", summary: "", group: "On your devices", on: true, switch_in: "connections" as const },
-      { id: "mail", title: "Receipts and renewals", summary: "", group: "Life admin", on: false },
+      { id: "mail", title: "Receipts and renewals", summary: "", group: "Plan", on: false },
     ];
     expect(listedHere(list).map((m) => m.id)).toEqual(["renewals", "mail"]);
     expect(modulesSummary(list)).toBe("1 of 2 on");
@@ -247,17 +247,17 @@ describe("Settings, Modules leaves out a switch that lives elsewhere", () => {
 });
 
 describe("Settings, Modules shows Receipts and renewals under Mail", () => {
-  const mod = (id: string, under?: string, on = true) => ({ id, title: id, summary: "", group: "Life admin", on, ...(under ? { under } : {}) });
+  const mod = (id: string, under?: string, on = true) => ({ id, title: id, summary: "", group: "Plan", on, ...(under ? { under } : {}) });
   const ids = (rows: { m: { id: string }; sub: boolean }[]) => rows.map(({ m, sub }) => (sub ? `  ${m.id}` : m.id));
 
   it("puts a module right after the one it sits under, indented, with that one off too", () => {
-    const list = [mod("games"), mod("mail", "mail_inbox"), mod("jobs"), mod("mail_inbox", undefined, false)];
-    expect(ids(nestedOrder(list))).toEqual(["games", "jobs", "mail_inbox", "  mail"]);
+    const list = [mod("calendars"), mod("mail", "mail_inbox"), mod("garden"), mod("mail_inbox", undefined, false)];
+    expect(ids(nestedOrder(list))).toEqual(["calendars", "garden", "mail_inbox", "  mail"]);
     expect(nestedOrder(list)).toHaveLength(list.length);
   });
 
   it("shows it as a normal row where the hub put it when the module it sits under is not in the list", () => {
-    expect(ids(nestedOrder([mod("mail", "mail_inbox"), mod("games")]))).toEqual(["mail", "games"]);
+    expect(ids(nestedOrder([mod("mail", "mail_inbox"), mod("calendars")]))).toEqual(["mail", "calendars"]);
     // One level only, and two that name each other both show, as normal rows.
     expect(ids(nestedOrder([mod("a"), mod("b", "a"), mod("c", "b")]))).toEqual(["a", "  b", "c"]);
     expect(ids(nestedOrder([mod("a", "b"), mod("b", "a")]))).toEqual(["a", "b"]);
@@ -270,6 +270,22 @@ describe("Settings, Modules shows Receipts and renewals under Mail", () => {
     expect(picker).toContain('className={sub ? "module-sub" : undefined}');
     expect(picker).toContain("{mods.map(({ m }) => m.title).join(\", \")}");
     expect(fs.readFileSync(path.join(__dirname, "../styles.css"), "utf8")).toMatch(/\.module-sub \{[^}]*margin-left[^}]*border-left/);
+  });
+});
+
+describe("Settings, Modules shows every area, the ones it does not know too", () => {
+  const mod = (id: string, group: string) => ({ id, title: id, summary: "", group, on: true });
+
+  it("puts the areas in the Library's order, whatever order the hub sends them in", () => {
+    const list = [mod("web", "Assistant"), mod("projects", "Making"), mod("films", "Media"), mod("mail_inbox", "Plan"), mod("voice", "On your devices"), mod("homelab", "Tech"), mod("reference", "Notes"), mod("renewals", "Life admin"), mod("health", "Body and home")];
+    expect(groupOrder(list)).toEqual(["On your devices", "Plan", "Notes", "Media", "Body and home", "Life admin", "Making", "Tech", "Assistant"]);
+  });
+
+  it("shows an area it does not know under its own heading, in the hub's order, before what the assistant may do", () => {
+    const list = [mod("voice", "On your devices"), mod("garden", "Garden"), mod("web", "Assistant"), mod("radio", "Listening"), mod("projects", "Making")];
+    expect(groupOrder(list)).toEqual(["On your devices", "Making", "Garden", "Listening", "Assistant"]);
+    // Every module keeps its switch: each group named is shown.
+    expect(new Set(groupOrder(list))).toEqual(new Set(list.map((m) => m.group)));
   });
 });
 

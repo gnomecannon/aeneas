@@ -17,7 +17,7 @@ use tauri::{
 const MAIN: &str = "main";
 const CAPTURE: &str = "capture";
 const WIDGET: &str = "widget";
-/// The file in the app config folder that says whether the Now widget was open, so it comes back after a restart.
+/// The file in the app config folder that says whether the Now and next widget was open, so it comes back after a restart.
 const WIDGET_FILE: &str = "widget.json";
 /// The global Capture shortcut, chosen in Settings: one of SHORTCUTS, or "off". Kept beside the widget state.
 const SHORTCUT_FILE: &str = "shortcut.json";
@@ -93,14 +93,15 @@ fn widget_remembered<R: Runtime>(app: &AppHandle<R>) -> bool {
 }
 
 #[cfg(desktop)]
-/// The Now widget: a small window that stays on top with the Now task, a running activity and Capture.
+/// The Now and next widget: a small window that stays on top with the Next line (the task you started, else what is on
+/// now or next), a running activity and Capture.
 /// It opens where it was last left (the window-state plugin restores every window it has seen).
 fn open_widget<R: Runtime>(app: &AppHandle<R>) {
     if let Some(w) = app.get_webview_window(WIDGET) {
         let _ = w.show();
     } else {
         let _ = WebviewWindowBuilder::new(app, WIDGET, WebviewUrl::App("index.html#/widget".into()))
-            .title("Now")
+            .title("Now and next")
             .inner_size(320.0, 210.0)
             .min_inner_size(240.0, 150.0)
             .always_on_top(true)
@@ -352,7 +353,7 @@ pub fn run() {
         .expect("error while running Aeneas");
 }
 
-/// The tray menu, the Now widget brought back after a restart, the Capture shortcut, and starting hidden at login.
+/// The tray menu, the Now and next widget brought back after a restart, the Capture shortcut, and starting hidden at login.
 #[cfg(desktop)]
 fn desktop_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Pairing links open this app, also when it was copied in place rather than installed (the installer registers
@@ -364,7 +365,7 @@ fn desktop_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>>
     }
             let show = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
             let capture = MenuItem::with_id(app, "capture", "Capture", true, None::<&str>)?;
-            let widget = CheckMenuItem::with_id(app, "widget", "Now widget", true, widget_remembered(app.handle()), None::<&str>)?;
+            let widget = CheckMenuItem::with_id(app, "widget", "Now and next widget", true, widget_remembered(app.handle()), None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &capture, &widget, &quit])?;
 

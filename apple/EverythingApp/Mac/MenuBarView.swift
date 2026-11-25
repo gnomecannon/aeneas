@@ -2,7 +2,9 @@
 import SwiftUI
 import EACore
 
-/// Menu bar extra: capture field and the Now task.
+/// Menu bar extra: the Next line (the task you started, with its buttons, else what is on now or next, else the free
+/// time; CONTRACT.md, Planner, The Next line) and a capture field. It showed the Now task, the first task in Next when
+/// none was started, until 2026-11-25.
 struct MenuBarView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -14,18 +16,28 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let now = engine.nowTask {
+            // Read again every half minute: the minutes left count down.
+            TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                let plan = engine.nextLinePlan(now: ctx.date)
+                let line = plan.words(at: ctx.date)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(now.str("status") == "doing" ? "Doing" : "Next").font(.caption).foregroundStyle(.secondary)
-                    Text(StyleGuard.dashes(now.str("title"))).font(.title3.weight(.semibold)).lineLimit(3)
-                    HStack {
-                        Button("Done") { Task { await engine.markDone(now.id) } }
-                        Button("Skip") { Task { await engine.skip(now.id) } }
-                        if now.str("status") != "doing" { Button("Start 3 h") { Task { await engine.startBlock(now.id) } } }
+                    Text(line.label.rawValue).font(.caption).foregroundStyle(.secondary)
+                    Text(StyleGuard.dashes(line.title)).font(.title3.weight(.semibold)).lineLimit(3)
+                    if !line.detail.isEmpty { Text(line.detail).font(.subheadline).foregroundStyle(.secondary) }
+                    if let started = engine.startedTask {
+                        let blockOn = plan.started.map { ($0.blockStart ?? .distantFuture) <= ctx.date && ($0.blockEnd ?? .distantPast) > ctx.date } == true
+                        HStack {
+                            Button("Done") { Task { await engine.markDone(started.id) } }
+                            Button("Skip") { Task { await engine.skip(started.id) } }.help("Back to the end of Next")
+                            if !blockOn { Button("Start 3 h") { Task { await engine.startBlock(started.id) } } }
+                        }
+                        // Under the task you started: what is on now or next.
+                        if let then = plan.then(at: ctx.date) {
+                            Text(StyleGuard.dashes(then.text)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        }
                     }
                 }
-            } else {
-                Text("Nothing is next").font(.title3).foregroundStyle(.secondary)
+                .accessibilityElement(children: .contain)
             }
             Divider()
             TextField("Capture", text: $text, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(1...4).onSubmit { save() }

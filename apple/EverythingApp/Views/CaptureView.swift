@@ -2,8 +2,8 @@ import SwiftUI
 import PhotosUI
 import EACore
 
-/// Capture: text, tap-to-talk dictation that waits and never auto-submits, optional photo. With Music on, Hum Song
-/// sends a hummed, sung, tapped or beatboxed take straight to Music, heard as a melody and as a rhythm.
+/// Capture: text, tap-to-talk dictation that waits and never auto-submits, optional photo. With Song ideas on, Hum Song
+/// sends a hummed, sung, tapped or beatboxed take straight to Song ideas, heard as a melody and as a rhythm.
 struct CaptureView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -205,7 +205,7 @@ struct CaptureView: View {
         .disabled(!dictation.authorized && dictation.error != nil)
     }
 
-    /// Tap to record, tap again (or Stop) to send it to Music. The microphone is shared, so dictation stops first.
+    /// Tap to record, tap again (or Stop) to send it to Song ideas. The microphone is shared, so dictation stops first.
     private var humButton: some View {
         Button {
             if hum.recording {
@@ -235,7 +235,7 @@ struct CaptureView: View {
         }
         .buttonStyle(.plain)
         .disabled(humSending)
-        .accessibilityLabel(hum.recording ? "Stop and send the hum to Music" : "Hum Song: hum, sing, tap or beatbox for Music")
+        .accessibilityLabel(hum.recording ? "Stop and send the hum to Song ideas" : "Hum Song: hum, sing, tap or beatbox for Song ideas")
     }
 
     @ViewBuilder private var humStatus: some View {
@@ -268,7 +268,7 @@ struct CaptureView: View {
     }
 
     /// Sends the take with `from=capture` (the hub adds a diary line) and says where it went, staying on Capture.
-    /// Once the hub has heard it, the line names it the way Music does.
+    /// Once the hub has heard it, the line names it the way Song ideas does.
     private func sendHum(_ take: HumTake) async {
         humSending = true
         humError = nil
@@ -279,12 +279,12 @@ struct CaptureView: View {
             humSending = false
             humUnsent = nil
             humIdeaId = e.id
-            let first = "\(e.humMidi?.kindName ?? HumMidi(state: .listening).kindName): in Music"
+            let first = "\(e.humMidi?.kindName ?? HumMidi(state: .listening).kindName): in Song ideas"
             humMessage = first
             for _ in 0..<60 {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard humIdeaId == e.id, let now = engine.get(e.id), let m = now.humMidi else { return }
-                if m.state == .done { humMessage = "\(StyleGuard.dashes(now.str("title"))): in Music"; return }
+                if m.state == .done { humMessage = "\(StyleGuard.dashes(now.str("title"))): in Song ideas"; return }
                 if m.state == .failed { humMessage = "\(first). \(Hum.sentence(m.error) ?? "The hub could not hear it.")"; return }
             }
         } catch {

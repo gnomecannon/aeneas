@@ -25,8 +25,10 @@ describe("keyboard shortcuts", () => {
   });
   it("lists the keys of modules that are on", () => {
     const all = listedKeys(() => true).map((k) => k.key).join("");
-    expect(all).toBe("tacnwofpl/");
+    // n went with the Now screen (2026-11-25); t opens Today, which says what you are on.
+    expect(all).toBe("tacwofpl/");
+    expect(keyAction(press("n"), true)).toBeNull();
     const noHomelab = listedKeys((m) => m !== "homelab").map((k) => k.key).join("");
-    expect(noHomelab).toBe("tacnwfpl/");
+    expect(noHomelab).toBe("tacwfpl/");
   });
 });

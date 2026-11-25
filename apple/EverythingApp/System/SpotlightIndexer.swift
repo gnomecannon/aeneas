@@ -85,7 +85,7 @@ final class SpotlightIndexer {
             line = e.number("playtime_min").map { "Game, \(Int(($0 / 60).rounded())) hours played" } ?? "Game"
         case .film: line = ["Film", e.number("year").map { String(Int($0)) }, e.str("last_watched").isEmpty ? nil : "watched \(e.str("last_watched"))"].compactMap { $0 }.joined(separator: ", ")
         case .procedure: line = "Procedure"
-        case .music_idea: line = "Music idea, \(e.str("type"))"
+        case .music_idea: line = "Song idea, \(e.str("type"))"
         case .application: title = "\(e.str("role")) at \(e.str("company"))"; line = "Job application, \(e.str("stage"))"
         default: break
         }

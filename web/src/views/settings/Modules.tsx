@@ -4,13 +4,17 @@ import { doneWithFirstSteps, justSwitchedOn, setModules, useModules } from "../.
 import { SubPage, Toggle, errorText } from "./common";
 import { MachinesStart } from "./MachinesSetup";
 
-const ORDER = ["On your devices", "Plan", "Body and home", "Making", "Life admin", "Tech", "Assistant"];
+/** The groups in the order they show: device features, then the Library areas in the Library's order. */
+const ORDER = ["On your devices", "Plan", "Notes", "People", "Media", "Body and home", "Life admin", "Making", "Tech"];
+/** Shown last, after any group this app does not know. */
+const LAST = "Assistant";
 const GROUP_TITLE: Record<string, string> = { Assistant: "What the assistant may do" };
 
 /** How each device permission is named to the person. */
 export const PERMISSION_NAMES: Record<ModulePermission, string> = {
   microphone: "the microphone", speech: "speech recognition", notifications: "notifications", reminders: "Reminders",
   calendar: "Calendar", contacts: "Contacts", health: "Health", photos: "Photos", location: "Location",
+  music: "Apple Music",
 };
 
 function joinWords(words: string[]): string {
@@ -87,6 +91,16 @@ export function nestedOrder(mods: ModuleInfo[]): { m: ModuleInfo; sub: boolean }
   return out;
 }
 
+/**
+ * The groups that have modules, in the order they show: the ones this app knows in its own order, then any other (an
+ * area a newer hub added) in the hub's order, under its own heading, then what the assistant may do. A group is never
+ * left out, so every module keeps its switch.
+ */
+export function groupOrder(list: ModuleInfo[]): string[] {
+  const named = [...new Set(list.map((m) => m.group))];
+  return [...ORDER.filter((g) => named.includes(g)), ...named.filter((g) => !ORDER.includes(g) && g !== LAST), ...named.filter((g) => g === LAST)];
+}
+
 /** "4 of 17 on", for the Settings menu row. */
 export function modulesSummary(list: ModuleInfo[] | null): string {
   if (!list) return "Choose what this app keeps track of";
@@ -105,7 +119,7 @@ export function ModulePicker() {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   if (!list) return <div className="muted small">Asking the hub which modules are on.</div>;
-  const groups = [...new Set([...ORDER, ...list.map((m) => m.group)])].filter((g) => list.some((m) => m.group === g));
+  const groups = groupOrder(list);
   const flip = async (id: string, on: boolean) => {
     setBusy(id);
     setErr("");

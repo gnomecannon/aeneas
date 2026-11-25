@@ -1,6 +1,6 @@
 import { plainError } from "../lib/errors";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { datePhrase, datesSoon, peopleInPlans, plansToday, taskInLists, todayCards, todayShowsTop, todayTodoLists, type Entity } from "@everythingapp/shared";
+import { datePhrase, datesSoon, peopleInPlans, plansToday, startedTask, taskInLists, todayCards, todayShowsTop, todayTodoLists, type Entity } from "@everythingapp/shared";
 import { useHubPoll } from "../sync/useHubPoll";
 import { usePoll } from "../lib/usePoll";
 import { localToday, scheduleTask, unscheduleTask, conflictMessage, renewWatch } from "../sync/planner";
@@ -8,14 +8,14 @@ import { useEntities } from "../sync/hooks";
 import { db } from "../sync/db";
 import { timeline, parseLocalDate, daySpan, overlaps, spanOf, fmtDue, wholeDay, type PlannerToday, type TimelineItem } from "../lib/planner";
 import { fmtTime, relative } from "../lib/time";
-import { NowCard, pickCurrent } from "./Now";
+import { StartedCard } from "../components/StartedCard";
 import { useModules } from "../lib/modules";
 import { Timeline } from "../components/Timeline";
 import { TaskPicker } from "../components/TaskPicker";
 import { createEntity, updateEntity } from "../sync/edits";
 import { SOURCE, ackReminder, completeTask, snoozeFor } from "../sync/actions";
 import { DIARY_DAY_START, diaryToday, followUpsDue, regularMeds } from "../lib/today";
-import { freeLine, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines, type Need, type TodaySection } from "../lib/todayBoard";
+import { freeLine, needsYou, nowLine, nowWords, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines, type Need, type TodaySection } from "../lib/todayBoard";
 import { dueReminders, hasReminder } from "../lib/reminders";
 import { TONE_DOT, lookTone, needsALook, techLight, watchedLine, type Look, type Tone } from "../lib/tech";
 import type { OpsData } from "../lib/ops";
@@ -30,7 +30,7 @@ import { useSourceLists } from "../lib/sources";
 const TODO_SHOWN = 6;
 const SOFAR_SHOWN = 10;
 
-/** The time now, read again every half minute and when the window shows: the Now line counts minutes. */
+/** The time now, read again every half minute and when the window shows: the Next line counts minutes. */
 function useNow(everyMs = 30_000): Date {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -60,8 +60,8 @@ function useWidth<T extends HTMLElement>(): [RefObject<T>, number] {
 }
 
 /**
- * The day as a status board, in the order its owner asked every report to take: at the top what is on now and how
- * long it has left; then Tech's light as one folded line and what needs you (actions only, numbered, each with its
+ * The day as a status board, in the order its owner asked every report to take: at the top the Next line (the task
+ * you started, else what is on now and how long it has left); then Tech's light as one folded line and what needs you (actions only, numbered, each with its
  * button), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
  * that needs nothing from you. One column on a phone, up to five across a wide window (lib/todayBoard.ts). That is the
  * default: Theme, Today (`today` in the feel setting, one for every device) hides parts and puts the cards in another
@@ -138,12 +138,15 @@ export function Today() {
   const onlyTodo = useCallback((e: Entity) => !inTodo || inTodo(e.fields), [inTodo]);
   const todoTasks = useMemo(() => (inTodo ? allTasks.filter(onlyTodo) : allTasks), [allTasks, inTodo, onlyTodo]);
   const open = useMemo(() => openTasks(todoTasks), [todoTasks]);
-  const { current } = useMemo(() => pickCurrent(todoTasks.filter((x) => x.fields.status === "doing" || x.fields.status === "next")), [todoTasks]);
+  // The task you started, among To do's lists, gets the card with its buttons; never the first task in Next.
+  const current = useMemo(() => startedTask(todoTasks), [todoTasks]);
   const rest = open.filter((x) => x.id !== current?.id);
+  // The line at the top follows the task you started whatever its list.
+  const started = useMemo(() => startedTask(allTasks), [allTasks]);
   const done = useMemo(() => soFar({ diary, tasks: allTasks, logs, now }), [diary, allTasks, logs, now]);
   const numbers = useMemo(() => (on("health") ? todayNumbers(logs, now) : []), [logs, now, on]);
   const tomorrow = useMemo(() => tomorrowLines(events, now), [events, now]);
-  const line = useMemo(() => nowLine(items, now), [items, now]);
+  const line = useMemo(() => nowWords(nowLine(items, now, started), null), [items, now, started]);
   const free = useMemo(() => freeLine(items, now), [items, now]);
   const allDay = todayEvents.filter((e) => e.fields.all_day === true);
   // A rule for the whole day (a custody week) is named with them: it has no time to stand at in the list.
@@ -284,7 +287,7 @@ export function Today() {
     todo: (
       <section className="card tcard todo" aria-label="To do">
         <h2>To do {open.length > 0 && <span className="count quiet">{open.length} open</span>}</h2>
-        <NowCard showNext={false} whenEmpty={null} only={inTodo ? onlyTodo : undefined} />
+        {current && <StartedCard task={current} />}
         {rest.length > 0 && (
           <ul className="todo-list">
             {rest.slice(0, TODO_SHOWN).map((task) => {
@@ -385,14 +388,9 @@ export function Today() {
       {!t && poll.error && <div className={poll.unavailable ? "muted small" : "error"}>{poll.unavailable ? "The planner is not available on this hub." : poll.error}</div>}
       {t && todayShowsTop(setting) && (
         <>
-          <p className="today-now" role="status">
-            {line.kind === "during" ? (
-              <><strong>{line.title}</strong> until {fmtTime(line.until)} <span className="aside">{line.left} left</span></>
-            ) : line.kind === "next" ? (
-              <>Next: <strong>{line.title}</strong> at {fmtTime(line.at)} <span className="aside">in {line.wait}</span></>
-            ) : (
-              <>Nothing else is scheduled today.</>
-            )}
+          {/* The Next line (packages/shared nextLine.ts): the same words as the widgets, the Watch and the menu bar. */}
+          <p className="today-now" role="status" aria-label={line.text}>
+            {line.lead}<strong>{line.title}</strong>{line.when && ` ${line.when}`}{line.aside && <span className="aside">{line.aside}</span>}
           </p>
           {free && <p className="today-free">{free}</p>}
         </>

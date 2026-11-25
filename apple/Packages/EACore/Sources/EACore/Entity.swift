@@ -4,6 +4,8 @@ public enum Kind: String, Codable, CaseIterable, Sendable {
     case capture, note, task, reminder, event, log, fact, rule, runbook, ledger, project, device, watch, plan_rule
     case journal, snippet, pet_event, sensor, reading, food_option, inventory, procedure, music_idea, quiz
     case monitor, incident, checklist, application, game, film, image, person
+    /// The owner's Apple Music taste (since 2026-11-25, Music): one item, `MusicTaste.profileId`.
+    case music_profile
 }
 
 public enum Space: String, Codable, CaseIterable, Sendable { case personal, work }
@@ -39,7 +41,17 @@ public enum Friction: String, Codable, CaseIterable, Sendable {
     }
 }
 public enum LogType: String, Codable, CaseIterable, Sendable { case weight, med, bp, caffeine, sleep, mood, activity, steps, custom }
-public enum FactCategory: String, Codable, CaseIterable, Sendable { case identity, constraint, preference, health, relationship, host, project, gear, history }
+/// `like`, `dislike` and `gift_idea` (since 2026-11-25) are about another person; the owner's own likes stay `preference`.
+public enum FactCategory: String, Codable, CaseIterable, Sendable {
+    case identity, constraint, preference, health, relationship, host, project, gear, history, like, dislike
+    case giftIdea = "gift_idea"
+
+    /// The category in words, for a heading or a picker: "Gift idea", not "Gift_Idea".
+    public var label: String {
+        let words = rawValue.replacingOccurrences(of: "_", with: " ")
+        return words.prefix(1).uppercased() + words.dropFirst()
+    }
+}
 public enum RuleEnforce: String, Codable, CaseIterable, Sendable { case prompt, filter, both }
 public enum ProjectStatus: String, Codable, CaseIterable, Sendable { case active, parked, done }
 public enum Platform: String, Codable, CaseIterable, Sendable {

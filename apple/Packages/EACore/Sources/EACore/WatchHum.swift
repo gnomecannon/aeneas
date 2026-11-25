@@ -92,17 +92,17 @@ public struct WatchHumResult: Equatable, Sendable {
         self.init(id: id, state: state, title: message["title"] as? String, error: message["error"] as? String, ideaId: message["idea_id"] as? String)
     }
 
-    /// The line the Watch shows: "Song in A minor, 120 BPM: in Music".
+    /// The line the Watch shows: "Song in A minor, 120 BPM: in Song ideas".
     public var line: String {
         switch state {
         case .waiting:
-            // Music being off is the one wait the owner can end; any other is the network and passes on its own.
+            // Song ideas being off is the one wait the owner can end; any other is the network and passes on its own.
             if let e = error, e.hasPrefix(Self.musicOff) { return e }
             return "Your iPhone will send it when it reaches the hub"
         case .listening: return "The hub is listening"
         case .done:
             let t = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return t.isEmpty ? "In Music" : "\(t): in Music"
+            return t.isEmpty ? "In Song ideas" : "\(t): in Song ideas"
         case .failed: return Self.sentence(error) ?? "The hub could not hear it."
         }
     }
@@ -123,7 +123,7 @@ public struct WatchHumResult: Equatable, Sendable {
     public static func upload(error: Error, humId: String) -> (result: WatchHumResult, keep: Bool) {
         switch error as? HubError {
         case .http(404, let message)? where message.contains("Settings, Modules"):
-            // Music is switched off on the hub: the recording waits on the iPhone and goes when it is on again.
+            // Song ideas is switched off on the hub: the recording waits on the iPhone and goes when it is on again.
             return (WatchHumResult(id: humId, state: .waiting, error: Self.musicOff), true)
         case .http(let status, let message)? where (400..<500).contains(status) && ![401, 403, 408, 429].contains(status):
             // The hub says why in a sentence of its own ("the recording is under half a second").
@@ -140,7 +140,7 @@ public struct WatchHumResult: Equatable, Sendable {
         }
     }
 
-    static let musicOff = "Music is switched off on the hub. The recording waits on your iPhone until it is on."
+    static let musicOff = "Song ideas is switched off on the hub. The recording waits on your iPhone until it is on."
 
     /// "no notes were heard" becomes "No notes were heard."
     static func sentence(_ text: String?) -> String? {

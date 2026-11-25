@@ -49,8 +49,11 @@ export interface PlannerWeek {
 }
 export interface PlannerToday {
   date: string;
+  /** The task you started, or null; never the first task in Next (an older hub sends that). */
   now: Entity | null;
   next: Entity[];
+  /** The Next line in the hub's words (since 2026-11-25; absent from an older hub and from the local copy). */
+  line?: string;
   blocks: Block[];
   commitments: Commitment[];
   reminders_due: Entity[];
@@ -446,10 +449,11 @@ export function fmtDayLabel(d: Date): string {
 /** Two to four plain lines summarising the day. Shared by the mock hub and the offline fallback. */
 export function buildDigest(t: Omit<PlannerToday, "digest" | "next" | "date">, at = new Date()): string {
   const lines: string[] = [];
+  // `now` is only a task you started (packages/shared `startedTask`), never the first task in Next.
   const nowTitle = t.now ? String(t.now.fields.title ?? "") : "";
   const nowBlock = t.now ? (t.now.fields.block as { end: string } | undefined) : undefined;
   const nowNote = nowBlock && new Date(nowBlock.end) > at ? ` until ${fmtTime(nowBlock.end)}` : "";
-  lines.push(`${fmtDayLabel(at)}. ${nowTitle ? `Now: ${nowTitle}${nowNote}.` : "Nothing queued."}`);
+  lines.push(`${fmtDayLabel(at)}. ${nowTitle ? `Doing: ${nowTitle}${nowNote}.` : "Nothing started."}`);
   const fixed = t.commitments.filter(takesTime).length;
   const parts = [`${t.blocks.length} ${t.blocks.length === 1 ? "block" : "blocks"}`, `${fixed} fixed`, `${t.reminders_due.length} ${t.reminders_due.length === 1 ? "reminder" : "reminders"}`];
   const nextFree = t.free_slots.find((s) => new Date(s.end) > at);

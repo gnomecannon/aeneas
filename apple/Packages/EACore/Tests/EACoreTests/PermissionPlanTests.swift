@@ -11,10 +11,10 @@ final class PermissionPlanTests: XCTestCase {
       {"id": "apple_reminders", "title": "Apple Reminders", "group": "On your devices", "on": false, "permissions": ["reminders"]},
       {"id": "apple_calendar", "title": "Apple Calendar", "group": "On your devices", "on": true, "permissions": ["calendar"]},
       {"id": "contacts", "title": "Contacts", "group": "On your devices", "on": false, "permissions": ["contacts"]},
-      {"id": "music", "title": "Music", "group": "Making", "on": true, "reads": "The microphone, only while you record a hum.", "permissions": ["microphone"]},
+      {"id": "music", "title": "Song ideas", "group": "Making", "on": true, "reads": "The microphone, only while you record a hum.", "permissions": ["microphone"]},
       {"id": "images", "title": "Images", "group": "Making", "on": true, "permissions": ["photos"]},
       {"id": "health", "title": "Health", "group": "Body and home", "on": true, "permissions": ["health"]},
-      {"id": "games", "title": "Games", "group": "Life admin", "on": true, "setup": {"minutes": "2", "needs": "your own Steam key, for playtime"}},
+      {"id": "games", "title": "Games", "group": "Media", "on": true, "setup": {"minutes": "2", "needs": "your own Steam key, for playtime"}},
       {"id": "garden", "title": "Garden", "group": "Body and home", "on": true, "permissions": ["telepathy"]}
     ]}
     """
@@ -38,7 +38,7 @@ final class PermissionPlanTests: XCTestCase {
                        "Reminders and Contacts are off; an unknown permission is left out")
         let mic = needs.first { $0.permission == .microphone }
         XCTAssertEqual(mic?.modules.map(\.id), ["voice", "music"], "one microphone question for both")
-        XCTAssertEqual(mic?.forLine, "For Voice and Music.")
+        XCTAssertEqual(mic?.forLine, "For Voice and Song ideas.")
     }
 
     func testTheMacAsksForNoHealthOrPhotos() {

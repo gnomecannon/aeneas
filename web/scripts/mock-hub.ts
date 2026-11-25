@@ -36,7 +36,7 @@
  */
 import http from "node:http";
 import { randomUUID } from "node:crypto";
-import { classifyCapture, effectiveAt, nextOccurrence } from "@everythingapp/shared";
+import { classifyCapture, effectiveAt, nextOccurrence, startedTask } from "@everythingapp/shared";
 import type { Entity, Patch } from "@everythingapp/shared";
 import {
   addDays,
@@ -546,11 +546,11 @@ function scheduleConflict(taskId: string, span: Span): Conflict | null {
   return findConflict(span, busy.sort((a, b) => (a.start < b.start ? -1 : 1)));
 }
 
+/** The task you started (never the first task in Next, CONTRACT.md, The Next line) and the Next tasks, as the hub picks them. */
 function pickNow(): { now: Entity | null; next: Entity[] } {
   const tasks = allLive().filter((e) => e.kind === "task");
-  const doing = tasks.find((t) => t.fields.status === "doing") ?? null;
   const next = tasks.filter((t) => t.fields.status === "next").sort((a, b) => (a.fields.order as number) - (b.fields.order as number));
-  return { now: doing ?? next[0] ?? null, next: doing ? next : next.slice(1) };
+  return { now: startedTask(tasks), next: next.slice(0, 10) };
 }
 
 function plannerToday() {

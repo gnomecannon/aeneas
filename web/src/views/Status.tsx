@@ -115,8 +115,8 @@ export function ProofTable({ proof }: { proof: ProofRun }) {
                 </span>
               </th>
             ))}
-            <th scope="col" title="Now view had a task" aria-label="Now view had a task">
-              now
+            <th scope="col" title="A task was in Next or started at 9:00" aria-label="A task was in Next or started at 9:00">
+              next
             </th>
           </tr>
         </thead>

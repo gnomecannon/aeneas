@@ -40,6 +40,8 @@ export const SCREEN_ICONS: Record<string, ReactNode> = {
   lists: <><rect x="3.5" y="3.5" width="17" height="17" rx="2.5" /><path d="M8 12.5l3 3 5.5-6.5" /></>,
   games: <><path d="M7.5 7h9a5 5 0 0 1 4.9 4l.9 4.5a2.6 2.6 0 0 1-4.6 2.1L15.5 15h-7l-2.2 2.6a2.6 2.6 0 0 1-4.6-2.1l.9-4.5A5 5 0 0 1 7.5 7z" /><path d={`M7.5 9.8v3M6 11.3h3${dot(15.5, 10.5)}${dot(17.5, 12.5)}`} /></>,
   films: <><rect x="3.5" y="4" width="17" height="16" rx="2" /><path d="M8 4v16M16 4v16M3.5 9H8M3.5 15H8M16 9h4.5M16 15h4.5" /></>,
+  // Headphones: what you listen to (the Apple apps' symbol is headphones too). Song ideas keep the note.
+  listening: <><path d="M4 16.5v-4a8 8 0 0 1 16 0v4" /><rect x="3.5" y="14" width="4" height="6.5" rx="1.5" /><rect x="16.5" y="14" width="4" height="6.5" rx="1.5" /></>,
   calc: <><rect x="5" y="3" width="14" height="18" rx="2" /><path d={`M8.5 7.5h7${dot(8.5, 12)}${dot(12, 12)}${dot(15.5, 12)}${dot(8.5, 16.5)}${dot(12, 16.5)}${dot(15.5, 16.5)}`} /></>,
   status: <path d="M3 12h4l2.5-6.5 4 13 2.5-6.5h5" />,
 };

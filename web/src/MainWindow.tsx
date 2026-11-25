@@ -12,7 +12,7 @@ import { startComputerReports } from "./lib/thisComputer";
 
 /**
  * The main window around a screen: sidebar and tab bar, banners and toasts. A file of its own, loaded only by the main
- * window: the capture window and the Now widget never need it.
+ * window: the capture window and the Now and next widget never need it.
  */
 export function MainWindow({ route, view }: { route: Route; view: ReactNode }) {
   // The Windows app on a helped person's computer runs their helper's commands (lib/helperAgent.ts).

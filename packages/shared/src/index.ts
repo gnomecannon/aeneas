@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MusicProfileFields } from "./music.js";
 
 // ---------- enums ----------
 export const Kind = z.enum([
@@ -9,6 +10,7 @@ export const Kind = z.enum([
   "inventory", "procedure", "music_idea", "quiz",
   "monitor", "incident",
   "checklist", "application", "game", "film", "image", "person",
+  "music_profile",
 ]);
 export type Kind = z.infer<typeof Kind>;
 
@@ -22,7 +24,8 @@ export const TaskStatus = z.enum(["inbox", "next", "scheduled", "doing", "done",
 /** "witness" was removed on 2026-10-28; reminders still carrying it are read as "reason". */
 export const Friction = z.preprocess((v) => (v === "witness" ? "reason" : v), z.enum(["none", "reason"]));
 export const LogType = z.enum(["weight", "med", "bp", "caffeine", "sleep", "mood", "activity", "steps", "custom"]);
-export const FactCategory = z.enum(["identity", "constraint", "preference", "health", "relationship", "host", "project", "gear", "history"]);
+/** `like`, `dislike` and `gift_idea` (since 2026-11-25) are about another person; the owner's own likes stay `preference`. */
+export const FactCategory = z.enum(["identity", "constraint", "preference", "health", "relationship", "host", "project", "gear", "history", "like", "dislike", "gift_idea"]);
 export const RuleEnforce = z.enum(["prompt", "filter", "both"]);
 export const ProjectStatus = z.enum(["active", "parked", "done"]);
 export const Platform = z.enum(["watch", "iphone", "ipad", "mac", "windows", "android", "web"]);
@@ -275,6 +278,10 @@ export const FactFields = z.object({
   /** A fact about someone in People: their id, or just their name when they are not in contacts. */
   person_id: z.string().optional(),
   person: z.string().optional(),
+  /** A gift idea's day it was given (YYYY-MM-DD); none means not given yet. */
+  given_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  /** What a gift idea is for, as said ("birthday"). */
+  occasion: z.string().optional(),
 });
 
 export const RuleFields = z.object({
@@ -703,6 +710,7 @@ export const FieldsByKind = {
   inventory: InventoryFields, procedure: ProcedureFields, music_idea: MusicIdeaFields, quiz: QuizFields,
   monitor: MonitorFields, incident: IncidentFields,
   checklist: ChecklistFields, application: ApplicationFields, game: GameFields, film: FilmFields, image: ImageFields, person: PersonFields,
+  music_profile: MusicProfileFields,
 } as const;
 
 // ---------- envelope ----------
@@ -1210,11 +1218,64 @@ function mentionedIn(t: string, names: string[]): string | undefined {
 /** What the owner has told the app about someone: facts linked to them (`person_id`), kept with their name before they
  * were in People (`person`), or whose text names them ("Friend group for board games: Devon, Casey, ..."), linked ones first. */
 export function factsAbout<T extends PersonLike>(person: PersonLike, everyone: PersonLike[], facts: T[]): T[] {
-  const called = new Set([person.fields.name, person.fields.nickname, person.fields.given_name].map(nameNorm).filter(Boolean));
   const names = mentionNames(person, everyone);
-  const linked = (f: T) => f.fields.person_id === person.id || (!f.fields.person_id && called.has(nameNorm(f.fields.person)));
+  const linked = linkedTo(person);
   const live = facts.filter((f) => !f.deleted_at);
   return [...live.filter(linked), ...live.filter((f) => !linked(f) && !!mentionedName(String(f.fields.value ?? ""), names))];
+}
+
+/** Whether a fact is about this person: linked by `person_id`, or kept with one of their names in `person`. */
+function linkedTo(person: PersonLike): (f: PersonLike) => boolean {
+  const called = new Set([person.fields.name, person.fields.nickname, person.fields.given_name].map(nameNorm).filter(Boolean));
+  return (f) => f.fields.person_id === person.id || (!f.fields.person_id && called.has(nameNorm(f.fields.person)));
+}
+
+/** The categories a person's page adds to, by section. */
+export type PersonFactCategory = "like" | "dislike" | "gift_idea";
+export type PersonFactSection = "likes" | "dislikes" | "gift_ideas" | "health_and_food" | "history" | "other";
+/** One section of a person's page: `add` is the category its Add field makes, on the three that always show. */
+export type PersonFactGroup<T> = { id: PersonFactSection; title: string; add?: PersonFactCategory; empty?: string; items: T[] };
+
+const SECTIONS: { id: PersonFactSection; title: string; add?: PersonFactCategory; empty?: string; categories: string[] }[] = [
+  { id: "likes", title: "Likes", add: "like", empty: "No likes yet", categories: ["like", "preference"] },
+  { id: "dislikes", title: "Dislikes", add: "dislike", empty: "No dislikes yet", categories: ["dislike"] },
+  { id: "gift_ideas", title: "Gift ideas", add: "gift_idea", empty: "No gift ideas yet", categories: ["gift_idea"] },
+  { id: "health_and_food", title: "Health and food", categories: ["health", "constraint"] },
+  { id: "history", title: "History", categories: ["history", "relationship"] },
+  { id: "other", title: "Other", categories: [] },
+];
+
+/**
+ * A person's facts (factsAbout's list) in the sections of their page, every section in order, empty ones too: Likes
+ * (`like`, and `preference` about them), Dislikes, Gift ideas (not given yet first, newest first, then given ones, the
+ * latest given first), Health and food (`health`, `constraint`), History (`history`, `relationship`), Other (the rest).
+ * A fact that only names them in its text goes to Other: a like or a gift idea there is someone else's. The order
+ * within the other sections is the order given. EACore `PersonFacts.groups` is the same rule.
+ */
+export function personFactGroups<T extends PersonLike & { created_at?: string }>(person: PersonLike, facts: T[]): PersonFactGroup<T>[] {
+  const linked = linkedTo(person);
+  const groups = SECTIONS.map(({ categories, ...g }) => ({ ...g, items: [] as T[] }));
+  for (const f of facts) {
+    if (f.deleted_at) continue;
+    const cat = String(f.fields.category ?? "");
+    const i = linked(f) ? SECTIONS.findIndex((s) => s.categories.includes(cat)) : -1;
+    groups[i >= 0 ? i : SECTIONS.length - 1].items.push(f);
+  }
+  const given = (f: T) => String(f.fields.given_at ?? "");
+  const made = (f: T) => String(f.created_at ?? "");
+  groups[2].items.sort((a, b) => (given(a) ? 1 : 0) - (given(b) ? 1 : 0) || given(b).localeCompare(given(a)) || made(b).localeCompare(made(a)));
+  return groups;
+}
+
+/**
+ * The key of a like, dislike or gift idea about someone: `like:`, `dislike:` or `gift:` and the value's first six words,
+ * lower case, joined by `_`. Made from the value, so two ideas never share a key (with a key the model picks, a
+ * second idea keyed "gift" would take the place of the first) and the same idea said again is the same fact.
+ */
+export function personFactKey(category: PersonFactCategory, value: string): string {
+  const words = String(value ?? "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().split(" ").filter(Boolean).slice(0, 6);
+  const prefix = category === "gift_idea" ? "gift" : category;
+  return `${prefix}:${words.join("_").slice(0, 60) || "item"}`;
 }
 
 /** Someone named in today's plans, with what the owner has told the app about them. */
@@ -1298,3 +1359,5 @@ export * from "./bar.js";
 export * from "./today.js";
 export * from "./taskLists.js";
 export * from "./calendars.js";
+export * from "./music.js";
+export * from "./nextLine.js";

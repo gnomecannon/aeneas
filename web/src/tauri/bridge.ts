@@ -2,7 +2,7 @@
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 /** The Android app (Tauri on Android): one window, no tray, widget or global shortcut. */
 export const isAndroid = isTauri && typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
-/** The Windows app (Tauri on a desktop): tray, Now widget, global Capture shortcut, start at login. */
+/** The Windows app (Tauri on a desktop): tray, Now and next widget, global Capture shortcut, start at login. */
 export const isWindowsApp = isTauri && !isAndroid;
 
 export async function windowLabel(): Promise<string> {
@@ -11,7 +11,7 @@ export async function windowLabel(): Promise<string> {
   return getCurrentWindow().label;
 }
 
-/** Opens or closes the Now widget, a small window that stays on top. It comes back after a restart if it was open. */
+/** Opens or closes the Now and next widget, a small window that stays on top. It comes back after a restart if it was open. */
 export async function setWidget(open: boolean): Promise<void> {
   if (!isTauri) return;
   const { invoke } = await import("@tauri-apps/api/core");

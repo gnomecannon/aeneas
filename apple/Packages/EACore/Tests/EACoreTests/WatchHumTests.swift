@@ -79,12 +79,12 @@ final class WatchHumTests: XCTestCase {
     }
 
     func testLines() {
-        XCTAssertEqual(WatchHumResult(id: "a", state: .done, title: "Melody in A minor, 120 BPM").line, "Melody in A minor, 120 BPM: in Music")
-        XCTAssertEqual(WatchHumResult(id: "a", state: .done, title: "  ").line, "In Music")
+        XCTAssertEqual(WatchHumResult(id: "a", state: .done, title: "Melody in A minor, 120 BPM").line, "Melody in A minor, 120 BPM: in Song ideas")
+        XCTAssertEqual(WatchHumResult(id: "a", state: .done, title: "  ").line, "In Song ideas")
         XCTAssertEqual(WatchHumResult(id: "a", state: .failed, error: "no notes were heard; hum a little louder or closer").line,
                        "No notes were heard; hum a little louder or closer.")
-        XCTAssertEqual(WatchHumResult(id: "a", state: .failed, error: "Music is off. Turn it on in Settings, Modules.").line,
-                       "Music is off. Turn it on in Settings, Modules.")
+        XCTAssertEqual(WatchHumResult(id: "a", state: .failed, error: "Song ideas is off. Turn it on in Settings, Modules.").line,
+                       "Song ideas is off. Turn it on in Settings, Modules.")
         XCTAssertEqual(WatchHumResult(id: "a", state: .failed).line, "The hub could not hear it.")
         XCTAssertEqual(WatchHumResult(id: "a", state: .listening).line, "The hub is listening")
         XCTAssertFalse(WatchHumResult(id: "a", state: .waiting).line.isEmpty)
@@ -114,7 +114,7 @@ final class WatchHumTests: XCTestCase {
         let done = try idea(#"{"title":"Melody in A minor, 120 BPM","key":"A minor","bpm":120,"midi":{"source":"hum","mode":"melody","state":"done","notes":[{"p":57,"s":0,"d":0.5,"v":90}]}}"#)
         let r = WatchHumResult.heard(done, humId: "h")
         XCTAssertEqual(r.state, .done)
-        XCTAssertEqual(r.line, "Melody in A minor, 120 BPM: in Music")
+        XCTAssertEqual(r.line, "Melody in A minor, 120 BPM: in Song ideas")
         XCTAssertEqual(r.ideaId, "idea-1")
 
         let failed = try idea(#"{"title":"Hummed melody","midi":{"source":"hum","mode":"melody","state":"failed","error":"no notes were heard","notes":[]}}"#)
@@ -122,11 +122,13 @@ final class WatchHumTests: XCTestCase {
     }
 
     func testUploadErrorsKeepTheFileOnlyWhenItMayGoThroughLater() {
-        // Music switched off on the hub: the take waits for it to come back on instead of being thrown away.
-        let off = WatchHumResult.upload(error: HubError.http(status: 404, message: "Music is off. Turn it on in Settings, Modules."), humId: "h")
+        // Song ideas switched off on the hub: the take waits for it to come back on instead of being thrown away.
+        let off = WatchHumResult.upload(error: HubError.http(status: 404, message: "Song ideas is off. Turn it on in Settings, Modules."), humId: "h")
         XCTAssertTrue(off.keep)
         XCTAssertEqual(off.result.state, .waiting)
-        XCTAssertEqual(off.result.line, "Music is switched off on the hub. The recording waits on your iPhone until it is on.")
+        XCTAssertEqual(off.result.line, "Song ideas is switched off on the hub. The recording waits on your iPhone until it is on.")
+        // A hub from before 2026-11-25 calls the module Music: its answer is read the same way.
+        XCTAssertTrue(WatchHumResult.upload(error: HubError.http(status: 404, message: "Music is off. Turn it on in Settings, Modules."), humId: "h").keep)
 
         let refused = WatchHumResult.upload(error: HubError.http(status: 422, message: "the recording is under half a second"), humId: "h")
         XCTAssertFalse(refused.keep)

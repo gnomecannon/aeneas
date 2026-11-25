@@ -6,39 +6,45 @@ import EACore
 import ActivityKit
 #endif
 
+/// One moment of the Now and next widget: the Next line at `date` (CONTRACT.md, Planner, The Next line).
 struct NowEntry: TimelineEntry {
     var date: Date
-    var title: String?
-    var status: String?
-    var blockEnd: Date?
+    var line: TodayBoard.LineWords
+    /// Under a task you started: what is on now or next.
+    var then: TodayBoard.LineWords?
     var unprocessed: Int
-    var nextBlockTitle: String? = nil
-    var nextBlockStart: Date? = nil
     var activity: String? = nil
     var activityStart: Date? = nil
 }
 
+/// The line at each minute of the next hour, worked out here from the plan the app wrote (`SharedConfig.nextLinePlan`),
+/// so the minutes left count down without the app; the app reloads the widget when the plan changes.
 struct NowProvider: TimelineProvider {
-    private func snapshot() -> NowEntry {
+    private func entry(_ plan: NextLinePlan?, at date: Date) -> NowEntry {
         let c = SharedConfig.shared
-        let nextStart = c.nextBlockStart.flatMap { $0 > Date() && Calendar.current.isDateInToday($0) ? $0 : nil }
-        return NowEntry(date: Date(), title: c.nowTaskTitle, status: c.nowTaskStatus, blockEnd: c.nowBlockEnd, unprocessed: c.unprocessedCount,
-                        nextBlockTitle: nextStart == nil ? nil : c.nextBlockTitle, nextBlockStart: nextStart,
+        let plan = plan ?? NextLinePlan(day: "", started: nil, spans: [])
+        return NowEntry(date: date, line: plan.words(at: date), then: plan.then(at: date), unprocessed: c.unprocessedCount,
                         activity: c.currentActivity, activityStart: c.currentActivityStart)
     }
     func placeholder(in context: Context) -> NowEntry {
-        NowEntry(date: Date(), title: "Order filament", status: "next", blockEnd: nil, unprocessed: 2, nextBlockTitle: "Fix the NAS", nextBlockStart: Date().addingTimeInterval(7200))
+        let now = Date()
+        return NowEntry(date: now, line: TodayBoard.LineWords(label: .next, lead: "Next: ", title: "Dentist", when: "at \(TodayBoard.deviceClock(now.addingTimeInterval(2760)))", aside: "in 46 min"),
+                        then: nil, unprocessed: 2)
     }
-    func getSnapshot(in context: Context, completion: @escaping (NowEntry) -> Void) { completion(context.isPreview ? placeholder(in: context) : snapshot()) }
+    func getSnapshot(in context: Context, completion: @escaping (NowEntry) -> Void) {
+        completion(context.isPreview ? placeholder(in: context) : entry(SharedConfig.shared.nextLinePlan, at: Date()))
+    }
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowEntry>) -> Void) {
-        completion(Timeline(entries: [snapshot()], policy: .after(Date().addingTimeInterval(1800))))
+        let plan = SharedConfig.shared.nextLinePlan
+        let moments = NextLinePlan.moments(from: Date())
+        completion(Timeline(entries: moments.map { entry(plan, at: $0) }, policy: .after(moments.last ?? Date().addingTimeInterval(3600))))
     }
 }
 
-/// The widget's Done button: marks the Now task done on the hub straight from the widget (the app picks it up on its
-/// next sync) and clears the widget at once.
+/// The widget's Done button: marks the task you started done on the hub straight from the widget (the app picks it up
+/// on its next sync) and clears it from the widget at once. It is only on the widget while a task is started.
 struct WidgetDoneIntent: AppIntent {
-    static let title: LocalizedStringResource = "Mark Now Done"
+    static let title: LocalizedStringResource = "Mark Started Task Done"
     static let isDiscoverable = false
 
     func perform() async throws -> some IntentResult {
@@ -55,8 +61,10 @@ struct WidgetDoneIntent: AppIntent {
         if let client, (try? await client.push(deviceId: c.deviceId, patches: [done.patch()])) != nil { c.removePendingWidgetDones([done]) }
         c.nowTaskId = nil
         c.nowTaskTitle = nil
-        c.nowTaskStatus = nil
-        c.nowBlockEnd = nil
+        if var plan = c.nextLinePlan, plan.started?.id == id {
+            plan.started = nil
+            c.nextLinePlan = plan
+        }
         WidgetCenter.shared.reloadAllTimelines()
         return .result()
     }
@@ -65,6 +73,8 @@ struct WidgetDoneIntent: AppIntent {
 struct NowWidgetView: View {
     @Environment(\.widgetFamily) private var family
     var entry: NowEntry
+
+    private var line: TodayBoard.LineWords { entry.line }
 
     var body: some View {
         switch family {
@@ -85,7 +95,7 @@ struct NowWidgetView: View {
         #if os(iOS)
         case .accessoryInline:
             if let a = entry.activity { Text("\(a) since \(entry.activityStart?.formatted(date: .omitted, time: .shortened) ?? "")").lockScreenPrivate() }
-            else { Text(entry.title.map { "Now: \(StyleGuard.dashes($0))" } ?? "Nothing is next").lockScreenPrivate() }
+            else { Text(StyleGuard.dashes(line.text)).lockScreenPrivate() }
         case .accessoryCircular:
             ZStack {
                 AccessoryWidgetBackground()
@@ -101,25 +111,26 @@ struct NowWidgetView: View {
                     Text(a).font(.headline).lineLimit(1).lockScreenPrivate()
                     Text(s, style: .timer).font(.caption).monospacedDigit()
                 } else {
-                    Text(entry.status == "doing" ? "Doing" : "Now").font(.caption2).foregroundStyle(.secondary)
-                    Text(entry.title.map { StyleGuard.dashes($0) } ?? "Nothing is next").font(.headline).lineLimit(2).lockScreenPrivate()
-                    if let end = entry.blockEnd, end > entry.date { Text("until \(end.formatted(date: .omitted, time: .shortened))").font(.caption2) }
+                    Text(line.label.rawValue).font(.caption2).foregroundStyle(.secondary)
+                    Text(StyleGuard.dashes(line.title)).font(.headline).lineLimit(2).lockScreenPrivate()
+                    if !line.detail.isEmpty { Text(line.detail).font(.caption2).lineLimit(1) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .widgetURL(URL(string: "everythingapp://now"))
+            .widgetURL(URL(string: "everythingapp://today"))
         #endif
         default:
-            nowBlock.widgetURL(URL(string: entry.title == nil ? "everythingapp://capture" : "everythingapp://now"))
+            nowBlock.widgetURL(URL(string: "everythingapp://today"))
         }
     }
 
     private var nowBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(entry.status == "doing" ? "Doing" : "Now").font(.caption).foregroundStyle(.secondary)
+                Text(line.label.rawValue).font(.caption).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
-                if entry.title != nil {
+                // Done only on a task you started: nothing else on the line is a task to finish.
+                if line.isStarted {
                     Button(intent: WidgetDoneIntent()) { Image(systemName: "checkmark.circle") }
                         .buttonStyle(.plain)
                         .font(.title3)
@@ -127,11 +138,14 @@ struct NowWidgetView: View {
                         .accessibilityLabel("Mark done")
                 }
             }
-            Text(entry.title.map { StyleGuard.dashes($0) } ?? "Nothing is next")
+            Text(StyleGuard.dashes(line.title))
                 .font(.headline)
                 .lineLimit(3)
                 .minimumScaleFactor(0.8)
                 .lockScreenPrivate()
+            if !line.detail.isEmpty {
+                Text(line.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
             Spacer(minLength: 0)
             if let a = entry.activity, let s = entry.activityStart {
                 HStack(spacing: 4) {
@@ -140,16 +154,14 @@ struct NowWidgetView: View {
                     Text(s, style: .timer).font(.caption2).monospacedDigit()
                 }
                 .foregroundStyle(.secondary)
-            } else if let end = entry.blockEnd, end > entry.date {
-                Text("Block ends \(end.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.secondary)
-            }
-            if family == .systemMedium, let t = entry.nextBlockTitle, let s = entry.nextBlockStart, s > entry.date {
+            } else if family == .systemMedium, let then = entry.then {
+                // Under the task you started: what is on now or next.
                 HStack(spacing: 4) {
                     Image(systemName: "calendar").font(.caption2)
-                    Text("Next \(s.formatted(date: .omitted, time: .shortened)): \(StyleGuard.dashes(t))").font(.caption2).lineLimit(1).lockScreenPrivate()
+                    Text(StyleGuard.dashes(then.text)).font(.caption2).lineLimit(1).lockScreenPrivate()
                 }
                 .foregroundStyle(.secondary)
-            } else if family == .systemSmall, entry.unprocessed > 0, entry.activity == nil {
+            } else if family == .systemSmall, entry.unprocessed > 0 {
                 Text("\(entry.unprocessed) to sort").font(.caption2).foregroundStyle(.secondary)
             }
         }
@@ -157,6 +169,8 @@ struct NowWidgetView: View {
     }
 }
 
+/// The Now and next widget. Its kind is the one the Now widget had, so a widget placed before 2026-11-25 shows the
+/// line in its place.
 struct NowWidget: Widget {
     private var families: [WidgetFamily] {
         #if os(iOS)
@@ -170,8 +184,8 @@ struct NowWidget: Widget {
         StaticConfiguration(kind: "com.gnomecannon.everythingapp.now", provider: NowProvider()) { entry in
             NowWidgetView(entry: entry).containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Now")
-        .description("The task you are on with a Done button, a running activity, and a capture shortcut. Lock Screen sizes too.")
+        .configurationDisplayName("Now and next")
+        .description("The task you started with a Done button, else what is on now or next today, a running activity, and a capture shortcut. Lock Screen sizes too.")
         .supportedFamilies(families)
     }
 }
@@ -203,7 +217,7 @@ struct LogControl: ControlWidget {
     }
 }
 
-/// The Live Activity: a running activity counting up, or the focus block counting down to its end.
+/// The Live Activity: a running activity counting up, or the focus block of the task you started counting down to its end.
 struct EALiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: EAActivityAttributes.self) { ctx in
@@ -217,7 +231,7 @@ struct EALiveActivity: Widget {
                 clock(ctx.state).font(.title3.monospacedDigit()).multilineTextAlignment(.trailing)
             }
             .padding()
-            .widgetURL(URL(string: "everythingapp://now"))
+            .widgetURL(URL(string: "everythingapp://today"))
         } dynamicIsland: { ctx in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
@@ -232,7 +246,7 @@ struct EALiveActivity: Widget {
             } minimal: {
                 Image(systemName: ctx.attributes.kind == "block" ? "target" : "timer").foregroundStyle(.tint)
             }
-            .widgetURL(URL(string: "everythingapp://now"))
+            .widgetURL(URL(string: "everythingapp://today"))
         }
     }
 

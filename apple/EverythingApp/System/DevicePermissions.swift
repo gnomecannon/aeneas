@@ -60,6 +60,8 @@ enum DevicePermissions {
             #endif
         case .location:
             return ApproximateLocation.shared.undecided
+        case .music:
+            return MusicTasteReader.currentAccess == .notAsked
         }
     }
 
@@ -98,6 +100,8 @@ enum DevicePermissions {
             #endif
         case .location:
             return await ApproximateLocation.shared.requestPermission()
+        case .music:
+            return await MusicTasteReader.shared.requestAccess(engine: engine)
         }
     }
 

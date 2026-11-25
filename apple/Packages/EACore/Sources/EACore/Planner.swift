@@ -204,12 +204,10 @@ public enum LocalPlanner {
         }.sorted { ($0.date("due") ?? .distantFuture) < ($1.date("due") ?? .distantFuture) }
     }
 
-    /// Two to four plain lines, the shape the hub's `digest` has.
+    /// Two to four plain lines, the shape the hub's `digest` has. `now` is the task you started, if any.
     public static func digest(for day: PlannerDay, now: Entity?, watchesDueSoon: [Entity], capturesUnprocessed: Int) -> String {
         var lines: [String] = []
-        if let n = now {
-            lines.append((n.str("status") == "doing" ? "Doing: " : "Now: ") + n.str("title"))
-        }
+        if let n = now { lines.append("Doing: " + n.str("title")) }
         if let first = day.blocks.first, let s = ISO.date(first.start) {
             lines.append("\(day.blocks.count) block\(day.blocks.count == 1 ? "" : "s") today, first at \(s.formatted(date: .omitted, time: .shortened))")
         } else if let free = day.free_slots.first {
@@ -234,13 +232,6 @@ extension SyncEngine {
     public var planRules: [Entity] { kept("planRules", kinds: [.plan_rule]) { list(.plan_rule).sorted { $0.str("title").localizedCaseInsensitiveCompare($1.str("title")) == .orderedAscending } } }
     public var events: [Entity] { list(.event) }
 
-    /// The next block today that starts after now, other than the Now task's own block.
-    public func nextBlockToday(excluding id: String? = nil, now: Date = Date()) -> PlannerBlock? {
-        // The day's blocks are the same all day until a task changes; the widgets ask after every change.
-        kept("blocksToday", kinds: [.task], stamp: ISO.localDay(now)) { LocalPlanner.blocks(tasks: tasks, on: now) }
-            .first { $0.task_id != id && (ISO.date($0.start) ?? .distantPast) > now }
-    }
-
     public func localDay(_ day: Date, minHours: Double = LocalPlanner.defaultBlockHours, now: Date = Date()) -> PlannerDay {
         // Kept while the items it plans from are the same and it is asked for the same day at the same moment: Today asks
         // with its clock's last tick (every 30 s), and drew the day again for every change it took in, a sensor's too.
@@ -257,7 +248,8 @@ extension SyncEngine {
     public func localToday(now: Date = Date()) -> PlannerToday {
         let day = localDay(now, now: now)
         let soon = LocalPlanner.watchesDueSoon(watches, now: now)
-        let n = nowTask
+        // Only a task you started; the Next tasks are suggestions (CONTRACT.md, Planner, The Next line).
+        let n = startedTask
         return PlannerToday(date: day.date, now: n, next: upNext, blocks: day.blocks, commitments: day.commitments, reminders_due: day.reminders,
                             watches_due_soon: soon, captures_unprocessed: unprocessedCaptures.count, free_slots: day.free_slots,
                             digest: LocalPlanner.digest(for: day, now: n, watchesDueSoon: soon, capturesUnprocessed: unprocessedCaptures.count))

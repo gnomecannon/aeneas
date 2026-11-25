@@ -23,7 +23,7 @@ test("people: what the owner says about someone is remembered on them; contact d
 
     const found = JSON.parse((await runTool(a, { name: "people", arguments: { query: "jen" } }, ctx)).text);
     assert.equal(found.people[0].id, jen.id);
-    assert.equal(found.people[0].known[0].value, "Likes the house salad at Luigi's");
+    assert.equal(found.people[0].known.likes[0].value, "Likes the house salad at Luigi's", "a preference about them is a like");
     assert.equal(found.people[0].apple, undefined, "the device link is not the model's business");
 
     assert.equal((await runTool(a, { name: "save_person", arguments: { name: "Jen", phones: [{ label: "work", value: "312-555-0199" }, { value: "312.555.0101" }], addresses: [{ label: "home", street: "1 Main St", city: "Springfield", state: "MA" }] } }, ctx)).ok, true);
@@ -38,7 +38,7 @@ test("people: what the owner says about someone is remembered on them; contact d
     const made = JSON.parse((await runTool(a, { name: "save_person", arguments: { name: "Devon", relationship: "friend from D&D" } }, ctx)).text);
     assert.deepEqual([made.kind, made.name, made.relationship], ["person", "Devon", "friend from D&D"]);
     const devon = JSON.parse((await runTool(a, { name: "people", arguments: { query: "Devon" } }, ctx)).text).people[0];
-    assert.equal(devon.known[0].value, "Runs the D&D campaign", "facts kept by name join the person once they exist");
+    assert.equal(devon.known.history[0].value, "Runs the D&D campaign", "facts kept by name join the person once they exist");
 
     // A birthday sent as a labeled date goes in the birthday field; other dates stay dates.
     await runTool(a, { name: "save_person", arguments: { name: "Devon", dates: [{ label: "Birthday", date: "--03-14" }, { label: "met", date: "2019-06-01" }] } }, ctx);

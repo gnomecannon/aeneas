@@ -34,7 +34,7 @@ enum SampleScreens {
     static let weeksAround = 2
 
     /// Kinds with a screen of their own in ItemView; every other kind opens GenericItemView, which reads Related.
-    static let ownScreens: Set<Kind> = [.person, .note, .project, .film, .snippet, .runbook, .application, .checklist, .music_idea]
+    static let ownScreens: Set<Kind> = [.person, .note, .project, .film, .snippet, .runbook, .application, .checklist, .music_idea, .music_profile]
 
     /// The toolbar's Export CSV on Logs, Tasks, Journal, Snippets, Games, Films and Career (CSVExportButton).
     static let csvExports: [(Kind, [String: String])] = [

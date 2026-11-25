@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { factsAbout } from "@everythingapp/shared";
+import { factsAbout, personFactGroups, personFactKey, type Entity, type PersonFactGroup } from "@everythingapp/shared";
 import { useEntities, useEntity } from "../sync/hooks";
-import { softDelete } from "../sync/edits";
+import { createEntity, softDelete, updateEntity } from "../sync/edits";
+import { DraftTextarea } from "../components/DraftField";
+import { localDate, parseLocalDate } from "../lib/planner";
 import { Related } from "./Item";
 
 type Labeled = { label?: string; value: string };
@@ -9,16 +11,126 @@ type Address = { label?: string; street?: string; city?: string; state?: string;
 
 const norm = (s: unknown) => String(s ?? "").toLowerCase().trim();
 
+/** Which sections of a person's page the owner opened or closed, kept on this device. The others start open when they
+ * hold something and closed when empty. */
+const SECTIONS_KEY = "people.sections";
+
+function readSections(): Record<string, boolean> {
+  try {
+    const v = JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? "{}");
+    return v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, b]) => typeof b === "boolean")) as Record<string, boolean> : {};
+  } catch {
+    return {};
+  }
+}
+
+const givenDay = (day: string) => parseLocalDate(day).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+/** One thing remembered about them: its words, typed over to change it (as on Memory), and Forget. A gift idea also
+ * says what it is for and is marked Given (today's date) or not, on a line of its own so a phone has room; a given
+ * one is dimmed, with the day. */
+function FactRow({ f, gift }: { f: Entity; gift: boolean }) {
+  const given = String(f.fields.given_at ?? "");
+  const occasion = String(f.fields.occasion ?? "");
+  const forget = <button className="small ghost danger" onClick={() => void softDelete(f)}>Forget</button>;
+  return (
+    <div className={`item${given ? " given" : ""}`}>
+      <div className="body">
+        {/* A text box that grows with its words: a long one was cut off at the edge on a phone. Enter ends the edit. */}
+        <DraftTextarea item={f} field="value" rows={1} className="inline-edit grow" aria-label={gift ? "Gift idea" : "What you told me"}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.blur(); } }} />
+        {gift && (
+          <div className="row between">
+            <div className="meta">
+              {occasion && <span>For {occasion}</span>}
+              {given && <span>Given {givenDay(given)}</span>}
+            </div>
+            <div className="row" style={{ gap: 4 }}>
+              <button className="small ghost" aria-pressed={!!given} onClick={() => void updateEntity(f, { given_at: given ? null : localDate(new Date()) })}>
+                {given ? "Mark not given" : "Mark given"}
+              </button>
+              {forget}
+            </div>
+          </div>
+        )}
+      </div>
+      {!gift && forget}
+    </div>
+  );
+}
+
+const ADD_WORDS: Record<string, { placeholder: string; label: (name: string) => string }> = {
+  like: { placeholder: "Something they like", label: (n) => `Add something ${n} likes` },
+  dislike: { placeholder: "Something they dislike", label: (n) => `Add something ${n} dislikes` },
+  gift_idea: { placeholder: "A gift idea", label: (n) => `Add a gift idea for ${n}` },
+};
+
+/** One section of what you've told me (Likes, Gift ideas...): its heading opens and closes it; Likes, Dislikes and Gift
+ * ideas also have a field that adds one to this person. */
+function FactSection({ group, person, name, called, open, toggle }: { group: PersonFactGroup<Entity>; person: Entity; name: string; called: string; open: boolean; toggle: () => void }) {
+  const [draft, setDraft] = useState("");
+  const add = group.add;
+  return (
+    <div className="card person-facts">
+      <h3 style={{ margin: 0 }}>
+        <button className="fold-head" onClick={toggle} aria-expanded={open}>
+          <span aria-hidden="true">{open ? "▾" : "▸"}</span> {group.title} <span className="muted small">{group.items.length}</span>
+        </button>
+      </h3>
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          {!group.items.length && group.empty && <div className="muted small" style={{ marginBottom: 6 }}>{group.empty}</div>}
+          {group.items.length > 0 && (
+            <div className="list rows">
+              {group.items.map((f) => <FactRow key={f.id} f={f} gift={group.id === "gift_ideas"} />)}
+            </div>
+          )}
+          {add && (
+            <form
+              className="row"
+              style={{ marginTop: 8, flexWrap: "nowrap" }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                const value = draft.trim();
+                if (!value) return;
+                void createEntity("fact", { category: add, key: personFactKey(add, value), value, person_id: person.id, person: name, source: "user", confidence: 1 }).then(() => setDraft(""));
+              }}
+            >
+              <input className="grow" placeholder={ADD_WORDS[add].placeholder} aria-label={ADD_WORDS[add].label(called)} value={draft} onChange={(e) => setDraft(e.target.value)} />
+              <button type="submit" disabled={!draft.trim()}>Add</button>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Person({ id }: { id: string }) {
   const p = useEntity(id);
   const facts = useEntities("fact");
   const everyone = useEntities("person");
+  const [chosen, setChosen] = useState<Record<string, boolean>>(readSections);
   if (!p || p.deleted_at) return <div className="empty">This person was removed.</div>;
   const f = p.fields as Record<string, any>;
   const phones = (f.phones ?? []) as Labeled[];
   const emails = (f.emails ?? []) as Labeled[];
   const addresses = (f.addresses ?? []) as Address[];
   const known = factsAbout(p, everyone, facts);
+  // Likes, Dislikes and Gift ideas always show, so there is somewhere to add one; the others only when they hold something.
+  const groups = personFactGroups(p, known).filter((g) => g.add || g.items.length);
+  const isOpen = (g: PersonFactGroup<Entity>) => chosen[g.id] ?? g.items.length > 0;
+  const toggle = (g: PersonFactGroup<Entity>) =>
+    setChosen((prev) => {
+      const next = { ...prev, [g.id]: !(prev[g.id] ?? g.items.length > 0) };
+      try {
+        localStorage.setItem(SECTIONS_KEY, JSON.stringify(next));
+      } catch {
+        /* private window: kept until the page reloads */
+      }
+      return next;
+    });
+  const called = String(f.given_name || f.name || "");
   const sub = [f.nickname ? `"${f.nickname}"` : "", f.relationship, [f.job_title, f.organization].filter(Boolean).join(", ")].filter(Boolean);
   return (
     <div>
@@ -39,15 +151,8 @@ function Person({ id }: { id: string }) {
       </div>
       <section style={{ marginTop: 20 }}>
         <h2>What you've told me</h2>
-        {!known.length && <div className="empty">Tell the assistant or capture things about {f.given_name || f.name} and they show here.</div>}
-        <div className="list">
-          {known.map((k) => (
-            <div key={k.id} className="item">
-              <div className="body"><div className="t">{String(k.fields.value)}</div></div>
-              <button className="small ghost danger" onClick={() => softDelete(k)}>Forget</button>
-            </div>
-          ))}
-        </div>
+        {!known.length && <div className="muted small" style={{ marginBottom: 8 }}>Tell the assistant or capture things about {called} and they show here, or add them below.</div>}
+        {groups.map((g) => <FactSection key={g.id} group={g} person={p} name={String(f.name ?? "")} called={called} open={isOpen(g)} toggle={() => toggle(g)} />)}
       </section>
       <Related id={p.id} exclude={["About them"]} />
     </div>

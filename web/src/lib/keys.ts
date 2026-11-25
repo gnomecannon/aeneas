@@ -21,7 +21,6 @@ export const GLOBAL_KEYS: ReadonlyArray<{ key: string; label: string; path?: str
   { key: "t", label: "today", path: "/today" },
   { key: "a", label: "assistant", path: "/assistant" },
   { key: "c", label: "capture" },
-  { key: "n", label: "now", path: "/now" },
   { key: "w", label: "week", path: "/week" },
   { key: "o", label: "tech overview", path: "/ops", module: "homelab" },
   { key: "f", label: "food", path: "/food", module: "food" },

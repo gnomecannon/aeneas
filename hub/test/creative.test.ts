@@ -396,7 +396,7 @@ test("music: reference sheets, templates and settings kept as music ideas move t
     const riff = t.hub.store.create("music_idea", { title: "Garden riff", type: "riff", status: "idea", body: "e|-0-3-", tags: [] });
     assert.equal(musicReferencesToNotes(t.hub.store), 2);
     assert.ok(t.hub.store.get(ref.id)!.deleted_at && t.hub.store.get(tpl.id)!.deleted_at);
-    assert.equal(t.hub.store.get(riff.id)!.deleted_at, null, "a riff stays in Music");
+    assert.equal(t.hub.store.get(riff.id)!.deleted_at, null, "a riff stays in Song ideas");
     const notes = t.hub.store.list({ kind: "note" });
     const vocal = notes.find((n) => n.fields.title === "Vocal chain")!;
     assert.equal(vocal.fields.path, "Music/Reference/Vocal chain.md");

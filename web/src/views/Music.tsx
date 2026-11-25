@@ -52,7 +52,7 @@ function madeAt(f: MusicF, iso: string): string {
 }
 
 /**
- * Music (gnomecannon/aeneas#13): one row of actions (a line to type and Hum Song), the way into Projects, then the
+ * Song ideas (gnomecannon/aeneas#13; called Music until 2026-11-25): one row of actions (a line to type and Hum Song), the way into Projects, then the
  * ideas by type. Projects have a page of their own; cheat sheets and checklists are notes, pointed to at the foot.
  */
 function MusicList() {
@@ -74,7 +74,7 @@ function MusicList() {
   return (
     <div className="music">
       <div className="row between">
-        <h1 style={{ margin: 0 }}>Music</h1>
+        <h1 style={{ margin: 0 }}>Song ideas</h1>
         <a href="#/music/projects" className="to-projects">
           Projects{projects.length ? ` (${projects.length})` : ""} {"\u203a"}
         </a>
@@ -196,7 +196,7 @@ function readOpen(): Set<string> {
 }
 
 /**
- * Music's Projects page: each project a release in the making (an album, an EP, a single), a card that opens to its
+ * The Projects page of Song ideas: each project a release in the making (an album, an EP, a single), a card that opens to its
  * ideas and hummed takes with the row of actions for adding to it. Cards start closed; the ones opened stay open on
  * this device. A project started here opens at once.
  */
@@ -238,7 +238,7 @@ function MusicProjectsPage() {
   return (
     <div className="music music-projects col">
       <a className="sub-back" href="#/music">
-        {"\u2039"} Music
+        {"\u2039"} Song ideas
       </a>
       <h1>Projects</h1>
       <div className="muted small">Each is a release in the making, an album, an EP or a single, with its ideas and hummed takes.</div>

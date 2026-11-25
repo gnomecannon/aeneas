@@ -20,6 +20,8 @@ struct ItemView: View {
             case .application: AdminApplicationDetail(id: id)
             case .checklist: AdminListDetail(id: id)
             case .music_idea: MusicIdeaView(ideaId: id)
+            // The Apple Music taste: one item, shown as the Music screen.
+            case .music_profile: ListeningView()
             default: GenericItemView(item: e)
             }
         } else {

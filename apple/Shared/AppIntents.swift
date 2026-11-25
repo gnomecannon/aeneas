@@ -180,9 +180,11 @@ struct LogWeightIntent: AppIntent {
     }
 }
 
+/// Done on the task you started (status doing). It finished the Now task, the first task in Next when none was
+/// started, until 2026-11-25. The type keeps its name so Shortcuts made with it keep working.
 struct MarkNowDoneIntent: AppIntent {
-    static let title: LocalizedStringResource = "Mark Now Done"
-    static let description = IntentDescription("Mark the current task done")
+    static let title: LocalizedStringResource = "Mark Started Task Done"
+    static let description = IntentDescription("Mark the task you started done")
     static let openAppWhenRun = false
 
     init() {}
@@ -191,10 +193,11 @@ struct MarkNowDoneIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let model = AppModel.shared
         await model.ensureStarted()
-        guard let now = model.engine.nowTask else { return .result(dialog: "Nothing is next") }
-        await model.engine.markDone(now.id)
-        let next = model.engine.nowTask?.str("title")
-        return .result(dialog: next.map { "Done. Next: \($0)" } ?? "Done. Nothing after this.")
+        guard let started = model.engine.startedTask else { return .result(dialog: "No task is started. Press Start on one first.") }
+        await model.engine.markDone(started.id)
+        // Then the Next line: what is on now or next, else the free time.
+        let line = model.engine.nextLinePlan().words(at: Date())
+        return .result(dialog: IntentDialog(stringLiteral: "Done. \(StyleGuard.dashes(line.text))."))
     }
 }
 
@@ -478,7 +481,7 @@ struct EverythingAppShortcuts: AppShortcutsProvider {
         AppShortcut(intent: AskIntent(), phrases: ["Ask \(.applicationName)", "Ask \(.applicationName) a question"], shortTitle: "Ask", systemImageName: "bubble.left.and.text.bubble.right")
         AppShortcut(intent: CaptureIntent(), phrases: ["Capture in \(.applicationName)", "New capture in \(.applicationName)"], shortTitle: "Capture", systemImageName: "square.and.pencil")
         AppShortcut(intent: LogWeightIntent(), phrases: ["Log weight in \(.applicationName)", "Log my weight in \(.applicationName)"], shortTitle: "Log weight", systemImageName: "scalemass")
-        AppShortcut(intent: MarkNowDoneIntent(), phrases: ["Mark now done in \(.applicationName)", "Done in \(.applicationName)"], shortTitle: "Mark Now done", systemImageName: "checkmark.circle")
+        AppShortcut(intent: MarkNowDoneIntent(), phrases: ["Mark my task done in \(.applicationName)", "Done in \(.applicationName)"], shortTitle: "Mark task done", systemImageName: "checkmark.circle")
         AppShortcut(intent: StartActivityIntent(), phrases: ["Start activity in \(.applicationName)", "Track activity in \(.applicationName)"], shortTitle: "Start activity", systemImageName: "figure.walk")
         AppShortcut(intent: LogMoodIntent(), phrases: ["Log my mood in \(.applicationName)", "Log mood in \(.applicationName)"], shortTitle: "Log mood", systemImageName: "face.smiling")
         AppShortcut(intent: LogCaffeineIntent(), phrases: ["Log coffee in \(.applicationName)", "Log caffeine in \(.applicationName)"], shortTitle: "Log caffeine", systemImageName: "cup.and.saucer")

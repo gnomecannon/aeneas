@@ -21,7 +21,7 @@ export const INVENTORY_CATEGORIES: InventoryCategory[] = ["component", "gear", "
 export type InventoryF = { name: string; category: InventoryCategory; qty?: number; unit?: string; location?: string; tags?: string[]; project_id?: string; notes?: string };
 export type Step = { text: string; command?: string; host?: string; user?: string; done_at?: string };
 export type ProcedureF = { title: string; steps: Step[]; current: number; started_at?: string; done_at?: string; source_session?: string; project_id?: string };
-/** What the Music section holds. Reference sheets, templates and settings are notes in Music/Reference (the hub moves any it finds). */
+/** What the Song ideas screen holds. Reference sheets, templates and settings are notes in Music/Reference (the hub moves any it finds). */
 export type MusicType = "riff" | "progression" | "lyric" | "song";
 export const MUSIC_TYPES: MusicType[] = ["riff", "progression", "lyric", "song"];
 export type MusicStatus = "idea" | "wip" | "done";
@@ -38,14 +38,14 @@ export const MUSIC_STATUS_LABEL: Record<MusicStatus, string> = { idea: "idea", w
 /** A hummed take: its recording is kept on the hub (`audio_ref` hum:<id>). */
 export const isHummed = (f: Pick<MusicF, "audio_ref">): boolean => typeof f.audio_ref === "string" && f.audio_ref.startsWith("hum:");
 
-/** One card on Music's Projects page: a release in the making, its ideas and its hummed takes. */
+/** One card on the Projects page of Song ideas: a release in the making, its ideas and its hummed takes. */
 export type MusicProjectCard = { project: Entity; ideas: Entity[]; takes: Entity[] };
 
 const PROJECT_ORDER: Record<ProjectStatus, number> = { active: 0, parked: 1, done: 2 };
 const newestFirst = (a: Entity, b: Entity) => (a.updated_at > b.updated_at ? -1 : a.updated_at < b.updated_at ? 1 : 0);
 
 /**
- * Music's Projects page (gnomecannon/aeneas#13): every music project (an album, an EP or a single in the making), active
+ * The Projects page of Song ideas (gnomecannon/aeneas#13): every music project (an album, an EP or a single in the making), active
  * ones first, then parked, then done, the newest change first within each; with its ideas and its hummed takes, each
  * newest change first. The Apple apps sort the same way (EACore MusicProjects).
  */

@@ -135,7 +135,7 @@ export function Capture({ mini = false }: { mini?: boolean }) {
       )}
       {hummed && (
         <div className="card small" style={{ marginTop: 12 }}>
-          Hummed song: in <a href={`#/music/${hummed.id}`}>Music</a>. The melody, the rhythm and the MIDI file are there in a few seconds.
+          Hummed song: in <a href={`#/music/${hummed.id}`}>Song ideas</a>. The melody, the rhythm and the MIDI file are there in a few seconds.
         </div>
       )}
       <DictationNotice d={dictation} />

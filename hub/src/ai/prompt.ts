@@ -70,7 +70,7 @@ export function buildSystemPrompt(mem: Memory, taskType: string): string {
   const whose = (f: Entity) => String(f.fields.person ?? "").trim() || mem.names?.[String(f.fields.person_id ?? "")] || "someone in People";
   const others = mem.facts.filter((f) => !aboutOwner(f)).map((f) => ({ f, name: whose(f) })).sort((a, b) => a.name.localeCompare(b.name));
   if (others.length) {
-    parts.push("Facts about other people (each about the person named, never about the user):\n" + others.map(({ f, name }) => `- ${name}: [${f.fields.category}] ${f.fields.key}: ${f.fields.value}`).join("\n"));
+    parts.push("Facts about other people (each about the person named, never about the user):\n" + others.map(({ f, name }) => `- ${name}: [${otherTag(f)}] ${f.fields.key}: ${f.fields.value}`).join("\n"));
   }
   // The names of the owner's lists, so "my shopping list" is found: they change rarely, so this part stays cached.
   if (mem.lists.length || mem.checklists.length) {
@@ -88,6 +88,18 @@ export function buildSystemPrompt(mem: Memory, taskType: string): string {
   // this prompt the same in every mode.
   if (taskType === "draft") parts.push("Draft the requested text in the user's own voice. Output only the draft.");
   return parts.join("\n\n");
+}
+
+/**
+ * A fact about someone else as the prompt tags it: its category in words, and for a gift idea whether it was given and
+ * what for ("gift idea, given 2026-12-25, for Christmas"), so "what should I get Jamie" leaves out what Jamie has.
+ */
+export function otherTag(f: Entity): string {
+  const cat = String(f.fields.category ?? "").replace(/_/g, " ");
+  if (f.fields.category !== "gift_idea") return cat;
+  const given = String(f.fields.given_at ?? "").trim();
+  const occasion = String(f.fields.occasion ?? "").trim();
+  return [cat, given ? `given ${given}` : "not given yet", occasion ? `for ${occasion}` : ""].filter(Boolean).join(", ");
 }
 
 /** The clock as the model should read it: local time with its offset and zone. */

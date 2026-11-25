@@ -236,7 +236,7 @@ struct ProjectEditSheet: View {
                         Text("Done").tag("done")
                     }
                     .pickerStyle(.segmented)
-                    Toggle("Music project (shows in Music, Projects)", isOn: $music)
+                    Toggle("Music project (shows in Song ideas, Projects)", isOn: $music)
                 }
                 SwiftUI.Section {
                     TextField("The project is done when...", text: $dod, axis: .vertical).lineLimit(2...5)

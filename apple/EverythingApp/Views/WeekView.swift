@@ -458,7 +458,7 @@ struct WeekGrid: View {
                     .frame(height: f.h).offset(y: f.y)
                     .contextMenu {
                         Button("Unschedule") { Task { await engine.unschedule(taskId: b.task_id) } }
-                        Button("Make Now") { Task { await engine.makeNow(b.task_id) } }
+                        Button("Start") { Task { await engine.startTask(b.task_id) } }
                         Button("Done") { Task { await engine.markDone(b.task_id) } }
                     }
                 }

@@ -142,7 +142,6 @@ private func sectionContent(_ s: Section) -> some View {
     case .renewals: RenewalsView()
     case .dashboard: DashboardView()
     case .planRules: PlanRulesView()
-    case .now: NowView()
     case .notes: NotesView()
     case .memory: MemoryView()
     case .people: PeopleView()
@@ -167,6 +166,7 @@ private func sectionContent(_ s: Section) -> some View {
     case .career: CareerView()
     case .games: GamesView()
     case .films: FilmsView()
+    case .listening: ListeningView()
     case .calc: CalcView()
     case .settings: SettingsView()
     }

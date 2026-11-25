@@ -9,8 +9,8 @@ import { updateEntity } from "../sync/edits";
 
 /**
  * Record anything hummed, sung, tapped or beatboxed and send it to the hub, which hears it both as a melody and as a
- * rhythm and makes notes and a MIDI file (hub hum.ts); which to keep is chosen afterwards. Used on Music and on
- * Capture (`fromCapture`, which also puts a line in the day's diary).
+ * rhythm and makes notes and a MIDI file (hub hum.ts); which to keep is chosen afterwards. Used on Song ideas and
+ * on Capture (`fromCapture`, which also puts a line in the day's diary).
  */
 export function HumRecorder({ fromCapture = false, projectId, onDone }: { fromCapture?: boolean; projectId?: string; onDone: (idea: Entity) => void }) {
   const [bpm, setBpm] = useState("");

@@ -38,7 +38,6 @@ describe("bottom bar", () => {
   it("lights the screen that is showing when it has a place, else Library", () => {
     const tabs = barTabs(DEFAULT_BAR);
     expect(barShowing("/today", tabs)).toBe("today");
-    expect(barShowing("/now", tabs)).toBe("today");
     expect(barShowing("/tasks", tabs)).toBe("tasks");
     expect(barShowing("/notes/abc", tabs)).toBe("notes");
     expect(barShowing("/mail", tabs)).toBe(BAR_LIBRARY);
@@ -52,8 +51,6 @@ describe("bottom bar", () => {
     expect(barShowing("/images", mine)).toBe("images");
     expect(barShowing("/gallery", mine)).toBe("images");
     expect(barShowing("/lists/jobs/1", mine)).toBe("lists");
-    // Without Today in the bar, Now opens inside Library.
-    expect(barShowing("/now", mine)).toBe(BAR_LIBRARY);
     expect(barShowing("/today", mine)).toBe(BAR_LIBRARY);
   });
 

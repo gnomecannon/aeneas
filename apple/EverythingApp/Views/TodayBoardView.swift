@@ -1,8 +1,8 @@
 import SwiftUI
 import EACore
 
-/// Today as a status board, in the order its owner asked every report to take: at the top what is on now and how long
-/// it has left; then Tech's light as one folded line and what needs you (actions only, numbered, each with its
+/// Today as a status board, in the order its owner asked every report to take: at the top the Next line (the task you
+/// started, else what is on now and how long it has left); then Tech's light as one folded line and what needs you (actions only, numbered, each with its
 /// buttons), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
 /// that needs nothing from you. One column on an iPhone, up to five across a wide window. The rules are EACore's
 /// `TodayBoard` and `Tech`, the same as the web app's. That is the default: Theme, Today (`today` in the feel setting,
@@ -176,31 +176,29 @@ struct TodayBoardView: View {
             .symbolRenderingMode(.hierarchical)
     }
 
-    // MARK: the top: now and free time
+    // MARK: the top: the Next line and free time
 
     private func head(_ spans: [TodayBoard.Span], now: Date) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            nowLine(TodayBoard.nowLine(spans, now: now))
+        // The task you started leads it (never the first task in Next), whatever list it is in.
+        let line = TodayBoard.nowLine(spans, now: now, started: engine.startedTask.map(TodayBoard.StartedTask.init))
+        return VStack(alignment: .leading, spacing: 4) {
+            nowLine(TodayBoard.lineWords(line, free: nil))
             if let free = TodayBoard.freeLine(spans, now: now) {
                 Text(free).font(.subheadline).foregroundStyle(.secondary)
             }
         }
     }
 
-    /// The largest words on the screen: what is under way, else what is next, else that the day is clear.
-    private func nowLine(_ line: TodayBoard.NowLine) -> some View {
-        let words: Text
-        switch line {
-        case .during(let title, let until, let left, _):
-            words = Text(StyleGuard.dashes(title)).fontWeight(.bold) + Text(" until \(until.shortTime)") + Text("   \(left) left").foregroundStyle(.secondary)
-        case .next(let title, let at, let wait, _):
-            words = Text("Next: ") + Text(StyleGuard.dashes(title)).fontWeight(.bold) + Text(" at \(at.shortTime)") + Text("   in \(wait)").foregroundStyle(.secondary)
-        case .clear:
-            words = Text("Nothing else is scheduled today.")
-        }
+    /// The largest words on the screen: the Next line (CONTRACT.md, Planner), the same words as the widgets, the Watch
+    /// and the menu bar: the task you started, else what is under way, else what is next, else that the day is clear.
+    private func nowLine(_ w: TodayBoard.LineWords) -> some View {
+        var words = Text(w.lead) + Text(StyleGuard.dashes(w.title)).fontWeight(w.label == .today ? .regular : .bold)
+        if !w.when.isEmpty { words = words + Text(" " + w.when) }
+        if !w.aside.isEmpty { words = words + Text("   " + w.aside).foregroundStyle(.secondary) }
         return words
             .font(width >= 680 ? .system(size: 26, weight: .medium) : .title3.weight(.medium))
             .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel(StyleGuard.dashes(w.text))
             .accessibilityAddTraits(.isHeader)
     }
 
@@ -456,11 +454,11 @@ struct TodayBoardView: View {
         let match = setting.todoMatch(engine.sources?.lists ?? [])
         let tasks = engine.list(.task)
         let open = TodayBoard.openTasks(match.map { m in tasks.filter { m.contains($0) } } ?? tasks)
-        let current = match.map { m in engine.nowTask(where: { m.contains($0) }) } ?? engine.nowTask
+        // The task you started, among To do's lists, with its buttons; never the first task in Next.
+        let current = match.map { m in engine.startedTask(where: { m.contains($0) }) } ?? engine.startedTask
         let rest = open.filter { $0.id != current?.id }
         return card("To do", count: open.isEmpty ? nil : "\(open.count) open") {
-            // The task being done (or the first one in Next) with its buttons; nothing when there is none.
-            if current != nil { NowCard(inCard: true, match: match) }
+            if let current { StartedCard(task: current, inCard: true) }
             ForEach(rest.prefix(Self.todoShown)) { task in todoRow(task) }
             if open.isEmpty {
                 if setting.todoLists?.isEmpty == true {
@@ -491,7 +489,7 @@ struct TodayBoardView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        let start = Button("Start") { Task { await engine.makeNow(task.id) } }
+        let start = Button("Start") { Task { await engine.startTask(task.id) } }
             .buttonStyle(.borderless)
             .help("Make this the thing you are doing now")
             .accessibilityLabel("Start \(title)")

@@ -20,7 +20,7 @@ struct HumTake: Equatable, Identifiable {
 
 /// Records a hum for the hub: linear PCM WAV, 22,050 Hz, mono, 16 bit, to a temporary file, up to two minutes
 /// (one on the Watch). The microphone is on only from `start()` until `stop()`, `cancel()` or the limit; permission
-/// is asked at the first press, not when a screen opens. Used by Music and Capture, and by the Watch's Hum.
+/// is asked at the first press, not when a screen opens. Used by Song ideas and Capture, and by the Watch's Hum.
 /// With `speech`, it records a spoken capture on the Watch instead: compressed speech (AAC, 16 kHz) up to its own
 /// limit, for the iPhone to turn into text.
 @MainActor

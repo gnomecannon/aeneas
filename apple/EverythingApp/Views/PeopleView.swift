@@ -86,6 +86,12 @@ struct PersonDetailView: View {
     @EnvironmentObject var engine: SyncEngine
     var personId: String
     @State private var editing = false
+    @State private var editingFact: Entity?
+    /// Which sections of what you've told me the owner opened or closed, kept on this device ("likes:1,history:0").
+    /// The others start open when they hold something and closed when empty.
+    @AppStorage("people.sections") private var sectionsRaw = ""
+    /// The chevron's column grows with the text size, as on Memory.
+    @ScaledMetric(relativeTo: .caption) private var chevronWidth: CGFloat = 12
 
     private var person: Entity? { engine.get(personId) }
 
@@ -93,6 +99,12 @@ struct PersonDetailView: View {
     private var known: [Entity] {
         guard let p = person else { return [] }
         return TodayExtras.factsAbout(p, among: engine.list(.person), facts: engine.list(.fact))
+    }
+
+    /// What they are called on this page: their first name, else their whole name.
+    private var called: String {
+        guard let p = person else { return "" }
+        return p.str("given_name").isEmpty ? p.str("name") : p.str("given_name")
     }
 
     private func objects(_ k: String) -> [[String: JSONValue]] {
@@ -143,20 +155,102 @@ struct PersonDetailView: View {
             }
         } second: {
             if let p = person {
-                SwiftUI.Section {
-                    if known.isEmpty {
-                        Text("Tell the assistant or capture things about \(p.str("given_name").isEmpty ? p.str("name") : p.str("given_name")) and they show here.").font(.callout).foregroundStyle(.secondary)
-                    }
-                    ForEach(known) { f in
-                        Text(StyleGuard.dashes(f.str("value"))).deleteSwipe(f.id, label: "Forget")
-                    }
-                } header: { Text("What you've told me") }
+                let facts = known
+                if facts.isEmpty {
+                    SwiftUI.Section {
+                        Text("Tell the assistant or capture things about \(called) and they show here, or add them below.").font(.callout).foregroundStyle(.secondary)
+                    } header: { Text("What you've told me") }
+                }
+                // Likes, Dislikes and Gift ideas always show, so there is somewhere to add one; the others only when
+                // they hold something.
+                ForEach(PersonFacts.groups(p, facts: facts).filter { $0.add != nil || !$0.items.isEmpty }) { g in
+                    let open = isOpen(g)
+                    SwiftUI.Section {
+                        if open {
+                            if g.items.isEmpty, let empty = g.empty { Text(empty).font(.callout).foregroundStyle(.secondary) }
+                            ForEach(g.items) { f in factRow(f, gift: g.section == .giftIdeas) }
+                            if let add = g.add { AddPersonFact(category: add, person: p, called: called) }
+                        }
+                    } header: { heading(g, open: open) }
+                }
                 RelatedSection(id: personId, excludingWhy: ["About them"])
             }
         }
         .navigationTitle(person?.str("given_name").isEmpty == false ? person!.str("given_name") : "Person")
         .toolbar { ToolbarItem(placement: .primaryAction) { Button("Edit") { editing = true }.disabled(person == nil) } }
         .sheet(isPresented: $editing) { PersonEditView(personId: personId) }
+        .sheet(item: $editingFact) { FactEditView(fact: $0) }
+    }
+
+    private var chosen: [String: Bool] {
+        var out: [String: Bool] = [:]
+        for part in sectionsRaw.split(separator: ",") {
+            let kv = part.split(separator: ":")
+            if kv.count == 2 { out[String(kv[0])] = kv[1] == "1" }
+        }
+        return out
+    }
+
+    private func isOpen(_ g: PersonFacts.Group) -> Bool { chosen[g.id] ?? !g.items.isEmpty }
+
+    private func toggle(_ g: PersonFacts.Group) {
+        var c = chosen
+        c[g.id] = !isOpen(g)
+        sectionsRaw = c.keys.sorted().map { "\($0):\(c[$0] == true ? 1 : 0)" }.joined(separator: ",")
+    }
+
+    /// A section's heading: its name and how many, and a tap opens or closes it.
+    private func heading(_ g: PersonFacts.Group, open: Bool) -> some View {
+        Button { toggle(g) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold)).frame(width: chevronWidth)
+                Text(g.title).font(.headline)
+                Text("\(g.items.count)").font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .textCase(nil)
+        .accessibilityLabel("\(g.title), \(g.items.count)")
+        .accessibilityValue(open ? "Open" : "Closed")
+        .accessibilityHint(open ? "Closes this section" : "Opens this section")
+    }
+
+    /// One thing remembered about them: a tap edits it (as on Memory), a swipe or the right-click menu forgets it. A
+    /// gift idea also says what it is for and has Mark given (today's date) or Mark not given; a given one is dimmed, with the day.
+    private func factRow(_ f: Entity, gift: Bool) -> some View {
+        let given = gift ? f.str("given_at") : ""
+        let meta = [f.str("occasion").isEmpty ? "" : "For \(f.str("occasion"))", given.isEmpty ? "" : "Given \(Self.birthday(given))"].filter { !$0.isEmpty }
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(StyleGuard.dashes(f.str("value"))).foregroundStyle(given.isEmpty ? .primary : .secondary)
+                if gift, !meta.isEmpty { Text(meta.joined(separator: "  ·  ")).font(.caption).foregroundStyle(.secondary) }
+            }
+            Spacer(minLength: 0)
+            if gift {
+                Button(given.isEmpty ? "Mark given" : "Mark not given") { setGiven(f, given.isEmpty) }
+                    .buttonStyle(.borderless)
+                    .font(.callout)
+                    .accessibilityHint(given.isEmpty ? "Marks it given today" : "Marks it not given yet")
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { editingFact = f }
+        .accessibilityAction(named: "Edit") { editingFact = f }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) { Task { await engine.softDelete(f.id) } } label: { Label("Forget", systemImage: "trash") }
+        }
+        .contextMenu {
+            Button("Edit") { editingFact = f }
+            if gift { Button(given.isEmpty ? "Mark given" : "Mark not given") { setGiven(f, given.isEmpty) } }
+            Button(role: .destructive) { Task { await engine.softDelete(f.id) } } label: { Label("Forget", systemImage: "trash") }
+        }
+    }
+
+    /// Marks a gift idea given on this device's day, or not given.
+    private func setGiven(_ f: Entity, _ on: Bool) {
+        Task { _ = await engine.update(f.id, fields: ["given_at": on ? .string(ISO.localDay()) : .null]) }
     }
 
     static func birthday(_ s: String) -> String {
@@ -170,6 +264,47 @@ struct PersonDetailView: View {
         f.dateFormat = "yyyy-MM-dd"
         guard let d = f.date(from: s) else { return s }
         return d.formatted(date: .long, time: .omitted)
+    }
+}
+
+/// The Add field of Likes, Dislikes and Gift ideas on a person's page: a fact of that category about them, keyed by
+/// its value as everywhere (`PersonFacts.key`).
+private struct AddPersonFact: View {
+    @EnvironmentObject var engine: SyncEngine
+    let category: FactCategory
+    let person: Entity
+    let called: String
+    @State private var text = ""
+
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var words: (placeholder: String, label: String) {
+        switch category {
+        case .like: return ("Something they like", "Add something \(called) likes")
+        case .dislike: return ("Something they dislike", "Add something \(called) dislikes")
+        default: return ("A gift idea", "Add a gift idea for \(called)")
+        }
+    }
+
+    var body: some View {
+        HStack {
+            TextField(words.placeholder, text: $text)
+                .onSubmit(add)
+                .submitLabel(.done)
+                .accessibilityLabel(words.label)
+            Button("Add", action: add).buttonStyle(.borderless).disabled(trimmed.isEmpty)
+        }
+    }
+
+    private func add() {
+        let value = trimmed
+        guard !value.isEmpty else { return }
+        text = ""
+        let fields: [String: JSONValue] = [
+            "category": .string(category.rawValue), "key": .string(PersonFacts.key(category, value: value)), "value": .string(value),
+            "person_id": .string(person.id), "person": .string(person.str("name")), "source": "user", "confidence": .number(1),
+        ]
+        Task { _ = await engine.create(kind: .fact, fields: fields) }
     }
 }
 

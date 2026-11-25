@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { Unzip, UnzipInflate } from "fflate";
 import type { Hub } from "../hub.js";
-import type { Entity } from "@everythingapp/shared";
+import { personFactKey, type Entity, type PersonFactCategory } from "@everythingapp/shared";
 import { StoreError } from "../store.js";
 import { gpuBusyNow } from "../gpu.js";
 import { dayKey } from "../metrics.js";
@@ -523,12 +523,15 @@ const READERS: Reader[] = [chatgpt, keep, googleTasks, contacts, calendarHistory
 
 const LEARN_SYSTEM = [
   "You read something {{owner}} wrote (their messages to another assistant, their notes) and pick out lasting facts about {{owner}}, so their personal assistant knows them. Answer with JSON only:",
-  "{\"facts\": [{\"category\": one of identity, constraint, preference, health, relationship, project, gear, history, \"key\": short_snake_case, \"value\": one or two sentences, \"person\": the other person's name when the fact is about someone else, else omit}]}",
+  "{\"facts\": [{\"category\": one of identity, constraint, preference, health, relationship, project, gear, history, like, dislike, gift_idea, \"key\": short_snake_case, \"value\": one or two sentences, \"person\": the other person's name when the fact is about someone else, else omit}]}",
+  "like, dislike and gift_idea are only about another person (with person): what they like, what they dislike, and a gift idea for them (value the gift in a few words). {{owner}}'s own likes and dislikes are preference.",
   "Only what the text plainly says about {{owner}}'s life, people, pets, health, work, projects, gear, habits, likes and limits. Never guesses, never facts about the world, never what the other assistant said, never passing moods or one-off tasks.",
   "Reuse a key from the list of keys already known when the fact is the same subject, and leave out what is already known. At most 8 facts; none is fine: {\"facts\": []}.",
 ].join("\n");
 
-const CATEGORIES = new Set(["identity", "constraint", "preference", "health", "relationship", "project", "gear", "history"]);
+const CATEGORIES = new Set(["identity", "constraint", "preference", "health", "relationship", "project", "gear", "history", "like", "dislike", "gift_idea"]);
+/** Another person's likes, dislikes and gift ideas, keyed by their value (personFactKey). */
+const BY_VALUE = new Set(["like", "dislike", "gift_idea"]);
 const norm = (s: unknown) => String(s ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
 
 /** The owner's own words, cut into pieces the model reads one at a time (newest first: they say most about now). */
@@ -557,10 +560,13 @@ export function keepLearned(hub: Hub, raw: string | null, jobId: string): number
   const existing = hub.store.list({ kind: "fact", includeDeleted: true, limit: 100000 });
   let made = 0;
   for (const f of facts) {
-    const category = String(f.category ?? "").toLowerCase();
-    const key = norm(f.key).slice(0, 80);
+    let category = String(f.category ?? "").toLowerCase();
     const value = String(f.value ?? "").trim().slice(0, 600);
     const person = String(f.person ?? "").trim().slice(0, 80);
+    // The owner's own likes are preferences; a gift idea for nobody is dropped.
+    if (!person && (category === "like" || category === "dislike")) category = "preference";
+    if (!person && category === "gift_idea") continue;
+    const key = BY_VALUE.has(category) ? personFactKey(category as PersonFactCategory, value) : norm(f.key).slice(0, 80);
     if (!CATEGORIES.has(category) || !key || value.length < 3) continue;
     if (existing.some((e) => norm(e.fields.key) === key && norm(e.fields.person) === norm(person))) continue;
     const created = hub.store.create("fact", { category, key, value, source: `import:${jobId.slice(0, 8)}`, confidence: 0.7, ...(person ? { person } : {}) });

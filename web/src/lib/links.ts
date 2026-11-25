@@ -61,6 +61,8 @@ export function linkFor(kind: string, id: string, title?: string): string {
       return `#/games${q}`;
     case "film":
       return `#/films${q}`;
+    case "music_profile":
+      return "#/listening";
     case "device":
       return "#/settings";
     default:
@@ -75,6 +77,7 @@ export const KIND_LABELS: Record<string, string> = {
   journal: "change journal", snippet: "snippet", pet_event: "pet", sensor: "sensor", reading: "reading", food_option: "food",
   inventory: "inventory", procedure: "procedure", music_idea: "music idea", quiz: "quiz", monitor: "monitor", incident: "incident",
   checklist: "list", application: "job application", game: "game", film: "film", person: "person", image: "image",
+  music_profile: "Apple Music taste",
 };
 export const kindLabel = (kind: string) => KIND_LABELS[kind] ?? kind;
 

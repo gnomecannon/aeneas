@@ -759,7 +759,7 @@ private struct PhoneBarHost: View {
 }
 
 /// One of the bar's screens with its own navigation stack. A screen asked for (a press in the bar, a link, a
-/// notification, Spotlight) that has no place of its own is pushed over the screen it opens on: Now and Week over
+/// notification, Spotlight) that has no place of its own is pushed over the screen it opens on: Week over
 /// Today, Memory over the Assistant, a machine's page, the change journal and snippets over the Overview, everything
 /// else over Library. Asking for the tab's own screen goes back to it.
 struct BarTabStack: View {

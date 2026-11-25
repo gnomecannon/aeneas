@@ -13,7 +13,7 @@ export const BAR_SCREENS = [
   "ops", "sensors",
   "projects", "procedures", "music", "wiki", "images", "quiz", "layouts",
   "health", "logs", "pet", "food",
-  "mail", "lists", "games", "films", "calc",
+  "mail", "lists", "games", "films", "listening", "calc",
   "status",
 ] as const;
 

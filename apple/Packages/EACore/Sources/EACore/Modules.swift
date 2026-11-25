@@ -186,6 +186,9 @@ public enum AppModule: String, CaseIterable, Sendable {
     /// Snooze (since 2026-11-19). Off on a new hub, so the app shows it only while the hub lists it as on
     /// (`isOnListed`), never while the switches are not known.
     case mailInbox = "mail_inbox"
+    /// Music: the owner's Apple Music taste, read on the iPhone, iPad and Mac (since 2026-11-25). Off on a new hub, so
+    /// the app reads and shows it only while the hub lists it as on (`isOnListed`).
+    case appleMusic = "apple_music"
 
     /// The module an entity kind belongs to, nil for the core. Mirrors the hub's `kinds` in modules.ts.
     public static func of(kind: Kind) -> AppModule? {
@@ -202,6 +205,7 @@ public enum AppModule: String, CaseIterable, Sendable {
         case .game: return .games
         case .film: return .films
         case .application: return .jobs
+        case .music_profile: return .appleMusic
         default: return nil
         }
     }

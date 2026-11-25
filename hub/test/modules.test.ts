@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { makeHub } from "./helpers.js";
-import { MODULES, moduleOfKind, moduleOfPath } from "../src/modules.js";
+import { MODULES, moduleDef, moduleOfKind, moduleOfPath } from "../src/modules.js";
 import { availableTools, runTool, TOOL_MODULE, TOOLS, toolGuide, type ToolContext } from "../src/ai/tools.js";
 import { filingPrompt } from "../src/capture-filer.js";
 
@@ -280,6 +280,26 @@ test("modules: Receipts and renewals is shown under Mail, and each keeps a switc
     await t.api("/modules", { method: "PUT", json: { mail: false, mail_inbox: true } });
     assert.deepEqual(await pair(), [["mail", false], ["mail_inbox", true]]);
   } finally { t.cleanup(); }
+});
+
+test("modules: listed area by area in the Library's order, each where the owner put it (since 2026-11-25)", () => {
+  // Clients show the areas in this order (the Apple apps in the hub's order, the web in its own), one heading each.
+  const groups = MODULES.map((m) => m.group).filter((g, i, all) => all.indexOf(g) === i);
+  assert.deepEqual(groups, ["On your devices", "Plan", "Notes", "Media", "Body and home", "Life admin", "Making", "Tech", "Assistant"]);
+  for (let i = 1; i < MODULES.length; i++) {
+    if (MODULES[i].group !== MODULES[i - 1].group) assert.ok(!MODULES.slice(0, i).some((m) => m.group === MODULES[i].group), `${MODULES[i].id} is apart from its area`);
+  }
+  const area = (id: string) => MODULES.find((m) => m.id === id)!.group;
+  assert.deepEqual(["mail_inbox", "mail", "calendars"].map(area), ["Plan", "Plan", "Plan"]);
+  assert.deepEqual(["reference", "wiki", "quiz"].map(area), ["Notes", "Notes", "Notes"]);
+  assert.deepEqual(["films", "games", "apple_music"].map(area), ["Media", "Media", "Media"]);
+  assert.deepEqual(["health", "dashboard", "pet", "food"].map(area), ["Body and home", "Body and home", "Body and home", "Body and home"]);
+  assert.deepEqual(["renewals", "calc", "jobs"].map(area), ["Life admin", "Life admin", "Life admin"]);
+  assert.deepEqual(["projects", "music", "images", "layouts"].map(area), ["Making", "Making", "Making", "Making"]);
+  // The Music module keeps its id, routes and kinds; only its name changed.
+  const music = moduleDef("music");
+  assert.equal(music.title, "Song ideas");
+  assert.deepEqual([music.prefixes, music.kinds], [["/music"], ["music_idea"]]);
 });
 
 test("Health names Apple Health and reads only what the iPhone reads from it (App Review 2.5.1)", () => {

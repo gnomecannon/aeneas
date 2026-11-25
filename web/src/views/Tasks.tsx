@@ -506,7 +506,7 @@ export function Tasks({ focus }: { focus?: string | null } = {}) {
                   </button>
                 )}
                 {f.status !== "parked" && f.status !== "done" && (
-                  <button className="small" onClick={() => setStatus(t, "parked")} title="Out of Next and Now until you bring it back, with the reason">
+                  <button className="small" onClick={() => setStatus(t, "parked")} title="Out of Next until you bring it back, with the reason">
                     Set aside
                   </button>
                 )}

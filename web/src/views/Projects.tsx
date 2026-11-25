@@ -172,7 +172,7 @@ function ProjectForm({ project, onDone }: { project?: Entity; onDone?: () => voi
       </div>
       <label className="row small" style={{ gap: 6 }}>
         <input type="checkbox" checked={d.music} onChange={(e) => set({ music: e.target.checked })} style={{ width: "auto" }} />
-        Music project (an album, an EP or a single): it shows in Music, Projects, with its ideas and hummed takes
+        Music project (an album, an EP or a single): it shows in Song ideas, Projects, with its ideas and hummed takes
       </label>
       <div>
         <label htmlFor="pj-dod">Definition of done</label>
@@ -488,7 +488,7 @@ function ProjectPage({ id }: { id: string }) {
       </section>
 
       <section style={{ marginTop: 16 }}>
-        <h2>Music</h2>
+        <h2>Song ideas</h2>
         {!music.length && <div className="muted small">None linked.</div>}
         <div className="list" style={{ marginTop: 6 }}>
           {music.map((m) => {

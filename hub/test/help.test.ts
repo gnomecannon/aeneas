@@ -38,7 +38,7 @@ test("help: questions find the right section, the module list says what is on, a
   const pair = searchHelp("pair a new phone", { root: ROOT });
   assert.match(pair.sections[0].heading, /Add another device/);
   const mods = moduleSections([{ id: "music", on: true }, { id: "mail", on: false }]);
-  const music = mods.find((m) => m.heading === "Modules > Music")!.text;
+  const music = mods.find((m) => m.heading === "Modules > Song ideas")!.text;
   const mail = mods.find((m) => m.heading === "Modules > Receipts and renewals")!.text;
   assert.match(music, /This hub has it switched on \(Settings, Modules\)\./);
   assert.match(mail, /This hub has it switched off \(Settings, Modules\)\./);
@@ -70,6 +70,6 @@ test("app_help is a core tool the assistant can call, and answers from the docs 
     assert.equal(r.ok, true, r.text);
     const out = JSON.parse(r.text) as { sections: { heading: string; text: string }[] };
     assert.ok(out.sections.some((s) => /Hum Song/.test(s.heading)));
-    assert.ok(out.sections.some((s) => /Modules > Music/.test(s.heading) && /This hub has it switched (on|off) \(Settings, Modules\)\./.test(s.text)));
+    assert.ok(out.sections.some((s) => /Modules > Song ideas/.test(s.heading) && /This hub has it switched (on|off) \(Settings, Modules\)\./.test(s.text)));
   } finally { t.cleanup(); }
 });

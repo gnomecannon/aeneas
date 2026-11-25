@@ -935,7 +935,7 @@ public final class SyncEngine: ObservableObject {
         await afterChangeIfNeeded()
     }
 
-    /// Done taps on the Now widget the hub has not taken (`SharedConfig.pendingWidgetDones`): each becomes a queued
+    /// Done taps on the widget the hub has not taken (`SharedConfig.pendingWidgetDones`): each becomes a queued
     /// edit stamped with the time of the tap, sent with the rest of the queue until the hub takes it, and the task
     /// shows done here at once instead of coming back. A task this device does not hold yet waits for a later sync.
     func takeWidgetDones() async {
@@ -1513,15 +1513,14 @@ public final class SyncEngine: ObservableObject {
     }
 
     public func updateSnapshot() {
-        let now = nowTask
-        config.nowTaskId = now?.id
-        config.nowTaskTitle = now?.str("title")
-        config.nowTaskStatus = now?.str("status")
-        config.nowTaskTiming = now.map { WidgetDone.timing(of: $0) }
-        config.nowBlockEnd = now.flatMap { $0.decoded(TaskFields.self)?.block }.flatMap { ISO.date($0.end) }
-        let nb = nextBlockToday(excluding: now?.id)
-        config.nextBlockTitle = nb?.title
-        config.nextBlockStart = nb.flatMap { ISO.date($0.start) }
+        // The task you started (never the first task in Next): the widget's Done finishes it.
+        let started = startedTask
+        config.nowTaskId = started?.id
+        config.nowTaskTitle = started?.str("title")
+        config.nowTaskTiming = started.map { WidgetDone.timing(of: $0) }
+        // The Next line's plan for today: the widgets and complications draw the line from it as the minutes pass.
+        let plan = nextLinePlan()
+        config.nextLinePlan = plan
         config.unprocessedCount = unprocessedCaptures.count
         let up = nextUp()
         config.nextUpTitle = up?.title
@@ -1531,7 +1530,9 @@ public final class SyncEngine: ObservableObject {
         config.currentActivityStart = act?.start
         config.snapshotUpdated = Date()
         // Widgets show only these values; reloading them on every change (each synced game, say) wasted the main thread.
-        let key = [now?.id, now?.str("title"), now?.str("status"), nb?.title, up?.title, up?.at.map { "\($0)" }, act?.name, "\(unprocessedCaptures.count)", config.nowBlockEnd.map { "\($0)" }, config.nextBlockStart.map { "\($0)" }].map { $0 ?? "" }.joined(separator: "|")
+        // The plan stays the same while the day's items do: the widgets count the minutes themselves.
+        let parts: [String?] = [started?.id, started?.str("title"), up?.title, up?.at.map { "\($0)" }, act?.name, "\(unprocessedCaptures.count)"]
+        let key = parts.map { $0 ?? "" }.joined(separator: "|") + "|" + (plan.data.map { String(decoding: $0, as: UTF8.self) } ?? "")
         if key != lastSnapshotKey {
             lastSnapshotKey = key
             #if canImport(WidgetKit)

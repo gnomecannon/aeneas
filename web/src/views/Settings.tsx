@@ -118,7 +118,7 @@ function SettingsHome() {
   }, [ready]);
 
   const connection = hubUrl ? `${hostOf(hubUrl)}, ${sync.status}${sync.outbox ? `, ${sync.outbox} queued` : ""}` : "Not set up";
-  const windows = [widget ? "Now widget open" : "", auto ? "starts on login" : ""].filter(Boolean).join(", ") || "Now widget, start on login, setup file";
+  const windows = [widget ? "Now and next widget open" : "", auto ? "starts on login" : ""].filter(Boolean).join(", ") || "Now and next widget, start on login, setup file";
 
   return (
     <div className="settings-page col">
@@ -546,7 +546,7 @@ function WindowsApp() {
             setWidgetState(v);
             void setWidget(v);
           }}
-          label="Now widget (a small window on top with the Now task, a running activity and Capture; also in the tray menu)"
+          label="Now and next widget (a small window on top with the task you started or what is on now or next, a running activity and Capture; also in the tray menu)"
         />
         <Toggle
           checked={auto}

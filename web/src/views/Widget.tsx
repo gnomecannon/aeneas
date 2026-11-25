@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Entity } from "@everythingapp/shared";
+import { startedTask, type Entity } from "@everythingapp/shared";
 import { useEntities } from "../sync/hooks";
-import { stopActivity } from "../sync/planner";
+import { useHubPoll } from "../sync/useHubPoll";
+import { localToday, stopActivity } from "../sync/planner";
 import { SOURCE, completeTask } from "../sync/actions";
-import { fmtTime } from "../lib/time";
-import { pickCurrent } from "./Now";
+import { daySpan, overlaps, parseLocalDate, spanOf, timeline, type PlannerToday } from "../lib/planner";
+import { freeLine, nowLine, nowWords } from "../lib/todayBoard";
 import { closeCurrentWindow, openCaptureWindow, showMainWindow } from "../tauri/bridge";
 
 /** The running activity: the newest activity log, unless it is an "end" log. Same rule as the Apple app. */
@@ -25,48 +26,46 @@ export function elapsed(start: string, now: number): string {
   return `${h ? `${h}:` : ""}${mm}:${String(sec).padStart(2, "0")}`;
 }
 
-/** The next scheduled block later today, from the tasks' blocks. */
-export function nextBlock(tasks: Entity[], now: Date): { title: string; start: string } | null {
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  let best: { title: string; start: string } | null = null;
-  for (const t of tasks) {
-    const b = t.fields.block as { start: string; end: string } | undefined;
-    if (!b || t.fields.status === "done") continue;
-    const s = Date.parse(b.start);
-    if (s <= now.getTime() || s > end.getTime()) continue;
-    if (!best || s < Date.parse(best.start)) best = { title: String(t.fields.title), start: b.start };
-  }
-  return best;
-}
-
 /**
- * The Now widget (Windows): a small window that stays on top. The Now task with Done, a running activity with
- * its timer and Stop, the next block today, and Capture. Drag it by the top line; it reopens where it was left.
+ * The Windows widget: a small window that stays on top. The Next line (packages/shared `nextLine.ts`, the same words
+ * as Today's top line): the task you started, with Done, else what is on now or next with a time today, else the free
+ * time; under a started task, what is on or next. Then a running activity with its timer and Stop, and Capture. It
+ * showed the Now task (the first task in Next when none was started) until 2026-11-25. Drag it by the top line; it
+ * reopens where it was left.
  */
 export function Widget() {
+  const poll = useHubPoll<PlannerToday>((c) => c.plannerToday(), localToday, []);
   const tasks = useEntities("task", (e) => e.fields.status !== "done" && e.fields.status !== "dropped");
+  const events = useEntities("event");
   const logs = useEntities("log", (e) => e.fields.type === "activity");
   const inbox = useEntities("capture", (e) => !e.fields.processed).length;
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
-  const { current } = useMemo(() => pickCurrent(tasks), [tasks]);
+  const started = useMemo(() => startedTask(tasks), [tasks]);
   const activity = useMemo(() => runningActivity(logs), [logs]);
-  const next = useMemo(() => nextBlock(tasks, new Date(now)), [tasks, Math.floor(now / 60_000)]);
+  const minute = Math.floor(now / 60_000);
+  const t = poll.data;
+  const items = useMemo(() => {
+    if (!t) return [];
+    const day = daySpan(parseLocalDate(t.date));
+    const onDay = events.filter((e) => overlaps(spanOf(e), day));
+    return timeline({ blocks: t.blocks, commitments: t.commitments, events: onDay, reminders: t.reminders_due, free_slots: t.free_slots }, new Date(minute * 60_000));
+  }, [t, events, minute]);
+  const at = new Date(minute * 60_000);
+  const line = nowWords(nowLine(items, at, started), freeLine(items, at));
+  // Under the task you started: what is on now or next, when anything is.
+  const then = started ? nowWords(nowLine(items, at), null) : null;
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
-  const block = current?.fields.block as { start: string; end: string } | undefined;
-  const blockEnd = block && Date.parse(block.end) > now ? block.end : null;
-
   const done = async () => {
-    if (!current) return;
+    if (!started) return;
     setBusy(true);
     try {
-      await completeTask(current);
+      await completeTask(started);
     } finally {
       setBusy(false);
     }
@@ -80,13 +79,13 @@ export function Widget() {
       setBusy(false);
     }
   };
+  const detail = [line.when, line.aside].filter(Boolean).join(", ");
 
   return (
     <div className="widget">
       <div className="widget-bar" data-tauri-drag-region="">
         <span className="muted small" data-tauri-drag-region="">
-          {current?.fields.status === "doing" ? "Doing" : "Now"}
-          {blockEnd ? `, block until ${fmtTime(blockEnd)}` : ""}
+          {line.label}
         </span>
         <span className="widget-tools">
           <button type="button" className="link small" onClick={() => void showMainWindow("/today")} title="Open the app on Today">
@@ -98,15 +97,16 @@ export function Widget() {
         </span>
       </div>
       <div className="widget-task">
-        <span className="widget-title" title={current ? String(current.fields.title) : undefined}>
-          {current ? String(current.fields.title) : "Nothing is next"}
+        <span className="widget-title" title={line.text}>
+          {line.title}
         </span>
-        {current && (
+        {started && (
           <button type="button" className="primary small" onClick={() => void done()} disabled={busy}>
             Done
           </button>
         )}
       </div>
+      {detail && <div className="widget-line muted small">{detail}</div>}
       {activity && (
         <div className="widget-line">
           <span className="grow">
@@ -117,11 +117,7 @@ export function Widget() {
           </button>
         </div>
       )}
-      {next && (
-        <div className="widget-line muted small">
-          Next {fmtTime(next.start)}: {next.title}
-        </div>
-      )}
+      {then && then.label !== "Today" && <div className="widget-line muted small">{then.text}</div>}
       <div className="widget-foot">
         <button type="button" className="small" onClick={() => void openCaptureWindow()}>
           Capture

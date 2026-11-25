@@ -49,7 +49,7 @@ export function ActivityBanner() {
           }
           setCheck({ title: n.title, value, logId: n.log_id, at: n.at ?? new Date().toISOString() });
           setErr("");
-          void notify("Still on it?", n.title, "/now");
+          void notify("Still on it?", n.title, "/today");
         })();
       }),
     [],

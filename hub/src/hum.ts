@@ -787,7 +787,7 @@ async function listen(hub: Hub, id: string, samples: Float32Array, bpm: number |
       midi: { source: "hum", mode: legacy, state: "done", seconds: h.seconds, notes: legacy === "rhythm" ? h.rhythm : h.melody, melody: h.melody, rhythm: h.rhythm, job },
     });
     if (fromCapture) {
-      try { appendDiary(hub.store, `Hummed a song: ${title} (${heardCount(h)}), in Music`, new Date(idea.created_at)); } catch { /* the idea is what matters */ }
+      try { appendDiary(hub.store, `Hummed a song: ${title} (${heardCount(h)}), in Song ideas`, new Date(idea.created_at)); } catch { /* the idea is what matters */ }
     }
   } catch (e) {
     const idea = current(hub, id, job);

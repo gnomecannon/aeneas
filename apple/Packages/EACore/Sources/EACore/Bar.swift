@@ -14,7 +14,7 @@ public enum BarScreen {
         "ops", "sensors",
         "projects", "procedures", "music", "wiki", "images", "quiz", "layouts",
         "health", "logs", "pet", "food",
-        "mail", "lists", "games", "films", "calc",
+        "mail", "lists", "games", "films", "listening", "calc",
         "status",
     ]
 
@@ -217,7 +217,7 @@ public struct BarLayout: Equatable, Sendable {
     public func has(_ id: String) -> Bool { first.contains(id) || second.contains(id) }
 
     /// The tab a screen shows on: its own when it has a place; else its home's when it has one that has a place
-    /// (Now and Week open over Today, Memory over the Assistant); else Library's, where every other screen opens.
+    /// (Week opens over Today, Memory over the Assistant); else Library's, where every other screen opens.
     public func tab(for id: String, home: String? = nil) -> String {
         if has(id) { return id }
         if let home, has(home) { return home }

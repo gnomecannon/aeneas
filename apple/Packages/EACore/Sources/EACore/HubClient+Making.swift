@@ -85,7 +85,7 @@ extension HubClient {
     }
 
     /// One line such as `Am F C G 6/8 112bpm drop D` becomes a `music_idea`; with a project, in that project (a card on
-    /// Music's Projects page).
+    /// the Projects page of Song ideas).
     public func musicQuick(_ text: String, projectId: String? = nil) async throws -> Entity {
         try await post("music/quick", Self.musicQuickBody(text, projectId: projectId), as: Entity.self)
     }

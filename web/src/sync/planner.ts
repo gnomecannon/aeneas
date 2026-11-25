@@ -5,7 +5,7 @@
  * lands in the outbox.
  */
 import type { Entity } from "@everythingapp/shared";
-import { taskAlertAt } from "@everythingapp/shared";
+import { startedTask, taskAlertAt } from "@everythingapp/shared";
 import { db } from "./db";
 import { engine } from "./engine";
 import { HubError } from "./api";
@@ -140,9 +140,9 @@ export async function localToday(): Promise<PlannerToday> {
   // Reminders are tasks with a reminder time, so the task list serves both.
   const [tasks, events, rules, watches, captures] = await Promise.all([liveOf(["task"]), liveOf(["event"]), liveOf(["plan_rule"]), liveOf(["watch"]), liveOf(["capture"])]);
   const day = dayFrom(at, tasks, events, rules, tasks, watches);
-  const doing = tasks.filter((t) => t.fields.status === "doing").sort((a, b) => (a.updated_at > b.updated_at ? -1 : 1));
-  const next = tasks.filter((t) => t.fields.status === "next").sort((a, b) => (a.fields.order as number) - (b.fields.order as number));
-  const now = doing[0] ?? next[0] ?? null;
+  // Only a task you started; the Next tasks are suggestions (CONTRACT.md, The Next line).
+  const now = startedTask(tasks);
+  const next = tasks.filter((t) => t.fields.status === "next").sort((a, b) => (a.fields.order as number) - (b.fields.order as number)).slice(0, 10);
   const base = {
     now,
     blocks: day.blocks,
@@ -152,7 +152,7 @@ export async function localToday(): Promise<PlannerToday> {
     captures_unprocessed: captures.filter((c) => !c.fields.processed).length,
     free_slots: day.free_slots,
   };
-  return { date: day.date, next: doing.length ? next : next.slice(1), ...base, digest: buildDigest(base, at) };
+  return { date: day.date, next, ...base, digest: buildDigest(base, at) };
 }
 
 export async function localWeek(start: string): Promise<PlannerWeek> {

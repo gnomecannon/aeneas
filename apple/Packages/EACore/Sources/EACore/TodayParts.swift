@@ -232,7 +232,7 @@ public enum TodayText {
     /// The line under a part's name, saying what it holds.
     public static func holds(_ p: TodayPart) -> String {
         switch p {
-        case .now: return "What is on now or next, and your free time."
+        case .now: return "The task you started, else what is on now or next, and your free time."
         case .tech: return "One line with the light for your machines, checks and readings. It shows only while something is watched."
         case .needs: return "Reminders that have come due, renewals, follow-ups, medicine not logged, and captures that could not be filed."
         case .schedule: return "Today's plans in time order, free time to schedule, and the people in them."

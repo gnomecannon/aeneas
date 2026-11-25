@@ -218,12 +218,14 @@ final class BarTests: XCTestCase {
         let drawn = usual.layout { _ in true }
         XCTAssertEqual(drawn.tab(for: "today"), "today")
         XCTAssertEqual(drawn.tab(for: "week", home: "today"), "week", "a screen with a place is its own tab, in the second row too")
-        XCTAssertEqual(drawn.tab(for: "now", home: "today"), "today")
         XCTAssertEqual(drawn.tab(for: "mail"), "library")
         XCTAssertEqual(drawn.tab(for: "settings"), "library")
-        // Today left out of the bar: Now, and Today itself, open in Library like every other screen.
+        // Week with no place of its own opens over Today.
+        let noWeek = bar(5, usual.first, ["tasks", "notes", "memory", "people"]).layout { _ in true }
+        XCTAssertEqual(noWeek.tab(for: "week", home: "today"), "today")
+        // Today left out of the bar too: Week, and Today itself, open in Library like every other screen.
         let bare = bar(3, ["assistant", "capture", "library"]).layout { _ in true }
-        XCTAssertEqual(bare.tab(for: "now", home: "today"), "library")
+        XCTAssertEqual(bare.tab(for: "week", home: "today"), "library")
         XCTAssertEqual(bare.tab(for: "today"), "library")
         XCTAssertEqual(bare.tab(for: "memory", home: "assistant"), "assistant")
     }

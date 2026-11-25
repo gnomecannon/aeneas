@@ -93,7 +93,7 @@ struct ProjectDetailView: View {
             proceduresSection(procedures)
 
             if !music.isEmpty {
-                SwiftUI.Section("Music") {
+                SwiftUI.Section("Song ideas") {
                     ForEach(music) { m in MusicLink(idea: m) }
                 }
             }

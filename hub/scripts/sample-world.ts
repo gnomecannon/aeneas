@@ -3,6 +3,7 @@
  * renewals, projects, notes): the assistant eval's world (eval-assistant.ts) and the demo hub's sample data
  * (demo-hub.ts). Nothing in it is anyone's real data.
  */
+import { MUSIC_PROFILE_ID, personFactKey } from "@everythingapp/shared";
 import type { Hub } from "../src/hub.js";
 import { appendDiary, diaryDay } from "../src/diary.js";
 import { registerDevice } from "../src/devices.js";
@@ -35,6 +36,13 @@ export function seedWorld(hub: Hub): Record<string, string> {
   ids.rafael = s.create("person", { name: "Rafael Reyes", given_name: "Rafael", family_name: "Reyes" }).id;
   ids.priya = s.create("person", { name: "Priya" }).id;
   s.create("fact", { category: "relationship", key: "jamie:likes", value: "Jamie loves dark chocolate and has been wanting to try a pottery class", person_id: ids.jamie, person: "Jamie", source: "user" });
+  // A person's page in sections (since 2026-11-25): likes, a dislike, gift ideas with one already given.
+  for (const [category, value, extra] of [
+    ["like", "Dark chocolate", {}], ["like", "Board games", {}], ["dislike", "Cilantro", {}],
+    ["gift_idea", "Pottery class", { occasion: "birthday" }], ["gift_idea", "Wingspan board game", { given_at: ymd(-40) }],
+  ] as const) {
+    s.create("fact", { category, key: personFactKey(category, value), value, person_id: ids.jamie, person: "Jamie", source: "user", ...extra });
+  }
 
   ids.dentist = s.create("event", { title: "Dentist cleaning", start: iso(0, "15:00"), end: iso(0, "16:00"), all_day: false, location: "Maple Street Dental" }).id;
   ids.games = s.create("event", { title: "Board games at Devon's", start: iso(2, "19:00"), end: iso(2, "22:00"), all_day: false }).id;
@@ -79,6 +87,34 @@ export function seedWorld(hub: Hub): Record<string, string> {
   s.create("game", { name: "Deep Rock Galactic", min_players: 1, max_players: 4, coop: true, genres: ["shooter"], owned_by: ["Alex", "Devon", "Rafael"], session_hours: 2, last_played: iso(-20), source: "manual" });
   s.create("game", { name: "Valheim", min_players: 1, max_players: 10, coop: true, genres: ["survival"], owned_by: ["Alex", "Devon"], session_hours: 3, last_played: iso(-3), source: "manual" });
   s.create("game", { name: "Hades", min_players: 1, max_players: 1, coop: false, genres: ["roguelike"], owned_by: ["Alex"], session_hours: 1, source: "manual" });
+  // Alex's Apple Music taste as an iPhone reads it (Music, in Media). Every artist and song here is made up.
+  s.create("music_profile", {
+    source: "apple_music", read_at: past(0, "09:15"), device: "Alex's iPhone", subscription: true,
+    library: { songs: 1184, albums: 97, artists: 126, playlists: 9 },
+    top_artists: [
+      { name: "The Lantern Moths", plays: 412 }, { name: "Copper Tide Collective", plays: 338 }, { name: "Juniper Static", plays: 291 },
+      { name: "Harbor Kites", plays: 240 }, { name: "Northbound Owls", plays: 187 }, { name: "Glass Orchard", plays: 151 },
+      { name: "Saltwater Radio", plays: 122 }, { name: "Velvet Ferns", plays: 96 }, { name: "Dusk Bicycle Club", plays: 71 },
+    ],
+    top_songs: [
+      { title: "Paper Moons", artist: "The Lantern Moths", plays: 88 }, { title: "Tidewater", artist: "Copper Tide Collective", plays: 74 },
+      { title: "Driftwood Static", artist: "Juniper Static", plays: 69 }, { title: "Kite Season", artist: "Harbor Kites", plays: 61 },
+      { title: "Northern Porch Light", artist: "Northbound Owls", plays: 55 }, { title: "Orchard in Glass", artist: "Glass Orchard", plays: 47 },
+      { title: "AM Dial", artist: "Saltwater Radio", plays: 40 }, { title: "Moth Hour", artist: "The Lantern Moths", plays: 38 },
+    ],
+    playlists: [
+      { name: "Focus, no words", songs: 64, own: true }, { name: "Long drive", songs: 112, own: true }, { name: "Sunday kitchen", songs: 37, own: true },
+      { name: "Bouldering", songs: 45, own: true }, { name: "Acoustic Mornings", songs: 50, own: false },
+    ],
+    recent: [
+      { title: "Kite Season", artist: "Harbor Kites" }, { title: "Paper Moons", artist: "The Lantern Moths" },
+      { title: "Low Tide Waltz", artist: "Copper Tide Collective" }, { title: "Static Garden", artist: "Juniper Static" },
+    ],
+    genres: [
+      { name: "Indie Rock", songs: 318 }, { name: "Folk", songs: 204 }, { name: "Electronic", songs: 161 }, { name: "Ambient", songs: 92 },
+      { name: "Jazz", songs: 58 }, { name: "Pop", songs: 41 },
+    ],
+  }, "personal", MUSIC_PROFILE_ID);
   s.create("inventory", { name: "DS18B20 temperature sensor", category: "component", qty: 5, location: "parts drawer 3" });
   s.create("inventory", { name: "ESP32 DevKit", category: "component", qty: 2, location: "parts drawer 1" });
   s.create("journal", { host: "nas01", at: iso(-4, "21:10"), what: "Replaced the rear case fan", command: "", risk: "low", outcome: "done" });

@@ -159,30 +159,30 @@ struct TodayView: View {
     }
 }
 
-/// The task being done (or the first one in Next) as a compact card on Today: Done, Skip, and Start block when it is
-/// not running. Nothing when no task is doing or next: Today's To do lists the open tasks itself. `inCard` is the
-/// card inside To do, a little tighter.
-struct NowCard: View {
+/// The task you started, as a compact card on Today's To do: Done, Skip, and Start 3 h while no block of it is under way.
+/// Only a task you started gets it (CONTRACT.md, Planner, The Next line): the first task in Next used to, as "Now", and
+/// a gift idea captured as an undated task showed up as the thing to do now. `inCard` is the card inside To do, a
+/// little tighter.
+struct StartedCard: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
+    var task: Entity
     var inCard = false
-    /// Today's To do passes the lists chosen for it: the task shown is the one being done, or the next one, among those.
-    var match: TaskListMatch? = nil
 
     var body: some View {
-        if let task = match.map({ m in engine.nowTask(where: { m.contains($0) }) }) ?? engine.nowTask {
-            let f = task.decoded(TaskFields.self)
+        let f = task.decoded(TaskFields.self)
+        TimelineView(.periodic(from: .now, by: 60)) { ctx in
+            let start = f?.block.flatMap { ISO.date($0.start) }, end = f?.block.flatMap { ISO.date($0.end) }
+            let blockOn = start.map { $0 <= ctx.date } == true && end.map { $0 > ctx.date } == true
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text(f?.status == .doing ? "Doing" : "Now").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    Text("Doing").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
-                    if let b = f?.block, let end = ISO.date(b.end) {
-                        TimelineView(.periodic(from: .now, by: 60)) { ctx in
-                            Text(end > ctx.date ? "Block ends \(end.shortTime)" : "Block ended \(end.shortTime)").font(.subheadline).foregroundStyle(.secondary)
-                        }
+                    if let end {
+                        Text(end > ctx.date ? "Block ends \(end.shortTime)" : "Block ended \(end.shortTime)").font(.subheadline).foregroundStyle(.secondary)
                     }
                 }
-                Button { model.section = .now } label: {
+                Button { model.open(itemId: task.id) } label: {
                     Text(StyleGuard.dashes(task.str("title")))
                         .font(.title2.weight(.bold))
                         .multilineTextAlignment(.leading)
@@ -195,9 +195,9 @@ struct NowCard: View {
                 // largest text sizes), where the row of three was wider than the card and pushed all of Today past
                 // the screen's edge, so it scrolled sideways.
                 ViewThatFits(in: .horizontal) {
-                    buttons(task, starts: f?.status != .doing, symbols: true)
-                    buttons(task, starts: f?.status != .doing, symbols: false)
-                    buttons(task, starts: f?.status != .doing, symbols: false, stacked: true)
+                    buttons(starts: !blockOn, symbols: true)
+                    buttons(starts: !blockOn, symbols: false)
+                    buttons(starts: !blockOn, symbols: false, stacked: true)
                 }
                 .controlSize(inCard ? .regular : .large)
             }
@@ -206,9 +206,9 @@ struct NowCard: View {
         }
     }
 
-    /// Done, Skip and, for a task not started, Start 3 h: three buttons of one width, each on one line. Stacked, they
-    /// are one under the other, each the card's width, and their words may wrap.
-    private func buttons(_ task: Entity, starts: Bool, symbols: Bool, stacked: Bool = false) -> some View {
+    /// Done, Skip and, while no block of it is under way, Start 3 h: three buttons of one width, each on one line.
+    /// Stacked, they are one under the other, each the card's width, and their words may wrap.
+    private func buttons(starts: Bool, symbols: Bool, stacked: Bool = false) -> some View {
         func label(_ title: String, _ symbol: String) -> some View {
             Group {
                 if symbols { Label(title, systemImage: symbol) } else { Text(title) }
@@ -223,6 +223,7 @@ struct NowCard: View {
                 .buttonStyle(.themedProminent)
             Button { Task { await engine.skip(task.id) } } label: { label("Skip", "forward") }
                 .buttonStyle(.bordered)
+                .help("Back to the end of Next")
             if starts {
                 Button { Task { await engine.startBlock(task.id, hours: 3) } } label: { label("Start 3 h", "timer") }
                     .buttonStyle(.bordered)
@@ -329,7 +330,7 @@ struct TimelineList: View {
             timelineRow(time: timeRange(b.start, b.end), title: b.title, subtitle: b.status == .doing ? "Doing" : "Block",
                         color: b.status == .doing ? AnyShapeStyle(.ok) : AnyShapeStyle(.tint), dim: past) {
                 Button("Unschedule") { Task { await engine.unschedule(taskId: b.task_id) } }
-                if b.status != .doing { Button("Make Now") { Task { await engine.makeNow(b.task_id) } } }
+                if b.status != .doing { Button("Start") { Task { await engine.startTask(b.task_id) } } }
                 Button("Done") { Task { await engine.markDone(b.task_id) } }
             }
         case .commitment(let c):
@@ -436,7 +437,6 @@ struct SchedulePicker: View {
     private var candidates: [Entity] {
         var out = next.filter { $0.str("status") == "next" || $0.str("status") == "inbox" }
         if out.isEmpty { out = engine.tasks(status: .next) + engine.tasks(status: .inbox) }
-        if let n = engine.nowTask, n.str("status") == "next", !out.contains(where: { $0.id == n.id }) { out.insert(n, at: 0) }
         return out
     }
 

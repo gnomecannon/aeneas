@@ -57,8 +57,8 @@ describe("a join code", () => {
 
   it("is never the screen a device returns to after pairing", () => {
     expect(afterPairing(`/join?node=${node}&s=${s}`, "/tasks")).toBe("/tasks");
-    expect(afterPairing(`/join?node=${node}&s=${s}`, null)).toBe("/now");
-    expect(afterPairing("/setup?code=A", `/join?node=${node}`)).toBe("/now");
+    expect(afterPairing(`/join?node=${node}&s=${s}`, null)).toBe("/today");
+    expect(afterPairing("/setup?code=A", `/join?node=${node}`)).toBe("/today");
   });
 });
 

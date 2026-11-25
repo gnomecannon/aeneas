@@ -111,7 +111,7 @@ final class WatchHumRelay {
             }
             if let sent = e.sentAt, Date().timeIntervalSince(sent) > Self.giveUpAfter {
                 queue.finish(e.hum.id)
-                await tell(WatchHumResult(id: e.hum.id, state: .failed, error: "The hub has not finished hearing it. Look in Music on your iPhone.", ideaId: ideaId))
+                await tell(WatchHumResult(id: e.hum.id, state: .failed, error: "The hub has not finished hearing it. Look in Song ideas on your iPhone.", ideaId: ideaId))
             }
         }
     }

@@ -47,8 +47,9 @@ struct QuickCaptureView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let now = engine.nowTask {
-                Text("Now: \(StyleGuard.dashes(now.str("title")))").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+            // The Next line: the task you started, else what is on now or next, else the free time.
+            TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                Text(StyleGuard.dashes(engine.nextLinePlan(now: ctx.date).words(at: ctx.date).text)).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             TextField("Capture", text: $text, axis: .vertical)
                 .font(.title2)

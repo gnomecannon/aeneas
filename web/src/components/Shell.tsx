@@ -5,7 +5,7 @@ import { showKeyboardHints } from "../lib/keyboardHints";
 import { listedKeys } from "../lib/keys";
 import { refreshHubIdentity, useHubTitle } from "../lib/hubIdentity";
 import { useLiveQuery } from "dexie-react-hooks";
-import { BAR_LIBRARY, barLayout, barTabs, taskAlertAt, type Bar, type BarLayout } from "@everythingapp/shared";
+import { BAR_LIBRARY, MUSIC_PROFILE_ID, barLayout, barTabs, musicLibraryLine, readMusicProfile, taskAlertAt, type Bar, type BarLayout } from "@everythingapp/shared";
 import { go, type Route } from "../lib/router";
 import { useEntities } from "../sync/hooks";
 import { db } from "../sync/db";
@@ -35,48 +35,57 @@ export const PRIMARY: Item[] = [
   { path: "/capture", label: "Capture" },
 ];
 
-/** Every other screen, grouped by area of life. The same groups as the Apple app's Library. */
+/**
+ * Every other screen, grouped by area of life, in the Library's order. The same groups as the Apple app's Library and
+ * the `group` of each module in hub/src/modules.ts (CONTRACT.md, Modules).
+ */
 export const AREAS: Array<{ title: string; items: Item[] }> = [
   { title: "Plan", items: [
     { path: "/inbox", label: "Unsorted Info" },
     { path: "/tasks", label: "Tasks" },
     { path: "/week", label: "Week" },
-    { path: "/renewals", label: "Renewals" },
-    { path: "/dashboard", label: "Dashboard" },
+    { path: "/mail", label: "Mail" },
   ] },
   { title: "Notes", items: [
     { path: "/notes", label: "Notes" },
-    { path: "/memory", label: "Memory" },
-    { path: "/people", label: "People" },
     { path: "/reference", label: "Reference" },
+    { path: "/wiki", label: "Wiki" },
+    { path: "/quiz", label: "Recall quiz" },
+  ] },
+  { title: "People", items: [
+    { path: "/people", label: "People" },
+    { path: "/memory", label: "Memory" },
+  ] },
+  // What you watch, play and listen to. Music is the Apple Music taste an iPhone, iPad or Mac reads (module apple_music).
+  { title: "Media", items: [
+    { path: "/films", label: "Films" },
+    { path: "/games", label: "Games" },
+    { path: "/listening", label: "Music" },
+  ] },
+  { title: "Body and home", items: [
+    { path: "/health", label: "Health" },
+    { path: "/logs", label: "Logs" },
+    { path: "/dashboard", label: "Dashboard" },
+    { path: "/pet", label: "Pet" },
+    { path: "/food", label: "Food" },
+  ] },
+  { title: "Life admin", items: [
+    { path: "/renewals", label: "Renewals" },
+    { path: "/lists", label: "Lists" },
+    { path: "/calc", label: "Calculators" },
+  ] },
+  { title: "Making", items: [
+    { path: "/projects", label: "Projects" },
+    { path: "/procedures", label: "Procedures" },
+    { path: "/music", label: "Song ideas" },
+    { path: "/gallery", label: "Image Gallery" },
+    { path: "/layouts", label: "Layout sketches" },
   ] },
   // Since 2026-11-19 one screen: a card per machine, service and place, each opening its page (checks, readings, fix
   // notes, changes, snippets). With Machines off, the home sensors are the Sensors screen.
   { title: "Tech", items: [
     { path: "/ops", label: "Overview", also: SCREEN_ALSO.ops },
     { path: "/sensors", label: "Sensors", unless: "homelab" },
-  ] },
-  { title: "Making", items: [
-    { path: "/projects", label: "Projects" },
-    { path: "/procedures", label: "Procedures" },
-    { path: "/music", label: "Music" },
-    { path: "/wiki", label: "Wiki" },
-    { path: "/gallery", label: "Image Gallery" },
-    { path: "/quiz", label: "Recall quiz" },
-    { path: "/layouts", label: "Layout sketches" },
-  ] },
-  { title: "Body and home", items: [
-    { path: "/health", label: "Health" },
-    { path: "/logs", label: "Logs" },
-    { path: "/pet", label: "Pet" },
-    { path: "/food", label: "Food" },
-  ] },
-  { title: "Life admin", items: [
-    { path: "/mail", label: "Mail" },
-    { path: "/lists", label: "Lists" },
-    { path: "/games", label: "Games" },
-    { path: "/films", label: "Films" },
-    { path: "/calc", label: "Calculators" },
   ] },
 ];
 
@@ -89,7 +98,6 @@ export const NAV: Item[] = [...PRIMARY, ...AREAS.flatMap((a) => a.items), ...SYS
 
 /** Screens not in the lists above, by path, for the window title. */
 const OTHER: Item[] = [
-  { path: "/now", label: "Now" },
   { path: "/hosts", label: "Machine" },
   { path: "/journal", label: "Change journal" },
   { path: "/snippets", label: "Snippets" },
@@ -112,13 +120,13 @@ const OTHER: Item[] = [
 
 /** Pages inside a screen, as Settings has pages: the phone's top bar leads back to the screen they are in. */
 const SUB_PAGES: Record<string, { path: string; label: string }> = {
-  "/music/projects": { path: "/music", label: "Music" },
+  "/music/projects": { path: "/music", label: "Song ideas" },
 };
 
 /**
  * The screen a path shows: its name, for the window title, and a key that changes only when the screen does. A note
  * picked in Notes or a chat in the Assistant stays on that screen; each Settings page and each item is one of its own.
- * A path the app does not know shows Now.
+ * A path the app does not know shows Today (as an old link to Now does).
  */
 export function screenOf(path: string): { key: string; title: string } {
   if (path === "/settings" || path.startsWith("/settings/")) {
@@ -127,7 +135,7 @@ export function screenOf(path: string): { key: string; title: string } {
     return { key: path, title: SETTINGS_TITLES[p] ?? "Settings" };
   }
   const hit = [...NAV, ...OTHER].filter((n) => path === n.path || path.startsWith(n.path + "/")).sort((a, b) => b.path.length - a.path.length)[0];
-  if (!hit) return { key: "/now", title: "Now" };
+  if (!hit) return { key: "/today", title: "Today" };
   return { key: hit.path === "/item" ? path : hit.path, title: hit.label };
 }
 
@@ -298,7 +306,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   // The phone's bottom bar: a screen with a place in it is lit there; Library is the home of every other screen, so
   // it is lit for those, and the top bar leads back to it from them (a main screen left out of the bar too).
   const lit = barShowing(route.path, tabs);
-  const mainScreen = PRIMARY.some((x) => active(x.path)) || active("/search") || active("/now");
+  const mainScreen = PRIMARY.some((x) => active(x.path)) || active("/search");
   const inLibrary = lit === BAR_LIBRARY && !active("/library") && !active("/more")
     && (mainScreen || AREAS.some((a) => a.items.some((i) => active(i.path))) || SYSTEM.some((i) => active(i.path)) || active("/plan-rules"));
   const barItems = (ids: string[]): BarItem[] => ids.map((id) => ({ id, path: screenPath(id), label: label(id) }));
@@ -428,6 +436,7 @@ function useSummaries(): Record<string, string> {
         "/lists": n(of("checklist").length, "list", "lists"),
         "/games": n(of("game").length, "game", "games"),
         "/films": n(of("film").filter((e) => e.fields.watched !== false).length, "film", "films"),
+        "/listening": musicLibraryLine(readMusicProfile(of("music_profile").find((e) => e.id === MUSIC_PROFILE_ID)?.fields)),
       } as Record<string, string>;
     }, []) ?? {}
   );

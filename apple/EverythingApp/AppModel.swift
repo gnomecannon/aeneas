@@ -11,17 +11,21 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
     // Tabs
     case today, assistant, capture, library, search
     // Plan
-    case inbox, tasks, reminders, week, renewals, dashboard, planRules, now
+    case inbox, tasks, reminders, week, mail, planRules
     // Notes
-    case notes, memory, people, reference
+    case notes, reference, wiki, quiz
+    // People
+    case people, memory
+    // Media
+    case films, games, listening
+    // Body and home
+    case health, logs, dashboard, pet, food
+    // Life admin
+    case renewals, lists, career, calc
+    // Making
+    case projects, procedures, music, images
     // Tech
     case ops, hosts, sensors, journal, snippets
-    // Making
-    case projects, wiki, procedures, music, quiz, images
-    // Body and home
-    case health, logs, pet, food
-    // Life admin
-    case mail, lists, career, games, films, calc
     case settings
     var id: String { rawValue }
     var title: String {
@@ -38,7 +42,6 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .renewals: return "Renewals"
         case .dashboard: return "Dashboard"
         case .planRules: return "Plan rules"
-        case .now: return "Now"
         case .notes: return "Notes"
         case .memory: return "Memory"
         case .people: return "People"
@@ -50,7 +53,7 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .projects: return "Projects"
         case .wiki: return "Wiki"
         case .procedures: return "Procedures"
-        case .music: return "Music"
+        case .music: return "Song ideas"
         case .quiz: return "Recall quiz"
         case .images: return "Image Gallery"
         case .logs: return "Logs"
@@ -63,6 +66,8 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .career: return "Job applications"
         case .games: return "Games"
         case .films: return "Films"
+        // Apple Music listening (module apple_music). Song ideas, `music`, is the Making screen.
+        case .listening: return "Music"
         case .calc: return "Calculators"
         case .settings: return "Settings"
         }
@@ -81,7 +86,6 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .renewals: return "arrow.triangle.2.circlepath"
         case .dashboard: return "chart.xyaxis.line"
         case .planRules: return "calendar.badge.clock"
-        case .now: return "circle.inset.filled"
         case .notes: return "doc.text"
         case .memory: return "brain"
         case .people: return "person.2"
@@ -106,32 +110,39 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .career: return "briefcase"
         case .games: return "gamecontroller"
         case .films: return "film"
+        case .listening: return "headphones"
         case .calc: return "function"
         case .settings: return "gearshape"
         }
     }
     /// The screen whose own stack shows this one on the iPhone while this one has no place in the bottom bar
-    /// (`BarLayout.tab(for:)`): Now and Week open over Today, Memory over the Assistant, and the Overview's own pages
+    /// (`BarLayout.tab(for:)`): Week opens over Today, Memory over the Assistant, and the Overview's own pages
     /// over the Overview. Nil, or a home with no place either: it opens inside Library, like every other screen.
     var barHome: Section? {
         switch self {
-        case .now, .week: return .today
+        case .week: return .today
         case .memory: return .assistant
         case .hosts, .journal, .snippets: return .ops
         default: return nil
         }
     }
-    /// Library: every screen that is not a tab, grouped by area of life, the same on every device.
+    /// Library: every screen that is not a tab, grouped by area of life, the same on every device (the web's `AREAS`
+    /// and each module's `group` on the hub; CONTRACT.md, Modules). Since 2026-11-25 People and Media are areas of their
+    /// own, Mail is in Plan, Renewals in Life admin, the Dashboard in Body and home, and the Wiki and Recall quiz in Notes.
     static let areas: [LibraryArea] = [
-        LibraryArea(title: "Plan", sections: [.inbox, .tasks, .week, .renewals, .dashboard]),
-        LibraryArea(title: "Notes", sections: [.notes, .memory, .people, .reference]),
+        LibraryArea(title: "Plan", sections: [.inbox, .tasks, .week, .mail]),
+        LibraryArea(title: "Notes", sections: [.notes, .reference, .wiki, .quiz]),
+        LibraryArea(title: "People", sections: [.people, .memory]),
+        // What you watch, play and listen to. Music is the Apple Music taste this iPhone, iPad or Mac reads.
+        LibraryArea(title: "Media", sections: [.films, .games, .listening]),
+        LibraryArea(title: "Body and home", sections: [.health, .logs, .dashboard, .pet, .food]),
+        // Job applications, the Job search module's screen, is inside Lists.
+        LibraryArea(title: "Life admin", sections: [.renewals, .lists, .calc]),
+        LibraryArea(title: "Making", sections: [.projects, .procedures, .music, .images]),
         // Since 2026-11-19 one screen: a card per machine, service and place, each opening its page (checks, readings,
         // fix notes, changes, snippets). Machine pages, the change journal and snippets stay sections for links,
         // notifications and Spotlight, reached from the Overview. With Machines off, the home sensors are Sensors.
         LibraryArea(title: "Tech", sections: [.ops, .sensors]),
-        LibraryArea(title: "Making", sections: [.projects, .wiki, .images, .procedures, .music, .quiz]),
-        LibraryArea(title: "Body and home", sections: [.health, .logs, .pet, .food]),
-        LibraryArea(title: "Life admin", sections: [.mail, .lists, .games, .films, .calc]),
     ]
     /// iPad and Mac: the tabs first, then the Library areas as sidebar groups.
     static let primary: [Section] = [.today, .assistant, .capture, .search]
@@ -167,6 +178,7 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .sensors: return .sensors
         case .games: return .games
         case .films: return .films
+        case .listening: return .appleMusic
         case .calc: return .calc
         case .career: return .jobs
         case .mail: return .mailInbox
@@ -342,6 +354,9 @@ final class AppModel: ObservableObject {
             await RemindersSync.shared.runIfReady(reason: "foreground")
             await EventMirrorSync.shared.runIfReady(reason: "foreground")
             await ContactsSync.shared.runNow(reason: "foreground")
+            // Music: Apple Music read again when the profile is more than 12 hours old (on any device), without holding
+            // up the rest.
+            Task { await MusicTasteReader.shared.readIfDue(engine: engine) }
             #if os(iOS)
             await sendPendingShares()
             // Hums from the Watch that could not reach the hub before go now, and captures not written down yet.
@@ -382,6 +397,8 @@ final class AppModel: ObservableObject {
         // Before the Health import, which waits on whether Health is on.
         await refreshModules()
         await healthImportIfDue()
+        // After the switches (Music is read only while the hub lists it as on), when the profile is old or missing.
+        if isConfigured { Task { await MusicTasteReader.shared.readIfDue(engine: engine) } }
         #if os(iOS)
         await sendPendingShares()
         WatchHumRelay.shared.kick()
@@ -671,6 +688,9 @@ final class AppModel: ObservableObject {
             #endif
             return !config.sampleMode && modules.isOnListed(.mailInbox)
         }
+        // Music is off on a new hub, and a hub from before it has no Music to switch on or keep: shown only while the
+        // hub lists it as on.
+        if s == .listening { return modules.isOnListed(.appleMusic) }
         return s.module.map(isOn) ?? true
     }
 
@@ -724,6 +744,8 @@ final class AppModel: ObservableObject {
         }
         // Reminder alerts switched off take this device's planned alerts off; on, they come back.
         if before.isOn(.notifications) != list.isOn(.notifications) { Task { await engine.replanNotifications() } }
+        // Music switched on where Apple Music is already allowed: read now if the profile is old or missing.
+        if !before.isOnListed(.appleMusic), list.isOnListed(.appleMusic) { Task { await MusicTasteReader.shared.readIfDue(engine: engine) } }
     }
 
     func ensureStarted() async { if !started { await start() } }
@@ -828,9 +850,10 @@ final class AppModel: ObservableObject {
             // everythingapp://debug/<command>: a Debug build does to its own window what a hand would (DebugHooksMac).
             DebugHooksMac.command(url)
         #endif
-        case "now":
-            section = .now
-        case "today":
+        case "now", "today":
+            // The Now screen went on 2026-11-25 (Today's top line, the Next line, says it): an old link, or a widget
+            // placed before then, opens Today.
+            section = .today
             section = .today
         case "week":
             section = .week
@@ -839,8 +862,8 @@ final class AppModel: ObservableObject {
         case "reminders":
             section = .tasks
         case "section":
-            // everythingapp://section/<name>, e.g. everythingapp://section/films
-            if let name = url.pathComponents.dropFirst().first, let s = Section(rawValue: name) { section = s }
+            // everythingapp://section/<name>, e.g. everythingapp://section/films; section/now (gone) opens Today.
+            if let name = url.pathComponents.dropFirst().first, let s = Section(rawValue: name == "now" ? "today" : name) { section = s }
         case "item":
             // everythingapp://item/<id>: the screen that holds it (Spotlight, notifications, Shortcuts).
             if let id = url.pathComponents.dropFirst().first { open(itemId: id) }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_TODAY, todayCards, type Entity } from "@everythingapp/shared";
+import { DEFAULT_TODAY, startedTask, todayCards, type Entity } from "@everythingapp/shared";
 import { takesTime, timeline, wholeDay, type RuleType, type TimelineItem } from "./planner";
-import { cameDue, daysUntil, durationWords, freeLine, needsYou, nowLine, openTasks, soFar, todayColumnCount, todayColumns, todayNumbers, todaySlots, tomorrowLines } from "./todayBoard";
+import { cameDue, daysUntil, durationWords, freeLine, needsYou, nowLine, nowWords, openTasks, soFar, todayColumnCount, todayColumns, todayNumbers, todaySlots, tomorrowLines } from "./todayBoard";
 
 let n = 0;
 function e(kind: string, fields: Record<string, unknown>, over: Partial<Entity> = {}): Entity {
@@ -41,6 +41,23 @@ describe("nowLine", () => {
   it("skips all-day plans, free time and what is over, and says when nothing is left", () => {
     const allDay: TimelineItem = { kind: "event", key: "e:parade", start: iso(0), end: iso(0), title: "Parade", id: "p", all_day: true };
     expect(nowLine([allDay, free(16, 23), event("Dentist cleaning", 15, 16)], at(16, 14))).toEqual({ kind: "clear" });
+  });
+});
+
+describe("the Next line", () => {
+  it("leads with the task you started, never the first task in Next", () => {
+    const gift = e("task", { title: "Gift idea for Alex", status: "next", order: 1 });
+    const report = e("task", { title: "Write the report", status: "doing", order: 2 });
+    const items = [event("Dentist cleaning", 15, 16)];
+    expect(nowWords(nowLine(items, at(15, 14), startedTask([gift, report])), null).text).toBe("Doing: Write the report");
+    // Nothing started: the gift idea is nowhere on it, and the event under way is.
+    expect(startedTask([gift])).toBeNull();
+    expect(nowWords(nowLine(items, at(15, 14), startedTask([gift])), null).text).toMatch(/^Dentist cleaning until .+, 46 min left$/);
+  });
+  it("says the free time where the line stands alone, and leaves it to Today's own line there", () => {
+    const items = [free(18, 23)];
+    expect(nowWords(nowLine(items, at(16)), freeLine(items, at(16))).text).toBe("Free 6:00 PM to 11:00 PM, 5 h");
+    expect(nowWords(nowLine(items, at(16)), null).text).toBe("Nothing else today");
   });
 });
 

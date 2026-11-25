@@ -76,7 +76,7 @@ final class PerfTests: XCTestCase {
                                                tasks: engine.list(.task).filter { $0.str("status") == "doing" || !$0.str("due").isEmpty }, now: now)
             _ = TodayExtras.peopleInPlans(people: engine.list(.person), facts: engine.list(.fact), plans: plans)
         }
-        time("Today: to do") { _ = TodayBoard.openTasks(engine.list(.task)); _ = engine.nowTask }
+        time("Today: to do") { _ = TodayBoard.openTasks(engine.list(.task)); _ = engine.startedTask }
         time("Today: so far") {
             let diary = TodayBoard.diary(engine.list(.note), now: now)
             _ = TodayBoard.soFar(diary: diary?.lines ?? [], tasks: engine.list(.task), logs: engine.logs, now: now)
@@ -97,7 +97,7 @@ final class PerfTests: XCTestCase {
             let plans = TodayExtras.plansToday(events: events, reminders: today.reminders_due,
                                                tasks: tasks.filter { $0.str("status") == "doing" || !$0.str("due").isEmpty }, now: now)
             _ = TodayExtras.peopleInPlans(people: engine.list(.person), facts: engine.list(.fact), plans: plans)
-            _ = TodayBoard.openTasks(tasks); _ = engine.nowTask
+            _ = TodayBoard.openTasks(tasks); _ = engine.startedTask
             let diary = TodayBoard.diary(engine.list(.note), now: now)
             _ = TodayBoard.soFar(diary: diary?.lines ?? [], tasks: tasks, logs: engine.logs, now: now)
             _ = TodayBoard.todayNumbers(engine.logs, now: now)

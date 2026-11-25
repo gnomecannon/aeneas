@@ -7,7 +7,7 @@ public struct HumMIDIFile: Equatable, Sendable {
     public init(name: String, data: Data) { self.name = name; self.data = data }
 }
 
-/// Hum to MIDI (hub `hum.ts`, module `music`). Every route answers 404 while the Music module is off.
+/// Hum to MIDI (hub `hum.ts`, module `music`). Every route answers 404 while the Song ideas module is off.
 extension HubClient {
     /// The longest hum the hub takes.
     public static let humMaxSeconds: TimeInterval = 120

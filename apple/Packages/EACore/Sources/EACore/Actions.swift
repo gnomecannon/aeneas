@@ -1,27 +1,18 @@
 import Foundation
 
-/// Domain actions shared by every Apple target: Now, capture, logs, activity, reminders.
+/// Domain actions shared by every Apple target: tasks, capture, logs, activity, reminders.
 extension SyncEngine {
 
-    // MARK: Now
+    // MARK: Tasks
 
     public var tasks: [Entity] { list(.task) }
 
-    /// The single current task: status doing, else the lowest order next task.
-    public var nowTask: Entity? { kept("nowTask", kinds: [.task]) { nowTask(where: { _ in true }) } }
+    // The task you started is `startedTask` (NextLine.swift). Since 2026-11-25 nothing picks the first task in Next as
+    // the current one: the app cannot know what its owner is doing unless they press Start.
 
-    /// The current task among those `keep` lets through (Today's To do, holding the lists chosen for it).
-    public func nowTask(where keep: (Entity) -> Bool) -> Entity? {
-        let t = tasks.filter(keep)
-        if let doing = t.filter({ $0.str("status") == "doing" }).sorted(by: { ($0.number("order") ?? 0) < ($1.number("order") ?? 0) }).first { return doing }
-        return t.filter { $0.str("status") == "next" }.sorted { ($0.number("order") ?? 0) < ($1.number("order") ?? 0) }.first
-    }
-
+    /// The Next tasks in their order: suggestions to start, never what is being done.
     public var upNext: [Entity] {
-        kept("upNext", kinds: [.task]) {
-            let nowId = nowTask?.id
-            return tasks.filter { $0.str("status") == "next" && $0.id != nowId }.sorted(by: Self.byOrder)
-        }
+        kept("upNext", kinds: [.task]) { tasks.filter { $0.str("status") == "next" }.sorted(by: Self.byOrder) }
     }
 
     /// Tasks with one status, by order; Scheduled (where reminders wait) by when they notify.
@@ -100,7 +91,7 @@ extension SyncEngine {
         _ = await update(id, fields: Self.restoreFields(e))
     }
 
-    /// Skip: send the task to the end of next so the following one becomes Now.
+    /// Skip: the task goes back to the end of Next, and is no longer the one started.
     public func skip(_ id: String) async {
         _ = await update(id, fields: ["status": "next", "order": .number(maxOrder + 1), "block": .null])
     }
@@ -109,7 +100,7 @@ extension SyncEngine {
         _ = await update(id, fields: ["status": "parked", "parked_reason": .string(reason), "block": .null])
     }
 
-    /// Start a block of `hours` (default 3) and make this the Now task.
+    /// Start a block of `hours` (default 3) on this task: it is the task you started, for that long.
     public func startBlock(_ id: String, hours: Double = 3) async {
         let start = Date()
         let end = start.addingTimeInterval(hours * 3600)
@@ -120,7 +111,8 @@ extension SyncEngine {
         _ = await update(id, fields: ["status": "doing", "block": .object(["start": .string(ISO.string(start)), "end": .string(ISO.string(end))])])
     }
 
-    public func makeNow(_ id: String) async {
+    /// Start: this is the task you are doing (status doing), and the one started before it goes back to Next.
+    public func startTask(_ id: String) async {
         for t in tasks where t.str("status") == "doing" && t.id != id {
             _ = await update(t.id, fields: ["status": "next"])
         }
@@ -147,7 +139,7 @@ extension SyncEngine {
         guard let t = entities[id] else { return false }
         switch status {
         case .done: await markDone(id)
-        case .doing: await makeNow(id)
+        case .doing: await startTask(id)
         case .inbox: _ = await update(id, fields: ["status": "inbox", "block": .null])
         case .next:
             if t.str("status") != "next" { _ = await update(id, fields: ["status": "next", "order": .number(maxOrder + 1), "block": .null]) }

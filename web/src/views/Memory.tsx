@@ -10,7 +10,8 @@ import { DraftInput } from "../components/DraftField";
 
 type FactF = { category: string; key: string; value: string; source?: string; confidence?: number; private?: boolean };
 type RuleF = { text: string; enforce: string; pattern?: string; active: boolean };
-const CATS = ["identity", "constraint", "preference", "health", "relationship", "host", "project", "gear", "history"];
+// like, dislike and gift_idea (since 2026-11-25) are about other people; a person's page shows them by section.
+const CATS = ["identity", "constraint", "preference", "health", "relationship", "host", "project", "gear", "history", "like", "dislike", "gift_idea"];
 /** Folded fact categories, kept on this device. */
 const FOLDED_KEY = "memory.folded";
 

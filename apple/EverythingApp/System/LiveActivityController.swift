@@ -3,9 +3,10 @@ import ActivityKit
 import Foundation
 import EACore
 
-/// Keeps one Live Activity in step with the app: a running activity (counting up), else the Now task's focus block
-/// while it is on (counting down), else none. Runs after each change, so an activity started on the Mac or the Watch
-/// shows here too.
+/// Keeps one Live Activity in step with the app: a running activity (counting up), else the focus block of the task
+/// you started while it is on (counting down), else none. Only a task you started: a block of a task nobody started,
+/// and the first task in Next, never start one (CONTRACT.md, Planner, The Next line). Runs after each change, so an
+/// activity started on the Mac or the Watch shows here too.
 @MainActor
 final class LiveActivityController {
     static let shared = LiveActivityController()
@@ -48,7 +49,7 @@ final class LiveActivityController {
             return Want(kind: "activity", state: .init(title: a.name, start: a.start, end: nil))
         }
         let now = Date()
-        if let t = engine.nowTask, let b = t.decoded(TaskFields.self)?.block, let s = ISO.date(b.start), let e = ISO.date(b.end), s <= now, e > now {
+        if let t = engine.startedTask, let b = t.decoded(TaskFields.self)?.block, let s = ISO.date(b.start), let e = ISO.date(b.end), s <= now, e > now {
             return Want(kind: "block", state: .init(title: t.str("title"), start: s, end: e))
         }
         return nil

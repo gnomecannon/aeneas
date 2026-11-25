@@ -194,6 +194,7 @@ extension SyncEngine {
             return n(c, "open application", "open applications")
         case .games: return n(count(.game), "game", "games")
         case .films: return n(list(.film).filter { $0.fields["watched"] != .bool(false) }.count, "film", "films")
+        case .listening: return MusicTaste.libraryLine(MusicTaste.Profile(entity: get(MusicTaste.profileId)))
         case .reference: return "Wikipedia and more, kept on the hub"
         // Never anything of a mail: the Library line is the same whatever is in the Inbox.
         case .mail: return "Your Inbox, in bundles"
@@ -352,6 +353,7 @@ struct SearchView: View {
         case .application: return .career
         case .game: return .games
         case .film: return .films
+        case .music_profile: return .listening
         case .person: return .people
         case .image: return .images
         case .device: return .settings
@@ -386,6 +388,7 @@ extension Section {
         case .career: [.application]
         case .games: [.game]
         case .films: [.film]
+        case .listening: [.music_profile]
         default: nil
         }
     }

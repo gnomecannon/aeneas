@@ -16,7 +16,7 @@ import type { JoinRequest } from "./join";
 export interface FeedKeysView { calendar: { key: string; path: string }; sensors: { key: string; path: string } }
 
 /** What a device asks for while a module is on (Apple apps; the web app needs none). */
-export type ModulePermission = "microphone" | "speech" | "notifications" | "reminders" | "calendar" | "contacts" | "health" | "photos" | "location";
+export type ModulePermission = "microphone" | "speech" | "notifications" | "reminders" | "calendar" | "contacts" | "health" | "photos" | "location" | "music";
 
 /**
  * A part of the app the owner switches on or off (GET /modules). `group` is its Library area, "Assistant", or "On your
@@ -673,7 +673,7 @@ export class HubClient {
     return this.req<Entity[]>("GET", `/music${q ? `?${q}` : ""}`);
   }
 
-  /** One line becomes a music idea; with a project, in that project (Music's Projects page). */
+  /** One line becomes a music idea; with a project, in that project (the Projects page of Song ideas). */
   musicQuick(text: string, projectId?: string) {
     return this.req<Entity>("POST", "/music/quick", projectId ? { text, project_id: projectId } : { text });
   }

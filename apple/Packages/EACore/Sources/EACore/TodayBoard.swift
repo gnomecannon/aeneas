@@ -26,8 +26,8 @@ public enum TodayBoard {
 
     /// One thing on the day, as the rules need it: an event, a block of work, fixed hours from a plan rule, free
     /// time, or a reminder (which has a time and no length).
-    public struct Span: Equatable, Identifiable, Sendable {
-        public enum Kind: String, Sendable { case event, block, commitment, free, reminder }
+    public struct Span: Codable, Equatable, Identifiable, Sendable {
+        public enum Kind: String, Codable, Sendable { case event, block, commitment, free, reminder }
         public var id: String
         public var kind: Kind
         public var title: String
@@ -94,18 +94,60 @@ public enum TodayBoard {
         }
     }
 
-    // MARK: the Now line
+    // MARK: the Next line
 
+    /// The line at the top of Today, and wherever the Now task used to show: the widgets, the Watch, the Mac menu bar
+    /// (CONTRACT.md, Planner, The Next line; the same rules as packages/shared `nextLine.ts`, tested with the same cases
+    /// in NextLineTests). Since 2026-11-25 a task is on it only when it was started, or when its time comes (its
+    /// block, its reminder): the first task in Next was "Now", and a gift idea captured as an undated task showed up
+    /// as the thing to do now.
     public enum NowLine: Equatable, Sendable {
+        /// The task you started; `until` and `left` while its block is under way.
+        case started(title: String, id: String, until: Date?, left: String?)
         case during(title: String, until: Date, left: String, what: Span.Kind)
         case next(title: String, at: Date, wait: String, what: Span.Kind)
         case clear
     }
 
-    /// The one sentence at the top: what is under way and how long it has left, else the next thing with a time and
-    /// how long until it, else that nothing else is scheduled. A block under way leads an event at the same time (it
-    /// is what the owner chose to be doing); of two under way, the one that ends first.
-    public static func nowLine(_ spans: [Span], now: Date) -> NowLine {
+    /// The task you started, as the line needs it: what the widgets and the Watch keep of it.
+    public struct StartedTask: Codable, Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var blockStart: Date?
+        public var blockEnd: Date?
+        public init(id: String, title: String, blockStart: Date? = nil, blockEnd: Date? = nil) {
+            self.id = id; self.title = title; self.blockStart = blockStart; self.blockEnd = blockEnd
+        }
+        public init(_ task: Entity) {
+            let block = task.decoded(TaskFields.self)?.block
+            self.init(id: task.id, title: task.str("title"), blockStart: ISO.date(block?.start), blockEnd: ISO.date(block?.end))
+        }
+    }
+
+    /// The task you started: one with status doing, the most recently started first (when its status last changed,
+    /// else its last change; then by order). Nil when there is none. Never a task you have not started, however high
+    /// it is in Next.
+    public static func startedTask(_ tasks: [Entity]) -> Entity? {
+        func at(_ t: Entity) -> String { t.field_ts["status"] ?? t.updated_at }
+        func order(_ t: Entity) -> Double { t.number("order") ?? .greatestFiniteMagnitude }
+        return tasks.filter { !$0.isDeleted && $0.str("status") == "doing" }.min { a, b in
+            if at(a) != at(b) { return at(a) > at(b) }
+            if order(a) != order(b) { return order(a) < order(b) }
+            return a.id < b.id
+        }
+    }
+
+    /// The one sentence at the top: the task you started (it is what you chose to do), else what is under way and how
+    /// long it has left, else the next thing with a time and how long until it, else clear (the free time or "Nothing
+    /// else today" are `lineWords`'). A block under way leads an event at the same time; of two under way, the one
+    /// that ends first.
+    public static func nowLine(_ spans: [Span], now: Date, started: StartedTask? = nil) -> NowLine {
+        if let t = started {
+            if let s = t.blockStart, let e = t.blockEnd, s <= now, now < e {
+                return .started(title: t.title, id: t.id, until: e, left: durationWords(e.timeIntervalSince(now)))
+            }
+            return .started(title: t.title, id: t.id, until: nil, left: nil)
+        }
         func rank(_ k: Span.Kind) -> Int { k == .block ? 0 : k == .event ? 1 : 2 }
         let under = spans.filter { isTimed($0) && $0.start <= now && now < $0.end }
             .sorted { a, b in
@@ -131,6 +173,45 @@ public enum TodayBoard {
         let length = durationWords(free.end.timeIntervalSince(from))
         // A slot that has begun (the hub starts today's first one at the moment it answered) is free from now.
         return from.timeIntervalSince(now) < 120 ? "Free until \(clock(free.end)), \(length)" : "Free \(clock(free.start)) to \(clock(free.end)), \(length)"
+    }
+
+    /// What the line says when nothing is started, nothing has a time left today and no free time is left.
+    public static let nothingElse = "Nothing else today"
+
+    /// The line in words. `text` is the whole line ("Doing: Write the report", "Dentist until 4:00 PM, 46 min left",
+    /// "Next: Call the vet at 1:30 PM, in 40 min", "Free until 11:00 PM, 7 h", "Nothing else today"); the parts are for
+    /// drawing it (the title bold, the aside quieter); `label` goes above it where there is room (a widget, the Watch).
+    public struct LineWords: Equatable, Sendable {
+        public enum Label: String, Sendable { case doing = "Doing", now = "Now", next = "Next", today = "Today" }
+        public var label: Label
+        public var lead: String
+        public var title: String
+        public var when: String
+        public var aside: String
+        public init(label: Label, lead: String, title: String, when: String, aside: String) {
+            self.label = label; self.lead = lead; self.title = title; self.when = when; self.aside = aside
+        }
+        public var text: String { lead + title + (when.isEmpty ? "" : " " + when) + (aside.isEmpty ? "" : ", " + aside) }
+        /// The time and how long, under the title: "until 4:00 PM, 46 min left", "at 1:30 PM, in 40 min".
+        public var detail: String { [when, aside].filter { !$0.isEmpty }.joined(separator: ", ") }
+        /// Whether a task you started is on it, so a Done button belongs with it.
+        public var isStarted: Bool { label == .doing }
+    }
+
+    /// `free` is the free time for a line that stands alone; Today passes nil, since it shows the free time on a line
+    /// of its own.
+    public static func lineWords(_ line: NowLine, free: String?, clock: Clock = deviceClock) -> LineWords {
+        switch line {
+        case .started(let title, _, let until, let left):
+            if let until, let left { return LineWords(label: .doing, lead: "Doing: ", title: title, when: "until \(clock(until))", aside: "\(left) left") }
+            return LineWords(label: .doing, lead: "Doing: ", title: title, when: "", aside: "")
+        case .during(let title, let until, let left, _):
+            return LineWords(label: .now, lead: "", title: title, when: "until \(clock(until))", aside: "\(left) left")
+        case .next(let title, let at, let wait, _):
+            return LineWords(label: .next, lead: "Next: ", title: title, when: "at \(clock(at))", aside: "in \(wait)")
+        case .clear:
+            return LineWords(label: .today, lead: "", title: free ?? nothingElse, when: "", aside: "")
+        }
     }
 
     // MARK: needs you

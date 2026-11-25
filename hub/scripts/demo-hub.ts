@@ -1,6 +1,6 @@
 /**
  * A demo hub: a real hub on its own throwaway folder, filled once with a made-up month in the life of "Alex"
- * (sample-world.ts), every module on except the ones that read the device's own calendar, reminders and contacts. For App Store screenshots and App Review, and for trying the apps without
+ * (sample-world.ts), every module on except the ones that read the device's own calendar, reminders, contacts and Apple Music (a reviewer who paired would send their own library here). For App Store screenshots and App Review, and for trying the apps without
  * putting anything of your own in them. Nothing of the live hub is read: no hub.env, no data folder, no keys. Alex's
  * laptop reports itself and every machine is identified when it is seeded (seedMachines), with made-up answers.
  *
@@ -57,7 +57,7 @@ if (!fs.existsSync(marker)) {
   hub.profile.set({ name: "Alex", pet: "Pepper" });
   // Every module, except the ones that read the device's own calendar, reminders and contacts: a demo shows
   // Alex's month, not the reviewer's own data.
-  const OWN_DATA = new Set(["apple_calendar", "apple_reminders", "contacts"]);
+  const OWN_DATA = new Set(["apple_calendar", "apple_reminders", "contacts", "apple_music"]);
   hub.modules.set(Object.fromEntries(MODULES.map((m) => [m.id, !OWN_DATA.has(m.id)])));
   createApp(hub);
   runSeeds(hub.store, cfg);

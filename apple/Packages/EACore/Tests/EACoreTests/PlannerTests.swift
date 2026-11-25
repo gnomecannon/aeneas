@@ -189,10 +189,10 @@ final class PlannerTests: XCTestCase {
         let due = LocalPlanner.watchesDueSoon([later, soon, overdue], days: 30, now: now)
         XCTAssertEqual(due.map { $0.str("title") }, ["Rx", "Cert"])
         let day = PlannerDay(date: LocalPlanner.dateString(now))
-        let digest = LocalPlanner.digest(for: day, now: Entity(kind: .task, fields: ["title": "Fix NAS", "status": "next"]), watchesDueSoon: due, capturesUnprocessed: 3)
+        let digest = LocalPlanner.digest(for: day, now: Entity(kind: .task, fields: ["title": "Fix NAS", "status": "doing"]), watchesDueSoon: due, capturesUnprocessed: 3)
         let lines = digest.split(separator: "\n")
         XCTAssertTrue((2...4).contains(lines.count))
-        XCTAssertEqual(lines.first, "Now: Fix NAS")
+        XCTAssertEqual(lines.first, "Doing: Fix NAS")
         XCTAssertTrue(digest.contains("2 renewals due soon"))
         XCTAssertFalse(digest.contains("\u{2014}"))
     }

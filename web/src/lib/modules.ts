@@ -54,11 +54,18 @@ export function doneWithFirstSteps(id: string): void {
   listeners.forEach((f) => f());
 }
 
-/** Whether a module is on in a list (an id the list does not have is on). */
+/**
+ * Modules that count as on only once the hub lists them as on: Music (since 2026-11-25) is off for a new hub, and a hub
+ * from before it has no such module to switch on and keeps no Apple Music taste, so its screen would only say to turn
+ * on something that is not there.
+ */
+const LISTED_ONLY = new Set(["apple_music"]);
+
+/** Whether a module is on in a list (an id the list does not have is on, but for LISTED_ONLY). */
 export function isOn(list: ModuleInfo[] | null, id: string | undefined): boolean {
   if (!id) return true;
   const m = list?.find((x) => x.id === id);
-  return m ? m.on : true;
+  return m ? m.on : !LISTED_ONLY.has(id);
 }
 
 /** The module list (null until known) and a checker; rerenders when any switch changes. */
@@ -90,6 +97,7 @@ export const SCREEN_MODULE: Record<string, string> = {
   "/sensors": "sensors",
   "/games": "games",
   "/films": "films",
+  "/listening": "apple_music",
   "/calc": "calc",
   "/lists/jobs": "jobs",
   "/layouts": "layouts",

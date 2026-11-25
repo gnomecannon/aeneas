@@ -297,7 +297,7 @@ export class SyncEngine {
     const client = this.client;
     if (!client || isDeviceKey(client.cfg.token) || Date.now() - this.exchangeAt < 60_000) return;
     this.exchangeAt = Date.now();
-    // Every window and tab (the Windows app's Now widget, a second tab) runs its own engine on the same stored key.
+    // Every window and tab (the Windows app's Now and next widget, a second tab) runs its own engine on the same stored key.
     // Only one may trade it: a second trade would end the first one's new key and sign every window out.
     await this.withLock("ea-key-exchange", async () => {
       const stored = await getMeta<string>(META.token, this.db);

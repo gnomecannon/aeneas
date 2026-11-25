@@ -46,7 +46,7 @@ enum Making {
         var plan_doc_path: String?
         var repo: String?
         var parts: [Part]?
-        /// `music` puts the project in the Music section with its songs and ideas.
+        /// `music` puts the project on the Song ideas screen with its songs and ideas.
         var area: String?
     }
 
@@ -206,10 +206,10 @@ enum Making {
 
     // MARK: music
 
-    /// What the Music section holds. Reference sheets, templates and settings are notes in Music/Reference (the hub moves any it finds).
+    /// What the Song ideas screen holds. Reference sheets, templates and settings are notes in Music/Reference (the hub moves any it finds).
     static let musicTypes = ["riff", "progression", "lyric", "song"]
 
-    /// A group of ideas in Music: "Riffs", "Progressions", "Lyrics", "Songs".
+    /// A group of ideas in Song ideas: "Riffs", "Progressions", "Lyrics", "Songs".
     static func musicTypeHeading(_ type: String) -> String {
         ["riff": "Riffs", "progression": "Progressions", "lyric": "Lyrics", "song": "Songs"][type] ?? type.capitalized
     }

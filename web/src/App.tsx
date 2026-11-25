@@ -12,7 +12,7 @@ import { ModuleGate } from "./components/ModuleGate";
 
 /**
  * A screen loaded the first time it shows, from a file of its own: each window downloads only what it shows (the
- * capture window Capture alone, the Now widget the widget alone). The offline service worker keeps every file.
+ * capture window Capture alone, the Windows widget the widget alone). The offline service worker keeps every file.
  */
 function screen<P>(load: () => Promise<ComponentType<P>>) {
   return lazy(() => load().then((c) => ({ default: c })));
@@ -25,7 +25,6 @@ const Week = screen(() => import("./views/Week").then((m) => m.Week));
 const Renewals = screen(() => import("./views/Renewals").then((m) => m.Renewals));
 const PlanRules = screen(() => import("./views/PlanRules").then((m) => m.PlanRules));
 const Dashboard = screen(() => import("./views/Dashboard").then((m) => m.Dashboard));
-const Now = screen(() => import("./views/Now").then((m) => m.Now));
 const Capture = screen(() => import("./views/Capture").then((m) => m.Capture));
 const Inbox = screen(() => import("./views/Inbox").then((m) => m.Inbox));
 const Tasks = screen(() => import("./views/Tasks").then((m) => m.Tasks));
@@ -54,6 +53,7 @@ const Lists = screen(() => import("./views/Lists").then((m) => m.Lists));
 const JobApplications = screen(() => import("./views/JobApplications").then((m) => m.JobApplications));
 const Games = screen(() => import("./views/Games").then((m) => m.Games));
 const Films = screen(() => import("./views/Films").then((m) => m.Films));
+const Listening = screen(() => import("./views/Listening").then((m) => m.Listening));
 const Calc = screen(() => import("./views/Calc").then((m) => m.Calc));
 const Memory = screen(() => import("./views/Memory").then((m) => m.Memory));
 const Reference = screen(() => import("./views/Reference").then((m) => m.Reference));
@@ -198,6 +198,7 @@ export function App() {
   else if (p.startsWith("/career")) view = <JobApplications id={route.parts[1]} />; // older links
   else if (p.startsWith("/games")) view = <Games key={route.params.get("q") ?? ""} q={route.params.get("q") ?? ""} />;
   else if (p.startsWith("/films")) view = <Films key={route.params.get("q") ?? ""} q={route.params.get("q") ?? ""} />;
+  else if (p.startsWith("/listening")) view = <Listening />;
   else if (p.startsWith("/calc")) view = <Calc />;
   else if (p.startsWith("/memory")) view = <Memory />;
   else if (p === "/reference" || p.startsWith("/reference/")) view = <Reference path={p} params={route.params} />;
@@ -210,7 +211,8 @@ export function App() {
   else if (p.startsWith("/help/connections")) view = <HelpConnections />;
   else if (p.startsWith("/settings")) view = <Settings parts={route.parts.slice(1)} params={route.params} />;
   else if (p === "/library" || p === "/more") view = <Library />;
-  else view = <Now />;
+  // An old link to Now (the screen went on 2026-11-25), and any path the app does not know, show Today.
+  else view = <Today />;
 
   // A screen in a window of its own (second monitor): the view alone, no sidebar or tab bar.
   if (route.params.get("pop") === "1") {

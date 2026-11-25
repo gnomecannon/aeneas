@@ -19,11 +19,10 @@ export function screenId(path: string): string {
 export const MAIN_SCREENS = ["today", "assistant", "capture", "search"] as const;
 
 /**
- * Paths that are a screen's own pages though they do not start with its path: Now is Today's, a machine's page, the
- * change journal and snippets are the Overview's, Create image is the Image Gallery's.
+ * Paths that are a screen's own pages though they do not start with its path: a machine's page, the change journal and
+ * snippets are the Overview's, Create image is the Image Gallery's. (An old link to Now opens Today: lib/router.ts.)
  */
 export const SCREEN_ALSO: Record<string, string[]> = {
-  today: ["/now"],
   ops: ["/hosts", "/journal", "/snippets"],
   images: ["/images"],
   library: ["/more"],

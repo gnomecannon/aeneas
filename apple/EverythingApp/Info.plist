@@ -56,6 +56,8 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>With Music on, Aeneas reads your Apple Music library, playlists and play counts, and what you played recently, so the assistant knows what you like. A summary goes to your own hub. Nothing in Apple Music is played or changed.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_aeneas._tcp</string>

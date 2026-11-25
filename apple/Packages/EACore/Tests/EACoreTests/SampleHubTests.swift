@@ -378,6 +378,25 @@ final class SampleHubTests: XCTestCase {
         XCTAssertNil(other.client, "a device not set up has none")
     }
 
+    /// Music shows in sample mode with Alex's made-up Apple Music taste, read this morning; the device reads nothing.
+    @MainActor
+    func testTheSampleHasAMusicTasteReadToday() async throws {
+        let before = SampleTransport.shared
+        defer { SampleTransport.shared = before }
+        SampleTransport.shared = SampleTransport(data: try Data(contentsOf: SampleScreens.bundledRecording))
+        let engine = SyncEngine(config: SharedConfig(suiteName: "sample-music-\(UUID().uuidString)"), platform: .iphone, store: try SyncStore.inMemory())
+        engine.schedulesNotifications = false
+        await engine.startSample()
+        let modules = try await XCTUnwrap(engine.client).modules()
+        XCTAssertTrue(modules.isOnListed(.appleMusic))
+        let p = try XCTUnwrap(MusicTaste.Profile(entity: engine.get(MusicTaste.profileId)))
+        XCTAssertEqual(p.device, "Alex's iPhone")
+        XCTAssertEqual(p.topArtists.first?.name, "The Lantern Moths")
+        XCTAssertTrue(Calendar.current.isDateInToday(try XCTUnwrap(ISO.date(p.readAt))), "moved to the day the sample is opened")
+        XCTAssertFalse(engine.pairedWithHub, "sample mode: Apple Music is never read")
+        engine.stop()
+    }
+
     func testCalendarRemindersAndContactsWaitForTheHubsWord() {
         let c = SharedConfig(suiteName: "modules-test-\(UUID().uuidString)")
         XCTAssertTrue(c.moduleOn(.appleCalendar), "screens show before the list comes")

@@ -208,7 +208,7 @@ describe("timeline and digest", () => {
     );
     const lines = text.split("\n");
     expect(lines).toHaveLength(4);
-    expect(lines[0]).toMatch(/^Thu Oct 22\. Now: UPS until /);
+    expect(lines[0]).toMatch(/^Thu Oct 22\. Doing: UPS until /);
     expect(lines[1]).toMatch(/^1 block, 1 fixed, 1 reminder\. Free: 5 h at /);
     expect(lines[2]).toBe("Renewals: Tailscale cert in 5 d.");
     expect(lines[3]).toBe("2 waiting in Unsorted Info.");

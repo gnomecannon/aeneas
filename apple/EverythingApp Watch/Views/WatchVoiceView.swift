@@ -38,8 +38,8 @@ struct WatchVoiceView: View {
                         // Double tap (finger and thumb, Series 9 and later) captures without touching the screen.
                         tile("Capture", "mic.fill", .orange) { start(.capture) }
                             .handGestureShortcut(.primaryAction)
-                        // A tune or a beat caught on the go goes to Music through the iPhone, heard as a melody and as a
-                        // rhythm; hidden while Music is off.
+                        // A tune or a beat caught on the go goes to Song ideas through the iPhone, heard as a melody and
+                        // as a rhythm; hidden while Song ideas is off.
                         if model.isOn(.music) {
                             tile("Hum Song", icon: AnyView(HumSongGlyph().frame(width: 24, height: 24)), .pink) { record() }
                         }
@@ -158,8 +158,8 @@ struct WatchVoiceView: View {
             guard !hum.recorder.recording, !capture.recording else { return }
             Task { await capture.record() }
         case .hum:
-            // The Hum Song complication: recording straight away. Hum is part of Music.
-            guard model.isOn(.music) else { show("Hum is part of Music, which is off. Turn it on in Settings, Modules."); WKHaptic.failure(); return }
+            // The Hum Song complication: recording straight away. Hum is part of Song ideas.
+            guard model.isOn(.music) else { show("Hum is part of Song ideas, which is off. Turn it on in Settings, Modules."); WKHaptic.failure(); return }
             guard !hum.recorder.recording, !capture.recording else { return }
             record()
         }

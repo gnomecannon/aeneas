@@ -146,10 +146,15 @@ public enum TodayExtras {
     }
 
     private static func factsAbout(_ person: Entity, names: [String], facts: [Entity]) -> [Entity] {
-        let called = Set([person.str("name"), person.str("nickname"), person.str("given_name")].map(nameNorm).filter { !$0.isEmpty })
-        func linked(_ f: Entity) -> Bool { f.str("person_id") == person.id || (f.str("person_id").isEmpty && called.contains(nameNorm(f.str("person")))) }
+        let linked = linked(to: person)
         let live = facts.filter { !$0.isDeleted }
         return live.filter(linked) + live.filter { !linked($0) && mentions($0.str("value"), names) }
+    }
+
+    /// Whether a fact is about this person: linked by `person_id`, or kept with one of their names in `person`.
+    static func linked(to person: Entity) -> (Entity) -> Bool {
+        let called = Set([person.str("name"), person.str("nickname"), person.str("given_name")].map(nameNorm).filter { !$0.isEmpty })
+        return { f in f.str("person_id") == person.id || (f.str("person_id").isEmpty && called.contains(nameNorm(f.str("person")))) }
     }
 
     /// What today still holds that can name someone, in time order: events not over yet, reminders due, and tasks

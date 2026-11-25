@@ -169,8 +169,17 @@ test("planner: today's digest is one to six plain lines, all-day plans first, an
     let view = todayView(t.hub, now);
     assert.equal(view.date, "2026-10-21");
     assert.equal(view.now, null);
-    assert.equal(view.digest, "Nothing queued");
-    // The notification leaves "Nothing queued" out once there is something else to say.
+    // The Next line leads the digest: nothing is started or has a time, so it is the free time.
+    assert.equal(view.line, "Free 9:00 AM to 11:00 PM, 14 h");
+    assert.equal(view.digest, "Free 9:00 AM to 11:00 PM, 14 h");
+    // A task first in Next is a suggestion, never what the owner is on (a gift idea showed up as Now).
+    const gift = t.hub.store.create("task", { title: "Gift idea for Alex", status: "next", order: 0 });
+    view = todayView(t.hub, now);
+    assert.equal(view.now, null);
+    assert.deepEqual(view.next.map((x) => x.fields.title), ["Gift idea for Alex"]);
+    assert.doesNotMatch(view.digest, /Gift idea/);
+    t.hub.store.patch(gift.id, { deleted_at: new Date().toISOString() });
+    // The notification leaves a clear line out once there is something else to say.
     t.hub.store.create("event", { title: "Tonight: pottery", start: "2026-10-21T00:00:00.000Z", end: "2026-10-22T00:00:00.000Z", all_day: true });
     const seen: NotifyEvent[] = [];
     const off = t.hub.bus.on("notify", (e) => seen.push(e));
@@ -199,8 +208,9 @@ test("planner: today's digest is one to six plain lines, all-day plans first, an
     assert.deepEqual(view.reminders_due.map((r) => r.fields.title), ["Renew: Domain", "call the vet"], "the watch reminder (due 2026-10-17 09:00) is overdue and listed first");
     assert.deepEqual(view.watches_due_soon.map((w) => w.fields.title), ["Domain"]);
     assert.equal(view.captures_unprocessed, 2);
+    assert.equal(view.line, "Doing: Fix the NAS");
     assert.deepEqual(view.digest.split("\n"), [
-      "Now: Fix the NAS",
+      "Doing: Fix the NAS",
       "Plans: Tonight: dinner at Luigi's",
       "Calendar: 3:00 PM Dentist",
       "Blocks: 6:00 PM to 9:00 PM Write chapter",
@@ -216,12 +226,13 @@ test("planner: today's digest is one to six plain lines, all-day plans first, an
     const digest = emitDigest(t.hub, now);
     assert.equal(digest.split("\n").length, 6);
     assert.deepEqual(events, [{ id: "digest:2026-10-21", kind: "digest", at: now.toISOString(),
-      title: "Plans: Tonight: dinner at Luigi's\nCalendar: 3:00 PM Dentist\nNow: Fix the NAS\nBlocks: 6:00 PM to 9:00 PM Write chapter\nDue: 1 reminder: call the vet; renew Domain by 2026-10-24\n2 captures to sort" }]);
+      title: "Plans: Tonight: dinner at Luigi's\nCalendar: 3:00 PM Dentist\nDoing: Fix the NAS\nBlocks: 6:00 PM to 9:00 PM Write chapter\nDue: 1 reminder: call the vet; renew Domain by 2026-10-24\n2 captures to sort" }]);
 
     const res = await t.api("/planner/today");
     assert.equal(res.status, 200);
-    const api = await res.json() as { date: string; digest: string; now: { fields: { title: string } } };
+    const api = await res.json() as { date: string; digest: string; line: string; now: { fields: { title: string } } };
     assert.equal(api.now.fields.title, "Fix the NAS");
+    assert.match(api.line, /^Doing: Fix the NAS/);
     assert.ok(api.digest.split("\n").length >= 2 && api.digest.split("\n").length <= 4);
     assert.doesNotMatch(api.digest, /[\u2013\u2014!]/);
   } finally { t.cleanup(); }

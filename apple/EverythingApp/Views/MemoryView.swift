@@ -97,7 +97,7 @@ extension MemoryView {
         Button { toggle(cat) } label: {
             HStack(spacing: 6) {
                 Image(systemName: open ? "chevron.down" : "chevron.right").font(.caption.weight(.semibold)).frame(width: chevronWidth)
-                Text(cat.rawValue.capitalized).font(.headline)
+                Text(cat.label).font(.headline)
                 Text("\(count)").font(.subheadline).foregroundStyle(.secondary)
                 Spacer()
             }
@@ -105,7 +105,7 @@ extension MemoryView {
         }
         .buttonStyle(.plain)
         .disabled(searching)
-        .accessibilityLabel("\(cat.rawValue.capitalized), \(count) facts, \(open ? "open" : "folded")")
+        .accessibilityLabel("\(cat.label), \(count) facts, \(open ? "open" : "folded")")
     }
 
     /// A rule as a list row or a card: its switch, what it says and how it is enforced.
@@ -195,7 +195,7 @@ struct FactEditView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Picker("Category", selection: $category) { ForEach(FactCategory.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                Picker("Category", selection: $category) { ForEach(FactCategory.allCases, id: \.self) { Text($0.label).tag($0) } }
                 TextField("Key (e.g. dog:name)", text: $key)
                 TextField("Value", text: $value, axis: .vertical).lineLimit(2...8)
                 TextField("Source", text: $source)

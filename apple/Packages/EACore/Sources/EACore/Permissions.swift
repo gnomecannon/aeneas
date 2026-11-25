@@ -5,6 +5,8 @@ import Foundation
 public enum DevicePermission: String, CaseIterable, Sendable, Identifiable {
     // The order the permission screen lists and asks them in.
     case notifications, microphone, speech, reminders, calendar, contacts, health, photos, location
+    /// Apple Music (since 2026-11-25, the Music module): MusicKit's own permission, on the iPhone, iPad and Mac.
+    case music
 
     public var id: String { rawValue }
 
@@ -19,6 +21,7 @@ public enum DevicePermission: String, CaseIterable, Sendable, Identifiable {
         case .health: return "Health"
         case .photos: return "Photos"
         case .location: return "Location"
+        case .music: return "Apple Music"
         }
     }
 
@@ -34,6 +37,7 @@ public enum DevicePermission: String, CaseIterable, Sendable, Identifiable {
         case .health: return "Reads and writes the Health types you allow, such as weight and sleep."
         case .photos: return "Adds pictures you make to your photo library. It does not read your photos."
         case .location: return "Fills in your state's meals tax in the bill splitter. Only an approximate position, sent to your own hub and nowhere else."
+        case .music: return "Reads your Apple Music library, playlists and play counts, so the assistant knows what you like. Nothing in Apple Music is played or changed."
         }
     }
 
@@ -48,6 +52,7 @@ public enum DevicePermission: String, CaseIterable, Sendable, Identifiable {
         case .health: return "heart"
         case .photos: return "photo"
         case .location: return "location"
+        case .music: return "music.note"
         }
     }
 
@@ -74,7 +79,7 @@ public struct PermissionNeed: Equatable, Identifiable, Sendable {
         self.modules = modules
     }
 
-    /// "For Voice and Music."
+    /// "For Voice and Song ideas."
     public var forLine: String {
         let names = modules.map(\.title)
         guard let last = names.last else { return "" }
@@ -94,6 +99,7 @@ public enum PermissionPlan {
         AppModule.music.rawValue: [.microphone],
         AppModule.images.rawValue: [.photos],
         AppModule.health.rawValue: [.health],
+        AppModule.appleMusic.rawValue: [.music],
     ]
 
     /// The module's own list from the hub, else the fallback. Names this app does not know are left out.
@@ -103,7 +109,7 @@ public enum PermissionPlan {
     }
 
     /// What the modules that are on need on this platform, in `DevicePermission` order, each with its modules.
-    /// On the Watch the microphone is only for hums (Music): voice there is the system's dictation.
+    /// On the Watch the microphone is only for hums (Song ideas): voice there is the system's dictation.
     public static func needs(_ modules: [ModuleInfo], platform: Platform) -> [PermissionNeed] {
         var by: [DevicePermission: [ModuleInfo]] = [:]
         for m in modules where m.on {

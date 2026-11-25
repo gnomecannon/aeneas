@@ -4,7 +4,7 @@ import UIKit
 #endif
 
 /// Configuration and a small snapshot shared through the app group so widgets, complications and the Watch
-/// extension can read the hub and the Now task. The device's own key is not here: it is in the Keychain
+/// extension can read the hub and the Next line. The device's own key is not here: it is in the Keychain
 /// (`secrets`), shared with the widgets and intents through the same app group.
 public final class SharedConfig: @unchecked Sendable {
     /// The app group the apps, widgets and Watch share: `EAAppGroup` in each target's Info.plist, built from
@@ -209,9 +209,10 @@ public final class SharedConfig: @unchecked Sendable {
         set { if !newValue.isEmpty, let d = try? JSONCoding.data(newValue) { defaults.set(d, forKey: "feel.pending") } else { defaults.removeObject(forKey: "feel.pending") } }
     }
 
-    // Snapshot for widgets and complications.
+    // Snapshot for widgets and complications. The `now.*` keys hold the task you started (since 2026-11-25; the Now
+    // task before), which the widget's Done finishes.
     public var nowTaskId: String? { get { defaults.string(forKey: "now.id") } set { set("now.id", newValue) } }
-    /// Done taps on the Now widget that the hub has not taken: one it cannot reach itself (a Direct link hub: widgets
+    /// Done taps on the widget that the hub has not taken: one it cannot reach itself (a Direct link hub: widgets
     /// carry no iroh), one out of reach at the time, or a send cut short. One "<task id>|<time>" line each, oldest
     /// first. The app's next sync makes each a queued edit, sent with the rest until the hub takes it.
     public var pendingWidgetDones: [WidgetDone] {
@@ -226,19 +227,14 @@ public final class SharedConfig: @unchecked Sendable {
         set("now.donePending", pendingWidgetDones.filter { !taken.contains($0) }.map(\.line).joined(separator: "\n"))
     }
     public var nowTaskTitle: String? { get { defaults.string(forKey: "now.title") } set { set("now.title", newValue) } }
-    /// The Now task's repeat, reminder time and deadline ("repeat|remind_at|due", empty parts when it has none), so the
-    /// widget's Done moves a repeating task to its next time as every other Done does, instead of ending it.
+    /// The started task's repeat, reminder time and deadline ("repeat|remind_at|due", empty parts when it has none), so
+    /// the widget's Done moves a repeating task to its next time as every other Done does, instead of ending it.
     public var nowTaskTiming: String? { get { defaults.string(forKey: "now.timing") } set { set("now.timing", newValue) } }
-    public var nowTaskStatus: String? { get { defaults.string(forKey: "now.status") } set { set("now.status", newValue) } }
-    public var nowBlockEnd: Date? {
-        get { defaults.object(forKey: "now.blockEnd") as? Date }
-        set { defaults.set(newValue, forKey: "now.blockEnd") }
-    }
-    /// The next planned block today after the Now task, for the medium widget.
-    public var nextBlockTitle: String? { get { defaults.string(forKey: "nextBlock.title") } set { set("nextBlock.title", newValue) } }
-    public var nextBlockStart: Date? {
-        get { defaults.object(forKey: "nextBlock.start") as? Date }
-        set { defaults.set(newValue, forKey: "nextBlock.start") }
+    /// The Next line's plan for today (NextLine.swift): the widgets and complications draw the line from it at each
+    /// moment of their timelines.
+    public var nextLinePlan: NextLinePlan? {
+        get { defaults.data(forKey: "nextLine.plan").flatMap(NextLinePlan.init(data:)) }
+        set { if let d = newValue?.data { defaults.set(d, forKey: "nextLine.plan") } else { defaults.removeObject(forKey: "nextLine.plan") } }
     }
     /// The next timed event or open reminder today, for the Watch complication.
     public var nextUpTitle: String? { get { defaults.string(forKey: "nextUp.title") } set { set("nextUp.title", newValue) } }
@@ -280,7 +276,7 @@ public final class SharedConfig: @unchecked Sendable {
     }
 }
 
-/// A Done tap on the Now widget: the task, when it was tapped (the edit's stamp), and the task's repeat, reminder
+/// A Done tap on the widget: the task you started, when it was tapped (the edit's stamp), and the task's repeat, reminder
 /// time and deadline as the snapshot had them (`SharedConfig.nowTaskTiming`).
 public struct WidgetDone: Equatable, Sendable {
     public var taskId: String

@@ -63,7 +63,7 @@ const cfg = loadConfig({ dataDir: dir, token: "perf-test-token-not-a-secret-0001
 const hub = createHub(cfg);
 hub.profile.set({ name: "Jamie", pet: "Biscuit" });
 // Every module but the ones that read a device's own calendar, reminders and contacts.
-const OWN_DATA = new Set(["apple_calendar", "apple_reminders", "contacts"]);
+const OWN_DATA = new Set(["apple_calendar", "apple_reminders", "contacts", "apple_music"]);
 hub.modules.set(Object.fromEntries(MODULES.map((m) => [m.id, !OWN_DATA.has(m.id)])));
 runSeeds(hub.store, cfg);
 const s = hub.store;

@@ -1,16 +1,26 @@
 import { useEffect, useState } from "react";
 
+/** The screen the app opens on. */
+export const START = "/today";
+
 export interface Route {
   path: string;
   parts: string[];
   params: URLSearchParams;
 }
 
-function parse(): Route {
-  const raw = window.location.hash.replace(/^#/, "") || "/now";
+/** The route a location hash names ("#/notes/abc?x=1"). */
+export function routeOf(hash: string): Route {
+  const raw = hash.replace(/^#/, "") || START;
   const [p, q = ""] = raw.split("?");
-  const path = p.startsWith("/") ? p : "/" + p;
+  const typed = p.startsWith("/") ? p : "/" + p;
+  // The Now screen went on 2026-11-25 (Today's top line, the Next line, says it): an old link or bookmark opens Today.
+  const path = typed === "/now" || typed.startsWith("/now/") ? START : typed;
   return { path, parts: path.split("/").filter(Boolean), params: new URLSearchParams(q) };
+}
+
+function parse(): Route {
+  return routeOf(window.location.hash);
 }
 
 export function useRoute(): Route {
@@ -48,8 +58,8 @@ const isJoin = (path: string) => path === "/join" || path.startsWith("/join?");
  */
 export function afterPairing(current: string, before: string | null): string {
   // A join code that opened an app with no hub showed Setup in its place; it was meant for a paired device.
-  if (!isSetup(current) && !isJoin(current)) return current || "/now";
-  return before && !isSetup(before) && !isJoin(before) ? before : "/now";
+  if (!isSetup(current) && !isJoin(current)) return current || START;
+  return before && !isSetup(before) && !isJoin(before) ? before : START;
 }
 
 /** The screen before the latest pairing link or join code, from the hash change that brought it in. */

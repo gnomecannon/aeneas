@@ -21,7 +21,7 @@ settings:
     CODE_SIGN_IDENTITY: "Apple Development"
     SWIFT_VERSION: "5.0"
     SWIFT_STRICT_CONCURRENCY: minimal
-    MARKETING_VERSION: "1.0.24"
+    MARKETING_VERSION: "1.0.25"
     CURRENT_PROJECT_VERSION: "1"
     VERSIONING_SYSTEM: apple-generic
     # The Mac app is for Apple silicon: iroh's Mac library (Direct link) comes for arm64 only.
@@ -122,6 +122,7 @@ targets:
         NSHealthUpdateUsageDescription: Writes what you log in Aeneas (weight, blood pressure, caffeine, mood and timed activities) to Health, so it is in both places.
         NSCalendarsFullAccessUsageDescription: Aeneas reads the titles and times of the calendars you choose, so your meetings show in your plan, and writes the events and planned blocks you make in the app to your calendar.
         NSRemindersFullAccessUsageDescription: Aeneas keeps your tasks and Apple Reminders the same, both ways.
+        NSAppleMusicUsageDescription: With Music on, Aeneas reads your Apple Music library, playlists and play counts, and what you played recently, so the assistant knows what you like. A summary goes to your own hub. Nothing in Apple Music is played or changed.
         BGTaskSchedulerPermittedIdentifiers: [$(PRODUCT_BUNDLE_IDENTIFIER).calendar]
         # No arbitrary loads. Plain http only where the hub can be: a local hub (IP addresses, unqualified names,
         # .local) and Tailscale names (ts.net), whose traffic WireGuard encrypts. A pinned hub with its own

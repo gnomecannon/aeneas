@@ -643,7 +643,7 @@ struct TaskRow: View {
         .contextMenu {
             Button("Edit") { onEdit() }
             Button("Start 3 h block") { Task { await engine.startBlock(task.id) } }
-            Button("Make Now") { Task { await engine.makeNow(task.id) } }
+            Button("Start") { Task { await engine.startTask(task.id) } }
             Button("Move to Next") { Task { await engine.moveToNext(task.id) } }
             if f?.status != .done { Button("Set aside") { onPark() } }
             if f?.status == .done { Button("Not done") { Task { await undo.reopen(task, engine: engine) } } }

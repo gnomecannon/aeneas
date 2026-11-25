@@ -1,6 +1,6 @@
 import type { ProofDay, ProofRun } from "../sync/api";
 
-/** Whether a task was in Now that day: proven at 09:00, or (when the history cannot say) one was there at day's end. */
+/** Whether a task was in Next or started that day: proven at 09:00, or (when the history cannot say) one was there at day's end. */
 export const nowHeld = (d: ProofDay) => d.now_at_0900 === true || (d.now_at_0900 === null && d.next_or_doing_eod > 0);
 
 /** The friction lists as one list of links: stale captures, reminders snoozed 3+ times, tasks set aside over a week. */

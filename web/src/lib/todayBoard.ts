@@ -9,68 +9,44 @@
  * above Needs you (lib/tech.ts `techLight`), never a row of Needs you. That is the default order: Theme, Today changes
  * it and hides parts (`today` in the feel setting), and `todayColumns` fills the columns in the order chosen.
  */
-import type { Entity, TodayCard } from "@everythingapp/shared";
+import type { Entity, LineWords, NextLine, TodayCard } from "@everythingapp/shared";
+import { durationWords, freeTime, lineWords, nextLine } from "@everythingapp/shared";
 import type { TimelineItem } from "./planner";
-import { localDate, takesTime, wholeDay } from "./planner";
+import { localDate } from "./planner";
 import type { DueReminder } from "./reminders";
 import { fmtDate, fmtTime } from "./time";
 
 const MIN = 60_000;
 
-/** "46 min", "2 h", "2 h 10 min": a length of time in whole minutes, never "about". */
-export function durationWords(ms: number): string {
-  const total = Math.max(0, Math.round(ms / MIN));
-  const h = Math.floor(total / 60), m = total % 60;
-  if (!h) return `${m} min`;
-  return m ? `${h} h ${m} min` : `${h} h`;
-}
+/** "46 min", "2 h", "2 h 10 min": a length of time in whole minutes, never "about" (packages/shared). */
+export { durationWords };
 
-// ---------- the Now line ----------
+// ---------- the Next line ----------
 
-export type NowLine =
-  | { kind: "during"; title: string; until: string; left: string; what: "event" | "block" | "commitment" }
-  | { kind: "next"; title: string; at: string; wait: string; what: "event" | "block" | "commitment" | "reminder" }
-  | { kind: "clear" };
-
-type Timed = Extract<TimelineItem, { kind: "event" | "block" | "commitment" }>;
-/**
- * Something that holds its time: an event with hours, a block, or fixed hours from a plan rule. Not a preference or
- * an info rule (they take no time), and not a rule that lasts the whole day (like an all-day event, it is no moment).
- */
-const isTimed = (it: TimelineItem): it is Timed =>
-  (it.kind === "event" && !it.all_day) || it.kind === "block" || (it.kind === "commitment" && takesTime(it) && !wholeDay(it));
+/** The line at the top of Today, and wherever the Now task used to show (packages/shared `nextLine.ts`). */
+export type NowLine = NextLine;
 
 /**
- * The one sentence at the top: what is under way and how long it has left, else the next thing with a time and how
- * long until it, else that nothing else is scheduled. A block under way leads an event at the same time (it is what
- * the owner chose to be doing); of two under way, the one that ends first.
+ * The one sentence at the top: the task you started (`started`, from `startedTask`), else what is under way and how
+ * long it has left, else the next thing with a time and how long until it, else that nothing else is on today. A block
+ * under way leads an event at the same time; of two under way, the one that ends first. The rule is packages/shared's,
+ * so the Windows widget, the hub's digest and the Apple apps say the same.
  */
-export function nowLine(items: TimelineItem[], now: Date): NowLine {
-  const t = now.getTime();
-  const rank = { block: 0, event: 1, commitment: 2 } as const;
-  const during = items.filter(isTimed)
-    .filter((it) => Date.parse(it.start) <= t && t < Date.parse(it.end))
-    .sort((a, b) => rank[a.kind] - rank[b.kind] || Date.parse(a.end) - Date.parse(b.end))[0];
-  if (during) return { kind: "during", title: during.title, until: during.end, left: durationWords(Date.parse(during.end) - t), what: during.kind };
-  const ahead = items
-    .filter((it): it is Timed | Extract<TimelineItem, { kind: "reminder" }> => isTimed(it) || it.kind === "reminder")
-    .filter((it) => Date.parse(it.start) > t)
-    .sort((a, b) => Date.parse(a.start) - Date.parse(b.start))[0];
-  if (ahead) return { kind: "next", title: ahead.title, at: ahead.start, wait: durationWords(Date.parse(ahead.start) - t), what: ahead.kind };
-  return { kind: "clear" };
+export function nowLine(items: TimelineItem[], now: Date, started?: Entity | null): NowLine {
+  return nextLine(items, now, started);
 }
 
 /** The free time now or next today: "Free until 3:00 PM, 2 h 46 min" or "Free 6:00 PM to 11:00 PM, 5 h". Null when none is left. */
 export function freeLine(items: TimelineItem[], now: Date): string | null {
-  const t = now.getTime();
-  const free = items.filter((it): it is Extract<TimelineItem, { kind: "free" }> => it.kind === "free")
-    .filter((f) => Date.parse(f.end) > t)
-    .sort((a, b) => Date.parse(a.start) - Date.parse(b.start))[0];
-  if (!free) return null;
-  const from = Math.max(Date.parse(free.start), t);
-  const length = durationWords(Date.parse(free.end) - from);
-  // A slot that has begun (the hub starts today's first one at the moment it answered) is free from now.
-  return from - t < 2 * MIN ? `Free until ${fmtTime(free.end)}, ${length}` : `Free ${fmtTime(free.start)} to ${fmtTime(free.end)}, ${length}`;
+  return freeTime(items, now, fmtTime);
+}
+
+/**
+ * The line in words, in this device's time format. `free` is the free time for a line that stands alone (the Windows
+ * widget); Today passes null, since it shows the free time on a line of its own.
+ */
+export function nowWords(line: NowLine, free: string | null): LineWords {
+  return lineWords(line, free, fmtTime);
 }
 
 // ---------- needs you ----------

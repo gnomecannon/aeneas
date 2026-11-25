@@ -1,4 +1,4 @@
-import { datePhrase, datesSoon, peopleInPlans, plansToday, taskAlertAt, type PersonDate, type PersonToday } from "@everythingapp/shared";
+import { datePhrase, datesSoon, freeTime, lineWords, nextLine, peopleInPlans, plansToday, startedTask, taskAlertAt, type DayThing, type PersonDate, type PersonToday } from "@everythingapp/shared";
 import { pendingReminders } from "./reminders.js";
 import type { Entity } from "@everythingapp/shared";
 import type { Hub } from "./hub.js";
@@ -352,8 +352,12 @@ export function unscheduleTask(hub: Hub, body: { task_id?: unknown }): Entity {
 
 export interface TodayView {
   date: string;
+  /** The task the owner started (status doing), or null; never the first Next task (CONTRACT.md, The Next line). */
   now: Entity | null;
+  /** The Next tasks in their order: suggestions, never what the owner is doing. */
   next: Entity[];
+  /** The Next line as one sentence: the started task, else what is on now or next with a time, else the free time. */
+  line: string;
   blocks: Block[];
   events: Entity[];
   commitments: Commitment[];
@@ -385,17 +389,22 @@ export function watchesDueSoon(hub: Hub, now: Date): Entity[] {
 }
 
 export function todayView(hub: Hub, now: Date = new Date(), minHours = 3): TodayView {
+  return buildToday(hub, now, minHours).view;
+}
+
+/** Today's view, and whether its Next line is clear (nothing started, nothing with a time left): the morning digest leaves that line out. */
+function buildToday(hub: Hub, now: Date, minHours: number): { view: TodayView; lineClear: boolean } {
   const day = startOfDay(now);
   // The reminders are read once, for the day's model and for what is due.
   const pending = pendingReminders(hub.store);
   const model = dayModel(hub, day, minHours, collect(hub, pending));
-  // Open tasks only: done ones are neither now, next nor a plan (SQLite leaves the year of done tasks unread).
+  // Open tasks only: done ones are neither started, next nor a plan (SQLite leaves the year of done tasks unread).
   const tasks = hub.store.listWhere("task", [{ key: "status", isNot: "done" }], { shown: true });
   const byOrder = (a: Entity, b: Entity) => Number(a.fields.order ?? 0) - Number(b.fields.order ?? 0) || a.created_at.localeCompare(b.created_at);
-  const doing = tasks.filter((t) => t.fields.status === "doing").sort(byOrder);
-  const nextTasks = tasks.filter((t) => t.fields.status === "next").sort(byOrder);
-  const current = doing[0] ?? nextTasks[0] ?? null;
-  const next = nextTasks.filter((t) => t.id !== current?.id).slice(0, 10);
+  // Only a task the owner started is what they are on. The first task in Next used to be "Now": a gift idea captured
+  // as an undated Next task showed up as what to do now.
+  const current = startedTask(tasks);
+  const next = tasks.filter((t) => t.fields.status === "next").sort(byOrder).slice(0, 10);
 
   const endOfDay = addDays(day, 1).toISOString();
   const reminders_due = pending.filter(({ eff }) => eff < endOfDay).map(({ t }) => t);
@@ -408,8 +417,13 @@ export function todayView(hub: Hub, now: Date = new Date(), minHours = 3): Today
     .map((s) => (new Date(s.start) < now ? { ...s, start: now.toISOString(), hours: hoursOf(now, new Date(s.end)) } : s))
     .filter((s) => new Date(s.end).getTime() - new Date(s.start).getTime() >= minMs);
 
+  // The Next line leads, as it leads Today: the started task, else what is on now or next, else the free time.
+  const clock = (iso: string) => clockOf(new Date(iso));
+  const things = dayThings(model, reminders_due, free_slots);
+  const nowLine = nextLine(things, now, current);
+  const lineText = lineWords(nowLine, freeTime(things, now, clock), clock).text;
   const lines: string[] = [];
-  lines.push(current ? `Now: ${String(current.fields.title ?? "")}` : "Nothing queued");
+  lines.push(lineText);
   // All-day plans are how most plans are saved ("Tonight: dinner at Luigi's with Jamie"), so they lead.
   const plans = model.events.filter((e) => e.fields.all_day === true);
   if (plans.length) lines.push(`Plans: ${plans.slice(0, 3).map((e) => String(e.fields.title ?? "")).join("; ")}${plans.length > 3 ? ", ..." : ""}`);
@@ -448,11 +462,23 @@ export function todayView(hub: Hub, now: Date = new Date(), minHours = 3): Today
   if (people.length) lines.push(`People: ${people.join("; ")}`);
   if (captures_unprocessed) lines.push(`${captures_unprocessed} capture${captures_unprocessed === 1 ? "" : "s"} to sort`);
 
-  return {
-    date: model.date, now: current, next, blocks: model.blocks, events: model.events, commitments: model.commitments, preferences: model.preferences,
+  const view: TodayView = {
+    date: model.date, now: current, next, line: lineText, blocks: model.blocks, events: model.events, commitments: model.commitments, preferences: model.preferences,
     reminders_due, watches_due_soon, dates_soon, people_today, captures_unprocessed, free_slots,
     digest: lines.slice(0, 6).join("\n"),
   };
+  return { view, lineClear: nowLine.kind === "clear" };
+}
+
+/** The day's plan as the Next line reads it (packages/shared `nextLine.ts`): events, blocks, rule hours, reminders and free time. */
+function dayThings(model: PlannerDay, reminders: Entity[], free: FreeSlot[]): DayThing[] {
+  return [
+    ...model.events.map((e) => ({ kind: "event", title: String(e.fields.title ?? ""), start: String(e.fields.start ?? ""), end: String(e.fields.end ?? e.fields.start ?? ""), all_day: e.fields.all_day === true })),
+    ...model.blocks.map((b) => ({ kind: "block", title: b.title, start: b.start, end: b.end })),
+    ...model.commitments.map((c) => ({ kind: "commitment", title: c.title, start: c.start, end: c.end, type: c.type })),
+    ...reminders.map((r) => ({ kind: "reminder", title: String(r.fields.title ?? ""), start: taskAlertAt(r.fields) ?? "" })),
+    ...free.map((f) => ({ kind: "free", start: f.start, end: f.end })),
+  ];
 }
 
 /** "Tech: down Storage backup, oldbox ping; sensors storage.zfs.tank.healthy low", or null when all is well. */
@@ -476,13 +502,14 @@ export function opsLine(hub: Hub, now: Date = new Date()): string | null {
 
 /**
  * Emit the daily digest notify: the whole digest, today's plans and calendar first (the morning notification showed
- * only "Now: <task>"). Clients that show one line show the first.
+ * only "Now: <task>"; since 2026-11-25 that line is the Next line). Clients that show one line show the first.
  */
 export function emitDigest(hub: Hub, now: Date = new Date()): string {
-  const view = todayView(hub, now);
-  // "Nothing queued" is no way to open a morning notification when there is anything else to say.
+  const { view, lineClear } = buildToday(hub, now, 3);
+  // A clear Next line ("Nothing else today", or the free time) is no way to open a morning notification when there is
+  // anything else to say. It is the digest's first line.
   const all = view.digest.split("\n");
-  const lines = all.length > 1 ? all.filter((l) => l !== "Nothing queued") : all;
+  const lines = all.length > 1 && lineClear ? all.slice(1) : all;
   const lead = (l: string) => l.startsWith("Plans:") || l.startsWith("Calendar:");
   const title = [...lines.filter(lead), ...lines.filter((l) => !lead(l))].join("\n");
   hub.bus.emit("notify", { id: `digest:${view.date}`, kind: "digest", title, at: now.toISOString() });

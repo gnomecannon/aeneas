@@ -2,22 +2,33 @@ import WidgetKit
 import SwiftUI
 import EACore
 
+/// One moment of the Now and next complication: the Next line at `date` (CONTRACT.md, Planner, The Next line).
 struct NowEntry: TimelineEntry {
     var date: Date
-    var title: String?
+    var line: TodayBoard.LineWords
     var activity: String?
     var activityStart: Date?
 }
 
+/// The line at each minute of the next hour, from the plan the iPhone sends (`ComplicationSnapshot.line`) or the Watch
+/// app writes on its own sync, so the minutes left count down on the wrist.
 struct NowProvider: TimelineProvider {
-    private func snapshot() -> NowEntry {
+    private func entry(_ plan: NextLinePlan?, at date: Date) -> NowEntry {
         let c = SharedConfig.shared
-        return NowEntry(date: Date(), title: c.nowTaskTitle, activity: c.currentActivity, activityStart: c.currentActivityStart)
+        let plan = plan ?? NextLinePlan(day: "", started: nil, spans: [])
+        return NowEntry(date: date, line: plan.words(at: date), activity: c.currentActivity, activityStart: c.currentActivityStart)
     }
-    func placeholder(in context: Context) -> NowEntry { NowEntry(date: Date(), title: "Order filament", activity: nil, activityStart: nil) }
-    func getSnapshot(in context: Context, completion: @escaping (NowEntry) -> Void) { completion(context.isPreview ? placeholder(in: context) : snapshot()) }
+    func placeholder(in context: Context) -> NowEntry {
+        NowEntry(date: Date(), line: TodayBoard.LineWords(label: .next, lead: "Next: ", title: "Dentist", when: "at \(TodayBoard.deviceClock(Date().addingTimeInterval(2760)))", aside: "in 46 min"),
+                 activity: nil, activityStart: nil)
+    }
+    func getSnapshot(in context: Context, completion: @escaping (NowEntry) -> Void) {
+        completion(context.isPreview ? placeholder(in: context) : entry(SharedConfig.shared.nextLinePlan, at: Date()))
+    }
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowEntry>) -> Void) {
-        completion(Timeline(entries: [snapshot()], policy: .after(Date().addingTimeInterval(1800))))
+        let plan = SharedConfig.shared.nextLinePlan
+        let moments = NextLinePlan.moments(from: Date())
+        completion(Timeline(entries: moments.map { entry(plan, at: $0) }, policy: .after(moments.last ?? Date().addingTimeInterval(3600))))
     }
 }
 
@@ -25,13 +36,13 @@ struct ComplicationView: View {
     @Environment(\.widgetFamily) private var family
     var entry: NowEntry
 
-    private var title: String { entry.title.map { StyleGuard.dashes($0) } ?? "Nothing is next" }
+    private var text: String { StyleGuard.dashes(entry.line.text) }
 
     var body: some View {
         switch family {
         case .accessoryCorner:
             Image(systemName: "scope").font(.title3.weight(.semibold))
-                .widgetLabel { Text(title).watchPrivate() }
+                .widgetLabel { Text(text).watchPrivate() }
                 .widgetURL(URL(string: "everythingapp://now"))
         case .accessoryCircular:
             // Tap to start a capture by voice.
@@ -41,15 +52,17 @@ struct ComplicationView: View {
             }
             .widgetURL(URL(string: "everythingapp://capture"))
         case .accessoryInline:
-            Text(entry.activity.map { "\($0): \(title)" } ?? title).watchPrivate()
+            Text(entry.activity.map { "\($0): \(text)" } ?? text).watchPrivate()
                 .widgetURL(URL(string: "everythingapp://now"))
         default:
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Now").font(.caption2).foregroundStyle(.secondary)
-                    Text(title).font(.headline).lineLimit(2).minimumScaleFactor(0.8).watchPrivate()
+                    Text(entry.line.label.rawValue).font(.caption2).foregroundStyle(.secondary)
+                    Text(StyleGuard.dashes(entry.line.title)).font(.headline).lineLimit(2).minimumScaleFactor(0.8).watchPrivate()
                     if let a = entry.activity {
                         Text(a).font(.caption2).foregroundStyle(.secondary).watchPrivate()
+                    } else if !entry.line.detail.isEmpty {
+                        Text(entry.line.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 0)
@@ -62,13 +75,15 @@ struct ComplicationView: View {
     }
 }
 
+/// The Now and next complication: the Next line. Its kind is the one the Now complication had, so one placed on a
+/// face before 2026-11-25 shows the line in its place.
 struct NowComplication: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "com.gnomecannon.everythingapp.watch.now", provider: NowProvider()) { entry in
             ComplicationView(entry: entry).containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Now")
-        .description("The one task you are on, and a tap to capture.")
+        .configurationDisplayName("Now and next")
+        .description("The task you started, else what is on now or next today, and a tap to capture.")
         .supportedFamilies([.accessoryCircular, .accessoryCorner, .accessoryRectangular, .accessoryInline])
     }
 }
@@ -219,11 +234,11 @@ struct CaptureComplication: Widget {
     }
 }
 
-/// One tap to hum, sing, tap or beatbox (Music): the hub hears it as a melody and as a rhythm.
+/// One tap to hum, sing, tap or beatbox (Song ideas): the hub hears it as a melody and as a rhythm.
 struct HumComplication: Widget {
     var body: some WidgetConfiguration {
         launcher(kind: "com.gnomecannon.everythingapp.watch.hum", title: "Hum Song", icon: "music.note", glyph: true,
-                 url: "everythingapp://hum", name: "Hum Song", description: "Hum, sing, tap or beatbox; it goes to Music on your hub.")
+                 url: "everythingapp://hum", name: "Hum Song", description: "Hum, sing, tap or beatbox; it goes to Song ideas on your hub.")
     }
 }
 

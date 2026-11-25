@@ -3,7 +3,7 @@
   "short_name": "Aeneas",
   "description": "Capture, tasks, reminders, notes and logs on one hub.",
   "id": "./",
-  "start_url": "./#/now",
+  "start_url": "./#/today",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
@@ -16,6 +16,6 @@
   ],
   "shortcuts": [
     { "name": "Capture", "url": "./#/capture", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }] },
-    { "name": "Now", "url": "./#/now", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }] }
+    { "name": "Today", "url": "./#/today", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }

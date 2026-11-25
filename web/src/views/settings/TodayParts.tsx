@@ -38,7 +38,7 @@ export const TODAY_TEXT = {
 
 /** Each part's name and the line under it saying what it holds; the same words as EACore `TodayText.parts`. */
 export const TODAY_PART_TEXT: Record<TodayPart, { name: string; holds: string }> = {
-  now: { name: "Now and free time", holds: "What is on now or next, and your free time." },
+  now: { name: "Now and free time", holds: "The task you started, else what is on now or next, and your free time." },
   tech: { name: "Tech", holds: "One line with the light for your machines, checks and readings. It shows only while something is watched." },
   needs: { name: "Needs you", holds: "Reminders that have come due, renewals, follow-ups, medicine not logged, and captures that could not be filed." },
   schedule: { name: "Schedule", holds: "Today's plans in time order, free time to schedule, and the people in them." },

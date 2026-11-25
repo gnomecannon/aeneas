@@ -31,9 +31,11 @@ pairing code made on a paired device.
 
 Today is the day as a status board, the same on every device. From the top, as it comes:
 
-- **The line at the top** says what is on now and how long it has left ("Dentist cleaning until 4:00 PM, 46 min
-  left"), else what is next and how long until it, else that nothing else is scheduled. Under it is the free time
-  now or next.
+- **The line at the top** (the Next line) says what you are on. A task is on it only when you press Start on it
+  ("Doing: Write the report", and the time left while its block runs). Otherwise it is what is on now and how long it
+  has left ("Dentist cleaning until 4:00 PM, 46 min left"), else what is next with a time today, an event, a block or
+  a reminder, and how long until it ("Next: Call the vet at 1:30 PM, in 40 min"), else "Nothing else today". Under it
+  is the free time now or next. The same line is on the widgets, the Watch and the Mac menu bar.
 - **Tech** (with Machines on) is one line above Needs you: a green dot and "All good", a yellow dot and "2 things
   need a look" when only readings are out of bounds or silent, or a red dot when a check is down or the hub's backup
   needs a look. It is folded each time you open Today. Press it to see each one with Propose a fix, Acknowledge and
@@ -43,8 +45,10 @@ Today is the day as a status board, the same on every device. From the top, as i
   not file. A charge on autopay is not on Today at all: it pays itself, and Renewals lists it.
 - **Schedule** names the all-day things first (events, and a plan rule for the whole day), then the day in time
   order with Schedule here on free time, then the people in today's plans with what you have noted about them.
-- **To do** shows the task you are doing, or the first one in Next, with its buttons, then your other open tasks:
-  the circle finishes one, Start makes it the task you are doing.
+- **To do** lists your open tasks: the circle finishes one, Start makes it the task you are doing. The task you
+  started is at the top with its buttons: Done, Skip (back to the end of Next), Start block while no block of it is
+  running, and Set aside where your device has it. A task first in Next is a suggestion; it is never taken to be what
+  you are doing until you press Start.
 - **Today so far** shows today's numbers when Health is on (weight, sleep, steps, caffeine, mood), and the diary's
   lines, finished tasks and logs in the order they happened. To capture something, use Capture, which is on every
   screen.
@@ -65,14 +69,23 @@ order, the same on every device:
   above.
 - **Lists in To do** chooses which Apple Reminders lists fill the To do card: All lists, or Only these lists with a box
   for each list that is on and one for No list (tasks made in Aeneas that are in no Reminders list). To do then shows
-  the task you are doing or the next one, and your other open tasks, from those lists only. Reset leaves this choice
-  as it is.
+  the task you started and your other open tasks, from those lists only. Reset leaves this choice as it is.
 
-## Now
+## The Next line everywhere (widgets, Watch, menu bar)
 
-Now shows the one task you are doing, or the first one in Next, with Done, Set aside, Skip and Start block. When
-nothing is being done it lists your open tasks, each with Start. On a wide window, what is due today and what is up
-next sit beside the task.
+There is no separate Now screen any more: Today covers it, and an old link or a widget that opened Now
+opens Today. The line at the top of Today shows in these places too, with the same words:
+
+- **The Now and next widget** (iPhone, iPad and Mac; on the iPhone also on the Lock Screen) and the **Windows app's
+  widget**: the line, with Done while a task you started is on it, a running activity, and Capture. Under a task you
+  started, the medium size shows what is on now or next.
+- **The Watch**: the Now and next page, one swipe below Ask, Capture and Hum Song, with Done and Skip for the task you
+  started and your Next tasks to start with a tap; and the Now and next complication.
+- **The Mac menu bar** and the **Quick Capture panel**.
+- **The Live Activity** on the iPhone follows a running activity, or the block of the task you started while it runs;
+  nothing else starts one.
+- **The assistant**, asked what to do next, starts from the task you started, else what is on now or next today, and
+  offers your Next tasks as suggestions.
 
 ## Week
 
@@ -92,7 +105,9 @@ Week is your calendar, laid out the way Apple's Calendar app does it:
 
 ## Tasks
 
-- **Set aside** takes a task out of Next and Now, with a reason, until you bring it back; it waits under Set aside.
+- **Set aside** takes a task out of Next, with a reason, until you bring it back; it waits under Set aside.
+- **Start** (on a task, or in its menu) makes it the task you are doing: it is on the Next line until you finish it,
+  skip it or start another.
 - **Done** offers Undo for a few seconds. A finished task has **Not done** in the Done list, which puts it back at the
   end of Next.
 - **Delete** is in a task's edit (on the iPhone also a swipe, on the Mac the right-click menu) and offers Undo. A task
@@ -382,7 +397,7 @@ works once your hub is set up. The switch is for each device, and the Mac has no
 
 **Which Reminders lists come in** (since 1.0.18) is one choice for every device, made on the iPhone, iPad or Mac
 (Settings, Accounts, From this iPhone, Reminders). Each list has a switch and Personal or Work. A list that is off
-stays out of Tasks, Today, Now, Week, search, alerts and the assistant, on every device, and stays as it is in Apple
+stays out of Tasks, Today, Week, search, alerts and the assistant, on every device, and stays as it is in Apple
 Reminders: nothing there is changed or deleted. Switch it on again and its tasks are back, with no doubles. Lists in
 iCloud or on the device itself start on, and so does any list that already had tasks; lists of other accounts
 (Exchange, Google, a school or work account) start off until you switch them on. Personal or Work moves a list's
@@ -420,25 +435,59 @@ Settings on a Mac).
 
 Capture takes a thought, task or note by voice or text, from the Capture screen, the Watch, or the Mac menu bar.
 Each capture goes into the day's diary and the assistant files it where it belongs (a plan on the calendar, a to-do,
-a fact in memory, a tagged note, a song idea, a film to watch), or nowhere when it is only a passing thought (the
-diary has it). One it could not file after three tries waits in Unsorted Info.
+a fact in memory, a tagged note, a song idea, a film to watch, a gift idea on that person's page), or nowhere when it
+is only a passing thought (the diary has it). One it could not file after three tries waits in Unsorted Info.
 
-## Music
+## People
 
-Music module. The Music screen starts with one row: a line to type and Hum Song. The line picks out chords, time
-signature, tempo and tuning (`Am F C G 6/8 112bpm drop D`); the rest is the title. Your ideas are under it by type,
-with a filter by status. Projects (at the top of the screen; on the Apple apps, the Projects row) holds your releases
-in the making: an album, an EP or a single. New project is there. Each project is a card that opens to its ideas and
-hummed takes, and the line and Hum Song inside a card add to that project. A project's status, tasks and plan are on
-its page in Projects. Cheat sheets and checklists are notes, in Notes under Music, Reference.
+A person's page (Library, Notes, People) shows what you have told Aeneas about them in sections that open and close:
+Likes, Dislikes, Gift ideas, then Health and food, History and Other when they hold something. Likes, Dislikes and
+Gift ideas are always there, each with a field to add one. A section with something in it starts open; your device
+remembers the ones you open or close. Mark a gift idea Given once you gave it: it stays on the list, dimmed, with the
+day, so you do not give it twice. Tap Not given to undo that.
+
+A capture like "gift idea for Jamie: a pottery class" goes to Jamie's Gift ideas. It becomes a task as well only when
+it names a day ("by Friday", or "for her birthday" when her birthday is on her card). Ask the assistant "what should I
+get Jamie?" and it reads Jamie's gift ideas and likes.
+
+## Song ideas
+
+Song ideas module (Library, Making, Song ideas; it was called Music until 2026-11-25). The Song ideas screen starts
+with one row: a line to type and Hum Song. The line picks out chords, time signature, tempo and tuning
+(`Am F C G 6/8 112bpm drop D`); the rest is the title. Your ideas are under it by type, with a filter by status.
+Projects (at the top of the screen; on the Apple apps, the Projects row) holds your releases in the making: an album,
+an EP or a single. New project is there. Each project is a card that opens to its ideas and hummed takes, and the line
+and Hum Song inside a card add to that project. A project's status, tasks and plan are on its page in Projects. Cheat
+sheets and checklists are notes, in Notes in the folder Music, Reference.
 
 ## Hum Song
 
-Music module. Press Hum Song (in Capture, Music, or on the Watch) and hum, sing, tap or beatbox for up to 2 minutes.
-The hub hears every recording both as a melody and as a rhythm. Afterwards, on the idea in Music, choose Melody,
-Rhythm or Both; playback and the MIDI download follow that choice. Until you choose, a hummed tune keeps only its
-melody (every hummed note also starts with a jump in level, which the rhythm hearing would add as a drum hit), and a
-recording with hits of its own between the notes keeps both. Each idea in Music shows when it was recorded.
+Song ideas module. Press Hum Song (in Capture, Song ideas, or on the Watch) and hum, sing, tap or beatbox for up to 2
+minutes. The hub hears every recording both as a melody and as a rhythm. Afterwards, on the idea in Song ideas, choose
+Melody, Rhythm or Both; playback and the MIDI download follow that choice. Until you choose, a hummed tune keeps only
+its melody (every hummed note also starts with a jump in level, which the rhythm hearing would add as a drum hit), and
+a recording with hits of its own between the notes keeps both. Each idea in Song ideas shows when it was recorded.
+
+## Music (Apple Music)
+
+Music module (Library, Media, Music; off until you switch it on in Settings, Modules). It brings your Apple Music taste
+into Aeneas so the assistant knows what you like: ask it what you listen to most, for a playlist idea for a long drive,
+or for a gift idea for a friend who likes the same bands. There is no key or password to make: your iPhone, iPad or Mac
+asks once for Apple Music, then reads your library with Apple's own MusicKit. It reads your songs with their play
+counts, artists, albums, genres and playlists, and with an Apple Music subscription the songs you played recently. It
+plays, adds and changes nothing in Apple Music.
+
+What it keeps is a short summary: your 30 most played artists and songs, up to 50 playlists (your own first), the 25
+songs you played last and your top genres, with when and on which device it was read. It goes to your hub, which
+shares it with your own devices and the assistant. A device reads again by itself when you open the app and the summary
+is more than 12 hours old, and Read Apple Music now on the Music screen reads it at once. An iPad with nothing in Apple
+Music never replaces the summary your iPhone read.
+
+The Music screen on the iPhone, iPad and Mac shows the summary, Read on (device), (when), and the button. If Apple
+Music is not allowed for Aeneas, it says so with Allow Apple Music, or the way to the system's privacy settings. With
+no subscription, the summary has no Recently played, and the screen says so. The web, Windows and Android apps show the
+same summary from Apple Music on (device), and until one has been read: Turn on Music on your iPhone, iPad or Mac to
+bring your Apple Music taste here. Spotify is not supported.
 
 ## Apple Watch
 
@@ -453,7 +502,7 @@ show, the recording screen says where it stands: still arriving (with how much h
 prepares the model for its chip), or ready. What the iPhone heard is what is saved, and once the hub has filed
 it the Watch shows where it went ("Filed: Logs: weight 192.2 lb") until your next capture. Ask uses Apple's dictation, which shows the words as you speak and suits a
 short question (it keeps only about the last 30 seconds of a long one). Complications (add them by editing a watch face):
-Ask, Capture, Hum Song, Now and Next up. When the Watch shows Offline, tap Offline, then Try now; opening the iPhone
+Ask, Capture, Hum Song, Now and next (the line at the top of Today) and Next up. When the Watch shows Offline, tap Offline, then Try now; opening the iPhone
 app helps it reconnect.
 
 ## The assistant
@@ -507,7 +556,7 @@ good.
   changes you note in one line ("What did you change?"), tell the assistant or say in a Capture ("I replaced the fan on
   the NAS"). A
   step you planned waits at the top with Done and Didn't do it. Lookups that needed approval but changed nothing stay out.
-- Renewals and bills are not in Tech: they are in Plan, Renewals.
+- Renewals and bills are not in Tech: they are in Life admin, Renewals.
 
 ## Family: a hub for someone else, and helping with their devices
 
