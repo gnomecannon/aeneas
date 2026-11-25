@@ -10,8 +10,60 @@ public final class SyncEngine: ObservableObject {
     public enum Status: Equatable, Sendable { case unconfigured, offline, connecting, online }
 
     /// Every entity by id. Screens read it through `list(_:)`, which is indexed by kind and rebuilt only after a change.
-    @Published public private(set) var entities: [String: Entity] = [:] { didSet { byKind = nil } }
-    var byKind: [Kind: [Entity]]?
+    @Published public private(set) var entities: [String: Entity] = [:] { didSet { noteChange() } }
+    /// The items by kind, built from `entities` when first asked for. Nil rebuilds every kind (anything may have
+    /// changed, or the sources setting did); a change whose kinds are known (`setEntities(_:kinds:)`) marks only those.
+    var byKind: [Kind: [Entity]]? { didSet { if byKind == nil { keptValues.removeAll(); staleKinds = []; everyRound &+= 1 } } }
+    /// Kinds whose lists in `byKind` are out of date, rebuilt at the next `list(_:)`.
+    private var staleKinds: Set<Kind> = []
+    /// Moved on for each kind whose items changed (`kindRound`), for any change at all (`anyRound`), and when every kind
+    /// may have changed (`everyRound`): what `kept` compares against.
+    private var kindRound: [Kind: Int] = [:]
+    private var anyRound = 0
+    private var everyRound = 0
+    /// The kinds the change being made touches, set only for the time of the change by a caller that knows them.
+    private var changingKinds: Set<Kind>?
+    private struct Kept { var value: Any; var every: Int; var any: Int; var rounds: [Int]?; var stamp: AnyHashable? }
+    private var keptValues: [String: Kept] = [:]
+
+    /// `make()`, worked out once and kept until the items it reads change: those of `kinds`, or of any kind when no
+    /// kinds are named, and in either case until the sources setting changes. With a `stamp` (a day, the moment a
+    /// screen asked for), only while the stamp is the same. Screens ask again each time they draw, and they draw again
+    /// on every change the app takes in: a sensor's new reading made Today plan the day again.
+    public func kept<T>(_ key: String, kinds: [Kind]? = nil, stamp: AnyHashable? = nil, _ make: () -> T) -> T {
+        let rounds = kinds.map { $0.map { kindRound[$0, default: 0] } }
+        if let k = keptValues[key], k.every == everyRound, k.stamp == stamp,
+           rounds == nil ? k.any == anyRound : k.rounds == rounds, let v = k.value as? T { return v }
+        let v = make()
+        // Worked out against the lists as they are now: `make` brought any stale kind up to date, which moves no round.
+        keptValues[key] = Kept(value: v, every: everyRound, any: anyRound, rounds: kinds.map { $0.map { kindRound[$0, default: 0] } }, stamp: stamp)
+        return v
+    }
+
+    /// After `entities` changed: the kinds named by `changingKinds` are marked out of date, anything else rebuilds all.
+    private func noteChange() {
+        anyRound &+= 1
+        if let ks = changingKinds, byKind != nil {
+            for k in ks { kindRound[k, default: 0] &+= 1 }
+            staleKinds.formUnion(ks)
+        } else {
+            byKind = nil
+        }
+    }
+
+    /// Replaces `entities` for a change that touches only `kinds`: the other kinds' lists and kept values stay.
+    private func setEntities(_ next: [String: Entity], kinds: Set<Kind>) {
+        changingKinds = kinds
+        entities = next
+        changingKinds = nil
+    }
+
+    /// Puts one entity in `entities` (as `setEntities(_:kinds:)`, for its kind and the kind it had).
+    private func put(_ e: Entity) {
+        changingKinds = Set([e.kind] + (entities[e.id].map { [$0.kind] } ?? []))
+        entities[e.id] = e
+        changingKinds = nil
+    }
     private var lastSnapshotKey = ""
     @Published public internal(set) var status: Status = .unconfigured
     @Published public internal(set) var lastError: String?
@@ -196,6 +248,14 @@ public final class SyncEngine: ObservableObject {
     /// A client at once, before `start()` has finished its first sync: Siri's question cannot wait for a cold start.
     public func readyClient() -> HubClient? { client ?? buildClient() }
 
+    /// The client before `start()` connects one, nothing synced yet. A screen the app opens on at launch (a link, a
+    /// notification, a widget, `-EASection`) reads at its first appearance, which came before `start()` had connected:
+    /// Wiki and Sensors said no hub was set up, and Recall quiz that the hub was out of reach, until opened again.
+    public func connectEarly() {
+        guard client == nil, !started, config.isConfigured, !deviceRemoved else { return }
+        connectClient()
+    }
+
     private func buildClient() -> HubClient? {
         if let make = makeClient { return make() }
         if deviceRemoved { return nil }
@@ -287,6 +347,8 @@ public final class SyncEngine: ObservableObject {
         liveWatch = nil
         retryTask?.cancel()
         retryTask = nil
+        changeSync?.cancel()
+        changeSync = nil
     }
 
     private func reloadFromStore() async {
@@ -300,14 +362,49 @@ public final class SyncEngine: ObservableObject {
         if (try? await store.meta("pulled")) == "1" { pulledOnce = true }
         else if cursor > 0 { pulledOnce = true; try? await store.setMeta("pulled", "1") }
         else { pulledOnce = false }
-        // An older build skipped items it could not read (a kind it did not know yet) and moved past them. After an
-        // update, read everything once more from the start; each item is merged, so nothing is doubled.
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        if !build.isEmpty, (try? await store.meta("synced_build")) != build {
+        // An update keeps the copy (each update read everything again, 35 pages for a year of items). Everything is
+        // read again from the start only when this build stores a kind the copy has not held (an older build skipped
+        // items of a kind it did not know and moved past them), when the store's format changed, or when the copy does
+        // not say (filled by a build from before 2026-11-25, which may have skipped some). Each item is merged, so
+        // nothing is doubled. Kinds this build no longer keeps (the Watch keeps only what it shows) leave the copy.
+        let plan = Self.copyPlan(storedKinds: try? await store.meta(Self.storedKindsKey), storedFormat: try? await store.meta(Self.storeFormatKey), kinds: storedKinds)
+        if plan.dropOthers, let gone = try? await store.removeKinds(notIn: Set(storedKinds.map(\.rawValue))), !gone.isEmpty {
+            var next = entities
+            for id in gone { next.removeValue(forKey: id) }
+            entities = next
+        }
+        if plan.readAgain {
             try? await store.setCursor(0)
-            try? await store.setMeta("synced_build", build)
             cursor = 0
         }
+        await markCopy()
+    }
+
+    /// What the copy holds and how it is stored, kept in the store's meta (`copyPlan`).
+    static let storedKindsKey = "stored_kinds"
+    static let storeFormatKey = "store_format"
+    /// The store's format: raise it when what the store keeps changes in a way an older copy cannot be read as.
+    nonisolated static let storeFormat = 1
+
+    /// The kinds this device keeps: every kind, or on the Watch only what its screens, complications and alerts read
+    /// (WatchKinds).
+    public var storedKinds: [Kind] { platform == .watch ? Self.watchKinds : Kind.allCases }
+
+    /// Write down what the copy holds now and its format.
+    func markCopy() async {
+        try? await store.setMeta(Self.storedKindsKey, storedKinds.map(\.rawValue).sorted().joined(separator: ","))
+        try? await store.setMeta(Self.storeFormatKey, String(Self.storeFormat))
+    }
+
+    /// At start: read everything again when a kind kept now is not in what the copy says it holds, when the format
+    /// changed or when the copy says nothing; drop kinds that are not kept when the copy may hold some.
+    nonisolated static func copyPlan(storedKinds: String?, storedFormat: String?, kinds: [Kind], format: Int = storeFormat) -> (readAgain: Bool, dropOthers: Bool) {
+        let now = Set(kinds.map(\.rawValue))
+        // A device that keeps some kinds only (the Watch) also drops what it made of others once the hub has it.
+        let some = now.count < Kind.allCases.count
+        guard let storedKinds, storedFormat == String(format) else { return (true, some) }
+        let held = Set(storedKinds.split(separator: ",").map(String.init))
+        return (!now.isSubset(of: held), some || !held.isSubset(of: now))
     }
 
     /// Settings, Reset local cache: throw away this device's copy and read everything again from the hub. Wiping
@@ -326,8 +423,7 @@ public final class SyncEngine: ObservableObject {
         entities = map
         cursor = 0
         outboxCount = (try? await store.outboxCount()) ?? 0
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        if !build.isEmpty { try? await store.setMeta("synced_build", build) }
+        await markCopy()
         updateSnapshot()
     }
 
@@ -484,8 +580,7 @@ public final class SyncEngine: ObservableObject {
         client = nil
         if let t = syncTask { await t.value }
         try? await store.reset()
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        if !build.isEmpty { try? await store.setMeta("synced_build", build) }
+        await markCopy()
         entities = [:]
         cursor = 0
         outboxCount = 0
@@ -520,10 +615,50 @@ public final class SyncEngine: ObservableObject {
         config.linkRoutes = nil
         config.deviceId = "sample-device"
         deviceRemoved = false
+        // The first sync brings the recording as of today: the copy's day.
+        if let t = SampleTransport.shared { try? await store.setMeta(Self.sampleDayKey, ISO.localDay(t.now)) }
         connectClient()
         status = .offline
         started = true
         await sync()
+    }
+
+    /// The local day the sample's copy on this device stands for (store meta).
+    static let sampleDayKey = "sample_day"
+    /// The moment today that what the recording had done but is still to come today was held back to (store meta,
+    /// SampleTransport.heldAt): one for the whole day, so the copy and every answer agree and a reminder held back
+    /// does not move each time it is read.
+    static let sampleHeldKey = "sample_held"
+
+    /// Sample mode: the copy on this device moves on with the days, as the recording's answers do (SampleTransport moves
+    /// those to the day they are read). It used to keep the day the sample was started: a day later Health and Memory
+    /// (this copy) showed the weigh-in a day earlier than Dashboard and Today (the recording). Every stored item, edits
+    /// made to the sample included, moves by the days since and is held back to now, as an answer is; the copy's day is
+    /// then today. A copy from before the mark was made stands for the day its first item was written (the recording's
+    /// items were all written on its own day, and edits only later). Only items that changed are written.
+    func catchUpSample() async {
+        guard config.sampleMode, let t = SampleTransport.shared else { return }
+        let now = t.now
+        let kept = (try? await store.meta(Self.sampleHeldKey)).flatMap { ISO.date($0) }
+        let held = SampleTransport.heldMoment(now: now, held: kept)
+        if held != kept { try? await store.setMeta(Self.sampleHeldKey, ISO.string(held)) }
+        t.heldAt = held
+        let all = (try? await store.all(kind: nil, includeDeleted: true)) ?? []
+        let marked = try? await store.meta(Self.sampleDayKey)
+        guard let day = marked ?? all.compactMap({ ISO.date($0.created_at) }).min().map({ ISO.localDay($0) }) else { return }
+        let days = SampleTransport.days(from: day, to: now) ?? 0
+        // On the same day too: a copy synced before anything was held back had the recorded morning still to come.
+        let changed = all.map { SampleTransport.move($0, days: days, around: day, now: now, to: held) }.enumerated().filter { $0.element != all[$0.offset] }.map(\.element)
+        do {
+            if !changed.isEmpty { try await store.replaceAll(changed) }
+            if days != 0 || marked == nil { try await store.setMeta(Self.sampleDayKey, ISO.localDay(now)) }
+        } catch {
+            return
+        }
+        guard !changed.isEmpty else { return }
+        var next = entities
+        for e in changed { next[e.id] = e }
+        entities = next
     }
 
     /// Sample mode off: the made-up month and every edit made to it are wiped, and the device is not set up. The
@@ -766,6 +901,8 @@ public final class SyncEngine: ObservableObject {
     private func performSync() async {
         guard let c = client else { status = .unconfigured; return }
         if status != .online { status = .connecting }
+        // Sample mode: the copy catches up with today first, so what the recording brings lands on the same day.
+        if config.sampleMode { await catchUpSample() }
         do {
             // A new connection: is it still the hub this device was paired with? Nothing goes out before that is known,
             // and nothing goes to another hub at all.
@@ -795,7 +932,7 @@ public final class SyncEngine: ObservableObject {
             note(error)
             status = client == nil ? .unconfigured : .offline
         }
-        await afterChange()
+        await afterChangeIfNeeded()
     }
 
     /// Done taps on the Now widget the hub has not taken (`SharedConfig.pendingWidgetDones`): each becomes a queued
@@ -807,7 +944,7 @@ public final class SyncEngine: ObservableObject {
         var taken: [WidgetDone] = []
         for d in waiting where entities[d.taskId]?.kind == .task {
             guard let e = try? await store.applyLocal(d.patch(task: entities[d.taskId])) else { continue }
-            entities[e.id] = e
+            put(e)
             taken.append(d)
         }
         guard !taken.isEmpty else { return }
@@ -903,19 +1040,22 @@ public final class SyncEngine: ObservableObject {
         var complete = false
         while loops < 200 {
             loops += 1
-            let page = try await c.changes(since: since, deviceId: config.deviceId)
+            // The Watch asks only for the kinds it keeps (the hub's `kinds`); other devices for everything.
+            let page = try await c.changes(since: since, kinds: platform == .watch ? Self.watchKinds : nil, deviceId: config.deviceId)
             if page.reset { since = 0; seen = [] }
             for ch in page.changes { seen?.insert(ch.entity.id) }
             // One store transaction and one screen update per page, and only for entities that actually changed:
             // a big import (a Steam library) used to redraw every screen once per entity.
             let stored = try await store.upsertManyFromHub(page.changes.map(\.entity))
             var next = entities
-            var changed = false
+            var kinds = Set<Kind>()
             for e in stored where next[e.id] != e {
+                if let old = next[e.id] { kinds.insert(old.kind) }
                 next[e.id] = e
-                changed = true
+                kinds.insert(e.kind)
             }
-            if changed { entities = next }
+            // Only the kinds that came in are worked out again: a sensor's reading leaves Today's plan as it was.
+            if !kinds.isEmpty { setEntities(next, kinds: kinds) }
             for ch in page.changes { since = max(since, ch.seq) }
             since = max(since, page.seq)
             // During a reset the cursor is kept only once the whole feed is in: cut short, the next pull starts over.
@@ -930,8 +1070,9 @@ public final class SyncEngine: ObservableObject {
             let removed = try await store.removeStale(keeping: seen)
             if !removed.isEmpty {
                 var next = entities
+                let kinds = Set(removed.compactMap { next[$0]?.kind })
                 for id in removed { next.removeValue(forKey: id) }
-                entities = next
+                setEntities(next, kinds: kinds)
             }
             try await store.setCursor(since)
             cursor = since
@@ -981,8 +1122,8 @@ public final class SyncEngine: ObservableObject {
                         guard let self = self else { return }
                         self.lastLiveEvent = Date()
                         switch ev {
-                        case .change:
-                            await self.sync()
+                        case .change(_, _, let kind):
+                            if self.pulls(kind) { self.syncForChange() }
                         case .notify(let n):
                             self.handleNotify(n)
                         case .modules(let list, let alerts, let appleReminders):
@@ -1018,6 +1159,34 @@ public final class SyncEngine: ObservableObject {
                     return
                 }
             }
+        }
+    }
+
+    /// Whether this device's pull brings items of `kind`: readings never come in the feed unless asked for by name, and
+    /// the Watch asks only for its own kinds. A change event of another kind has nothing to pull (a sensor sweep sent
+    /// one event per reading, and each started a sync).
+    func pulls(_ kind: Kind) -> Bool {
+        platform == .watch ? Self.watchKinds.contains(kind) : kind != .reading
+    }
+
+    /// A change event from `/live`: a sync now, and one more after it if more events came while it ran, however many
+    /// came. The stream reads on meanwhile. Each event used to wait for its own sync, so a burst of 30 changes (a
+    /// sensor sweep, an import) made 30 syncs in a row, each redrawing every screen when it found something.
+    private var changeSync: Task<Void, Never>?
+    private var changedAgain = false
+    private var changeRun = 0
+    func syncForChange() {
+        guard changeSync == nil else { changedAgain = true; return }
+        changeRun &+= 1
+        let run = changeRun
+        changeSync = Task { [weak self] in
+            guard let self else { return }
+            repeat {
+                self.changedAgain = false
+                await self.sync()
+            } while self.changedAgain && !Task.isCancelled
+            // Not when `stop()` already let this one go and another started since.
+            if self.changeRun == run { self.changeSync = nil }
         }
     }
 
@@ -1094,7 +1263,7 @@ public final class SyncEngine: ObservableObject {
     public func apply(_ patch: Patch) async -> Entity? {
         let before = entities[patch.id]
         guard let e = try? await store.applyLocal(patch) else { return nil }
-        entities[e.id] = e
+        put(e)
         if let m = FeelMoment.detect(before: before, after: e, created: patch.create == true) { moment(m, kind: e.kind) }
         outboxCount = (try? await store.outboxCount()) ?? 0
         await afterChange()
@@ -1105,7 +1274,7 @@ public final class SyncEngine: ObservableObject {
     /// Apply many local patches with one notification replan, one widget refresh and one sync.
     public func applyBatch(_ patches: [Patch]) async {
         for p in patches {
-            if let e = try? await store.applyLocal(p) { entities[e.id] = e }
+            if let e = try? await store.applyLocal(p) { put(e) }
         }
         outboxCount = (try? await store.outboxCount()) ?? 0
         await afterChange()
@@ -1152,7 +1321,7 @@ public final class SyncEngine: ObservableObject {
         if let stored = try? await store.upsertFromHub(e) {
             // Unchanged: no publish. Screens absorb what they load, and a publish makes them load again.
             guard stored != before else { return }
-            entities[stored.id] = stored
+            put(stored)
             if before != nil, let m = FeelMoment.detect(before: before, after: stored, created: false) { moment(m, kind: stored.kind) }
         }
     }
@@ -1163,15 +1332,18 @@ public final class SyncEngine: ObservableObject {
     public func absorb(_ list: [Entity]) async {
         guard !list.isEmpty, let stored = try? await store.upsertManyFromHub(list) else { return }
         var next = entities
-        var changed = false
+        var kinds = Set<Kind>()
         var finished: [(FeelMoment, Kind)] = []
         for e in stored where next[e.id] != e {
-            if let before = next[e.id], let m = FeelMoment.detect(before: before, after: e, created: false) { finished.append((m, e.kind)) }
+            if let before = next[e.id] {
+                kinds.insert(before.kind)
+                if let m = FeelMoment.detect(before: before, after: e, created: false) { finished.append((m, e.kind)) }
+            }
             next[e.id] = e
-            changed = true
+            kinds.insert(e.kind)
         }
-        guard changed else { return }
-        entities = next
+        guard !kinds.isEmpty else { return }
+        setEntities(next, kinds: kinds)
         for (m, kind) in finished { moment(m, kind: kind) }
     }
 
@@ -1195,6 +1367,15 @@ public final class SyncEngine: ObservableObject {
             var m: [Kind: [Entity]] = [:]
             for e in entities.values where !e.isDeleted && shows.shows(e) { m[e.kind, default: []].append(e) }
             byKind = m
+        } else if !staleKinds.isEmpty, var m = byKind {
+            // Only the kinds that changed, in the order a whole rebuild gives them (the same walk of `entities`).
+            let shows = visibility ?? TaskVisibility(sources)
+            visibility = shows
+            let kinds = staleKinds
+            staleKinds = []
+            for k in kinds { m[k] = nil }
+            for e in entities.values where kinds.contains(e.kind) && !e.isDeleted && shows.shows(e) { m[e.kind, default: []].append(e) }
+            byKind = m
         }
         let all = byKind?[kind] ?? []
         return space == nil ? all : all.filter { $0.space == space }
@@ -1205,8 +1386,22 @@ public final class SyncEngine: ObservableObject {
     // MARK: after change hooks
 
     func afterChange() async {
+        afterChangeMark = (Self.afterChangeKinds.map { kindRound[$0, default: 0] }, everyRound, Date())
         updateSnapshot()
         if schedulesNotifications { await replanNotifications() }
+    }
+
+    /// The kinds the widgets' snapshot and the planned notifications read (`updateSnapshot`, `replanNotifications`).
+    static let afterChangeKinds: [Kind] = [.task, .event, .capture, .log, .plan_rule, .reminder, .watch]
+    private var afterChangeMark: (rounds: [Int], every: Int, at: Date)?
+
+    /// After a sync: `afterChange` when items it reads changed, or a minute nearly passed since it last ran (what is
+    /// next moves on with the clock). A sync that brought nothing, or only a sensor or a monitor, used to work out the
+    /// widgets and every reminder's notification again, once per change event.
+    func afterChangeIfNeeded() async {
+        if let m = afterChangeMark, m.every == everyRound, m.rounds == Self.afterChangeKinds.map({ kindRound[$0, default: 0] }),
+           Date().timeIntervalSince(m.at) < 50 { return }
+        await afterChange()
     }
 
     /// The notifications the reminders on this device should have now: the task reminders, as every replan uses.

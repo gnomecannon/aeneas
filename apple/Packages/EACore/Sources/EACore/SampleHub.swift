@@ -2,8 +2,10 @@ import Foundation
 
 /// Sample mode: the app runs on a made-up month (the demo hub's "Alex", hub/scripts/demo-hub.ts) with no hub at all,
 /// for anyone trying the app before they set one up, and for App Review. Every answer comes from a recording of the
-/// demo hub (SampleHub.json in the app), moved forward so its "today" is the viewer's today. Nothing leaves the
-/// device: there is no network in sample mode. Edits stay on this device until sample mode ends, which wipes them.
+/// demo hub (SampleHub.json in the app), moved forward so its "today" is the viewer's today, on whatever day it is read.
+/// What the recording says had happened by the time it was made has happened by now too (`holdBack`). Nothing leaves
+/// the device: there is no network in sample mode. Edits stay on this device until sample mode ends, which wipes them;
+/// the device's copy moves on with the days as the recording does (SyncEngine.catchUpSample), edits included.
 public final class SampleTransport: HubTransport, @unchecked Sendable {
     public struct Entry: Codable, Sendable { public var status: Int; public var body: String }
     public struct Recording: Codable, Sendable {
@@ -17,9 +19,9 @@ public final class SampleTransport: HubTransport, @unchecked Sendable {
     nonisolated(unsafe) public static var shared: SampleTransport?
 
     private let recording: Recording
-    private let shiftDays: Int
-    /// The viewer's today, the base for dates in requests.
-    private let todayDay: String
+    /// The time now. The day the recording's dates move to, and what has happened yet, are worked out from it on every
+    /// answer: a sample left open past midnight moves on to the new day like one opened then.
+    private let clock: @Sendable () -> Date
     private let lock = NSLock()
     private var seq: Int
     private var chats: [String: AISession] = [:]
@@ -37,25 +39,55 @@ public final class SampleTransport: HubTransport, @unchecked Sendable {
     /// The hub's meals tax table (SampleMealsTax.json in the app), for the bill splitter's "Use my location".
     private let mealsTax: MealsTaxTable?
 
-    public init(recording: Recording, today: Date = Date(), mealsTax: MealsTaxTable? = nil) {
+    public init(recording: Recording, now: @escaping @Sendable () -> Date = { Date() }, mealsTax: MealsTaxTable? = nil) {
         self.recording = recording
         self.mealsTax = mealsTax
-        self.todayDay = ISO.localDay(today)
-        let rec = SampleTransport.dayDate(recording.day) ?? today
-        self.shiftDays = Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: rec), to: Calendar.current.startOfDay(for: today)).day ?? 0
+        self.clock = now
         self.seq = 1_000_000
     }
 
-    public convenience init?(data: Data, today: Date = Date(), mealsTax: MealsTaxTable? = nil) {
+    /// Read as on one moment that does not move (tests).
+    public convenience init(recording: Recording, today: Date, mealsTax: MealsTaxTable? = nil) {
+        self.init(recording: recording, now: { today }, mealsTax: mealsTax)
+    }
+
+    public convenience init?(data: Data, now: @escaping @Sendable () -> Date = { Date() }, mealsTax: MealsTaxTable? = nil) {
         guard let r = try? JSONDecoder().decode(Recording.self, from: data) else { return nil }
-        self.init(recording: r, today: today, mealsTax: mealsTax)
+        self.init(recording: r, now: now, mealsTax: mealsTax)
+    }
+
+    /// The time now, as this sample reads it.
+    public var now: Date { clock() }
+
+    private var held: Date?
+    /// Where today's held-back times go (see `holdBack`). The device's copy keeps one moment for the whole day
+    /// (SyncEngine.catchUpSample), so a reminder held back reads the same in every answer and in the copy, however often
+    /// it is read. Nil, or another day's: 10 minutes before now.
+    public var heldAt: Date? {
+        get { lock.withLock { held } }
+        set { lock.withLock { held = newValue } }
+    }
+
+    /// Where `holdBack` moves times to at `now`: `held` when it is earlier today, else 10 minutes before now, never
+    /// before today began (so an item stays on the day Dashboard shows it on).
+    public static func heldMoment(now: Date, held: Date? = nil) -> Date {
+        if let held, held <= now, Calendar.current.isDate(held, inSameDayAs: now) { return held }
+        return max(Calendar.current.startOfDay(for: now), now.addingTimeInterval(-600))
+    }
+
+    /// Whole local days from `day` (YYYY-MM-DD) to the day `now` falls on.
+    public static func days(from day: String, to now: Date) -> Int? {
+        guard let d = dayDate(day) else { return nil }
+        return Calendar.current.dateComponents([.day], from: Calendar.current.startOfDay(for: d), to: Calendar.current.startOfDay(for: now)).day
     }
 
     public func send(method: String, path: String, query: [String: String], body: Data?) async throws -> (status: Int, data: Data) {
         let p = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        let key = Self.key(method: method, path: p, query: query, recordedDay: todayDay)
+        let now = clock()
+        let key = Self.key(method: method, path: p, query: query, recordedDay: ISO.localDay(now))
         if let e = recording.entries[key] {
-            return (e.status, Data(Self.shift(e.body, days: shiftDays, around: recording.day).utf8))
+            let days = Self.days(from: recording.day, to: now) ?? 0
+            return (e.status, Data(Self.present(e.body, days: days, around: recording.day, now: now, to: Self.heldMoment(now: now, held: heldAt)).utf8))
         }
         // Changes after the recorded pages: nothing new (the sample does not change on its own).
         if method == "GET", p == "sync/changes", let since = query["since"], since != "0" {
@@ -169,6 +201,143 @@ public final class SampleTransport: HubTransport, @unchecked Sendable {
         }
         out += ns.substring(from: last)
         return out
+    }
+
+    /// A recorded answer as it reads `now`: its dates moved `days` later (`shift`), then held back to now (`holdBack`).
+    public static func present(_ body: String, days: Int, around day: String, now: Date, to moment: Date? = nil) -> String {
+        holdBack(shift(body, days: days, around: day), now: now, to: moment)
+    }
+
+    /// One stored item moved `days` later and held back to now, as `present` moves an answer: the device's copy of the
+    /// sample catches up with the day it is read on (SyncEngine.catchUpSample).
+    public static func move(_ e: Entity, days: Int, around day: String, now: Date, to moment: Date? = nil) -> Entity {
+        guard let text = try? JSONCoding.string(e) else { return e }
+        let out = present(text, days: days, around: day, now: now, to: moment)
+        return out == text ? e : (try? JSONCoding.decode(Entity.self, from: out)) ?? e
+    }
+
+    /// Keys whose time says when something happened (a log's `at`, a check's `last_check`, when an item was written),
+    /// never when something is planned (an event's `start`, a `due` date, a pet's `next_due`).
+    static let happenedKeys: Set<String> = [
+        "at", "created_at", "updated_at", "deleted_at", "done_at", "acknowledged_at", "opened_at", "reported_at", "time",
+        "last_at", "last_check", "last_ok", "last_seen", "last_sync", "last_import", "last_change", "last_played",
+        "last_session_close", "checked_at", "linked_at",
+    ]
+
+    /// What the recording says had happened by the time it was made has happened by now too. A recording made at 10 AM
+    /// and read at 12:30 AM had today's 7:30 weigh-in and the reminder that came due at 9:55 still to come: Health and
+    /// Memory showed the weigh-in later today, the reminder waited for 9:55, and Today's Next counted down to it. Every
+    /// time that says something happened (`happenedKeys`, and every stamp in an item's `field_ts`), and a reminder that
+    /// was already due when its item was last written, moves to `moment` when it is later than now (`heldMoment`: by
+    /// default 10 minutes before now, never before today began). Plans stay where they are. JSON answers and CSV
+    /// exports; anything else as it is.
+    public static func holdBack(_ text: String, now: Date, to moment: Date? = nil) -> String {
+        guard hasTime(after: now, in: text) else { return text }
+        let to = ISO.string(heldMoment(now: now, held: moment))
+        let first = text.first { !$0.isWhitespace }
+        if first == "{" || first == "[" {
+            guard let v = try? JSONCoding.decode(JSONValue.self, from: text) else { return text }
+            var changed = false
+            let out = holdBack(v, now: now, to: to, changed: &changed)
+            return changed ? (try? JSONCoding.string(out)) ?? text : text
+        }
+        return holdBackCSV(text, now: now, to: to)
+    }
+
+    /// Whether any date with a time in `text` is later than `now`: most answers have none, and are passed on unchanged.
+    private static func hasTime(after now: Date, in text: String) -> Bool {
+        let ns = text as NSString
+        for m in isoPattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) where m.range(at: 2).location != NSNotFound {
+            if let d = ISO.date(ns.substring(with: m.range)), d > now { return true }
+        }
+        return false
+    }
+
+    /// A date with a time (not a day alone) later than `now`.
+    private static func isLater(_ v: JSONValue?, than now: Date) -> Bool {
+        guard let s = v?.stringValue, s.count > 10, s.contains("T"), let d = ISO.date(s) else { return false }
+        return d > now
+    }
+
+    /// A reminder time that was not later than when its item was last written: it was due then, so it is due now.
+    private static func wasDue(_ v: JSONValue?, written: Date?) -> Bool {
+        guard let written, let d = ISO.date(v?.stringValue) else { return false }
+        return d <= written
+    }
+
+    private static func holdBack(_ v: JSONValue, now: Date, to: String, changed: inout Bool) -> JSONValue {
+        switch v {
+        case .array(let a):
+            return .array(a.map { holdBack($0, now: now, to: to, changed: &changed) })
+        case .object(var o):
+            // An item (the contract's envelope): its stamps all say when something was written.
+            if case .object(var fields)? = o["fields"], case .object(var stamps)? = o["field_ts"], o["kind"]?.stringValue != nil {
+                let written = ISO.date(o["updated_at"]?.stringValue)
+                for (k, t) in stamps where isLater(t, than: now) { stamps[k] = .string(to); changed = true }
+                for (k, f) in fields {
+                    if isLater(f, than: now), happenedKeys.contains(k) || (k == "remind_at" && wasDue(f, written: written)) {
+                        fields[k] = .string(to)
+                        changed = true
+                    } else {
+                        fields[k] = holdBack(f, now: now, to: to, changed: &changed)
+                    }
+                }
+                o["fields"] = .object(fields)
+                o["field_ts"] = .object(stamps)
+            }
+            for (k, x) in o where k != "fields" && k != "field_ts" {
+                if happenedKeys.contains(k), isLater(x, than: now) { o[k] = .string(to); changed = true }
+                else if case .object = x { o[k] = holdBack(x, now: now, to: to, changed: &changed) }
+                else if case .array = x { o[k] = holdBack(x, now: now, to: to, changed: &changed) }
+            }
+            return .object(o)
+        default:
+            return v
+        }
+    }
+
+    /// The same for a CSV export (the hub's `entitiesCsv`, a sensor's readings): its columns are named by the first row.
+    private static func holdBackCSV(_ text: String, now: Date, to: String) -> String {
+        // Rows of cells as written (quotes kept), with what ended each row.
+        var rows: [[String]] = [], ends: [String] = []
+        var row: [String] = [], cell = "", quoted = false
+        for ch in text {
+            if quoted {
+                cell.append(ch)
+                if ch == "\"" { quoted = false } // a doubled quote reopens at once, below
+            } else if ch == "\"" {
+                quoted = true
+                cell.append(ch)
+            } else if ch == "," {
+                row.append(cell)
+                cell = ""
+            } else if ch == "\n" || ch == "\r\n" {
+                row.append(cell)
+                rows.append(row)
+                ends.append(String(ch))
+                row = []
+                cell = ""
+            } else {
+                cell.append(ch)
+            }
+        }
+        if !cell.isEmpty || !row.isEmpty { row.append(cell); rows.append(row); ends.append("") }
+        guard let header = rows.first else { return text }
+        let happened = header.indices.filter { happenedKeys.contains(header[$0]) }
+        let remind = header.firstIndex(of: "remind_at"), updated = header.firstIndex(of: "updated_at")
+        var changed = false
+        for r in rows.indices.dropFirst() {
+            let written = updated.flatMap { rows[r].indices.contains($0) ? ISO.date(rows[r][$0]) : nil }
+            for c in happened where rows[r].indices.contains(c) && isLater(.string(rows[r][c]), than: now) {
+                rows[r][c] = to
+                changed = true
+            }
+            if let c = remind, rows[r].indices.contains(c), isLater(.string(rows[r][c]), than: now), wasDue(.string(rows[r][c]), written: written) {
+                rows[r][c] = to
+                changed = true
+            }
+        }
+        return changed ? zip(rows, ends).map { $0.joined(separator: ",") + $1 }.joined() : text
     }
 
     static func dayDate(_ s: String) -> Date? {

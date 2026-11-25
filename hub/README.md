@@ -285,7 +285,7 @@ State: every check writes `last_check`, `last_latency_ms`, `consecutive_fails` a
 
 Jobs: a 15 s loop runs every enabled monitor whose `last_check` is missing or older than `interval_s`, at most 8 at a time, skips a pass while the previous one is still running, then runs the re-notify sweep. Every check is a row in the `checks` table (`monitor_id, at, ok, latency_ms, error`), not an entity, so the change feed stays quiet; rows older than 7 days are deleted at 03:30 every night. `uptime_24h` is the share of ok rows per monitor over the last 24 h, two decimals.
 
-Seed: `deploy/seed/monitors.json` holds ten monitors, matched by name (deleted ones included) and created only when missing, so edits and deletions survive a reseed: LAN and Tailscale pings for the owner's other machines (every 120 s), `hub health` (`http://127.0.0.1:8787/health`, expect `ok`, every 60 s), `Ollama` (`<model host>:11434/api/tags`, every 60 s). Core is not pinged (the hub runs on it) and its own Tailscale certificate is not probed (core cannot reach its own Serve endpoint).
+Seed: `deploy/seed/monitors.json` holds ten monitors, matched by name (deleted ones included) and created only when missing, so edits and deletions survive a reseed: LAN and Tailscale pings for the owner's other machines (every 120 s), `hub health` (`http://127.0.0.1:8787/health`, expect `ok`, every 60 s, on the hub's own machine: its host `{{hub_machine}}` is that machine's name), `Ollama` (`<model host>:11434/api/tags`, every 60 s). Core is not pinged (the hub runs on it) and its own Tailscale certificate is not probed (core cannot reach its own Serve endpoint).
 
 `/status` carries `ops: { monitors, down, incidents_open }`; `/metrics/proof` rows carry `incidents_opened`.
 

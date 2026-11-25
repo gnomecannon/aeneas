@@ -132,6 +132,11 @@ export function loadHosts(cfg: Pick<Config, "sshConfigPath" | "hostsFile">): Hos
   return [...hosts.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** The name the hub's own machine goes by (Tech, the assistant): its entry in the machines file, else the computer's own name. */
+export function hubMachineName(cfg: Pick<Config, "sshConfigPath" | "hostsFile">): string {
+  return loadHosts(cfg).find((h) => h.local)?.name ?? os.hostname().toLowerCase().split(".")[0];
+}
+
 export function findHost(hosts: Host[], name: string): Host | null {
   const n = name.trim().toLowerCase().replace(/\.local$/, "");
   return hosts.find((h) => h.name === n || h.aliases.includes(n) || h.aliases.includes(`${n}.local`)) ?? null;

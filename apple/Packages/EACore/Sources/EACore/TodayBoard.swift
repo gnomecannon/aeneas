@@ -305,7 +305,12 @@ public enum TodayBoard {
         public var id: String
         /// When it happened, for the order.
         public var at: Date
+        /// When it happened, in words: "8:10 AM", or "Yesterday 8:10 AM" for a line from before midnight (the day runs
+        /// until 4 AM, so after midnight a bare 8:10 AM read as later today).
         public var time: String
+        /// "Yesterday" for a line from before midnight, else nil; `clock` is the time alone.
+        public var day: String?
+        public var clock: String
         public var text: String
         public var kind: Kind
         /// The task or log it is, for its link.
@@ -314,29 +319,37 @@ public enum TodayBoard {
 
     /// What was said and done today, oldest first: the diary's lines (every capture, as the assistant filed it),
     /// tasks finished, and logs with words in them (a med taken, an activity). Numbers logged today are
-    /// `todayNumbers`. The day runs 4 AM to 4 AM, as the diary's does.
+    /// `todayNumbers`. The day runs 4 AM to 4 AM, as the diary's does; between midnight and 4 AM its lines from before
+    /// midnight say "Yesterday" before their time.
     public static func soFar(diary: [DiaryLine], tasks: [Entity], logs: [Entity], now: Date, startHour: Int = 4, calendar: Calendar = .current,
                              clock: Clock = deviceClock) -> [SoFarRow] {
         let start = dayStart(now, startHour: startHour, calendar: calendar)
         let to = start.addingTimeInterval(86400)
         let midnight = calendar.startOfDay(for: start)
+        let today = calendar.startOfDay(for: now)
+        func row(_ id: String, _ at: Date, _ text: String, _ kind: SoFarRow.Kind, _ itemId: String?) -> SoFarRow {
+            let day = at < today ? "Yesterday" : nil
+            return SoFarRow(id: id, at: at, time: [day, clock(at)].compactMap { $0 }.joined(separator: " "), day: day, clock: clock(at), text: text, kind: kind, itemId: itemId)
+        }
         var rows: [SoFarRow] = []
         for (i, l) in diary.enumerated() {
             let p = l.time.split(separator: ":").compactMap { Int($0) }
             guard p.count == 2, var d = calendar.date(bySettingHour: p[0], minute: p[1], second: 0, of: midnight) else { continue }
             // A line before the day's first hour was said after midnight: it is on the next calendar day.
             if p[0] < startHour { d = calendar.date(byAdding: .day, value: 1, to: d) ?? d }
-            rows.append(SoFarRow(id: "c:\(i)", at: d.addingTimeInterval(Double(i) / 1000), time: clock(d), text: l.text, kind: .capture, itemId: nil))
+            var r = row("c:\(i)", d, l.text, .capture, nil)
+            r.at = d.addingTimeInterval(Double(i) / 1000)
+            rows.append(r)
         }
         for t in tasks where !t.isDeleted {
             guard let done = t.date("done_at"), done >= start, done < to else { continue }
-            rows.append(SoFarRow(id: "d:" + t.id, at: done, time: clock(done), text: "Done: \(t.str("title"))", kind: .done, itemId: t.id))
+            rows.append(row("d:" + t.id, done, "Done: \(t.str("title"))", .done, t.id))
         }
         for l in logs where !l.isDeleted {
             guard let at = l.date("at"), at >= start, at < to else { continue }
             let type = l.str("type"), value = (l.fields["value"]?.displayString ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty, type == "med" || type == "activity" || type == "workout" else { continue }
-            rows.append(SoFarRow(id: "l:" + l.id, at: at, time: clock(at), text: type == "med" ? "Took \(value)" : "\(type.prefix(1).uppercased() + type.dropFirst()): \(value)", kind: .log, itemId: l.id))
+            rows.append(row("l:" + l.id, at, type == "med" ? "Took \(value)" : "\(type.prefix(1).uppercased() + type.dropFirst()): \(value)", .log, l.id))
         }
         return rows.sorted { a, b in a.at != b.at ? a.at < b.at : a.id < b.id }
     }

@@ -100,17 +100,37 @@ public enum TodayExtras {
 
     /// The names that point at a person in text: full name, nickname, and a first name nobody else shares.
     public static func mentionNames(_ person: Entity, among everyone: [Entity]) -> [String] {
+        mentionNames(person, firstNames: firstNames(everyone))
+    }
+
+    /// The ids of the live people who go by each first name, so mentionNames need not compare everyone with everyone.
+    private static func firstNames(_ everyone: [Entity]) -> [String: Set<String>] {
+        var out: [String: Set<String>] = [:]
+        for p in everyone where !p.isDeleted { out[firstName(p), default: []].insert(p.id) }
+        return out
+    }
+
+    private static func mentionNames(_ person: Entity, firstNames: [String: Set<String>]) -> [String] {
         var names = [person.str("name"), person.str("nickname")].map(nameNorm).filter { $0.count >= 2 }
         let given = firstName(person)
-        if given.count >= 2, !everyone.contains(where: { $0.id != person.id && !$0.isDeleted && firstName($0) == given }) { names.append(given) }
+        let sharing = firstNames[given] ?? []
+        if given.count >= 2, sharing.count <= (sharing.contains(person.id) ? 1 : 0) { names.append(given) }
         var seen = Set<String>()
         return names.filter { seen.insert($0).inserted }
     }
 
     /// Whether one of `names` appears in `text` as whole words (a trailing 's counts).
     public static func mentions(_ text: String, _ names: [String]) -> Bool {
-        let t = (" " + nameNorm(text) + " ").replacingOccurrences(of: "'s ", with: " ")
-        return names.contains { t.contains(" \($0) ") }
+        mentioned(in: mentionText(text), names)
+    }
+
+    /// Text as `mentioned(in:)` reads it, made once for a text read for many people.
+    private static func mentionText(_ text: String) -> String {
+        (" " + nameNorm(text) + " ").replacingOccurrences(of: "'s ", with: " ")
+    }
+
+    private static func mentioned(in t: String, _ names: [String]) -> Bool {
+        names.contains { t.contains(" \($0) ") }
     }
 
     private static let stop: Set<String> = Set("about after again also going have just like likes loves only really some that them then there they this tonight today tomorrow with from what when will would your".split(separator: " ").map(String.init))
@@ -122,8 +142,11 @@ public enum TodayExtras {
     /// What the owner has told the app about someone: facts linked to them (`person_id`), kept with their name before
     /// they were in People (`person`), or whose text names them, linked ones first. Same rule as the hub.
     public static func factsAbout(_ person: Entity, among everyone: [Entity], facts: [Entity]) -> [Entity] {
+        factsAbout(person, names: mentionNames(person, among: everyone), facts: facts)
+    }
+
+    private static func factsAbout(_ person: Entity, names: [String], facts: [Entity]) -> [Entity] {
         let called = Set([person.str("name"), person.str("nickname"), person.str("given_name")].map(nameNorm).filter { !$0.isEmpty })
-        let names = mentionNames(person, among: everyone)
         func linked(_ f: Entity) -> Bool { f.str("person_id") == person.id || (f.str("person_id").isEmpty && called.contains(nameNorm(f.str("person")))) }
         let live = facts.filter { !$0.isDeleted }
         return live.filter(linked) + live.filter { !linked($0) && mentions($0.str("value"), names) }
@@ -161,11 +184,22 @@ public enum TodayExtras {
     /// Luigi's brings up what they like at Luigi's, then the newest. Same rule as the hub.
     public static func peopleInPlans(people: [Entity], facts: [Entity], plans: [PlanItem], limit: Int = 6) -> [PersonToday] {
         let live = people.filter { !$0.isDeleted }
-        let names = Dictionary(live.map { ($0.id, mentionNames($0, among: live)) }, uniquingKeysWith: { a, _ in a })
+        // First names counted once and each plan's text read once: everyone against everyone took a third of a second
+        // on each draw of Today with 250 people.
+        let given = firstNames(live)
+        let names = Dictionary(live.map { ($0.id, mentionNames($0, firstNames: given)) }, uniquingKeysWith: { a, _ in a })
+        // Who could be named in a text, by the first word of each of their names: a name is in a text only when that
+        // word is one of the text's words. Testing every person against every plan took 75 ms on each draw of Today.
+        var byWord: [Substring: [Int]] = [:]
+        for (i, p) in live.enumerated() {
+            for n in names[p.id] ?? [] { if let w = n.split(separator: " ").first { byWord[w, default: []].append(i) } }
+        }
         var order: [Entity] = []
         var theirs: [String: [PlanItem]] = [:]
         for plan in plans {
-            for p in live where mentions(plan.title + "\n" + plan.text, names[p.id] ?? []) {
+            let text = mentionText(plan.title + "\n" + plan.text)
+            let could = Set(text.split(separator: " ").flatMap { byWord[$0] ?? [] }).sorted()
+            for p in could.map({ live[$0] }) where mentioned(in: text, names[p.id] ?? []) {
                 if theirs[p.id] != nil { theirs[p.id]?.append(plan) }
                 else if order.count < limit { order.append(p); theirs[p.id] = [plan] }
             }
@@ -175,7 +209,7 @@ public enum TodayExtras {
             let mine = theirs[p.id] ?? []
             let own = Set((names[p.id] ?? []).flatMap { $0.split(separator: " ").map(String.init) })
             let planWords = words(mine.map { $0.title + " " + $0.text }.joined(separator: " "), skip: own)
-            let about = factsAbout(p, among: live, facts: facts)
+            let about = factsAbout(p, names: names[p.id] ?? [], facts: facts)
             let scored: [(fact: Entity, shared: Int)] = about.map { f in (f, words(f.str("value"), skip: own).intersection(planWords).count) }
             let ranked = scored.sorted { a, b in a.shared != b.shared ? a.shared > b.shared : a.fact.updated_at > b.fact.updated_at }
             let notes: [String] = ranked.prefix(3).map { $0.fact.str("value") }.filter { !$0.isEmpty }

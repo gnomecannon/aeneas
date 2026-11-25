@@ -8,7 +8,7 @@ extension SyncEngine {
     public var tasks: [Entity] { list(.task) }
 
     /// The single current task: status doing, else the lowest order next task.
-    public var nowTask: Entity? { nowTask(where: { _ in true }) }
+    public var nowTask: Entity? { kept("nowTask", kinds: [.task]) { nowTask(where: { _ in true }) } }
 
     /// The current task among those `keep` lets through (Today's To do, holding the lists chosen for it).
     public func nowTask(where keep: (Entity) -> Bool) -> Entity? {
@@ -18,20 +18,25 @@ extension SyncEngine {
     }
 
     public var upNext: [Entity] {
-        let nowId = nowTask?.id
-        return tasks.filter { $0.str("status") == "next" && $0.id != nowId }.sorted(by: Self.byOrder)
+        kept("upNext", kinds: [.task]) {
+            let nowId = nowTask?.id
+            return tasks.filter { $0.str("status") == "next" && $0.id != nowId }.sorted(by: Self.byOrder)
+        }
     }
 
     /// Tasks with one status, by order; Scheduled (where reminders wait) by when they notify.
     public func tasks(status: TaskStatus) -> [Entity] {
-        let items = tasks.filter { $0.str("status") == status.rawValue }
-        if status == .scheduled {
-            return items.sorted { a, b in
-                let x = a.alertDate ?? .distantFuture, y = b.alertDate ?? .distantFuture
-                return x != y ? x < y : Self.byOrder(a, b)
+        // Kept until a task changes: Tasks asks for each status every time it draws.
+        kept("tasks.\(status.rawValue)", kinds: [.task]) {
+            let items = tasks.filter { $0.str("status") == status.rawValue }
+            if status == .scheduled {
+                // Each one's reminder time once, not twice for every comparison.
+                return items.map { ($0, $0.alertDate ?? .distantFuture) }
+                    .sorted { a, b in a.1 != b.1 ? a.1 < b.1 : Self.byOrder(a.0, b.0) }
+                    .map(\.0)
             }
+            return items.sorted(by: Self.byOrder)
         }
-        return items.sorted(by: Self.byOrder)
     }
 
     /// By order, then creation, then id: the cache is a dictionary, so without the tie-breaks equal orders
@@ -169,7 +174,9 @@ extension SyncEngine {
     // MARK: Capture
 
     public var unprocessedCaptures: [Entity] {
-        list(.capture).filter { !($0.bool("processed") ?? false) }.sorted { $0.created_at > $1.created_at }
+        kept("unprocessedCaptures", kinds: [.capture]) {
+            list(.capture).filter { !($0.bool("processed") ?? false) }.sorted { $0.created_at > $1.created_at }
+        }
     }
 
     public var captureSource: Source {
@@ -431,12 +438,21 @@ extension SyncEngine {
 
     /// Open tasks with a reminder time, soonest first.
     public var reminders: [Entity] {
-        list(.task).filter { $0.reminderFields != nil }.sorted { ($0.alertDate ?? .distantFuture) < ($1.alertDate ?? .distantFuture) }
+        kept("reminders", kinds: [.task]) {
+            // Each reminder's time worked out once: the sort read it twice for every comparison, and reading it decodes
+            // the task's reminder fields (5,000 tasks: about 50 ms each time a screen drew, and screens draw on every change).
+            list(.task).compactMap { e -> (Entity, Date)? in
+                guard e.reminderFields != nil else { return nil }
+                return (e, e.alertDate ?? .distantFuture)
+            }
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
+        }
     }
 
     public var remindersToday: [Entity] {
         let cal = Calendar.current
-        return reminders.filter { $0.alertDate.map { cal.isDateInToday($0) } ?? false }
+        return kept("remindersToday", kinds: [.task], stamp: ISO.localDay()) { reminders.filter { $0.alertDate.map { cal.isDateInToday($0) } ?? false } }
     }
 
     /// A task that notifies at `at`. It waits in Scheduled rather than joining Next.
@@ -479,7 +495,8 @@ extension SyncEngine {
 
     // MARK: Notes, memory, projects
 
-    public var notes: [Entity] { list(.note).sorted { $0.str("title").localizedCaseInsensitiveCompare($1.str("title")) == .orderedAscending } }
+    /// Every note by title. Sorted once per change: Notes reads it each time it draws, a keystroke in its search too.
+    public var notes: [Entity] { kept("notes", kinds: [.note]) { list(.note).sorted { $0.str("title").localizedCaseInsensitiveCompare($1.str("title")) == .orderedAscending } } }
     public var facts: [Entity] { list(.fact) }
     public var rules: [Entity] { list(.rule) }
     public var ledgers: [Entity] { list(.ledger) }

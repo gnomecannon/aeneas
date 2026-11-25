@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { BUNDLES, SHORT_LIVED_BUNDLE_IDS, listAsSent, CARD_ICON, blockUndo, draftRequest, flatScreen, folderActs, folderRow, fromChoice, givesFocusBack, hitRow, inboxPlace, inboxScreen, inProvider, keyFocus, keyTarget, mailApp, mailboxOf, moveFolders, reminderRow, rowKind, rowTakes, screenRows, threadToFollow, triageRow, WRITING_BOX, type MailKey, type MailMailbox, backLaterToday, selectAll, foldedLines, needsYou, whereLabel, fileSize, previewSrc, riskyFile, MAIL_KEYS, folderCount, folderGroups, askBeforeLeaving, folderLabel, folderWho, type FolderMail, type MailFolder, tripDates, tripsOf, type MailCard, swipeAction, swipeLock, cardLine, cardLink, cardTime, bundleClass, bundleOf, dueReminders, mailKeyAction, deliveryAt, inboxAt, QUOTE_SELECTOR, threadRows, frameLink, initials, logoSrc, shownAt, snoozeChoices, httpsLink, dayGroup, inboxSections, initial, matches, messageLines, nameHidesAddress, replyToWarning, sendersLine, shownBundles, textParts, viewMessages, whenLabel, type MailSummary, frameClick, checkFrameLinks, type KeyFocus } from "./mail";
+import { BUNDLES, SHORT_LIVED_BUNDLE_IDS, dayGrouper, listAsSent, CARD_ICON, blockUndo, draftRequest, flatScreen, folderActs, folderRow, fromChoice, givesFocusBack, hitRow, inboxPlace, inboxScreen, inProvider, keyFocus, keyTarget, mailApp, mailboxOf, moveFolders, reminderRow, rowKind, rowTakes, screenRows, threadToFollow, triageRow, WRITING_BOX, type MailKey, type MailMailbox, backLaterToday, selectAll, foldedLines, needsYou, whereLabel, fileSize, previewSrc, riskyFile, MAIL_KEYS, folderCount, folderGroups, askBeforeLeaving, folderLabel, folderWho, type FolderMail, type MailFolder, tripDates, tripsOf, type MailCard, swipeAction, swipeLock, cardLine, cardLink, cardTime, bundleClass, bundleOf, dueReminders, mailKeyAction, deliveryAt, inboxAt, QUOTE_SELECTOR, threadRows, frameLink, initials, logoSrc, shownAt, snoozeChoices, httpsLink, dayGroup, inboxSections, initial, matches, messageLines, nameHidesAddress, replyToWarning, sendersLine, shownBundles, textParts, viewMessages, whenLabel, type MailSummary, frameClick, checkFrameLinks, type KeyFocus } from "./mail";
 import { SCREEN_MODULE, moduleOfScreen } from "./modules";
 
 const ALEX = { name: "Alex", address: "alex@example.com" };
@@ -1016,5 +1016,17 @@ describe("mail at a glance", () => {
     const settings = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
     for (const text of [src, settings]) expect(text).not.toMatch(/@(icloud|me|mac|gmail|googlemail|fastmail|outlook|hotmail|yahoo|proton)\.(com|me)\b/);
     expect(src).toContain('placeholder="family@northwind.example"');
+  });
+});
+
+describe("dayGrouper", () => {
+  it("gives every time the heading dayGroup gives it, from today back over a year", () => {
+    const now = new Date();
+    const group = dayGrouper(now);
+    for (let i = 0; i < 3000; i++) {
+      const iso = new Date(now.getTime() - (i * 7919 % 420) * 86_400_000 - (i * 104_729 % 86_400_000) + 3_600_000).toISOString();
+      expect(group(iso)).toBe(dayGroup(iso, now));
+    }
+    expect(group("not a date")).toBe("Earlier");
   });
 });

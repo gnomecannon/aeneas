@@ -225,6 +225,29 @@ export function openMailDb(dbPath: string): DB {
   if (!(db.prepare("PRAGMA table_info(folder_mail)").all() as { name: string }[]).some((c) => c.name === "attachments")) db.exec("ALTER TABLE folder_mail ADD COLUMN attachments TEXT");
   // A folder's name as the server gives it (since 2026-11-23): NULL for one kept before, until the next refresh.
   if (!(db.prepare("PRAGMA table_info(folders)").all() as { name: string }[]).some((c) => c.name === "name")) db.exec("ALTER TABLE folders ADD COLUMN name TEXT");
+  // The list's changes (since 2026-11-25, listChanges): each row's change number, the number given out last, and the
+  // keys of rows gone, kept by triggers so that no write anywhere is missed.
+  if (!inboxCols.includes("v")) db.exec("ALTER TABLE inbox ADD COLUMN v INTEGER NOT NULL DEFAULT 0");
+  db.exec(`CREATE INDEX IF NOT EXISTS inbox_v ON inbox(v);
+CREATE TABLE IF NOT EXISTS list_changes (id INTEGER PRIMARY KEY CHECK (id = 1), seq INTEGER NOT NULL, floor INTEGER NOT NULL);
+INSERT OR IGNORE INTO list_changes (id, seq, floor) VALUES (1, 0, 0);
+CREATE TABLE IF NOT EXISTS inbox_gone (seq INTEGER PRIMARY KEY, key TEXT NOT NULL, at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS inbox_gone_at ON inbox_gone(at);
+DROP TRIGGER IF EXISTS inbox_listed_insert;
+DROP TRIGGER IF EXISTS inbox_listed_update;
+DROP TRIGGER IF EXISTS inbox_listed_delete;
+CREATE TRIGGER inbox_listed_insert AFTER INSERT ON inbox BEGIN
+  UPDATE list_changes SET seq = seq + 1 WHERE id = 1;
+  UPDATE inbox SET v = (SELECT seq FROM list_changes WHERE id = 1) WHERE rowid = new.rowid;
+END;
+CREATE TRIGGER inbox_listed_update AFTER UPDATE OF ${LISTED_COLUMNS.join(", ")} ON inbox BEGIN
+  UPDATE list_changes SET seq = seq + 1 WHERE id = 1;
+  UPDATE inbox SET v = (SELECT seq FROM list_changes WHERE id = 1) WHERE rowid = new.rowid;
+END;
+CREATE TRIGGER inbox_listed_delete AFTER DELETE ON inbox BEGIN
+  UPDATE list_changes SET seq = seq + 1 WHERE id = 1;
+  INSERT INTO inbox_gone (seq, key, at) VALUES ((SELECT seq FROM list_changes WHERE id = 1), old.key, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+END;`);
   // Search finds a word whatever its case, in any alphabet: SQLite's own lower() knows only A to Z.
   db.function("ulower", { deterministic: true }, (v: unknown) => (typeof v === "string" ? v.toLowerCase() : v));
   return db;
@@ -447,6 +470,9 @@ export function deleteAllMail(db: DB): number {
   db.prepare("DELETE FROM logos").run();
   db.prepare("DELETE FROM outbox").run();
   db.prepare("DELETE FROM mail_proposals").run();
+  // Nothing of the mail stays, the keys of what left included: every device gets the whole (empty) list next.
+  db.prepare("DELETE FROM inbox_gone").run();
+  db.prepare("UPDATE list_changes SET floor = seq WHERE id = 1").run();
   db.pragma("wal_checkpoint(TRUNCATE)");
   return n;
 }
@@ -569,12 +595,101 @@ export const LIST_MAX = 5000;
  * Everything kept, newest first, each in its bundle (mail-bundles.ts, worked out now from `ctx`, the owner's records):
  * the screen sorts it into Inbox, Snoozed, Done and the bundles.
  */
-export function listMail(db: DB, ctx: BundleContext = NO_MODULES): MailSummary[] {
-  const rows = db.prepare("SELECT account, key, at, from_name, from_address, reply_to, subject, substr(text, 1, 3000) AS text, automated, unsubscribe, list_id, rcpt, refs, bundle, state, pinned, snooze_until, logo_domain, back_at, seen, thread, mine, cards, attachments, triage, fold_note FROM inbox ORDER BY coalesce(back_at, at) DESC, key LIMIT ?").all(LIST_MAX) as (Row & { unsubscribe: number; list_id: string | null; rcpt: string | null; refs: string | null })[];
-  return rows.map((r) => ({
-    ...summary(r),
-    bundle: bundleOf(bundleMailOf(r), ctx),
-  }));
+export function listMail(db: DB, ctx: BundleContext = NO_MODULES, max = LIST_MAX): MailSummary[] {
+  // The order is found from the dates alone, and only the mail that makes the list is read whole: sorting every kept
+  // mail with its text took SQLite over twice as long.
+  const rows = db.prepare(`SELECT ${LISTED_SELECT}
+    FROM (SELECT rowid AS r, coalesce(back_at, at) AS o, key AS k FROM inbox ORDER BY o DESC, k LIMIT ?) s CROSS JOIN inbox t ON t.rowid = s.r ORDER BY s.o DESC, s.k`).all(max) as ListedRow[];
+  return rows.map((r) => listed(r, ctx));
+}
+
+/**
+ * The columns a list's summary, its order and its bundle are made from. Writing any of them gives the row a new change
+ * number (the trigger inbox_listed_update, made from this list), so listChanges sends it again; a column added to the
+ * list goes here.
+ */
+const LISTED_COLUMNS = ["account", "key", "at", "from_name", "from_address", "reply_to", "subject", "text", "automated", "unsubscribe", "list_id", "rcpt", "refs", "bundle", "state", "pinned", "snooze_until", "logo_domain", "back_at", "seen", "thread", "mine", "cards", "attachments", "triage", "fold_note"] as const;
+const LISTED_SELECT = LISTED_COLUMNS.map((c) => (c === "text" ? "substr(text, 1, 3000) AS text" : c)).join(", ");
+type ListedRow = Row & { unsubscribe: number; list_id: string | null; rcpt: string | null; refs: string | null };
+const listed = (r: ListedRow, ctx: BundleContext): MailSummary => ({ ...summary(r), bundle: bundleOf(bundleMailOf(r), ctx) });
+
+/** How long the keys of mail that left are kept for listChanges: a device away longer gets the whole list. */
+const GONE_DAYS = 40;
+
+/** Where a device's copy of the list stands (`cursor`, opaque to the devices). */
+interface ListCursor {
+  /** The change number it is up to. */
+  s: number;
+  /** What the summaries and bundles are made with: the owner's records, the hub's version, the list's length. */
+  f: string;
+  /** The logos it has. */
+  l: string;
+  /** The order of its last row when the list was full (more mail kept than it lists), else null. */
+  b: [string, string] | null;
+}
+const cursorText = (c: ListCursor) => Buffer.from(JSON.stringify({ v: 1, ...c })).toString("base64url");
+function cursorOf(text: string): ListCursor | null {
+  try {
+    const c = JSON.parse(Buffer.from(text, "base64url").toString("utf8")) as ListCursor & { v?: number };
+    if (c.v !== 1 || !Number.isInteger(c.s) || typeof c.f !== "string" || typeof c.l !== "string") return null;
+    if (c.b !== null && !(Array.isArray(c.b) && c.b.length === 2 && c.b.every((x) => typeof x === "string"))) return null;
+    return c;
+  } catch { return null; }
+}
+const shortHash = (text: string) => crypto.createHash("sha256").update(text).digest("hex").slice(0, 16);
+
+/**
+ * The list as `GET /mail?since=<cursor>` answers it (CONTRACT.md, Mail; since 2026-11-25): with no cursor, or one the
+ * hub cannot answer from (another version, other records, keys of gone mail no longer kept, more changes than the
+ * list holds), the whole list (`messages`); otherwise only what changed since the cursor: `changed` (summaries, in list
+ * order) and `gone` (ids no longer listed: gone, or moved out of the list's length). A device puts them into its copy
+ * and keeps the newest `max` by when they show (`back_at`, else `at`) and id, the list's own order, so its copy is the
+ * list. Logos come only when they changed. Every answer has the cursor to send next. A Done, a pin or an opened mail
+ * reloaded all of the list (2.5 MB for 5,000 mails) on every device; now it is the few mails it changed.
+ */
+export function listChanges(db: DB, ctx: BundleContext, since: string, version: string, max = LIST_MAX):
+  { cursor: string; max: number; messages?: MailSummary[]; changed?: MailSummary[]; gone?: string[]; logos?: Record<string, string> } {
+  pruneGone(db);
+  const read = db.transaction(() => {
+    const { seq, floor } = db.prepare("SELECT seq, floor FROM list_changes WHERE id = 1").get() as { seq: number; floor: number };
+    const logos = mailLogos(db);
+    const l = shortHash(JSON.stringify(logos));
+    const f = shortHash(JSON.stringify([version, max, ctx]));
+    const win = db.prepare("SELECT rowid AS r, coalesce(back_at, at) AS o, key AS k FROM inbox ORDER BY o DESC, k LIMIT ?").all(max) as { r: number; o: string; k: string }[];
+    const last = win.length >= max ? win[win.length - 1] : null;
+    const cursor = cursorText({ s: seq, f, l, b: last ? [last.o, last.k] : null });
+    const full = () => ({ cursor, max, messages: listMail(db, ctx, max), logos });
+    const c = since ? cursorOf(since) : null;
+    if (!c || c.f !== f || c.s > seq || c.s < floor) return full();
+    const pos = new Map(win.map((w, i) => [w.r, i]));
+    const want = new Set<number>();
+    const gone: string[] = [];
+    for (const x of db.prepare("SELECT rowid AS r, key FROM inbox WHERE v > ?").all(c.s) as { r: number; key: string }[]) {
+      if (pos.has(x.r)) want.add(x.r); else gone.push(x.key);
+    }
+    // Rows that came into the list without changing: the list was full and mail before them left it.
+    if (c.b) for (const w of win) if (w.o < c.b[0] || (w.o === c.b[0] && w.k > c.b[1])) want.add(w.r);
+    for (const g of db.prepare("SELECT key FROM inbox_gone WHERE seq > ?").all(c.s) as { key: string }[]) gone.push(g.key);
+    if (want.size + gone.length > max) return full();
+    const one = db.prepare(`SELECT ${LISTED_SELECT} FROM inbox WHERE rowid = ?`);
+    const changed = [...want].sort((a, b) => pos.get(a)! - pos.get(b)!).map((r) => listed(one.get(r) as ListedRow, ctx));
+    return { cursor, max, changed, gone: [...new Set(gone)], ...(c.l !== l ? { logos } : {}) };
+  });
+  return read.deferred();
+}
+
+/** Keys of mail that left more than GONE_DAYS ago go; a cursor from before them gets the whole list. */
+const pruned = new WeakMap<DB, number>();
+function pruneGone(db: DB, now = Date.now()): void {
+  if (now - (pruned.get(db) ?? 0) < 3_600_000) return;
+  pruned.set(db, now);
+  const before = new Date(now - GONE_DAYS * DAY_MS).toISOString();
+  db.transaction(() => {
+    const top = (db.prepare("SELECT max(seq) AS s FROM inbox_gone WHERE at < ?").get(before) as { s: number | null }).s;
+    if (top === null) return;
+    db.prepare("DELETE FROM inbox_gone WHERE seq <= ?").run(top);
+    db.prepare("UPDATE list_changes SET floor = max(floor, ?) WHERE id = 1").run(top);
+  }).immediate();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

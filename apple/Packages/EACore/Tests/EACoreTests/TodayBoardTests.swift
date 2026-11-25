@@ -187,6 +187,10 @@ final class TodayBoardTests: XCTestCase {
         let late = Entity(id: "t1", kind: .task, fields: ["title": "Dishes", "done_at": .string(ISO.string(at(0, 20, day: 23)))])
         let rows = TodayBoard.soFar(diary: diary, tasks: [late], logs: [], now: now, calendar: cal, clock: clock)
         XCTAssertEqual(rows.map(\.text), ["Evening", "Done: Dishes", "After midnight"])
+        // After midnight a line from before it says so: a bare 10:15 PM read as later today.
+        XCTAssertEqual(rows.map(\.time), ["Yesterday 22:15", "00:20", "01:10"])
+        XCTAssertEqual(rows.map(\.day), ["Yesterday", nil, nil])
+        XCTAssertEqual(rows.map(\.clock), ["22:15", "00:20", "01:10"])
         XCTAssertEqual(TodayBoard.dayStart(now, calendar: cal), at(4, day: 22))
         XCTAssertEqual(TodayBoard.dayStart(at(4, 1, day: 23), calendar: cal), at(4, day: 23))
     }

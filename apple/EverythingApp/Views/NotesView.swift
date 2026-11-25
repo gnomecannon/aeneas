@@ -38,12 +38,15 @@ struct NotesView: View {
     }
 
     var body: some View {
+        // Worked out once each time the screen draws (each letter typed in the search): the list and the empty note
+        // both read it, and it went through every note for each.
+        let shown = filtered
         // A wide window: the folders stay a list, 340 points wide, and the note you click opens beside it instead of
         // over it, so the rest of the window is the note. The list keeps its swipe, folders and search.
         WideReader { wide in
             if wide {
                 HStack(spacing: 0) {
-                    list
+                    list(shown)
                         .environment(\.noteOpener, NoteOpener(openId: openNote) { openNote = $0 })
                         .frame(width: 340)
                     Divider()
@@ -58,10 +61,10 @@ struct NotesView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
-                list
+                list(shown)
             }
         }
-        .overlay { if filtered.isEmpty { EmptyState(text: query.isEmpty ? "No notes" : "No matches") } }
+        .overlay { if shown.isEmpty { EmptyState(text: query.isEmpty ? "No notes" : "No matches") } }
         .searchable(text: $query, prompt: "Search notes")
         .navigationTitle("Notes")
         // A note asked for by a link or Spotlight opens straight away.
@@ -101,9 +104,9 @@ struct NotesView: View {
         #endif
     }
 
-    private var list: some View {
-        let tree = NoteFolder.tree(filtered)
-        let ideas = NoteFolder.ideas(filtered)
+    private func list(_ notes: [Entity]) -> some View {
+        let tree = NoteFolder.tree(notes)
+        let ideas = NoteFolder.ideas(notes)
         return List {
             if !ideas.isEmpty {
                 DisclosureGroup(isExpanded: isOpen("ideas")) {
@@ -165,9 +168,11 @@ struct NoteFolder: Identifiable {
     private mutating func finish() -> Int {
         children.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         // The diary gains a note a day: newest first. Other folders by title.
+        // Notes from `engine.notes` come by title already: they are only checked, not sorted again (each draw).
+        let byTitle: (Entity, Entity) -> Bool = { $0.str("title").localizedCaseInsensitiveCompare($1.str("title")) == .orderedAscending }
         notes = path == "Diary"
             ? notes.sorted { $0.str("path") > $1.str("path") }
-            : notes.sorted { $0.str("title").localizedCaseInsensitiveCompare($1.str("title")) == .orderedAscending }
+            : zip(notes, notes.dropFirst()).contains { byTitle($1, $0) } ? notes.sorted(by: byTitle) : notes
         var total = notes.count
         for i in children.indices { total += children[i].finish() }
         count = total

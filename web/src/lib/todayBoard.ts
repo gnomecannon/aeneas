@@ -170,7 +170,14 @@ export interface SoFarRow {
   key: string;
   /** When it happened, for the order. */
   at: number;
+  /**
+   * When it happened, in words: "8:10 AM", or "Yesterday 8:10 AM" for a line from before midnight (the day runs until
+   * 4 AM, so after midnight a bare 8:10 AM read as later today).
+   */
   time: string;
+  /** "Yesterday" for a line from before midnight; `clock` is the time alone. */
+  day?: "Yesterday";
+  clock: string;
   text: string;
   kind: "capture" | "done" | "log";
   /** The task or log it is, for its link. */
@@ -187,30 +194,36 @@ export function dayStart(now: Date, startHour: number): Date {
 /**
  * What was said and done today, oldest first: the diary's lines (every capture, as the assistant filed it), tasks
  * finished, and logs with words in them (a med taken, an activity). Numbers logged today are `todayNumbers`.
- * The day runs 4 AM to 4 AM, as the diary's does.
+ * The day runs 4 AM to 4 AM, as the diary's does; between midnight and 4 AM its lines from before midnight say
+ * "Yesterday" before their time.
  */
 export function soFar(input: { diary: { lines: { time: string; text: string }[] } | null; tasks: Entity[]; logs: Entity[]; now: Date; startHour?: number }): SoFarRow[] {
   const start = dayStart(input.now, input.startHour ?? 4);
   const from = start.getTime(), to = from + 86_400_000;
+  const today = new Date(input.now.getFullYear(), input.now.getMonth(), input.now.getDate()).getTime();
+  const when = (at: number, iso: string): Pick<SoFarRow, "time" | "day" | "clock"> => {
+    const clock = fmtTime(iso);
+    return at < today ? { time: `Yesterday ${clock}`, day: "Yesterday", clock } : { time: clock, clock };
+  };
   const rows: SoFarRow[] = [];
   (input.diary?.lines ?? []).forEach((l, i) => {
     const [h, m] = l.time.split(":").map(Number);
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h, m);
     // A line before the day's first hour was said after midnight: it is on the next calendar day.
     if (h < start.getHours()) d.setDate(d.getDate() + 1);
-    rows.push({ key: `c:${i}`, at: d.getTime() + i / 1000, time: fmtTime(d.toISOString()), text: l.text, kind: "capture" });
+    rows.push({ key: `c:${i}`, at: d.getTime() + i / 1000, ...when(d.getTime(), d.toISOString()), text: l.text, kind: "capture" });
   });
   for (const t of input.tasks) {
     const done = typeof t.fields.done_at === "string" ? Date.parse(t.fields.done_at) : NaN;
     if (t.deleted_at || !(done >= from && done < to)) continue;
-    rows.push({ key: `d:${t.id}`, at: done, time: fmtTime(String(t.fields.done_at)), text: `Done: ${String(t.fields.title ?? "")}`, kind: "done", id: t.id });
+    rows.push({ key: `d:${t.id}`, at: done, ...when(done, String(t.fields.done_at)), text: `Done: ${String(t.fields.title ?? "")}`, kind: "done", id: t.id });
   }
   for (const l of input.logs) {
     const at = Date.parse(String(l.fields.at ?? ""));
     if (l.deleted_at || !(at >= from && at < to)) continue;
     const type = String(l.fields.type ?? ""), value = String(l.fields.value ?? "").trim();
     if (!value || (type !== "med" && type !== "activity" && type !== "workout")) continue;
-    rows.push({ key: `l:${l.id}`, at, time: fmtTime(String(l.fields.at)), text: type === "med" ? `Took ${value}` : `${cap(type)}: ${value}`, kind: "log", id: l.id });
+    rows.push({ key: `l:${l.id}`, at, ...when(at, String(l.fields.at)), text: type === "med" ? `Took ${value}` : `${cap(type)}: ${value}`, kind: "log", id: l.id });
   }
   return rows.sort((a, b) => a.at - b.at);
 }

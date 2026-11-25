@@ -5,6 +5,12 @@
  */
 import type { Hub } from "../src/hub.js";
 import { appendDiary, diaryDay } from "../src/diary.js";
+import { registerDevice } from "../src/devices.js";
+import { reportComputer } from "../src/hostsensors.js";
+import { identifyTick, type Signals } from "../src/identify.js";
+import { setMachineOs } from "../src/machineinfo.js";
+import { loadHosts, readMachines, writeMachines } from "../src/ai/hosts.js";
+import os from "node:os";
 
 
 /** Local time on day `n` from today at "HH:MM". */
@@ -87,4 +93,35 @@ export function seedWorld(hub: Hub): Record<string, string> {
   ids.songs = s.create("project", { name: "Songs", status: "active", definition_of_done: "One song finished end to end", area: "music" }).id;
   ids.nas = s.create("note", { title: "NAS upgrade plan", path: "Homelab/NAS upgrade plan.md", body: "# NAS upgrade plan\n\nSwap the four 4TB drives in the NAS for 12TB IronWolfs and rebuild as RAIDZ2.\n\n- Budget: $900\n- Copy everything to the 8TB USB drive first\n- Resilver one disk at a time, check SMART after each\n" }).id;
   return ids;
+}
+
+/**
+ * The hub's own machine is the sample journal's "server", whatever the computer the demo runs on is called (its name
+ * stays in the demo's own machines file). Before the starter seed, so the hub's own check is put on it.
+ */
+export function nameHubMachine(cfg: Hub["cfg"]): void {
+  const self = loadHosts(cfg).find((h) => h.local);
+  const name = os.hostname().toLowerCase().split(".")[0];
+  writeMachines(cfg, [...(readMachines(cfg) ?? []).filter((e) => e.name !== "server"), { name: "server", local: true, os: self?.os ?? "linux", aliases: [name] }]);
+}
+
+/**
+ * Alex's machines as a real hub comes to know them (Tech): the hub's own machine ("server", nameHubMachine) says what
+ * it runs as its readings would, the laptop's Aeneas app reports it with its readings and the macOS it runs, and the
+ * hub's pass that works out what kind of device each one is (identify.ts) asks nas01 at its check's address. Without
+ * these every sample machine sat under Not identified, and the journal's "server" was a machine of its own beside the
+ * hub's. The answer to that ask is made up here: the demo asks nothing on the network and reads nothing of the
+ * machine it runs on.
+ */
+export async function seedMachines(hub: Hub, now = new Date()): Promise<void> {
+  nameHubMachine(hub.cfg);
+  const self = loadHosts(hub.cfg).find((h) => h.local);
+  setMachineOs(hub, "server", self?.os === "windows" ? "Windows 11 Pro" : self?.os === "linux" ? "Ubuntu 24.04 LTS" : "macOS 26.1", now.toISOString());
+  const mac = registerDevice(hub.store, { name: "Alex's Mac", platform: "mac" });
+  reportComputer(hub, mac.device_id, { name: "laptop", output: "os macOS 26.1\ncpu 18.4\nmem 57\ndisk / 46.2\n" }, now);
+  const answers: Record<string, Signals> = {
+    // nas01: SSH and its web page answer; file sharing (its SMB check) is what is down.
+    "10.255.255.1": { open: [22, 5000, 5001], ssh: "SSH-2.0-OpenSSH_8.2p1 Debian", http: "nas01 - Synology DiskStation" },
+  };
+  await identifyTick(hub, now, async (host) => answers[host] ?? { open: [] });
 }

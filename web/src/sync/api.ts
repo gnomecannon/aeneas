@@ -6,8 +6,8 @@ import type { CheckRow, OpsData } from "../lib/ops";
 import type { Feel, FeelView } from "../feel/prefs";
 import type { Board, DashboardPrefs, MetricInfo, Series, Tile } from "../lib/dashboard";
 import type { WikiHit, WikiIndex, WikiPage } from "../lib/wiki";
-import type { BundleDelivery, CustomBundle, FolderMail, FoldNote, SearchHit, UnsubscribeOptions, MailAttachment, MailBlocked, MailMovedTo, MoveTarget, MailDraft, MailDraftRequest, MailSent, OutboxItem, MailGreeting, MailList, MailNotify, MailMessage, MailMoved, MailRefresh, SnoozeTimes, TriageAnswer } from "../lib/mail";
-import { listAsSent } from "../lib/mail";
+import type { BundleDelivery, CustomBundle, FolderMail, FoldNote, SearchHit, UnsubscribeOptions, MailAttachment, MailBlocked, MailMovedTo, MoveTarget, MailDraft, MailDraftRequest, MailSent, OutboxItem, MailGreeting, MailList, MailListAnswer, MailNotify, MailMessage, MailMoved, MailRefresh, SnoozeTimes, TriageAnswer } from "../lib/mail";
+import { applyListChanges, listAsSent } from "../lib/mail";
 import type { ChatMailProposal, MailProposal, MailProposalEdit } from "../lib/mailProposal";
 import { directBase, hubFetch, isDirect } from "./direct";
 import type { JoinRequest } from "./join";
@@ -1094,8 +1094,20 @@ export class HubClient {
   }
 
   /** The Mail screen (module mail_inbox): the linked mailboxes' Inbox, sorted into bundles. */
-  mailList(signal?: AbortSignal) {
-    return this.req<MailList>("GET", "/mail", undefined, signal).then(listAsSent);
+  /** The last list and the cursor it stands at: the next read asks only for what changed since (applyListChanges). */
+  private mailCopy: { list: MailList; cursor: string } | null = null;
+
+  /**
+   * The Mail screen's list. Each read after the first asks the hub for what changed since the last one (`since`), so a
+   * Done or an opened mail brings a few mails, not all 5,000. A hub from before answers with the whole list each time.
+   */
+  async mailList(signal?: AbortSignal): Promise<MailList> {
+    const ask = (since: string) => this.req<MailListAnswer>("GET", `/mail?since=${encodeURIComponent(since)}`, undefined, signal);
+    let a = await ask(this.mailCopy?.cursor ?? "");
+    let list = applyListChanges(this.mailCopy?.list ?? null, a);
+    if (!list) { a = await ask(""); list = applyListChanges(null, a)!; }
+    this.mailCopy = a.cursor ? { list, cursor: a.cursor } : null;
+    return listAsSent(list);
   }
   mailMessage(id: string) {
     return this.req<MailMessage>("GET", `/mail/messages/${encodeURIComponent(id)}`);

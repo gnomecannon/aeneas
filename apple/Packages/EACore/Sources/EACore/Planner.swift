@@ -107,10 +107,20 @@ public enum LocalPlanner {
         return out.sorted { $0.start < $1.start }
     }
 
+    /// `calendar.isDate(_:inSameDayAs: day)` as a test against the day's own span, worked out once: asked for every
+    /// event and task of the year, the calendar's own test took most of the time of planning a day.
+    static func sameDay(as day: Date, calendar: Calendar) -> (Date) -> Bool {
+        guard let span = calendar.dateInterval(of: .day, for: day) else { return { calendar.isDate($0, inSameDayAs: day) } }
+        return { $0 >= span.start && $0 < span.end }
+    }
+
     public static func blocks(tasks: [Entity], on day: Date, calendar: Calendar = .current) -> [PlannerBlock] {
         var out: [PlannerBlock] = []
+        let inDay = sameDay(as: day, calendar: calendar)
+        // Only a task with a block is decoded: decoding every task of the year took most of a day's planning.
         for t in tasks where t.kind == .task && !t.isDeleted {
-            guard let f = t.decoded(TaskFields.self), let b = f.block, let s = ISO.date(b.start), calendar.isDate(s, inSameDayAs: day) else { continue }
+            guard case .object = t.fields["block"] else { continue }
+            guard let f = t.decoded(TaskFields.self), let b = f.block, let s = ISO.date(b.start), inDay(s) else { continue }
             if f.status == .done || f.status == .parked { continue }
             out.append(PlannerBlock(task_id: t.id, title: f.title, start: b.start, end: b.end, status: f.status))
         }
@@ -156,22 +166,23 @@ public enum LocalPlanner {
         // which west of UTC would put it on the evening before.
         let ymd = calendar.dateComponents([.year, .month, .day], from: day)
         let key = String(format: "%04d-%02d-%02d", ymd.year ?? 0, ymd.month ?? 0, ymd.day ?? 0)
+        let inDay = sameDay(as: day, calendar: calendar)
         let dayEvents = events.filter { e in
             guard e.kind == .event, !e.isDeleted else { return false }
             if e.bool("all_day") == true {
                 let s = String(e.str("start").prefix(10)), en = String(e.str("end").prefix(10))
                 return s == key || (s < key && key < en)
             }
-            return e.date("start").map { calendar.isDate($0, inSameDayAs: day) } == true
+            return e.date("start").map(inDay) == true
         }
             .sorted { ($0.date("start") ?? .distantPast) < ($1.date("start") ?? .distantPast) }
         let dayReminders = reminders.filter { e in
             guard let d = e.alertDate else { return false }
-            return calendar.isDate(d, inSameDayAs: day)
+            return inDay(d)
         }.sorted { ($0.alertDate ?? .distantPast) < ($1.alertDate ?? .distantPast) }
         let dayWatches = watches.filter { e in
             guard e.kind == .watch, !e.isDeleted, let d = e.date("due") else { return false }
-            return calendar.isDate(d, inSameDayAs: day)
+            return inDay(d)
         }
         return PlannerDay(date: dateString(day), blocks: blocks, events: dayEvents, commitments: commitments, reminders: dayReminders, watches_due: dayWatches,
                           free_slots: freeSlots(on: day, blocks: blocks, commitments: commitments, events: dayEvents, minHours: minHours, now: now, calendar: calendar))
@@ -219,17 +230,24 @@ public enum LocalPlanner {
 // MARK: - Engine actions for the planner, watches and plan rules
 
 extension SyncEngine {
-    public var watches: [Entity] { list(.watch).sorted { ($0.date("due") ?? .distantFuture) < ($1.date("due") ?? .distantFuture) } }
-    public var planRules: [Entity] { list(.plan_rule).sorted { $0.str("title").localizedCaseInsensitiveCompare($1.str("title")) == .orderedAscending } }
+    public var watches: [Entity] { kept("watches", kinds: [.watch]) { list(.watch).sorted { ($0.date("due") ?? .distantFuture) < ($1.date("due") ?? .distantFuture) } } }
+    public var planRules: [Entity] { kept("planRules", kinds: [.plan_rule]) { list(.plan_rule).sorted { $0.str("title").localizedCaseInsensitiveCompare($1.str("title")) == .orderedAscending } } }
     public var events: [Entity] { list(.event) }
 
     /// The next block today that starts after now, other than the Now task's own block.
     public func nextBlockToday(excluding id: String? = nil, now: Date = Date()) -> PlannerBlock? {
-        LocalPlanner.blocks(tasks: tasks, on: now).first { $0.task_id != id && (ISO.date($0.start) ?? .distantPast) > now }
+        // The day's blocks are the same all day until a task changes; the widgets ask after every change.
+        kept("blocksToday", kinds: [.task], stamp: ISO.localDay(now)) { LocalPlanner.blocks(tasks: tasks, on: now) }
+            .first { $0.task_id != id && (ISO.date($0.start) ?? .distantPast) > now }
     }
 
     public func localDay(_ day: Date, minHours: Double = LocalPlanner.defaultBlockHours, now: Date = Date()) -> PlannerDay {
-        LocalPlanner.day(day, tasks: tasks, rules: planRules, events: events, reminders: reminders, watches: watches, minHours: minHours, now: now)
+        // Kept while the items it plans from are the same and it is asked for the same day at the same moment: Today asks
+        // with its clock's last tick (every 30 s), and drew the day again for every change it took in, a sensor's too.
+        kept("localDay|\(ISO.localDay(day))|\(minHours)", kinds: [.task, .plan_rule, .event, .watch],
+             stamp: [day, now, TimeZone.current.identifier] as [AnyHashable]) {
+            LocalPlanner.day(day, tasks: tasks, rules: planRules, events: events, reminders: reminders, watches: watches, minHours: minHours, now: now)
+        }
     }
 
     public func localWeek(start: Date, minHours: Double = LocalPlanner.defaultBlockHours, now: Date = Date()) -> PlannerWeek {

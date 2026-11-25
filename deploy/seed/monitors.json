@@ -1,7 +1,7 @@
 [
   {
     "name": "hub health",
-    "host": "hub",
+    "host": "{{hub_machine}}",
     "type": "http",
     "target": "http://127.0.0.1:{{port}}/health",
     "expect": "ok",

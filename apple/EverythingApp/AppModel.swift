@@ -225,6 +225,8 @@ final class AppModel: ObservableObject {
         #endif
         engine = SyncEngine(config: .shared, platform: platform)
         if engine.config.sampleMode { Self.loadSample() }
+        // Before any screen shows: one the app opens on reads its first answer through it (SyncEngine.connectEarly).
+        engine.connectEarly()
         isConfigured = engine.config.isConfigured && !engine.deviceRemoved
         deviceRemoved = engine.deviceRemoved
         engine.onDeviceRemoved = { [weak self] in

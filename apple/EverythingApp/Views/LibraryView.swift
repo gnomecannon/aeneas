@@ -36,7 +36,7 @@ struct LibraryView: View {
                     .accessibilityHint(open ? "Hides its screens" : "Shows its screens")
                     if open {
                         ForEach(area.sections) { s in
-                            NavigationLink(value: s) { LibraryRow(section: s, summary: engine.summary(for: s)) }
+                            NavigationLink(value: s) { LibraryRow(section: s, summary: engine.keptSummary(for: s)) }
                         }
                     }
                 }
@@ -114,6 +114,13 @@ struct LibraryRow: View {
 }
 
 extension SyncEngine {
+    /// `summary(for:)`, kept until the items it counts change or the day turns. Library is a tab, and a tab out of sight
+    /// still draws again on every change the app takes in: a sensor's reading counted every task again.
+    func keptSummary(for s: Section) -> String? {
+        guard let kinds = s.summaryKinds else { return summary(for: s) }
+        return kept("library.\(s.rawValue)", kinds: kinds, stamp: ISO.localDay()) { summary(for: s) }
+    }
+
     /// One short line per Library screen: what is waiting there right now.
     func summary(for s: Section) -> String? {
         func n(_ c: Int, _ one: String, _ many: String) -> String { c == 1 ? "1 \(one)" : "\(c) \(many)" }
@@ -348,6 +355,38 @@ struct SearchView: View {
         case .person: return .people
         case .image: return .images
         case .device: return .settings
+        }
+    }
+}
+
+extension Section {
+    /// The kinds a Library line counts (`SyncEngine.summary(for:)`); nil for a line that reads something else, or nothing.
+    var summaryKinds: [Kind]? {
+        switch self {
+        case .inbox: [.capture]
+        case .tasks: [.task]
+        case .renewals: [.watch]
+        case .dashboard, .health: [.task, .log]
+        case .notes: [.note]
+        case .memory: [.fact]
+        case .people: [.person]
+        case .ops: [.monitor, .sensor]
+        case .hosts: [.runbook, .journal, .snippet, .monitor]
+        case .journal: [.journal]
+        case .snippets: [.snippet]
+        case .projects: [.project]
+        case .procedures: [.procedure]
+        case .music: [.music_idea]
+        case .quiz: [.quiz]
+        case .images: [.image]
+        case .pet: [.pet_event]
+        case .food: [.food_option]
+        case .sensors: [.sensor]
+        case .lists: [.checklist]
+        case .career: [.application]
+        case .games: [.game]
+        case .films: [.film]
+        default: nil
         }
     }
 }

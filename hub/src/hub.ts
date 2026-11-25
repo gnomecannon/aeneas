@@ -25,6 +25,7 @@ import { installRecordHooks } from "./records.js";
 import { installProjectHooks } from "./projects.js";
 import { defaultCheckers, installMonitorHooks, mergeBackupMonitors, type Checkers } from "./monitors.js";
 import { installHistory } from "./history.js";
+import { foldHubMachine } from "./tech.js";
 import { setupMachineAccess } from "./machinesetup.js";
 import { backupChecker, sshRunner } from "./backups.js";
 import { installAdminHooks, syncApplicationReminder } from "./admin.js";
@@ -253,6 +254,7 @@ export function createHub(cfg: Config): Hub {
   installMonitorHooks(hub);
   installHistory(hub);
   mergeBackupMonitors(store);
+  try { const n = foldHubMachine(hub); if (n) console.log(`[tech] ${n} item(s) of the machine called hub moved to the hub's own machine`); } catch (e) { console.error(`[tech] the machine called hub was not folded in: ${errCode(e)}`); }
   installPetHooks(hub);
   installMailHooks(hub);
   installRecordHooks(hub);

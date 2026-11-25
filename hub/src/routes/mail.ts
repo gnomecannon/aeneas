@@ -1,7 +1,8 @@
 import { Hono } from "hono";
-import type { Hub } from "../hub.js";
+import { VERSION, type Hub } from "../hub.js";
+import { hubId } from "../homeroute.js";
 import { StoreError } from "../store.js";
-import { blockedSenders, blockSender, clearFoldNotes, foldNotes, saveFoldNote, setTriage, triageOn, triageState, requestTriage, bundleDelivery, folderMail, searchMail, unblockSender, unsubscribe, unsubscribeOptions, mailAttachment, mailAttachments, moveMail, listMail, mailFolders, mailboxStates, mailLogos, mailMessage, mailNotify, markDone, MOVE_MAX, refreshMail, saveMailDraft, suggestGreeting, saveBundleDelivery, saveMailNotify, saveSnoozeTimes, setPinned, setPinnedSynced, setSeen, showPictures, SNOOZE_MAX_DAYS, snoozeMail, snoozeTimes, undoDone, unsnoozeMail, wakeSnoozed, SEEN_MAX, setSeenMany } from "../mail-inbox.js";
+import { blockedSenders, blockSender, clearFoldNotes, foldNotes, saveFoldNote, setTriage, triageOn, triageState, requestTriage, bundleDelivery, folderMail, searchMail, unblockSender, unsubscribe, unsubscribeOptions, mailAttachment, mailAttachments, moveMail, listChanges, listMail, mailFolders, mailboxStates, mailLogos, mailMessage, mailNotify, markDone, MOVE_MAX, refreshMail, saveMailDraft, suggestGreeting, saveBundleDelivery, saveMailNotify, saveSnoozeTimes, setPinned, setPinnedSynced, setSeen, showPictures, SNOOZE_MAX_DAYS, snoozeMail, snoozeTimes, undoDone, unsnoozeMail, wakeSnoozed, SEEN_MAX, setSeenMany } from "../mail-inbox.js";
 import { readJsonObject } from "../http.js";
 import { addCustomBundle, bundleContext, customBundles, deleteCustomBundle, updateCustomBundle } from "../mail-bundles.js";
 import { rfc2231 } from "../mail-compose.js";
@@ -26,7 +27,14 @@ export function mailRoutes() {
   r.get("/mail", (c) => {
     const hub = c.get("hub");
     wakeSnoozed(hub);
-    return c.json({ messages: listMail(hub.mailDb, bundleContext(hub)), logos: mailLogos(hub.mailDb), mailboxes: mailboxStates(hub), snooze_times: snoozeTimes(hub.mailDb), bundle_delivery: bundleDelivery(hub.mailDb), custom_bundles: customBundles(hub.mailDb), mail_notify: mailNotify(hub.mailDb), folders: mailFolders(hub.mailDb), blocked: blockedSenders(hub.mailDb), triage: triageOn(hub.mailDb), triage_state: triageState(hub), outbox: outboxList(hub) });
+    const rest = () => ({ mailboxes: mailboxStates(hub), snooze_times: snoozeTimes(hub.mailDb), bundle_delivery: bundleDelivery(hub.mailDb), custom_bundles: customBundles(hub.mailDb), mail_notify: mailNotify(hub.mailDb), folders: mailFolders(hub.mailDb), blocked: blockedSenders(hub.mailDb), triage: triageOn(hub.mailDb), triage_state: triageState(hub), outbox: outboxList(hub) });
+    const since = c.req.query("since");
+    // Apps from before 2026-11-25 send no `since` and get the whole list, as they always did.
+    if (since === undefined) return c.json({ messages: listMail(hub.mailDb, bundleContext(hub)), logos: mailLogos(hub.mailDb), ...rest() });
+    // Newer apps send their cursor (empty at first) and get what changed since (listChanges).
+    // The hub's id goes into what a cursor is made with: a device that moved to another hub gets that hub's whole list.
+    const { messages, changed, gone, logos, cursor, max } = listChanges(hub.mailDb, bundleContext(hub), since, `${VERSION} ${hubId(hub.cfg.dataDir) ?? ""}`);
+    return c.json({ ...(messages ? { messages } : { changed, gone }), ...(logos ? { logos } : {}), ...rest(), cursor, max });
   });
 
   // The owner's snooze times (what "Tomorrow" and the rest mean).

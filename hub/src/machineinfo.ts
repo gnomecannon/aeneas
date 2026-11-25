@@ -73,6 +73,17 @@ export function updateMachineInfo(hub: Hub, name: string, patch: Partial<Machine
   write(hub, all);
 }
 
+/** `from`'s entry folds into `to`'s: what `to` has stays, what it lacks comes from `from`, and `from`'s goes. */
+export function foldMachineInfo(hub: Hub, from: string, to: string): boolean {
+  const all = readMachineInfo(hub);
+  const was = all[key(from)];
+  if (!was || key(from) === key(to)) return false;
+  all[key(to)] = { ...was, ...(all[key(to)] ?? {}) };
+  delete all[key(from)];
+  write(hub, all);
+  return true;
+}
+
 /** The OS a machine reported; `os_at` moves only when the OS changed. */
 export function setMachineOs(hub: Hub, name: string, os: string, at: string): void {
   if (readMachineInfo(hub)[key(name)]?.os === os) return;

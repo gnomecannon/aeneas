@@ -33,6 +33,9 @@ extension HubClient {
 
     public func mailList() async throws -> MailList { try await get("mail", as: MailList.self) }
 
+    /// The list, or what changed since `since` (empty: the whole list with a cursor; Mail.applyChanges puts it in).
+    public func mailList(since: String) async throws -> MailListAnswer { try await get("mail", query: ["since": since], as: MailListAnswer.self) }
+
     public func mailMessage(_ id: String) async throws -> MailMessage { try await get(Self.mailPath(id), as: MailMessage.self) }
 
     public func mailRefresh() async throws -> MailRefresh { try await post("mail/refresh", Empty(), as: MailRefresh.self) }

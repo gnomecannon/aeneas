@@ -148,7 +148,9 @@ export function migrateRemindersToTasks(store: Store): number {
  */
 export function pendingReminders(store: Store): Array<{ t: Entity; eff: string }> {
   const out: Array<{ t: Entity; eff: string }> = [];
-  for (const t of store.list({ kind: "task", limit: 1_000_000, shown: true })) {
+  // SQLite passes only open tasks with a reminder time (taskAlertAt has none for the others): the year of done tasks is
+  // not read.
+  for (const t of store.listWhere("task", [{ key: "remind_at", set: true }, { key: "status", isNot: "done" }], { shown: true })) {
     const eff = taskAlertAt(t.fields);
     if (eff) out.push({ t, eff });
   }

@@ -1,4 +1,4 @@
-import { mentionedName, mentionNames, type Entity } from "@everythingapp/shared";
+import { mentionedName, mentionNames, mentionNamesOf, type Entity } from "@everythingapp/shared";
 import { ftsText, StoreError, type Store } from "./store.js";
 import { people } from "./people.js";
 
@@ -92,7 +92,8 @@ export function relatedItems(store: Store, id: string, limit = 40): Related[] {
     }
   } else {
     const text = textOf(e);
-    for (const p of everyone) if (mentions(text, mentionNames(p, everyone))) add(p, "Mentioned", 0);
+    const names = mentionNamesOf(everyone);
+    for (const p of everyone) if (mentions(text, names.get(p.id) ?? mentionNames(p, everyone))) add(p, "Mentioned", 0);
   }
 
   return [...out.values()]

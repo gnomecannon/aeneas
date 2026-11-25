@@ -121,10 +121,13 @@ const toCommitment = (c: Commitment & Interval): Commitment => ({ rule_id: c.rul
 
 // ---------- blocks, events, free slots ----------
 
-/** Tasks that still hold a block: not deleted, not done, not in a Reminders list that is switched off. */
+/**
+ * Tasks that still hold a block: not deleted, not done, not in a Reminders list that is switched off. SQLite passes
+ * only the ones with a block that are not done, so the year of done tasks is not read.
+ */
 export function blockedTasks(hub: Hub): (Entity & { block: Interval })[] {
   const out: (Entity & { block: Interval })[] = [];
-  for (const t of hub.store.list({ kind: "task", limit: 100000, shown: true })) {
+  for (const t of hub.store.listWhere("task", [{ key: "block", set: true }, { key: "status", isNot: "done" }], { shown: true })) {
     const b = t.fields.block as { start?: string; end?: string } | undefined;
     if (!b || typeof b.start !== "string" || typeof b.end !== "string" || t.fields.status === "done") continue;
     const start = new Date(b.start);
@@ -157,13 +160,18 @@ export function eventSpan(e: Entity): Interval | null {
   return { start: s, end: en };
 }
 
-function eventsOn(hub: Hub, day: Interval): (Entity & { span: Interval })[] {
+/** Every event with when it happens, read once for a week (each day read them all again). */
+function eventSpans(hub: Hub): (Entity & { span: Interval })[] {
   const out: (Entity & { span: Interval })[] = [];
   for (const e of hub.store.list({ kind: "event", limit: 100000 })) {
     const span = eventSpan(e);
-    if (span && overlaps(span, day)) out.push(Object.assign({}, e, { span }));
+    if (span) out.push(Object.assign({}, e, { span }));
   }
-  return out.sort((a, b) => a.span.start.getTime() - b.span.start.getTime());
+  return out;
+}
+
+function eventsOn(hub: Hub, day: Interval, all: (Entity & { span: Interval })[] = eventSpans(hub)): (Entity & { span: Interval })[] {
+  return all.filter((e) => overlaps(e.span, day)).sort((a, b) => a.span.start.getTime() - b.span.start.getTime());
 }
 
 /** Subtract busy intervals from a window. Returns the gaps, in order. */
@@ -223,14 +231,16 @@ export interface DayInputs {
   tasks: (Entity & { block: Interval })[];
   reminders: Entity[];
   watches: Entity[];
+  events: (Entity & { span: Interval })[];
 }
 
-function collect(hub: Hub): DayInputs {
+function collect(hub: Hub, pending: Array<{ t: Entity; eff: string }> = pendingReminders(hub.store)): DayInputs {
   return {
     rules: activeRules(hub),
     tasks: blockedTasks(hub),
-    reminders: pendingReminders(hub.store).map((p) => p.t),
+    reminders: pending.map((p) => p.t),
     watches: hub.modules.on("renewals") ? hub.store.list({ kind: "watch", limit: 100000 }).filter((w) => typeof w.fields.due === "string") : [],
+    events: eventSpans(hub),
   };
 }
 
@@ -243,7 +253,7 @@ export function dayModel(hub: Hub, day: Date, minHours: number, inputs: DayInput
   // Info rules (a custody week) take no time and weigh no slot; they are sent for the clients to show.
   const infos = ruleIntervals(inputs.rules, day, new Set(["info"]));
   const blocks = inputs.tasks.filter((t) => overlaps(t.block, whole)).sort((a, b) => a.block.start.getTime() - b.block.start.getTime());
-  const events = eventsOn(hub, whole);
+  const events = eventsOn(hub, whole, inputs.events);
   // All-day events (holidays, birthdays, trips marked on a calendar) are markers, as calendars treat them: they do
   // not take the day's free time. A day off work is a plan rule.
   const busy: Interval[] = [...fixed, ...blocks.map((t) => t.block), ...events.filter((e) => e.fields.all_day !== true).map((e) => e.span)];
@@ -376,8 +386,11 @@ export function watchesDueSoon(hub: Hub, now: Date): Entity[] {
 
 export function todayView(hub: Hub, now: Date = new Date(), minHours = 3): TodayView {
   const day = startOfDay(now);
-  const model = dayModel(hub, day, minHours);
-  const tasks = hub.store.list({ kind: "task", limit: 100000, shown: true });
+  // The reminders are read once, for the day's model and for what is due.
+  const pending = pendingReminders(hub.store);
+  const model = dayModel(hub, day, minHours, collect(hub, pending));
+  // Open tasks only: done ones are neither now, next nor a plan (SQLite leaves the year of done tasks unread).
+  const tasks = hub.store.listWhere("task", [{ key: "status", isNot: "done" }], { shown: true });
   const byOrder = (a: Entity, b: Entity) => Number(a.fields.order ?? 0) - Number(b.fields.order ?? 0) || a.created_at.localeCompare(b.created_at);
   const doing = tasks.filter((t) => t.fields.status === "doing").sort(byOrder);
   const nextTasks = tasks.filter((t) => t.fields.status === "next").sort(byOrder);
@@ -385,7 +398,7 @@ export function todayView(hub: Hub, now: Date = new Date(), minHours = 3): Today
   const next = nextTasks.filter((t) => t.id !== current?.id).slice(0, 10);
 
   const endOfDay = addDays(day, 1).toISOString();
-  const reminders_due = pendingReminders(hub.store).filter(({ eff }) => eff < endOfDay).map(({ t }) => t);
+  const reminders_due = pending.filter(({ eff }) => eff < endOfDay).map(({ t }) => t);
   const watches_due_soon = watchesDueSoon(hub, now);
   const captures_unprocessed = hub.store.countWhere("capture", [{ key: "processed", is: false }]);
 

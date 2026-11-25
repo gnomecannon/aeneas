@@ -538,8 +538,15 @@ struct TodayBoardView: View {
             } else {
                 ForEach(rows.suffix(Self.soFarShown)) { r in
                     lineLayout(spacing: 10) {
-                        Text(r.time).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                            .frame(minWidth: 58, alignment: .leading)
+                        // "Yesterday" above the time for a line from before midnight, so the column keeps its width.
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let day = r.day { Text(day) }
+                            Text(r.clock)
+                        }
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .frame(minWidth: 58, alignment: .leading)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(r.time)
                         Text(StyleGuard.dashes(r.text)).font(.subheadline).lineLimit(large ? 6 : 3)
                             .foregroundStyle(r.kind == .capture ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                     }

@@ -1,7 +1,8 @@
 /**
  * A demo hub: a real hub on its own throwaway folder, filled once with a made-up month in the life of "Alex"
  * (sample-world.ts), every module on except the ones that read the device's own calendar, reminders and contacts. For App Store screenshots and App Review, and for trying the apps without
- * putting anything of your own in them. Nothing of the live hub is read: no hub.env, no data folder, no keys.
+ * putting anything of your own in them. Nothing of the live hub is read: no hub.env, no data folder, no keys. Alex's
+ * laptop reports itself and every machine is identified when it is seeded (seedMachines), with made-up answers.
  *
  *   cd hub && npx tsx scripts/demo-hub.ts <folder> [port]
  *
@@ -19,7 +20,7 @@ import { createHub } from "../src/hub.js";
 import { createApp } from "../src/app.js";
 import { runSeeds } from "../src/seed.js";
 import { MODULES } from "../src/modules.js";
-import { seedWorld } from "./sample-world.js";
+import { nameHubMachine, seedMachines, seedWorld } from "./sample-world.js";
 
 const HUB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dir = process.argv[2] ? path.resolve(process.argv[2]) : "";
@@ -50,6 +51,8 @@ if (!fs.existsSync(marker)) {
   for (const [k, v] of Object.entries(env)) process.env[k] = v;
   const cfg = loadConfig({ dataDir: dir, token, aiFake: false, logRequests: false, searxngUrl: "", imageServiceUrl: "", imageServiceToken: "", hostActions: false,
     sshConfigPath: env.EA_SSH_CONFIG, hostsFile: env.EA_HOSTS_FILE, vaultDir: env.EA_VAULT_DIR } as any);
+  // First, so the hub's own check, seeded as the modules are switched on below, is put on "server".
+  nameHubMachine(cfg);
   const hub = createHub(cfg);
   hub.profile.set({ name: "Alex", pet: "Pepper" });
   // Every module, except the ones that read the device's own calendar, reminders and contacts: a demo shows
@@ -59,6 +62,7 @@ if (!fs.existsSync(marker)) {
   createApp(hub);
   runSeeds(hub.store, cfg);
   seedWorld(hub);
+  await seedMachines(hub);
   hub.close();
   fs.writeFileSync(marker, new Date().toISOString());
   console.log(`[demo] seeded ${dir} with Alex's sample month`);

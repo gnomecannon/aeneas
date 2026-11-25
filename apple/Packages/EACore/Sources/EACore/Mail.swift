@@ -295,6 +295,76 @@ public struct MailNotify: Codable, Equatable, Hashable, Sendable {
 /// `GET /mail`. `logos`: the verified brand logos the messages use, by domain (a message's `logo_domain`). `folders`:
 /// the mailboxes' other folders; `blocked`: the senders whose mail goes to Spam; `triage`: whether the hub's model sorts
 /// new mail (the switch), `triage_state`: how that stands now (an older hub sends neither).
+/// `GET /mail?since=<cursor>` (since 2026-11-25, CONTRACT.md, Mail): the whole list, or only what changed since the
+/// cursor (`changed`, `gone`), with the cursor to send next and the list's length. A hub from before sends the whole
+/// list and no cursor. `list` holds the settings, and the messages of a whole list.
+public struct MailListAnswer: Decodable, Sendable {
+    public var list: MailList
+    public var changed: [MailSummary]?
+    public var gone: [String]?
+    public var cursor: String?
+    public var max: Int?
+    /// The answer has logos: they changed (an answer of changes leaves them out otherwise).
+    public var hasLogos: Bool
+
+    private enum CodingKeys: String, CodingKey { case changed, gone, cursor, max, logos }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        list = try MailList(from: decoder)
+        changed = try c.decodeIfPresent([MailSummary].self, forKey: .changed)
+        gone = try c.decodeIfPresent([String].self, forKey: .gone)
+        cursor = try c.decodeIfPresent(String.self, forKey: .cursor)
+        max = try c.decodeIfPresent(Int.self, forKey: .max)
+        hasLogos = c.contains(.logos)
+    }
+
+    public init(list: MailList, changed: [MailSummary]? = nil, gone: [String]? = nil, cursor: String? = nil, max: Int? = nil, hasLogos: Bool = true) {
+        self.list = list; self.changed = changed; self.gone = gone; self.cursor = cursor; self.max = max; self.hasLogos = hasLogos
+    }
+}
+
+extension Mail {
+    /// A copy of the list with an answer put in, the hub's own rule (web `applyListChanges`): what left goes, what
+    /// changed or came in replaces its id, then the list's order (when it shows, `back_at` or else `at`, newest first,
+    /// then the id, as plain text) and its length. Nil when the answer is only changes and there is no copy. The
+    /// settings are the answer's, the logos the copy's when the answer has none.
+    public static func applyChanges(_ copy: MailList?, _ a: MailListAnswer) -> MailList? {
+        guard let changed = a.changed else { return a.list }
+        guard let copy else { return nil }
+        let left = Set(a.gone ?? [])
+        func when(_ m: MailSummary) -> String { m.back_at ?? m.at }
+        func before(_ x: String, _ y: String) -> Bool { x.utf8.lexicographicallyPrecedes(y.utf8) }
+        // The copy is in the list's order: a changed mail whose time stays where it was takes its old place, and the
+        // list is sorted again only when a mail came in or moved.
+        var waiting: [String: MailSummary] = [:]
+        for m in changed { waiting[m.id] = m }
+        var sorted: [MailSummary] = []
+        sorted.reserveCapacity(copy.messages.count + changed.count)
+        var placed: [MailSummary] = []
+        for m in copy.messages where !left.contains(m.id) {
+            if let c = waiting.removeValue(forKey: m.id) {
+                if when(c) == when(m) { sorted.append(c) } else { placed.append(c) }
+            } else {
+                sorted.append(m)
+            }
+        }
+        placed += waiting.values
+        if !placed.isEmpty {
+            sorted += placed
+            sorted.sort { x, y in
+                let wx = when(x), wy = when(y)
+                if wx != wy { return before(wy, wx) }
+                return before(x.id, y.id)
+            }
+        }
+        var out = a.list
+        out.messages = a.max.map { Array(sorted.prefix($0)) } ?? sorted
+        if !a.hasLogos { out.logos = copy.logos }
+        return out
+    }
+}
+
 public struct MailList: Decodable, Equatable, Sendable {
     public var messages: [MailSummary]
     public var mailboxes: [MailMailbox]
@@ -318,12 +388,13 @@ public struct MailList: Decodable, Equatable, Sendable {
         self.folders = folders; self.blocked = blocked; self.triage = triage; self.triage_state = triage_state; self.outbox = outbox
     }
 
-    private enum CodingKeys: String, CodingKey { case messages, mailboxes, logos, snooze_times, bundle_delivery, custom_bundles, mail_notify, folders, blocked, triage, triage_state, outbox }
+    private enum CodingKeys: String, CodingKey { case messages, mailboxes, logos, snooze_times, bundle_delivery, custom_bundles, mail_notify, folders, blocked, triage, triage_state, outbox, changed }
 
     // The settings came one release at a time (2026-11-19 and 20): a hub without one of them gives its defaults.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        messages = try c.decode([MailSummary].self, forKey: .messages)
+        // An answer of changes (MailListAnswer) has no `messages`: its list is the copy's, with the changes put in.
+        messages = c.contains(.changed) && !c.contains(.messages) ? [] : try c.decode([MailSummary].self, forKey: .messages)
         mailboxes = (try? c.decodeIfPresent([MailMailbox].self, forKey: .mailboxes)) ?? []
         logos = (try? c.decodeIfPresent([String: String].self, forKey: .logos)) ?? [:]
         snooze_times = (try? c.decodeIfPresent(MailSnoozeTimes.self, forKey: .snooze_times)) ?? .defaults
@@ -654,6 +725,20 @@ public enum Mail {
     }
 
     /// The heading a message is under: Today, Yesterday, This week, This month, then the month ("October 2026").
+    /// dayGroup for many times at once: a group depends only on the day, so each day is worked out once. The Inbox's
+    /// sections asked the calendar about each of thousands of mails each time the list drew.
+    static func dayGrouper(now: Date, calendar cal: Calendar) -> (String) -> String {
+        var byDay: [Date: String] = [:]
+        return { iso in
+            guard let d = ISO.date(iso) else { return "Earlier" }
+            let day = cal.startOfDay(for: d)
+            if let t = byDay[day] { return t }
+            let t = dayGroup(iso, now: now, calendar: cal)
+            byDay[day] = t
+            return t
+        }
+    }
+
     public static func dayGroup(_ iso: String, now: Date = Date(), calendar cal: Calendar = .current) -> String {
         guard let d = ISO.date(iso) else { return "Earlier" }
         let n = daysBefore(d, now, cal)
@@ -744,19 +829,31 @@ public enum Mail {
         }
         let sorted = timed.enumerated().sorted { a, b in a.element.1 == b.element.1 ? a.offset < b.offset : a.element.1 > b.element.1 }.map(\.element)
         var sections: [DaySection<T>] = []
+        let group = dayGrouper(now: now, calendar: calendar)
+        // The last section's bundle rows, and their mail, gathered apart and put in its rows when the section is done:
+        // taken out of a row, added to and put back, a bundle's mail was copied whole for each mail added to it.
+        var bundleRow: [String: Int] = [:]
+        var bundleMails: [String: [T]] = [:]
+        func close() {
+            guard let i = sections.indices.last else { return }
+            for (id, r) in bundleRow { if case .bundle(let b, _) = sections[i].rows[r] { sections[i].rows[r] = .bundle(b, bundleMails[id] ?? []) } }
+            bundleRow = [:]
+            bundleMails = [:]
+        }
         for (m, when) in sorted {
-            let title = dayGroup(when, now: now, calendar: calendar)
-            if sections.last?.title != title { sections.append(DaySection(title: title, rows: [])) }
+            let title = group(when)
+            if sections.last?.title != title { close(); sections.append(DaySection(title: title, rows: [])) }
             let i = sections.count - 1
             guard !m.summary.pinned, !pinnedOnly, let b = bundleOf(m.summary, in: shown) else { sections[i].rows.append(.mail(m)); continue }
-            if let r = sections[i].rows.firstIndex(where: { if case .bundle(let x, _) = $0 { return x.id == b.id } else { return false } }),
-               case .bundle(let x, var mails) = sections[i].rows[r] {
-                mails.append(m)
-                sections[i].rows[r] = .bundle(x, mails)
+            if bundleRow[b.id] != nil {
+                bundleMails[b.id, default: []].append(m)
             } else {
-                sections[i].rows.append(.bundle(b, [m]))
+                bundleRow[b.id] = sections[i].rows.count
+                bundleMails[b.id] = [m]
+                sections[i].rows.append(.bundle(b, []))
             }
         }
+        close()
         return sections
     }
 

@@ -160,7 +160,11 @@ struct TasksView: View {
         guard spaceRaw.hasPrefix("group:") else { return nil }
         return groups.first { "group:" + $0.id == spaceRaw }
     }
-    private var hasWork: Bool { workOn ?? (engine.tasks.contains { $0.space == .work } || reminders.lists.contains(where: \.isWork)) }
+    /// Until the hub answers, whether any work task or list is here. Read for every task a section filters (through
+    /// `space`): with 5,000 tasks and none in Work, opening Tasks looked through all of them for each one (0.4 s).
+    private var hasWork: Bool {
+        workOn ?? (engine.kept("tasks.anyWork", kinds: [.task]) { engine.tasks.contains { $0.space == .work } } || reminders.lists.contains(where: \.isWork))
+    }
     private var space: Space { group == nil && hasWork ? (Space(rawValue: spaceRaw) ?? .personal) : .personal }
     /// The tag the selector shows: the one chosen, or Personal when that is not there.
     private var scopeTag: String { group.map { "group:" + $0.id } ?? space.rawValue }

@@ -6,6 +6,8 @@ import { seedMusicNotes } from "./music.js";
 import { seedMonitors } from "./monitors.js";
 import { seedChecklists } from "./admin.js";
 import type { ModuleCheck, ModuleId } from "./modules.js";
+import { hubMachineName } from "./ai/hosts.js";
+import os from "node:os";
 
 export interface SeedResult { facts: { created: number; kept: number }; rules: { created: number; kept: number }; plan_rules: { created: number; kept: number }; runbooks: { created: number; kept: number }; food_options: { created: number; kept: number }; music_notes: { created: number; kept: number }; snippets: { created: number; kept: number }; monitors: { created: number; kept: number }; checklists: { created: number; kept: number; states_marked: number } }
 
@@ -22,10 +24,11 @@ export interface SeedResult { facts: { created: number; kept: number }; rules: {
  * Safe to run repeatedly.
  */
 /** The starter seed, then the owner's own (when that folder is there), counted together. */
-export function runSeeds(store: Store, cfg: { seedDir: string; seedPersonalDir: string; port?: number }, on: ModuleCheck = () => true, only?: ModuleId[]): SeedResult {
-  const a = runSeed(store, cfg.seedDir, false, cfg.port, on, only);
+export function runSeeds(store: Store, cfg: { seedDir: string; seedPersonalDir: string; port?: number; hostsFile?: string; sshConfigPath?: string }, on: ModuleCheck = () => true, only?: ModuleId[]): SeedResult {
+  const machine = cfg.hostsFile && cfg.sshConfigPath ? hubMachineName({ hostsFile: cfg.hostsFile, sshConfigPath: cfg.sshConfigPath }) : undefined;
+  const a = runSeed(store, cfg.seedDir, false, cfg.port, on, only, machine);
   if (!cfg.seedPersonalDir || !fs.existsSync(cfg.seedPersonalDir) || path.resolve(cfg.seedPersonalDir) === path.resolve(cfg.seedDir)) return a;
-  const b = runSeed(store, cfg.seedPersonalDir, true, cfg.port, on, only);
+  const b = runSeed(store, cfg.seedPersonalDir, true, cfg.port, on, only, machine);
   const out = { ...a } as Record<string, Record<string, number>>;
   for (const [k, v] of Object.entries(b) as [string, Record<string, number>][]) {
     out[k] = Object.fromEntries(Object.entries(v).map(([n, x]) => [n, (a as unknown as Record<string, Record<string, number>>)[k][n] + x]));
@@ -37,7 +40,7 @@ export function runSeeds(store: Store, cfg: { seedDir: string; seedPersonalDir: 
  * Files of a module that is off are skipped; they are read when it is switched on (hub.ts), and then `only` names the
  * modules just switched on, so nothing else is read again (starter items the owner renamed would come back as copies).
  */
-export function runSeed(store: Store, seedDir: string, optional = false, port = 8787, onAll: ModuleCheck = () => true, only?: ModuleId[]): SeedResult {
+export function runSeed(store: Store, seedDir: string, optional = false, port = 8787, onAll: ModuleCheck = () => true, only?: ModuleId[], hubMachine = os.hostname().toLowerCase().split(".")[0]): SeedResult {
   const on: ModuleCheck = only ? (id) => only.includes(id) : onAll;
   const out: SeedResult = { facts: { created: 0, kept: 0 }, rules: { created: 0, kept: 0 }, plan_rules: { created: 0, kept: 0 }, runbooks: { created: 0, kept: 0 }, food_options: { created: 0, kept: 0 }, music_notes: { created: 0, kept: 0 }, snippets: { created: 0, kept: 0 }, monitors: { created: 0, kept: 0 }, checklists: { created: 0, kept: 0, states_marked: 0 } };
   const OWNER: Record<string, ModuleId> = { "food_options.json": "food", "music_notes.json": "music", "snippets.json": "homelab", "monitors.json": "homelab" };
@@ -96,8 +99,13 @@ export function runSeed(store: Store, seedDir: string, optional = false, port = 
   }
 
   // Module 6: homelab monitors, matched by name, created once.
-  // `{{port}}` in a monitor's target is the hub's own port (the starter monitor watches the hub itself).
-  out.monitors = seedMonitors(store, read("monitors.json").map((m: Record<string, unknown>) => (typeof m.target === "string" ? { ...m, target: m.target.replace("{{port}}", String(port)) } : m)));
+  // `{{port}}` in a monitor's target is the hub's own port, and `{{hub_machine}}` as its host the machine the hub runs
+  // on (the starter monitor watches the hub itself; it named its machine "hub" until 2026-11-25, a machine of its own).
+  out.monitors = seedMonitors(store, read("monitors.json").map((m: Record<string, unknown>) => ({
+    ...m,
+    ...(typeof m.target === "string" ? { target: m.target.replace("{{port}}", String(port)) } : {}),
+    ...(m.host === "{{hub_machine}}" ? { host: hubMachine } : {}),
+  })));
 
   // Module 7: packing templates and the US states list, matched by title, created once.
   out.checklists = seedChecklists(store, read("checklists.json"));

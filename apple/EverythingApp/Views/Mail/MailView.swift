@@ -370,7 +370,7 @@ struct MailView: View {
             var out: [String] = []
             let only = pinnedOnly || !query.trimmingCharacters(in: .whitespaces).isEmpty
             if !only { out += Mail.backLaterToday(threads, now: clock).map(\.key) }
-            for sec in Mail.inboxSections(threads, shown: shown, pinnedOnly: pinnedOnly, now: clock, delivery: store.delivery) {
+            for sec in store.inboxSections(query: query.trimmingCharacters(in: .whitespaces), shown: shown, pinnedOnly: pinnedOnly, now: clock, of: threads) {
                 for r in sec.rows {
                     switch r {
                     case .mail(let t): out.append(t.key)
@@ -416,7 +416,7 @@ struct MailView: View {
         if t.state != .inbox {
             to = t.state == .snoozed ? .snoozed : .done
         } else {
-            let p = Mail.inboxPlace(Mail.inboxSections(store.threads, shown: shown, now: clock, delivery: store.delivery), key: t.key)
+            let p = Mail.inboxPlace(store.inboxSections(query: "", shown: shown, now: clock, of: store.threads), key: t.key)
             if let row = p.row { openBundles.insert(row) }
             to = p.found || t.summary.bundle == nil ? .inbox : .bundle(t.summary.bundle!)
         }
@@ -465,7 +465,7 @@ struct MailView: View {
     }
 
     @ViewBuilder private var inbox: some View {
-        let sections = Mail.inboxSections(threads, shown: shown, pinnedOnly: pinnedOnly, now: clock, delivery: store.delivery)
+        let sections = store.inboxSections(query: query.trimmingCharacters(in: .whitespaces), shown: shown, pinnedOnly: pinnedOnly, now: clock, of: threads)
         let due = reminders
         let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
         let only = pinnedOnly || searching
@@ -939,7 +939,7 @@ struct MailView: View {
 
     /// The mail of one bundle row in the Inbox (`<day>:<bundle>`), as listed.
     private func bundleRowMails(_ key: String) -> [MailThread] {
-        for s in Mail.inboxSections(threads, shown: shown, pinnedOnly: pinnedOnly, now: clock, delivery: store.delivery) {
+        for s in store.inboxSections(query: query.trimmingCharacters(in: .whitespaces), shown: shown, pinnedOnly: pinnedOnly, now: clock, of: threads) {
             for r in s.rows { if case .bundle(let b, let ms) = r, "\(s.title):\(b.id)" == key { return ms } }
         }
         return []
@@ -1328,7 +1328,7 @@ struct MailView: View {
         if place == .inbox {
             let only = pinnedOnly || !query.trimmingCharacters(in: .whitespaces).isEmpty
             let due = reminders
-            let sections = Mail.inboxSections(threads, shown: shown, pinnedOnly: pinnedOnly, now: clock, delivery: store.delivery)
+            let sections = store.inboxSections(query: query.trimmingCharacters(in: .whitespaces), shown: shown, pinnedOnly: pinnedOnly, now: clock, of: threads)
             let back = only ? [] : Mail.backLaterToday(threads, now: clock)
             return Mail.screenRows(.inbox(back: back, reminders: due, sections: inboxDays(sections, due: due), openBundles: openBundles), hits: hits)
         }
@@ -1454,7 +1454,7 @@ struct MailView: View {
             selection = Set(Mail.viewMessages(store.threads, view: .inbox, shown: shown).filter { $0.summary.bundle == nil || $0.pinned }.prefix(n).map(\.key))
         }
         if d.bool(forKey: "EAMailBundleOpen") {
-            let s = Mail.inboxSections(store.threads, shown: shown, now: clock, delivery: store.delivery)
+            let s = store.inboxSections(query: "", shown: shown, now: clock, of: store.threads)
             for sec in s { for r in sec.rows { if case .bundle(let b, _) = r { openBundles.insert("\(sec.title):\(b.id)"); return } } }
         }
     }

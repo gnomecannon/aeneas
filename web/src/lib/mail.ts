@@ -660,6 +660,45 @@ export const SHORT_LIVED_BUNDLE_IDS: Record<string, string> = { transactions: "p
 const bundleIdAsSent = (id: string) => (Object.hasOwn(SHORT_LIVED_BUNDLE_IDS, id) ? SHORT_LIVED_BUNDLE_IDS[id] : id);
 
 /** The list with every bundle under its real id: its mail, when each bundle shows (the real id's setting wins) and its alerts. */
+/**
+ * `GET /mail?since=<cursor>` (since 2026-11-25): the whole list (`messages`), or only what changed since the cursor
+ * (`changed`, `gone`), with the cursor to send next and the list's length (CONTRACT.md, Mail). A hub from before sends
+ * the whole list and no cursor.
+ */
+export interface MailListAnswer extends Omit<MailList, "messages"> { messages?: MailSummary[]; changed?: MailSummary[]; gone?: string[]; cursor?: string; max?: number }
+
+/**
+ * A copy of the list with an answer put in, the hub's own rule: what left goes, what changed or came in replaces its
+ * id, then the list's order (when it shows, `back_at` or else `at`, newest first, then the id, as plain text) and its
+ * length. Null when the answer is only changes and there is no copy to put them in. Logos and the settings are the
+ * answer's, logos the copy's when the answer has none (they did not change).
+ */
+export function applyListChanges(copy: MailList | null, a: MailListAnswer): MailList | null {
+  const { changed, gone, cursor: _cursor, max, messages, ...rest } = a;
+  if (messages) return { ...rest, messages };
+  if (!copy) return null;
+  const left = new Set(gone ?? []);
+  const when = (m: MailSummary) => m.back_at ?? m.at;
+  // The copy is in the list's order: a changed mail whose time stays where it was takes its old place, and the list is
+  // sorted again only when a mail came in or moved.
+  const waiting = new Map((changed ?? []).map((m) => [m.id, m]));
+  const list: MailSummary[] = [];
+  const placed: MailSummary[] = [];
+  for (const m of copy.messages) {
+    if (left.has(m.id)) continue;
+    const c = waiting.get(m.id);
+    if (!c) { list.push(m); continue; }
+    waiting.delete(m.id);
+    if (when(c) === when(m)) list.push(c); else placed.push(c);
+  }
+  placed.push(...waiting.values());
+  if (placed.length) {
+    list.push(...placed);
+    list.sort((x, y) => (when(x) < when(y) ? 1 : when(x) > when(y) ? -1 : x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  }
+  return { ...rest, logos: rest.logos ?? copy.logos, messages: max ? list.slice(0, max) : list };
+}
+
 export function listAsSent(l: MailList): MailList {
   const delivery = l.bundle_delivery && Object.fromEntries([
     ...Object.entries(l.bundle_delivery).filter(([k]) => Object.hasOwn(SHORT_LIVED_BUNDLE_IDS, k) && !l.bundle_delivery![bundleIdAsSent(k)]).map(([k, v]) => [bundleIdAsSent(k), v] as const),
@@ -697,6 +736,22 @@ export function dayGroup(iso: string, now: Date = new Date()): string {
   if (n < 7) return "This week";
   if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) return "This month";
   return d.toLocaleDateString([], { month: "long", year: "numeric" });
+}
+
+/**
+ * dayGroup for many times at once: a heading depends only on the day, so each day is worked out once. The Inbox asked
+ * for each of thousands of mails each time the screen drew, and naming a month (toLocaleDateString) is slow.
+ */
+export function dayGrouper(now: Date = new Date()): (iso: string) => string {
+  const byDay = new Map<number, string>();
+  return (iso) => {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "Earlier";
+    const day = startOfDay(d).getTime();
+    let title = byDay.get(day);
+    if (title === undefined) { title = dayGroup(iso, now); byDay.set(day, title); }
+    return title;
+  };
 }
 
 /** The time beside a message: the hour today, the weekday this week, else the date. */
@@ -858,8 +913,9 @@ export function inboxSections<T extends MailSummary>(messages: T[], shown: Bundl
   const when = new Map(messages.map((m) => [m, inboxAt(m, shown, opts.delivery, now)]));
   const ms = messages.filter((m) => m.state === "inbox" && when.get(m) && (!opts.pinnedOnly || m.pinned)).sort((a, b) => when.get(b)!.localeCompare(when.get(a)!));
   const sections: InboxSection<T>[] = [];
+  const group = dayGrouper(now);
   for (const m of ms) {
-    const title = dayGroup(when.get(m)!, now);
+    const title = group(when.get(m)!);
     let s = sections[sections.length - 1];
     if (!s || s.title !== title) { s = { title, rows: [] }; sections.push(s); }
     const b = !m.pinned && !opts.pinnedOnly ? bundleOf(m, shown) : null;

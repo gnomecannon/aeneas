@@ -176,6 +176,19 @@ public actor SyncStore {
     /// Replace the local copy wholesale (used after the hub rejects a patch).
     public func replace(_ e: Entity) throws { try write(e) }
 
+    /// Replace many local copies in one transaction (sample mode's copy moving on to a new day).
+    public func replaceAll(_ list: [Entity]) throws {
+        guard let d = db else { throw StoreError(message: "store closed") }
+        try Self.exec(d, "BEGIN")
+        do {
+            for e in list { try write(e) }
+            try Self.exec(d, "COMMIT")
+        } catch {
+            try? Self.exec(d, "ROLLBACK")
+            throw error
+        }
+    }
+
     /// Apply a local patch immediately (LWW) and enqueue it in the outbox.
     @discardableResult
     public func applyLocal(_ patch: Patch, enqueue: Bool = true) throws -> Entity {
@@ -267,6 +280,22 @@ public actor SyncStore {
             sqlite3_finalize(d)
         }
         return stale
+    }
+
+    /// Drop the items of kinds this device does not keep (the Watch), except those with edits still waiting to go up.
+    /// Returns the ids removed.
+    public func removeKinds(notIn kinds: Set<String>) throws -> [String] {
+        let s = try prepare("SELECT id, kind FROM entities WHERE id NOT IN (SELECT entity_id FROM outbox)")
+        var gone: [String] = []
+        while sqlite3_step(s) == SQLITE_ROW { if let id = column(s, 0), let k = column(s, 1), !kinds.contains(k) { gone.append(id) } }
+        sqlite3_finalize(s)
+        for id in gone {
+            let d = try prepare("DELETE FROM entities WHERE id = ?")
+            bind(d, 1, id)
+            _ = sqlite3_step(d)
+            sqlite3_finalize(d)
+        }
+        return gone
     }
 
     // MARK: meta

@@ -10,7 +10,7 @@ import { backupWhere, parseBackupTarget } from "./backups.js";
 import { diaryDay } from "./diary.js";
 import { personalize } from "./profile.js";
 import { errCode } from "./logsafe.js";
-import { readMachineInfo, type Category } from "./machineinfo.js";
+import { foldMachineInfo, readMachineInfo, type Category } from "./machineinfo.js";
 
 /**
  * Tech (Module 4 and 6, since 2026-11-19): every check and reading belongs to one thing, so the apps show one card
@@ -126,6 +126,38 @@ export function techThings(hub: Hub): Thing[] {
     if (i?.reported_by && !t.reachable) t.reports_itself = true;
   }
   return [...things.values()].sort((a, b) => RANK[a.kind] - RANK[b.kind] || a.name.localeCompare(b.name));
+}
+
+/**
+ * The starter check "hub health" (deploy/seed/monitors.json) named its machine "hub" until 2026-11-25, so every hub
+ * showed a machine called hub beside the machine it runs on, which it is. What was kept under "hub" moves to the hub's
+ * own machine: its checks, changes, fix notes and snippets, its purpose in Memory (unless that machine has one) and what
+ * kind of device it is, so the machine's history stays together. A check's own history and incidents go by the
+ * check, and stay. Left alone when "hub" is another machine the hub knows, or the name of its own. Runs as the hub
+ * starts; returns how many items moved.
+ */
+export function foldHubMachine(hub: Hub): number {
+  const old = "hub";
+  const hosts = loadHosts(hub.cfg);
+  const own = hosts.find((h) => h.local);
+  if (!own || own.name === old || own.aliases.includes(old)) return 0;
+  if (hosts.some((h) => h.name === old || h.aliases.includes(old))) return 0;
+  const to = own.name;
+  const named = (v: unknown) => String(v ?? "").trim().toLowerCase();
+  let moved = 0;
+  for (const kind of ["monitor", "journal", "runbook", "snippet"] as const) {
+    for (const e of hub.store.list({ kind, limit: 1_000_000 })) {
+      if (named(e.fields.host) !== old) continue;
+      const title = kind === "runbook" && named(e.fields.title) === `fix notes: ${old}` ? { title: `Fix notes: ${to}` } : {};
+      hub.store.patch(e.id, { host: to, ...title });
+      moved++;
+    }
+  }
+  const facts = hub.store.list({ kind: "fact", limit: 100000 });
+  const fact = facts.find((f) => named(f.fields.key) === `host:${old}`);
+  if (fact && !facts.some((f) => named(f.fields.key) === `host:${to}`)) { hub.store.patch(fact.id, { key: `host:${to}` }); moved++; }
+  if (foldMachineInfo(hub, old, to)) moved++;
+  return moved;
 }
 
 const TYPE_WORDS: Record<string, string> = { ping: "ping", tcp: "port", http: "web address", tls: "certificate", dns: "name lookup", backup: "backup" };

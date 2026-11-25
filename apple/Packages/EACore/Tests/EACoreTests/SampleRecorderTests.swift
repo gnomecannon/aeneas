@@ -6,7 +6,11 @@ import XCTest
 ///
 ///   1. Start a demo hub on a new folder (it seeds Alex's month around today, then serves it on 127.0.0.1):
 ///        cd hub && npx tsx scripts/demo-hub.ts /tmp/aeneas-demo 8790
-///      Seed it after about 9 AM: the sample's logs from today are never later than the moment it was seeded.
+///      Seed and record it after about 9 AM, on the machine's own clock: today's logs then sit at their morning times
+///      (seeded earlier they sit just before the moment of seeding), and the hub works Dashboard and Today out on the
+///      clock its items were made on. A recording whose items were made later than the hub's own time is refused: one
+///      seeded as at 10 AM and recorded at 2 AM left the morning's weigh-in out of Dashboard. Sample mode holds back
+///      whatever of the recorded morning is still to come when it is opened (SampleTransport.holdBack).
 ///   2. In apple/Packages/EACore:
 ///        EA_SAMPLE_RECORD_URL=http://127.0.0.1:8790 EA_SAMPLE_RECORD_TOKEN_FILE=/tmp/aeneas-demo/demo-token \
 ///          swift test --filter SampleRecorderTests
@@ -55,7 +59,9 @@ final class SampleRecorderTests: XCTestCase {
         let renamed = SampleRecordingCleaner.clean(&rec)
         let left = SampleRecordingCleaner.leftovers(rec, words: renamed.filter { $0.key != $0.value }.map(\.key) + [token])
         XCTAssertEqual(left, [], "the recording still holds these details of the recording machine")
-        guard failed.isEmpty, left.isEmpty else { return }
+        let later = SampleRecordingCleaner.madeLater(rec)
+        XCTAssertEqual(later, [], "these items were made later than the hub's own time while it was recorded: seed and record the demo hub on one clock")
+        guard failed.isEmpty, left.isEmpty, later.isEmpty else { return }
 
         let out = env["EA_SAMPLE_RECORD_OUT"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) } ?? SampleScreens.bundledRecording
         let enc = JSONEncoder()
@@ -175,6 +181,17 @@ enum SampleRecordingCleaner {
             }
         }
         return found
+    }
+
+    /// Items the first sync brings that were made later than the hub's own time when it answered (`GET health`): the
+    /// demo hub was seeded on another clock than it ran on, so its Dashboard and Today were worked out at another time
+    /// than its items say.
+    static func madeLater(_ rec: SampleTransport.Recording) -> [String] {
+        struct Health: Decodable { var time: String? }
+        guard let h = rec.entries["GET health"].flatMap({ try? JSONDecoder().decode(Health.self, from: Data($0.body.utf8)) }),
+              let time = ISO.date(h.time), let sync = rec.entries["GET sync/changes?since=0"],
+              let page = try? JSONDecoder().decode(ChangesResponse.self, from: Data(sync.body.utf8)) else { return [] }
+        return page.changes.map(\.entity).filter { (ISO.date($0.created_at) ?? .distantPast) > time }.map { "\($0.kind.rawValue) made \($0.created_at)" }
     }
 
     /// An address nobody has: one at the domains kept for examples (example.com, .org and .net, RFC 2606), as Settings,

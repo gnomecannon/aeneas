@@ -204,9 +204,9 @@ final class ScreensReviewTests: XCTestCase {
         let pulled = Entity(kind: .note, fields: ["title": "From the hub", "body": "x", "path": "Inbox/x.md"])
         _ = try await store.upsertManyFromHub([pulled])
         try await store.setCursor(420)
-        // As a launch after the same build: no read from the start for a new build.
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
-        if !build.isEmpty { try await store.setMeta("synced_build", build) }
+        // A copy that says it holds every kind, in this format: the start keeps its cursor.
+        try await store.setMeta(SyncEngine.storedKindsKey, Kind.allCases.map(\.rawValue).sorted().joined(separator: ","))
+        try await store.setMeta(SyncEngine.storeFormatKey, String(SyncEngine.storeFormat))
         await engine.start()
         XCTAssertEqual(engine.cursor, 420)
         let queued = await engine.createTask(title: "Made offline", status: .next)!

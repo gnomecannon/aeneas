@@ -13,13 +13,28 @@ const STOP = new Set("the a an and or of to in on for with by at from as is are 
 
 export interface RelatedNote { id: string; title: string; path: string; why: "link" | "backlink" | "similar" }
 
-type TitleEntry = { title: string; note: Entity; re: RegExp };
+/** A title, its note, and its pattern; `plain` is the lowercased title when it is plain ASCII, which the lowercased
+ * text must hold as is for the pattern to match it (a quick test before the pattern). */
+type TitleEntry = { title: string; id: string; re: RegExp; plain: string | null };
 type TagEntry = { tag: string; re: RegExp };
 
 const wordRe = (text: string, flags = "") => new RegExp(`(^|[^a-z0-9])${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z0-9]|$)`, flags);
 
 export class KnowledgeMap {
-  constructor(private store: Store) {}
+  /**
+   * Every note's title pattern, kept between note saves: each save of a note (an autosave every second while typing)
+   * read every note and built every title's pattern again to find the titles it mentions. A note made, renamed,
+   * deleted or moved to another space drops it (the hook below), and so does a write by another program to the same
+   * file (SQLite's data_version, which the hub's own writes leave as it is).
+   */
+  private kept: { titles: TitleEntry[]; version: number } | null = null;
+
+  constructor(private store: Store) {
+    store.afterWrite((e, prev) => {
+      if (e.kind !== "note") return;
+      if (!prev || prev.fields.title !== e.fields.title || prev.deleted_at !== e.deleted_at || prev.space !== e.space) this.kept = null;
+    });
+  }
 
   /** Every note read once, with each title's and tag's pattern, while `batch` runs. */
   private snap: { notes: Entity[]; titles: TitleEntry[]; tags: TagEntry[]; vocab: Map<string, number> } | null = null;
@@ -43,14 +58,22 @@ export class KnowledgeMap {
 
   /** Lowercase title to note, longest titles first so "Proxmox certs" beats "Proxmox". */
   private titleIndex(exclude?: string): TitleEntry[] {
-    return (this.snap?.titles ?? titlesOf(this.notes())).filter((e) => e.note.id !== exclude);
+    return this.titles().filter((e) => e.id !== exclude);
+  }
+
+  private titles(): TitleEntry[] {
+    if (this.snap) return this.snap.titles;
+    const version = Number(this.store.db.pragma("data_version", { simple: true }));
+    if (!this.kept || this.kept.version !== version) this.kept = { titles: titlesOf(this.notes()), version };
+    return this.kept.titles;
   }
 
   /** Explicit wikilinks, title mentions and the linker's related notes, as titles. Used by the vault hook so links are always current. */
   deriveLinks(noteId: string | undefined, body: string, title = "", related: string[] = []): string[] {
     const out = new Set<string>([...extractWikilinks(body), ...related]);
     const haystack = ` ${(title + "\n" + body).replace(/```[\s\S]*?```/g, " ").replace(/\[\[[^\]]*\]\]/g, " ")} `.toLowerCase();
-    for (const { title: t, re } of this.titleIndex(noteId)) {
+    for (const { title: t, re, plain } of this.titleIndex(noteId)) {
+      if (plain !== null && !haystack.includes(plain)) continue;
       if (re.test(haystack)) out.add(t);
     }
     return [...out];
@@ -156,7 +179,7 @@ function vocabularyOf(notes: Entity[]): Map<string, number> {
 function titlesOf(notes: Entity[]): TitleEntry[] {
   return notes
     .filter((n) => String(n.fields.title ?? "").trim().length >= 4)
-    .map((n) => { const title = String(n.fields.title).trim(); return { title, note: n, re: wordRe(title.toLowerCase(), "i") }; })
+    .map((n) => { const title = String(n.fields.title).trim(); const lower = title.toLowerCase(); return { title, id: n.id, re: wordRe(lower, "i"), plain: /^[\x00-\x7f]*$/.test(lower) ? lower : null }; })
     .sort((a, b) => b.title.length - a.title.length);
 }
 

@@ -191,15 +191,25 @@ export function hostOf(url: string | null): string {
  * two-part country ending ("shop.co.uk") is matched loosely.
  */
 export function sameSite(a: string, b: string): boolean {
-  const base = (h: string) => h.split(".").filter(Boolean).slice(-2).join(".");
-  return !!a && !!b && base(a) === base(b);
+  return !!a && !!b && siteOf(a) === siteOf(b);
 }
+
+/** A host's last two labels, what sameSite compares. */
+const siteOf = (h: string) => h.split(".").filter(Boolean).slice(-2).join(".");
 
 /** Whether `text` has any of `words` as whole words, in any case: "order" is in "Your order shipped", not in "Border". */
 export function hasWord(text: string, words: string[]): boolean {
-  const re = wordPattern(words);
-  // Runs of spaces and line breaks count as one space, so a phrase split across lines still matches.
-  return !!re && re.test(text.toLowerCase().replace(/\s+/g, " "));
+  return hasWordIn(wordText(text), wordPattern(words));
+}
+
+/** Text as hasWord reads it: lower case, and runs of spaces and line breaks as one space, so a phrase split across
+ * lines still matches. */
+const wordText = (text: string) => text.toLowerCase().replace(/\s+/g, " ");
+
+/** hasWord on text already made into wordText (a mail's subject is looked at for several bundles), with the words'
+ * pattern made already (wordPattern). */
+function hasWordIn(text: string, re: RegExp | null): boolean {
+  return !!re && re.test(text);
 }
 
 /**
@@ -253,6 +263,55 @@ const TRANSACTION_WORDS = ["order", "receipt", "shipped", "delivered", "delivery
 const ORDER_PHRASES = ["estimated arrival", "estimated delivery", "order number", "order confirmation", "tracking number", "out for delivery", "has shipped", "your shipment",
   "transaction id", "transfer amount", "has been deposited", "available balance"];
 
+/** The sites of the fixed lists, for fromAny, and the patterns of the fixed word lists. */
+const HIRING_SITES = new Set(HIRING.map(siteOf));
+const SOCIAL_SITES = new Set(SOCIAL.map(siteOf));
+const TOOL_SITES = new Set(TOOLS.map(siteOf));
+const JOB_RE = wordPattern(JOB_PHRASES);
+const BILL_RE = wordPattern(BILL_WORDS);
+const TRIP_RE = wordPattern(TRIP_WORDS);
+const TRANSACTION_RE = wordPattern(TRANSACTION_WORDS);
+const ORDER_RE = wordPattern(ORDER_PHRASES);
+
+/**
+ * What the module rules need of a context, worked out once per context instead of once per mail (a list is thousands
+ * of mails against the same records): the sites of the records' addresses, and their names in one pattern. The
+ * answers are those of testing each record in turn. A context is made for each list (bundleContext) and not changed
+ * once it is used.
+ */
+interface Records {
+  /** Each record's address as a site. */
+  sites: Set<string>;
+  /** The records' names, looked for as whole words in the sender's name. */
+  names: RegExp | null;
+  /** The names of 4 or more letters, lower case, looked for inside the sender's domain. */
+  inDomain: string[];
+}
+interface Prepared {
+  jobs: Records | null;
+  bills: Records | null;
+  /** The pets' names and the vet words. */
+  pets: RegExp | null;
+}
+const prepared = new WeakMap<BundleContext, Prepared>();
+function prepare(ctx: BundleContext): Prepared {
+  let p = prepared.get(ctx);
+  if (!p) {
+    const records = (list: { name: string; url: string | null }[]) => ({
+      sites: new Set(list.map((r) => hostOf(r.url)).filter(Boolean).map(siteOf)),
+      names: wordPattern(list.map((r) => r.name).filter((n) => n !== "")),
+      inDomain: list.map((r) => r.name).filter((n) => n.length >= 4).map((n) => n.toLowerCase()),
+    });
+    p = {
+      jobs: ctx.jobs ? records(ctx.jobs.map((j) => ({ name: j.company, url: j.url }))) : null,
+      bills: ctx.bills ? records(ctx.bills.map((b) => ({ name: b.title, url: b.url }))) : null,
+      pets: ctx.pets ? wordPattern([...ctx.pets, ...VET_WORDS]) : null,
+    };
+    prepared.set(ctx, p);
+  }
+  return p;
+}
+
 /**
  * The bundle a mail sits in, or null when it stands alone (a person's mail). The rules, most specific first (the first
  * that matches wins); test/mail-bundles.test.ts has a case for each:
@@ -279,50 +338,53 @@ const ORDER_PHRASES = ["estimated arrival", "estimated delivery", "order number"
  */
 export function bundleOf(mail: BundleMail, ctx: BundleContext): string | null {
   const domain = domainOf(mail.from.address);
-  const name = mail.from.name;
-  const subject = mail.subject;
+  /** The sender's domain as a site ("" for none, which is no site's). */
+  const site = domain ? siteOf(domain) : "";
+  const p = prepare(ctx);
+  // Each part of the mail is made into wordText once, however many bundles look at it.
+  const name = wordText(mail.from.name);
+  const subject = wordText(mail.subject);
   /** The start of the text, where the job and order phrases are looked for. */
-  const start = (mail.text ?? "").slice(0, TEXT_START);
+  let start: string | null = null;
+  const textStart = () => (start ??= wordText((mail.text ?? "").slice(0, TEXT_START)));
   /** Whether the sender's domain is one of these sites. */
-  const fromAny = (sites: string[]) => sites.some((s) => sameSite(domain, s));
+  const fromAny = (sites: Set<string>) => !!domain && sites.has(site);
   /**
-   * Whether a record's name is the sender's name or part of its domain ("Fabrikam" in no-reply@fabrikam.example). Only a
-   * name of 4 or more letters is looked for inside a domain: "box" is inside dropbox.com, "ea" inside most domains.
+   * Whether a record's site is the sender's, or its name is the sender's name or part of its domain ("Fabrikam" in
+   * no-reply@fabrikam.example). Only a name of 4 or more letters is looked for inside a domain: "box" is inside
+   * dropbox.com, "ea" inside most domains.
    */
-  const named = (record: string) => record !== "" && (hasWord(name, [record]) || (record.length >= 4 && domain.includes(record.toLowerCase())));
+  const fromRecord = (r: Records) => fromAny(r.sites) || hasWordIn(name, r.names) || r.inDomain.some((n) => domain.includes(n));
 
   // 0. The owner's own bundles first: theirs wins, a person's mail included.
   const own = ctx.custom?.length ? customBundleOf(mail, ctx.custom) : null;
   if (own) return own;
 
   // 1. Jobs: the one rule that takes a person's mail too, since a recruiter writes as a person.
-  if (ctx.jobs) {
-    const applied = ctx.jobs.some((j) => sameSite(domain, hostOf(j.url)) || named(j.company));
-    const sounds = hasWord(subject, JOB_PHRASES) || hasWord(start, JOB_PHRASES);
-    if (applied || fromAny(HIRING) || sounds) return "jobs";
+  if (p.jobs) {
+    const sounds = hasWordIn(subject, JOB_RE) || hasWordIn(textStart(), JOB_RE);
+    if (fromRecord(p.jobs) || fromAny(HIRING_SITES) || sounds) return "jobs";
   }
 
   // 2. A person's mail stands alone.
   if (!mail.automated && !mail.unsubscribe) return null;
 
   // 3. Pet: a pet's name or a vet word, in the sender's name or the subject.
-  if (ctx.pets) {
-    const words = [...ctx.pets, ...VET_WORDS];
-    if (hasWord(name, words) || hasWord(subject, words)) return "pet";
+  if (p.pets) {
+    if (hasWordIn(name, p.pets) || hasWordIn(subject, p.pets)) return "pet";
   }
 
   // 4. Bills: a renewal record's site or name, or a bill word in the subject.
-  if (ctx.bills) {
-    const renews = ctx.bills.some((b) => sameSite(domain, hostOf(b.url)) || named(b.title));
-    if (renews || hasWord(subject, BILL_WORDS)) return "bills";
+  if (p.bills) {
+    if (fromRecord(p.bills) || hasWordIn(subject, BILL_RE)) return "bills";
   }
 
   // 5 to 9: the bundles every mail can have.
-  if (hasWord(subject, TRIP_WORDS)) return "trips";
-  if (hasWord(subject, TRANSACTION_WORDS) || hasWord(start, ORDER_PHRASES)) return "purchases";
-  if (fromAny(SOCIAL) || fromAny(TOOLS)) return "other";
+  if (hasWordIn(subject, TRIP_RE)) return "trips";
+  if (hasWordIn(subject, TRANSACTION_RE) || hasWordIn(textStart(), ORDER_RE)) return "purchases";
+  if (fromAny(SOCIAL_SITES) || fromAny(TOOL_SITES)) return "other";
   // A mail kept before the hub knew what it answers (undefined) counts as before.
-  if (mail.list_id && REPLY.test(subject) && mail.answers !== false) return null;
+  if (mail.list_id && REPLY.test(mail.subject) && mail.answers !== false) return null;
   if (mail.unsubscribe) return "promos";
   return "other";
 }

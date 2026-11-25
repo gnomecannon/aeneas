@@ -32,10 +32,44 @@ final class MailStore: ObservableObject {
     private var undoTimer: Task<Void, Never>?
     private var noteTimer: Task<Void, Never>?
 
-    func attach(_ c: HubClient?) { client = c }
+    func attach(_ c: HubClient?) {
+        // Another hub (or none): its list is its own, so the next read asks for all of it.
+        if c !== client { cursor = nil }
+        client = c
+        // Mail opened again: the list kept from the last time, for this hub, shows at once and the first read asks
+        // only for what changed since (each open read the whole list again).
+        if list == nil, let k = Self.kept, let c, k.client === c {
+            list = k.list; threads = Mail.threads(k.list.messages); listStamp += 1; cursor = k.cursor
+        }
+    }
+
+    /// Where the list stands with the hub (`GET /mail?since=`): the next read asks only for what changed since.
+    private var cursor: String?
+    /// The last list, its cursor and the hub client it came from, kept while the app runs (in memory only, as the web
+    /// keeps it), so the Mail screen opened again starts from it.
+    private static var kept: (client: HubClient, list: MailList, cursor: String)?
 
     var snoozeTimes: MailSnoozeTimes { list?.snooze_times ?? .defaults }
     var delivery: [String: MailBundleDelivery] { list?.bundle_delivery ?? [:] }
+
+    /// What the Inbox's day sections are made from: the list (its stamp; `threads` changes only with it), the search,
+    /// the bundles shown, Pinned only and the minute.
+    private struct SectionsKey: Hashable {
+        var stamp: Int, query: String, shown: [Mail.Bundle], pinnedOnly: Bool, now: Date, delivery: [String: MailBundleDelivery]
+    }
+    private var sectionsKept: [SectionsKey: [Mail.DaySection<MailThread>]] = [:]
+
+    /// The Inbox's day sections for the threads the screen lists, worked out once for each list, search and minute:
+    /// the screen asked for them three times or more each time it drew (the list, Select all, a bundle's Sweep).
+    /// `threads` is read only when they are worked out.
+    func inboxSections(query: String, shown: [Mail.Bundle], pinnedOnly: Bool = false, now: Date, of threads: @autoclosure () -> [MailThread]) -> [Mail.DaySection<MailThread>] {
+        let key = SectionsKey(stamp: listStamp, query: query, shown: shown, pinnedOnly: pinnedOnly, now: now, delivery: delivery)
+        if let s = sectionsKept[key] { return s }
+        if sectionsKept.count >= 8 { sectionsKept.removeAll() }
+        let s = Mail.inboxSections(threads(), shown: shown, pinnedOnly: pinnedOnly, now: now, delivery: delivery)
+        sectionsKept[key] = s
+        return s
+    }
     var notify: MailNotify { list?.mail_notify ?? .defaults }
     var customBundles: [MailCustomBundle] { list?.custom_bundles ?? [] }
 
@@ -51,7 +85,14 @@ final class MailStore: ObservableObject {
         #endif
         guard let c = client else { loadError = HubError.notConfigured.localizedDescription; return }
         do {
-            let l = try await c.mailList()
+            // What changed since the last read, put into the list held here (Mail.applyChanges): a Done or an opened
+            // mail brings a few mails, not all 5,000. A hub from before sends the whole list and no cursor.
+            var a = try await c.mailList(since: cursor ?? "")
+            var next = Mail.applyChanges(list, a)
+            if next == nil { a = try await c.mailList(since: ""); next = Mail.applyChanges(nil, a) }
+            guard let l = next, client === c else { return }
+            cursor = a.cursor
+            Self.kept = a.cursor.map { (c, l, $0) }
             if l != list { list = l; threads = Mail.threads(l.messages); listStamp += 1 }
             loadError = nil
         } catch {

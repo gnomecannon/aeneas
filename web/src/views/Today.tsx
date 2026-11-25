@@ -323,7 +323,8 @@ export function Today() {
           <ol className="sofar-list">
             {done.slice(-SOFAR_SHOWN).map((r) => (
               <li key={r.key} className={`sofar-row ${r.kind}`}>
-                <span className="time">{r.time}</span>
+                {/* "Yesterday" above the time for a line from before midnight, so the column keeps its width. */}
+                <span className="time">{r.day && <span className="day">{r.day} </span>}{r.clock}</span>
                 <span className="text">{r.text}</span>
               </li>
             ))}

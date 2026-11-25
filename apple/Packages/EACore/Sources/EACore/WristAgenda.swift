@@ -28,6 +28,13 @@ extension SyncEngine {
     /// Today's events and reminders in time order, all-day events first. Reminders already done are left out;
     /// one that came due earlier today and is still open stays, so it can be finished from the wrist.
     public func agendaToday(now: Date = Date(), calendar: Calendar = .current) -> [AgendaItem] {
+        // The same all day until an event or a task changes (it reads only the day of `now`); the widgets and the Watch's
+        // complications ask for it after every change.
+        let ymd = calendar.dateComponents([.year, .month, .day], from: now)
+        return kept("agendaToday", kinds: [.event, .task], stamp: [ymd, calendar] as [AnyHashable]) { workOutAgenda(now: now, calendar: calendar) }
+    }
+
+    private func workOutAgenda(now: Date, calendar: Calendar) -> [AgendaItem] {
         let dayStart = calendar.startOfDay(for: now)
         guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return [] }
         var out: [AgendaItem] = []

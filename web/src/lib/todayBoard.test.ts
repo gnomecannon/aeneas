@@ -155,6 +155,10 @@ describe("soFar", () => {
   it("runs the day 4 AM to 4 AM, as the diary does: 1 AM belongs to the day before and reads after its evening", () => {
     const rows = soFar({ diary: { lines: [{ time: "23:10", text: "Movie" }, { time: "01:15", text: "Bed" }] }, tasks: [e("task", { title: "Late one", done_at: new Date(2026, 10, 23, 0, 30).toISOString() })], logs: [], now: new Date(2026, 10, 23, 1, 30) });
     expect(rows.map((r) => r.text)).toEqual(["Movie", "Done: Late one", "Bed"]);
+    // After midnight a line from before it says so: a bare 11:10 PM read as later today.
+    expect(rows.map((r) => r.time)).toEqual(["Yesterday 11:10 PM", "12:30 AM", "1:15 AM"]);
+    expect(rows.map((r) => r.day)).toEqual(["Yesterday", undefined, undefined]);
+    expect(rows.map((r) => r.clock)).toEqual(["11:10 PM", "12:30 AM", "1:15 AM"]);
   });
 });
 

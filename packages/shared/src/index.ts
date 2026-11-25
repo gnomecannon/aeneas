@@ -1162,21 +1162,49 @@ export function datePhrase(d: PersonDate): string {
 
 /** Lowercase words only, for matching names in text. */
 export const nameNorm = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
-const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const firstName = (p: PersonLike) => nameNorm(p.fields.given_name) || nameNorm(p.fields.name).split(" ")[0];
 
 /** The names that point at a person in text: full name, nickname, and a first name nobody else shares. */
 export function mentionNames(person: PersonLike, everyone: PersonLike[]): string[] {
+  return mentionNamesWith(person, firstNames(everyone));
+}
+
+/** The ids of the live people who go by each first name, for mentionNames. */
+type FirstNames = Map<string, Set<string>>;
+function firstNames(everyone: PersonLike[]): FirstNames {
+  const out: FirstNames = new Map();
+  for (const p of everyone) {
+    if (p.deleted_at) continue;
+    const g = firstName(p);
+    const ids = out.get(g);
+    if (ids) ids.add(p.id); else out.set(g, new Set([p.id]));
+  }
+  return out;
+}
+function mentionNamesWith(person: PersonLike, given: FirstNames): string[] {
   const names = [person.fields.name, person.fields.nickname].map(nameNorm).filter((n) => n.length >= 2);
-  const given = firstName(person);
-  if (given.length >= 2 && !everyone.some((p) => p.id !== person.id && !p.deleted_at && firstName(p) === given)) names.push(given);
+  const own = firstName(person);
+  const sharing = given.get(own);
+  if (own.length >= 2 && !(sharing && sharing.size > (sharing.has(person.id) ? 1 : 0))) names.push(own);
   return [...new Set(names)];
+}
+
+/** Every live person's mentionNames, by id: the first names counted once, not once for each person. */
+export function mentionNamesOf(everyone: PersonLike[]): Map<string, string[]> {
+  const given = firstNames(everyone);
+  return new Map(everyone.filter((p) => !p.deleted_at).map((p) => [p.id, mentionNamesWith(p, given)]));
 }
 
 /** The first of `names` that appears in `text` as whole words (a trailing 's counts). */
 export function mentionedName(text: string, names: string[]): string | undefined {
-  const t = nameNorm(text);
-  return names.find((n) => new RegExp(`(^| )${reEscape(n)}('s)?( |$)`).test(t));
+  return mentionedIn(mentionText(text), names);
+}
+
+/** Text as mentionedIn reads it: nameNorm'd, with a space at each end. Made once for a text read for many people. */
+const mentionText = (text: string) => ` ${nameNorm(text)} `;
+/** mentionedName on a mentionText: a name between spaces, or followed by 's. */
+function mentionedIn(t: string, names: string[]): string | undefined {
+  return names.find((n) => t.includes(` ${n} `) || t.includes(` ${n}'s `));
 }
 
 /** What the owner has told the app about someone: facts linked to them (`person_id`), kept with their name before they
@@ -1218,12 +1246,12 @@ const words = (s: string, skip: Set<string>) => new Set(nameNorm(s).replace(/'s\
  * sharing words with their plans first, so dinner at Luigi's brings up what they like at Luigi's, then the newest. */
 export function peopleInPlans(people: PersonLike[], facts: PersonLike[], plans: PlanItem[], limit = 6): PersonToday[] {
   const live = people.filter((p) => !p.deleted_at);
-  const names = new Map(live.map((p) => [p.id, mentionNames(p, live)]));
+  const names = mentionNamesOf(live);
   const found = new Map<string, { p: PersonLike; plans: PlanItem[] }>();
   for (const plan of plans) {
-    const text = `${plan.title}\n${plan.text ?? ""}`;
+    const text = mentionText(`${plan.title}\n${plan.text ?? ""}`);
     for (const p of live) {
-      if (!mentionedName(text, names.get(p.id) ?? [])) continue;
+      if (!mentionedIn(text, names.get(p.id) ?? [])) continue;
       const hit = found.get(p.id);
       if (hit) hit.plans.push(plan);
       else if (found.size < limit) found.set(p.id, { p, plans: [plan] });
