@@ -14,7 +14,7 @@ import { Timeline } from "../components/Timeline";
 import { TaskPicker } from "../components/TaskPicker";
 import { createEntity, updateEntity } from "../sync/edits";
 import { SOURCE, ackReminder, completeTask, snoozeFor } from "../sync/actions";
-import { DIARY_DAY_START, diaryToday, followUpsDue, regularMeds } from "../lib/today";
+import { DIARY_DAY_START, diaryToday, regularMeds } from "../lib/today";
 import { freeLine, needsYou, nowLine, nowWords, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines, type Need, type TodaySection } from "../lib/todayBoard";
 import { dueReminders, hasReminder } from "../lib/reminders";
 import { TONE_DOT, lookTone, needsALook, techLight, watchedLine, type Look, type Tone } from "../lib/tech";
@@ -25,6 +25,7 @@ import { useLocalDate } from "../lib/useLocalDate";
 import { useFeel } from "../feel/store";
 import { TODAY_TEXT } from "./settings/TodayParts";
 import { useSourceLists } from "../lib/sources";
+import { invitationsNeed } from "../lib/invitations";
 
 /** How many rows a card shows before it links to the rest. */
 const TODO_SHOWN = 6;
@@ -84,7 +85,6 @@ export function Today() {
   const today = useLocalDate();
   const diaryDay = useLocalDate(DIARY_DAY_START);
   const events = useEntities("event");
-  const apps = useEntities("application", (e) => !!e.fields.next_at);
   const allTasks = useEntities("task");
   // Logs of the last nine days: today's numbers and words, and which meds are regular.
   const logs = useEntities("log", (e) => Date.parse(String(e.fields.at ?? "")) > Date.now() - 9 * 86_400_000, [today]);
@@ -92,7 +92,6 @@ export function Today() {
   const facts = useEntities("fact", (e) => !!e.fields.person_id || !!e.fields.person);
   const diaryNotes = useEntities("note", (e) => String(e.fields.path ?? "").startsWith("Diary/"));
   const diary = useMemo(() => diaryToday(diaryNotes, new Date()), [diaryNotes, diaryDay]);
-  const followUps = useMemo(() => (on("jobs") ? followUpsDue(apps, new Date()) : []), [apps, today, on]);
   const dates = useMemo(() => datesSoon(people, new Date(), 14), [people, today]);
   const meds = useMemo(() => (on("health") ? regularMeds(logs, new Date()) : []), [logs, today, on]);
 
@@ -126,9 +125,11 @@ export function Today() {
   }, [t, people, facts, todayEvents, allTasks]);
 
   const due = useMemo(() => dueReminders(allTasks.filter(hasReminder), now), [allTasks, now]);
+  const inviteRows = useEntities("invitation");
+  const invites = useMemo(() => invitationsNeed(inviteRows, now), [inviteRows, now]);
   const needs = useMemo(
-    () => needsYou({ reminders: due, watches: on("renewals") ? t?.watches_due_soon ?? [] : [], followUps, meds, unsorted: t?.captures_unprocessed ?? 0, now }),
-    [due, t, followUps, meds, now, on],
+    () => needsYou({ reminders: due, watches: on("renewals") ? t?.watches_due_soon ?? [] : [], meds, unsorted: t?.captures_unprocessed ?? 0, now, invitations: invites }),
+    [due, t, meds, now, on, invites],
   );
   // To do holds the tasks of the lists chosen for it (Theme, Today, Lists in To do), or of every list.
   const sourceLists = useSourceLists();
@@ -210,8 +211,6 @@ export function Today() {
             <a className="small" href={`#/renewals?focus=${n.watch.id}`}>Open</a>
           </>
         );
-      case "followup":
-        return <a className="small" href={`#/lists/jobs/${n.app.id}`}>Open</a>;
       case "med":
         return (
           <button className="small primary" onClick={() => act(n.key, () => createEntity("log", { type: "med", value: n.med, at: new Date().toISOString(), source: SOURCE }))} title={`Log ${n.med} as taken now`}>
@@ -220,6 +219,8 @@ export function Today() {
         );
       case "unsorted":
         return <a className="small" href="#/inbox">Sort them</a>;
+      case "invitations":
+        return <a className="small" href="#/week?invitations=1">Open</a>;
     }
   };
 
@@ -236,7 +237,7 @@ export function Today() {
         ) : (
           <ol className="need-list">
             {needs.map((n, i) => (
-              <li key={n.key} className={`need ${n.kind}${(n.kind === "renewal" && n.overdue) || (n.kind === "followup" && n.late) ? " late" : ""}`}>
+              <li key={n.key} className={`need ${n.kind}${n.kind === "renewal" && n.overdue ? " late" : ""}`}>
                 <span className="num" aria-hidden="true">{i + 1}</span>
                 <div className="need-body">
                   <div className="need-title">{n.title}</div>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Entity } from "@everythingapp/shared";
 import { monthlyOf, payoff, split, subscriptions, unitPrices, readSplit, readSubs } from "./calc";
-import { checklistProgress, friendsOf, groupBoard, guardNames, instantiateFields, locateItem, STATES, stateCode, statesGrid, toggleItem } from "./admin";
+import { checklistProgress, friendsOf, instantiateFields, locateItem, STATES, stateCode, statesGrid, toggleItem } from "./admin";
 
 const ent = (kind: Entity["kind"], fields: Record<string, unknown>, id = Math.random().toString(36).slice(2), updated_at = "2026-10-01T00:00:00.000Z"): Entity => ({
   id,
@@ -182,32 +182,10 @@ describe("checklists", () => {
   });
 });
 
-describe("career board", () => {
-  it("groups by stage in pipeline order with counts and follow-ups", () => {
-    const a = ent("application", { company: "A", role: "r", stage: "applied", next_at: "2026-11-02T15:00:00Z" }, "a");
-    const b = ent("application", { company: "B", role: "r", stage: "applied", next_at: "2026-10-28T15:00:00Z" }, "b");
-    const c = ent("application", { company: "C", role: "r", stage: "applied" }, "c", "2026-10-20T00:00:00Z");
-    const d = ent("application", { company: "D", role: "r", stage: "interview" }, "d");
-    const e = ent("application", { company: "E", role: "r", stage: "rejected", next_at: "2026-10-24T00:00:00Z" }, "e");
-    const board = groupBoard([a, c, e, b, d]);
-    expect(board.columns.map((col) => col.stage)).toEqual(["saved", "applied", "screen", "interview", "offer", "rejected", "withdrawn", "accepted"]);
-    expect(board.columns.map((col) => col.count)).toEqual([0, 3, 0, 1, 0, 1, 0, 0]);
-    expect(board.columns[1].items.map((x) => x.id)).toEqual(["b", "a", "c"]);
-    expect(board.followUps.map((x) => x.id)).toEqual(["b", "a"]);
-    expect(board.active).toBe(4);
-  });
-});
-
-describe("games and guard", () => {
+describe("games", () => {
   it("friends from owned_by with the owner first", () => {
     expect(friendsOf([ent("game", { name: "x", owned_by: ["Rob", "Alex"] }), ent("game", { name: "y", owned_by: ["Kim", " Dev "] })], "Alex")).toEqual(["Alex", "Dev", "Kim", "Rob"]);
     expect(friendsOf([], "Alex")).toEqual(["Alex"]);
     expect(friendsOf([], "Me")).toEqual(["Me"]);
-  });
-
-  it("guard names from any detail shape", () => {
-    expect(guardNames(["Initech"])).toEqual(["Initech"]);
-    expect(guardNames({ invented: ["Globex", "Initech"], backend: "adapter" })).toEqual(["Globex", "Initech"]);
-    expect(guardNames("nope")).toEqual([]);
   });
 });

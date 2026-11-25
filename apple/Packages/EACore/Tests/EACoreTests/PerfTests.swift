@@ -66,7 +66,6 @@ final class PerfTests: XCTestCase {
         time("Today: needs you") {
             let tasks = engine.list(.task)
             _ = TodayBoard.needsYou(reminders: Mail.dueReminders(tasks, now: now), tasks: tasks, watches: today.watches_due_soon,
-                                    followUps: TodayExtras.followUpsDue(engine.list(.application), now: now),
                                     meds: TodayExtras.regularMeds(engine.logs(type: .med, days: 9), now: now),
                                     unsorted: engine.unprocessedCaptures.count, now: now)
         }
@@ -91,7 +90,6 @@ final class PerfTests: XCTestCase {
             _ = engine.localDay(now).events
             let tasks = engine.list(.task)
             _ = TodayBoard.needsYou(reminders: Mail.dueReminders(tasks, now: now), tasks: tasks, watches: today.watches_due_soon,
-                                    followUps: TodayExtras.followUpsDue(engine.list(.application), now: now),
                                     meds: TodayExtras.regularMeds(engine.logs(type: .med, days: 9), now: now),
                                     unsorted: engine.unprocessedCaptures.count, now: now)
             let plans = TodayExtras.plansToday(events: events, reminders: today.reminders_due,

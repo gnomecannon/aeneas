@@ -40,6 +40,12 @@ export interface Msg {
    * photo a Content-ID where it stands, among the attachments, as Apple Mail does.
    */
   files?: { name: string; type: string; bytes: Buffer; inlineId?: string; photoId?: string }[];
+  /**
+   * A calendar part (an invitation, its update or cancellation; only with `plain`, without files): part 2 beside the
+   * text in a multipart/alternative, as calendar apps send it, or a file named `invite.ics` with `calendarFile`.
+   */
+  calendar?: string;
+  calendarFile?: boolean;
 }
 
 export const FOLDERS: ImapFolder[] = [
@@ -145,6 +151,17 @@ export function fake(messages: Msg[], opts: { password?: string; noMove?: boolea
           part: String(i + 2), type: f.type, size: Math.ceil(f.bytes.length / 3) * 4, encoding: "base64",
           ...(f.inlineId ? { id: `<${f.inlineId}>`, disposition: "inline" } : f.photoId ? { id: `<${f.photoId}>`, disposition: "inline", dispositionParameters: { filename: f.name } } : { disposition: "attachment", dispositionParameters: { filename: f.name } }),
         }));
+        if (m.calendar !== undefined) {
+          const cal = m.calendarFile
+            ? { part: "2", type: "application/ics", size: m.calendar.length, encoding: "base64", disposition: "attachment", dispositionParameters: { filename: "invite.ics" } }
+            : { part: "2", type: "text/calendar", size: m.calendar.length, encoding: "7bit", parameters: { method: "REQUEST", charset: "utf-8" } };
+          return {
+            internalDate: m.at,
+            envelope: { date: m.at, subject: m.subject, messageId: m.messageId && `<${m.messageId}>`, inReplyTo: m.inReplyTo && `<${m.inReplyTo}>`, from: [m.from], replyTo: [m.replyTo ?? m.from], to: m.to ?? [{ name: "Robin", address: EMAIL }], cc: m.cc ?? [], bcc: m.bcc ?? [] },
+            bodyStructure: { type: m.calendarFile ? "multipart/mixed" : "multipart/alternative", childNodes: [{ type: "text/plain", part: "1" }, cal] },
+            ...(query.headers ? { headers: Buffer.from(`${m.references ? `References: ${m.references}\r\n` : ""}${m.headers ?? ""}\r\n`) } : {}),
+          };
+        }
         const shown = files.filter((_, i) => m.files![i].inlineId);
         const attached = files.filter((_, i) => !m.files![i].inlineId);
         const text = { ...parts[0], part: "1" };
@@ -199,6 +216,7 @@ export function fake(messages: Msg[], opts: { password?: string; noMove?: boolea
       async download(uid, part) {
         seen.calls.push("download");
         const m = find(uid)!;
+        if (m.calendar !== undefined && part === "2") { seen.downloads.push(part); return { content: Readable.from([Buffer.from(m.calendar, "utf8")]) }; }
         if (m.files?.length && part !== "1") {
           const f = m.files[Number(part) - 2];
           seen.downloads.push(part);

@@ -222,6 +222,8 @@ public final class EventMirrorSync: ObservableObject {
         if engine.hubInReach {
             await CalendarColorReporter.shared.found(infos.filter { used.contains($0.id) }, part: "personal", engine: engine)
         }
+        // Invitations waiting in these calendars (Invitations): listed on every device, answered in Calendar.
+        await DeviceInvitations.shared.run(store: store, engine: engine, work: work, personal: personalCal, now: now)
         state = newState
         lastRun = Date()
         lastSummary = "\(made) added, \(written) updated, \(moved) moved, \(removed) removed in Calendar; \(plan.patches.count) updated, \(plan.entityDeletes.count) removed, \(adopted) brought in, \(repeating) repeating changes here"

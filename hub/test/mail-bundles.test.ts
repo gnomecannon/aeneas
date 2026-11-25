@@ -19,7 +19,6 @@ const person = (name: string, from: string, subject: string): BundleMail =>
 
 /** Every module on, with a few records. */
 const ALL: BundleContext = {
-  jobs: [{ company: "Contoso", url: "https://careers.contoso.example/jobs/123" }, { company: "Fabrikam", url: null }],
   bills: [{ title: "Fastmail", url: "https://www.fastmail.example/settings/billing" }],
   pets: ["Biscuit"],
 };
@@ -44,12 +43,10 @@ test("mail bundles helpers: domains, hosts, sites and whole words", () => {
 test("mail bundles context: records come only from modules that are on", async () => {
   const t = makeHub();
   try {
-    t.hub.store.create("application", { company: "Contoso", role: "Analyst", stage: "applied", url: "https://careers.contoso.example/1" });
     t.hub.store.create("watch", { title: "Fastmail", category: "subscription", due: new Date().toISOString() });
     t.hub.store.create("pet_event", { pet: "Biscuit", type: "vet", at: new Date().toISOString() });
-    await t.api("/modules", { method: "PUT", json: { jobs: true, renewals: true, pet: false } });
+    await t.api("/modules", { method: "PUT", json: { renewals: true, pet: false } });
     const ctx = bundleContext(t.hub);
-    assert.deepEqual(ctx.jobs, [{ company: "Contoso", url: "https://careers.contoso.example/1" }]);
     assert.deepEqual(ctx.bills, [{ title: "Fastmail", url: null }]);
     assert.equal(ctx.pets, null, "Pet is off");
   } finally { t.cleanup(); }
@@ -68,10 +65,14 @@ test("mail bundles: when each bundle shows in the Inbox is kept on the hub, chec
     assert.deepEqual(list.bundle_delivery, { promos: { mode: "daily", time: "07:00" }, purchases: { mode: "never" } });
     // The ids are the ones every shipped app knows (purchases, other, promos), whatever the bundles are called now.
     assert.deepEqual(await (await put("promos", { mode: "weekly", day: 1, time: "08:00" })).json(), { promos: { mode: "weekly", time: "08:00", day: 1 }, purchases: { mode: "never" } });
-    // An app that still lists Social (no bundle any more) is told so, and nothing is kept for it.
-    const social = await put("social", { mode: "never" });
-    assert.equal(social.status, 409);
-    assert.match(((await social.json()) as { error: string }).error, /in another bundle now/);
+    // An app that still lists Social or Jobs (no bundles any more) is told so, and nothing is kept for them.
+    for (const id of ["social", "jobs"]) {
+      const gone = await put(id, { mode: "never" });
+      assert.equal(gone.status, 409, id);
+      assert.match(((await gone.json()) as { error: string }).error, /in another bundle now/);
+      const notify = await t.api("/mail/settings/notify", { method: "PUT", json: { bundle: id, on: true } });
+      assert.equal(notify.status, 409, id);
+    }
     // An id a build of the renaming used for a few days is taken as the bundle's real one.
     assert.deepEqual(await (await put("promotions", { mode: "now" })).json(), { purchases: { mode: "never" } });
     assert.equal((await put("made-up", { mode: "never" })).status, 404);
@@ -174,42 +175,30 @@ test("mail bundles: a developer tool's notice is an update and a list's discussi
   assert.equal(bundleOf(news, NO_MODULES), "promos", "a list's newsletter, not a reply");
 });
 
-test("mail bundles: jobs, from the applications and from hiring systems, a recruiter's own mail too", () => {
-  assert.equal(bundleOf(person("Dana Lee", "dana@talent.contoso.example", "Next steps"), ALL), "jobs", "same site as the posting");
-  assert.equal(bundleOf(sys("no-reply@fabrikam.example", "Thanks for applying"), ALL), "jobs", "the company's name in the domain");
-  assert.equal(bundleOf(sys("no-reply@greenhouse.io", "Thank you for applying to Woodgrove"), ALL), "jobs", "a hiring system");
-  assert.equal(bundleOf(sys("no-reply@fabrikam.example", "Thanks for applying"), NO_MODULES), "other", "Job search off: no jobs bundle");
-});
-
-test("mail bundles: job phrases in the subject or the text's start, a recruiter's signature too; never single words", () => {
-  const jobsOn: BundleContext = { ...NO_MODULES, jobs: [] };
+test("mail bundles: Jobs went with Job search on 2026-11-25: hiring mail is sorted like any other, a recruiter's stands alone", async () => {
   const recruiter = { ...person("Jordan Avery", "javery@newtonco.example", "Following up"),
     text: "Hi Robin,\n\nWe have received your application for Newton's Sr. Systems Administrator position and would like to talk.\n\nBest,\nJordan Avery\nLead Recruiter\nNewton Co." };
-  assert.equal(bundleOf(recruiter, jobsOn), "jobs", "Job search on with no applications yet");
-  assert.equal(bundleOf({ ...recruiter, text: "Hi Robin, quick note.\n\nJordan Avery\nSenior Technical\nRecruiter" }, jobsOn), "jobs", "the signature alone, split across lines");
-  assert.equal(bundleOf(sys("no-reply@hr.example", "Application status update"), jobsOn), "jobs", "in the subject");
-  assert.equal(bundleOf(recruiter, NO_MODULES), null, "Job search off: a person's mail again");
-  const newsletter = sys("news@books.example", "This week", { unsubscribe: true, text: "Our interview with the author, and our position on e-books." } as Partial<BundleMail>);
-  assert.equal(bundleOf(newsletter, jobsOn), "promos", "interview and position alone are not job words");
-  assert.equal(bundleOf({ ...recruiter, text: `${"x ".repeat(2000)}Lead Recruiter` }, jobsOn), null, "only the text's start is read");
-  assert.equal(bundleOf({ ...recruiter, text: "Thanks!\n\nAre you free to schedule a phone screen this week?" }, jobsOn), "jobs");
+  assert.equal(bundleOf(recruiter, ALL), null, "a person's mail");
+  assert.equal(bundleOf(sys("no-reply@greenhouse.io", "Thank you for applying to Woodgrove"), ALL), "other", "a hiring system's notice");
+  assert.equal(bundleOf(sys("talent@fabrikam.example", "Application status update", { unsubscribe: true }), ALL), "promos");
+  // A hub that kept applications (the kind stays) sorts by nothing of them.
+  const t = makeHub();
+  try {
+    t.hub.store.create("application", { company: "Contoso", role: "Analyst", stage: "applied", url: "https://careers.contoso.example/1" });
+    assert.ok(!("jobs" in bundleContext(t.hub)));
+    assert.equal((await t.api("/modules", { method: "PUT", json: { jobs: true } })).status, 422);
+  } finally { t.cleanup(); }
 });
 
-test("mail bundles: everyday uses of hiring words are not jobs", () => {
-  const jobsOn: BundleContext = { ...NO_MODULES, jobs: [] };
-  const aid = sys("noreply@studentaid.example", "The new aid form is available", { unsubscribe: true, text: "You can now submit your Free Application for Federal Student Aid form." } as Partial<BundleMail>);
-  assert.equal(bundleOf(aid, jobsOn), "promos", "an application form is not a job application");
-  const locker = sys("lockers@shop.example", "You have a package to pick up", { text: "Make sure your phone screen is clean and crack-free before scanning." } as Partial<BundleMail>);
-  assert.equal(bundleOf(locker, jobsOn), "purchases", "a phone's screen is not a phone screen; a package to pick up is a purchase");
-});
-
-test("mail bundles: a short company name is looked for only as a whole sender name or by its posting's site", () => {
-  const box: BundleContext = { ...NO_MODULES, jobs: [{ company: "Box", url: "https://jobs.box.example/42" }, { company: "EA", url: null }] };
+test("mail bundles: a short record name is looked for only as a whole sender name or by its record's site", () => {
+  const box: BundleContext = { ...NO_MODULES, bills: [{ title: "Box", url: "https://billing.box.example/42" }, { title: "EA", url: null }] };
   assert.equal(bundleOf(sys("no-reply@dropbox.example", "Your files"), box), "other", "box is inside dropbox, but that is not Box");
   assert.equal(bundleOf(sys("news@eastbank.example", "Rates this month", { unsubscribe: true }), box), "promos", "ea is inside eastbank");
-  assert.equal(bundleOf(sys("talent@box.example", "Interview times"), box), "jobs", "the posting's site");
-  assert.equal(bundleOf(person("EA Recruiting", "sam@mail.example", "Your application"), box), "jobs", "the sender's name, as a whole word");
-  assert.equal(bundleOf(person("Sean", "sean@example.com", "Lunch?"), box), null, "EA is not a word in Sean");
+  assert.equal(bundleOf(sys("account@box.example", "Your plan"), box), "bills", "the record's site");
+  assert.equal(bundleOf(sys("sam@mail.example", "Your plan", { from: { name: "EA Accounts", address: "sam@mail.example" } }), box), "bills", "the sender's name, as a whole word");
+  assert.equal(bundleOf(sys("sean@mail.example", "Your plan", { from: { name: "Sean", address: "sean@mail.example" } }), box), "other", "EA is not a word in Sean");
+  const locker = sys("lockers@shop.example", "You have a package to pick up", { text: "Make sure your phone screen is clean and crack-free before scanning." } as Partial<BundleMail>);
+  assert.equal(bundleOf(locker, NO_MODULES), "purchases", "a package to pick up is a purchase");
 });
 
 test("mail bundles: pet, from the pets' names and vet words", () => {
@@ -225,19 +214,20 @@ test("mail bundles: bills, from the renewals and bill words, before purchases", 
   assert.equal(bundleOf(sys("alerts@bank.example", "Your statement is ready"), NO_MODULES), "other", "Renewals off: no bills bundle");
 });
 
-test("mail bundles: Social's settings are dropped (Updates keeps Other's), and settings under the short-lived ids move back at start", () => {
+test("mail bundles: Social's and Jobs' settings are dropped (Updates keeps Other's), and settings under the short-lived ids move back at start", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mail-ids-"));
   try {
     const file = path.join(dir, "mail.sqlite");
     let db = openMailDb(file);
     const set = (key: string, value: unknown) => db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, JSON.stringify(value));
     // As 1.0.14 kept them: Social never shown, Other as it arrives (no setting), Promos once a day.
-    set("bundle_delivery", { promos: { mode: "daily", time: "07:00" }, social: { mode: "never" }, trips: { mode: "never" } });
+    // Jobs, as 1.0.25 kept it: shown once a day, and an alert for it.
+    set("bundle_delivery", { promos: { mode: "daily", time: "07:00" }, social: { mode: "never" }, trips: { mode: "never" }, jobs: { mode: "daily", time: "08:00" } });
     set("mail_notify", { people: true, bundles: ["purchases", "social", "jobs"], detail: "sender" });
     db.close();
     db = openMailDb(file);
     assert.deepEqual(bundleDelivery(db), { promos: { mode: "daily", time: "07:00" }, trips: { mode: "never" } }, "Social's never is not moved onto Updates: a changed password still shows");
-    assert.deepEqual(mailNotify(db), { people: true, bundles: ["purchases", "jobs"], detail: "sender" });
+    assert.deepEqual(mailNotify(db), { people: true, bundles: ["purchases"], detail: "sender" });
     // A hub that ran a build of the renaming: its ids move back, and the real id's own setting wins.
     set("bundle_delivery", { promotions: { mode: "weekly", time: "18:00", day: 0 }, updates: { mode: "never" }, other: { mode: "daily", time: "09:00" }, transactions: { mode: "never" } });
     set("mail_notify", { people: false, bundles: ["transactions", "updates", "purchases"], detail: "count" });

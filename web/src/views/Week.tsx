@@ -1,5 +1,5 @@
 import { plainError } from "../lib/errors";
-import { useCallback, useMemo, useState, type CSSProperties, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import type { Entity } from "@everythingapp/shared";
 import { calendarGroups, calendarKeyOf, calendarShown, taskAlertAt, withCalendarShown, type CalendarGroup } from "@everythingapp/shared";
 import { useHubPoll } from "../sync/useHubPoll";
@@ -50,6 +50,9 @@ import { Timeline } from "../components/Timeline";
 import { TaskPicker } from "../components/TaskPicker";
 import { updateFeel, useFeel } from "../feel/store";
 import { eventColorStyle } from "../lib/eventColor";
+import { INVITE_TEXTS, inviteFace, inviteWhen, invitationList } from "../lib/invitations";
+import { organizerName, type OwnerAnswer } from "@everythingapp/shared";
+import { engine } from "../sync/engine";
 
 const DRAG_TYPE = "application/x-ea-task";
 const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -408,6 +411,109 @@ function CalendarsPanel({ groups, hidden, onClose }: { groups: CalendarGroup[]; 
   );
 }
 
+const ANSWERS: { answer: OwnerAnswer; label: string }[] = [
+  { answer: "accepted", label: INVITE_TEXTS.accept },
+  { answer: "tentative", label: INVITE_TEXTS.maybe },
+  { answer: "declined", label: INVITE_TEXTS.decline },
+];
+
+/**
+ * The invitations waiting for an answer, as Calendar's invitations list: each with Accept, Maybe and Decline (the hub
+ * answers through where it came from), or a line saying to answer it in the calendar app; answered ones under
+ * Answered, folded (CONTRACT.md, Invitations).
+ */
+function InvitationsPanel({ rows, onClose }: { rows: Entity[]; onClose: () => void }) {
+  const { pending, answered } = useMemo(() => invitationList(rows, new Date()), [rows]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [errs, setErrs] = useState<Record<string, string>>({});
+  // An answer stays on its row for two seconds, then the row moves to Answered.
+  const [held, setHeld] = useState<Record<string, OwnerAnswer>>({});
+  const timers = useRef<number[]>([]);
+  useEffect(() => () => timers.current.forEach((t) => clearTimeout(t)), []);
+  const [openAnswered, setOpenAnswered] = useState(false);
+  const shown = [...pending, ...answered.filter((e) => held[e.id] && !pending.includes(e))];
+  const act = async (e: Entity, fn: () => Promise<{ invitation: Entity }>, said?: OwnerAnswer) => {
+    if (!engine.client) { setErrs((x) => ({ ...x, [e.id]: INVITE_TEXTS.offline })); return; }
+    setBusy(e.id);
+    setErrs((x) => ({ ...x, [e.id]: "" }));
+    try {
+      const out = await fn();
+      await engine.absorb([out.invitation]).catch(() => undefined);
+      if (said) {
+        setHeld((h) => ({ ...h, [e.id]: said }));
+        timers.current.push(window.setTimeout(() => setHeld((h) => { const { [e.id]: _gone, ...rest } = h; return rest; }), 2000));
+      }
+    } catch (err) {
+      setErrs((x) => ({ ...x, [e.id]: plainError(err) }));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const row = (e: Entity, inAnswered: boolean) => {
+    const f = e.fields;
+    const face = inviteFace(e);
+    const who = organizerName(f);
+    return (
+      <li key={e.id} className="wk-invite">
+        <div className="wk-invite-body">
+          <strong>{String(f.title ?? "")}</strong>
+          {who && <span className="muted small">{who}</span>}
+          <span className="small">{inviteWhen(f)}{f.repeats === true ? ", repeats" : ""}</span>
+          {typeof f.location === "string" && f.location && <span className="muted small">{f.location}</span>}
+        </div>
+        {face.elsewhere ? (
+          <div className="muted small">{INVITE_TEXTS.inCalendarApp}</div>
+        ) : (
+          <div className="row wk-invite-actions" role="group" aria-label={`Answer ${String(f.title ?? "")}`}>
+            {ANSWERS.map((a) => (
+              <button
+                key={a.answer}
+                className={`small${face.chosen === a.answer ? " primary" : ""}`}
+                aria-pressed={face.chosen === a.answer}
+                disabled={busy === e.id || face.locked}
+                onClick={() => void act(e, () => engine.client!.answerInvitation(e.id, a.answer), a.answer)}
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {held[e.id] && !face.reply && <div className="small" role="status">{INVITE_TEXTS.done[held[e.id]]}</div>}
+        {face.reply && (
+          <div className="row wk-invite-reply" role="status">
+            <span className={face.reply.retry ? "error small" : "small"}>{face.reply.text}</span>
+            {face.reply.retry && <button className="small" disabled={busy === e.id} onClick={() => void act(e, () => engine.client!.invitationAct(e.id, "retry"))}>{INVITE_TEXTS.retry}</button>}
+            {face.reply.undo && <button className="small" disabled={busy === e.id} onClick={() => void act(e, () => engine.client!.invitationAct(e.id, "undo"))}>{INVITE_TEXTS.undo}</button>}
+          </div>
+        )}
+        {inAnswered && face.chosen && <div className="muted small">{INVITE_TEXTS.state[face.chosen]}</div>}
+        {errs[e.id] && <div className="error small" role="alert">{errs[e.id]}</div>}
+      </li>
+    );
+  };
+  const rest = answered.filter((e) => !held[e.id]);
+  return (
+    <section className="card wk-invites" aria-label={INVITE_TEXTS.title}>
+      <div className="row between">
+        <h3>{INVITE_TEXTS.title}</h3>
+        <button className="small ghost" onClick={onClose}>
+          Done
+        </button>
+      </div>
+      {!shown.length && <div className="muted small">{INVITE_TEXTS.none}</div>}
+      {shown.length > 0 && <ul className="wk-invite-list">{shown.map((e) => row(e, false))}</ul>}
+      {rest.length > 0 && (
+        <>
+          <button className="small ghost" aria-expanded={openAnswered} onClick={() => setOpenAnswered((o) => !o)}>
+            {INVITE_TEXTS.answered} ({rest.length})
+          </button>
+          {openAnswered && <ul className="wk-invite-list answered">{rest.map((e) => row(e, true))}</ul>}
+        </>
+      )}
+    </section>
+  );
+}
+
 export function Week() {
   const route = useRoute();
   const desktop = useMediaQuery("(min-width: 768px)");
@@ -424,6 +530,12 @@ export function Week() {
   });
   const [query, setQuery] = useState(() => route.params.get("q") ?? "");
   const [showCalendars, setShowCalendars] = useState(() => route.params.get("calendars") === "1");
+  // Invitations (CONTRACT.md, Invitations): the button shows while one waits or was answered in the last 7 days.
+  const inviteRows = useEntities("invitation");
+  const invites = useMemo(() => invitationList(inviteRows, new Date()), [inviteRows]);
+  const askedInvites = route.params.get("invitations") === "1";
+  const [showInvites, setShowInvites] = useState(askedInvites);
+  useEffect(() => { if (askedInvites) setShowInvites(true); }, [askedInvites]);
   const anchorDate = parseLocalDate(anchor);
   const start = localDate(mondayOf(anchorDate));
   const poll = useHubPoll<PlannerWeek>((c) => c.plannerWeek(start), () => localWeek(start), [start]);
@@ -509,11 +621,23 @@ export function Week() {
         </div>
         <div className="row wk-tools">
           <input type="search" className="wk-find" placeholder="Search events" aria-label="Search events" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Escape" && setQuery("")} />
+          {(invites.pending.length > 0 || invites.answered.length > 0 || showInvites) && (
+            <button
+              className={`small${showInvites ? " on" : ""}`}
+              aria-expanded={showInvites}
+              aria-label={invites.count ? `${INVITE_TEXTS.title}, ${invites.count} waiting` : INVITE_TEXTS.title}
+              onClick={() => setShowInvites((s) => !s)}
+            >
+              {INVITE_TEXTS.title}
+              {invites.count > 0 && <span className="badge wk-invite-badge" aria-hidden="true">{invites.count}</span>}
+            </button>
+          )}
           <button className={`small${showCalendars ? " on" : ""}`} aria-expanded={showCalendars} onClick={() => setShowCalendars((s) => !s)}>
             Calendars{hidden.length ? `, ${groups.flatMap((g) => g.calendars).filter((c) => !c.shown).length} off` : ""}
           </button>
         </div>
       </div>
+      {showInvites && <InvitationsPanel rows={inviteRows} onClose={() => { setShowInvites(false); if (askedInvites) go("/week"); }} />}
       {showCalendars && <CalendarsPanel groups={groups} hidden={hidden} onClose={() => setShowCalendars(false)} />}
       {searching ? (
         <SearchResults query={query} events={shownEvents} allEvents={allEvents} todayStr={todayStr} />

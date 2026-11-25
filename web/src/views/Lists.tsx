@@ -5,9 +5,8 @@ import { engine } from "../sync/engine";
 import { useEntities, useEntity } from "../sync/hooks";
 import { createEntity, updateEntity } from "../sync/edits";
 import { instantiateChecklist, toggleChecklist } from "../sync/admin";
-import { CLOSED_STAGES, checklistProgress, statesGrid, type ChecklistF, type Stage } from "../lib/admin";
+import { checklistProgress, statesGrid, type ChecklistF } from "../lib/admin";
 import { go } from "../lib/router";
-import { IfModule } from "../components/ModuleGate";
 
 export function Lists({ id }: { id?: string }) {
   return id ? <ListPage id={id} /> : <ListIndex />;
@@ -21,20 +20,6 @@ function Progress({ f }: { f: ChecklistF }) {
     <span className="muted small">
       {p.done} of {p.total}
     </span>
-  );
-}
-
-/** The job applications list sits at the top of Lists. */
-function JobsRow() {
-  const apps = useEntities("application");
-  const open = apps.filter((e) => !CLOSED_STAGES.includes(e.fields.stage as Stage)).length;
-  return (
-    <a href="#/lists/jobs" className="item" style={{ color: "inherit" }}>
-      <div className="body row between">
-        <span className="t">Job applications</span>
-        <span className="muted small">{apps.length ? `${open} open of ${apps.length}` : "none yet"}</span>
-      </div>
-    </a>
   );
 }
 
@@ -92,7 +77,6 @@ function ListIndex() {
         </button>
       </form>
       <div className="list" style={{ marginTop: 10 }}>
-        <IfModule id="jobs"><JobsRow /></IfModule>
         {open.map((e) => (
           <Row key={e.id} e={e} />
         ))}

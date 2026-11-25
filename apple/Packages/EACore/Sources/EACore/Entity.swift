@@ -6,6 +6,15 @@ public enum Kind: String, Codable, CaseIterable, Sendable {
     case monitor, incident, checklist, application, game, film, image, person
     /// The owner's Apple Music taste (since 2026-11-25, Music): one item, `MusicTaste.profileId`.
     case music_profile
+    /// An invitation waiting for the owner's answer, or answered in the last 7 days (since 2026-11-25, Invitations).
+    case invitation
+}
+
+extension Kind {
+    /// Kinds whose module was taken out of the app: Job search's `application` on 2026-11-25. They stay kinds, so items
+    /// already saved still decode and sync, but nothing shows them: no screen, search, Spotlight entry or link
+    /// (CONTRACT.md, Job search). The same list as `GONE_KINDS` in packages/shared.
+    public static let gone: Set<Kind> = [.application]
 }
 
 public enum Space: String, Codable, CaseIterable, Sendable { case personal, work }
@@ -129,6 +138,8 @@ public struct Entity: Codable, Equatable, Hashable, Identifiable, Sendable {
     }
 
     public var isDeleted: Bool { deleted_at != nil && !(deleted_at ?? "").isEmpty }
+    /// An event the owner declined that stays on its calendar (`declined`, Invitations): left out everywhere, as Calendar hides it.
+    public var isDeclined: Bool { kind == .event && fields["declined"]?.boolValue == true }
 
     // Typed accessors
     public func string(_ key: String) -> String? { fields[key]?.stringValue }

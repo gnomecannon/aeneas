@@ -259,14 +259,15 @@ This part matters most. Mail is hostile input.
 - **The built-in bundles (renamed in the next PR):** Transactions, Updates, Promotions and Trips are always there,
   in that order (ids `purchases`, `other`, `promos`, `trips`: an id stays when its bundle is renamed, because apps that
   shipped before know only those ids; before: Purchases, Social, Promos and Other. Social is gone: its mail is in Updates,
-  as is every notice nothing else claims, and a reply in a mailing list's discussion stands alone). Bills (Renewals and bills),
-  Pet and Jobs (Job search) show only while their module is on, each with "Sorted using your … records. Open … ›".
+  as is every notice nothing else claims, and a reply in a mailing list's discussion stands alone). Bills (Renewals and bills)
+  and Pet show only while their module is on, each with "Sorted using your … records. Open … ›". Jobs (Job search) went
+  with that module on 2026-11-25.
 - **The owner's own bundles** come after them, in one of 8 colors (next PR: teal, blue, magenta, orange, violet, red,
   green, gold, `OWN_COLORS` in `web/src/lib/mail.ts`); they may repeat a built-in bundle's color.
 - **Colors:** Inbox, Snoozed, Done and each bundle have a color that carries white words at 4.5:1, held by
   `web/src/lib/contrast.test.ts`. **(next PR)** The places keep their meaning (Inbox blue, Snoozed
   amber, Done green), and no bundle shares their families: Transactions teal, Updates violet, Promotions pink, Trips
-  red, Bills brown, Pet orange, Jobs slate (values in `web/src/styles.css`, `--b-*` and `--bt-*`). Folders keep Other's
+  red, Bills brown, Pet orange (values in `web/src/styles.css`, `--b-*` and `--bt-*`; Jobs slate until 2026-11-25). Folders keep Other's
   old gray.
 - **In a bundle:** the mail newest first, Sweep, **Show in Inbox** (9.3), **Notify me** (9.4), and **Edit bundle** for
   the owner's own.

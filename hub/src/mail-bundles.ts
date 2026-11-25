@@ -8,11 +8,13 @@ import type { ModuleId } from "./modules.js";
  * The Mail screen's bundles (CONTRACT.md, Mail): which colored group each Inbox mail sits in, worked out from its
  * headers when the list is built, so a new record or a module switched off changes the sorting at once and nothing
  * stale is stored. The sender, the subject and what the headers say are read; of the text, only its start, and only
- * for the job and order phrases (a recruiter's note and signature, a shop's "estimated arrival").
+ * for the order phrases (a shop's "estimated arrival").
  *
- * Bundles: Transactions, Trips, Updates and Promotions for every mail a system sent; Bills, Pet and Jobs only while
- * their module is on (their part of BundleContext is null when it is off). A person's own mail stands alone (null),
- * so it is never lost among notices, and so does a reply in a mailing list's discussion (people talking).
+ * Bundles: Transactions, Trips, Updates and Promotions for every mail a system sent; Bills and Pet only while their
+ * module is on (their part of BundleContext is null when it is off). Jobs went with Job search on 2026-11-25
+ * (RETIRED_BUNDLE_IDS): a hiring system's mail is sorted like any other notice. A person's own mail stands alone (null),
+ * a recruiter's too, so it is never lost among notices, and so does a reply in a mailing list's discussion (people
+ * talking).
  * Since 2026-11-22 Purchases is called Transactions (money moving too), Promos is called Promotions, and Other is called
  * Updates and takes the social networks' mail too (there is no Social bundle any more). The ids did not change with the
  * names (BUNDLE_IDS says why).
@@ -31,7 +33,7 @@ export interface BundleMail {
   unsubscribe: boolean;
   /** Its List-Id, when it comes from a mailing list. */
   list_id: string | null;
-  /** The start of its text (TEXT_START characters), read for the job and order phrases and the owner's text words. */
+  /** The start of its text (TEXT_START characters), read for the order phrases and the owner's text words. */
   text?: string;
   /** The addresses it was sent to (To and Cc, lowercase), for the owner's recipient rules; absent for mail kept before. */
   to?: string[];
@@ -44,8 +46,6 @@ export const TEXT_START = 3000;
 
 /** What the module bundles match against, from the owner's records; null while that module is off. */
 export interface BundleContext {
-  /** Job search: each application's company and the address of its posting. */
-  jobs: { company: string; url: string | null }[] | null;
   /** Renewals and bills: each record's title and its address. */
   bills: { title: string; url: string | null }[] | null;
   /** Pet: the pets' names. */
@@ -142,11 +142,14 @@ export function customBundleOf(mail: BundleMail, custom: CustomBundle[]): string
  * Promotions (renamed 2026-11-22). An app that shipped before the renaming has a fixed list of ids, and the hub updates
  * itself before the apps do: under an id it does not know, mail set to show later or never showed nowhere in that app.
  */
-export const BUNDLE_IDS = ["purchases", "other", "promos", "trips", "bills", "pet", "jobs"] as const;
+export const BUNDLE_IDS = ["purchases", "other", "promos", "trips", "bills", "pet"] as const;
 /** Their names, as the screen shows them (for notifications). */
-export const BUNDLE_NAMES: Record<string, string> = { purchases: "Transactions", trips: "Trips", other: "Updates", promos: "Promotions", bills: "Bills", pet: "Pet", jobs: "Jobs" };
-/** Ids that name no bundle any more: `social`, whose mail is in Updates since 2026-11-22. */
-export const RETIRED_BUNDLE_IDS: readonly string[] = ["social"];
+export const BUNDLE_NAMES: Record<string, string> = { purchases: "Transactions", trips: "Trips", other: "Updates", promos: "Promotions", bills: "Bills", pet: "Pet" };
+/**
+ * Ids that name no bundle any more: `social`, whose mail is in Updates since 2026-11-22, and `jobs`, which went with
+ * Job search on 2026-11-25 (its mail is sorted like any other).
+ */
+export const RETIRED_BUNDLE_IDS: readonly string[] = ["social", "jobs"];
 /**
  * Ids a build of the renaming used for a few days in November 2026, and the bundle each one is. Settings kept under
  * them move back at start (mail-inbox.ts settleBundleIds), and a request that still sends one is taken as the real id.
@@ -156,14 +159,13 @@ export const SHORT_LIVED_BUNDLE_IDS: Record<string, string> = { transactions: "p
 export const bundleIdAsSent = (id: string): string => (Object.hasOwn(SHORT_LIVED_BUNDLE_IDS, id) ? SHORT_LIVED_BUNDLE_IDS[id] : id);
 
 /** No modules on: only the bundles every mail can have. */
-export const NO_MODULES: BundleContext = { jobs: null, bills: null, pets: null };
+export const NO_MODULES: BundleContext = { bills: null, pets: null };
 
 /** The records the module bundles match against, read once per list. */
 export function bundleContext(hub: Hub): BundleContext {
   const on = (m: ModuleId) => hub.modules.on(m);
   const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
   return {
-    jobs: on("jobs") ? hub.store.list({ kind: "application", limit: 100000 }).map((e) => ({ company: str(e.fields.company) ?? "", url: str(e.fields.url) })).filter((j) => j.company || j.url) : null,
     bills: on("renewals") ? hub.store.list({ kind: "watch", limit: 100000 }).map((e) => ({ title: str(e.fields.title) ?? "", url: str(e.fields.url) })).filter((b) => b.title || b.url) : null,
     pets: on("pet") ? [...new Set(hub.store.list({ kind: "pet_event", limit: 100000 }).map((e) => str(e.fields.pet)).filter((p): p is string => !!p))] : null,
     custom: customBundles(hub.mailDb),
@@ -232,24 +234,12 @@ function wordPattern(words: string[]): RegExp | null {
 // ---------------------------------------------------------------------------------------------------------------------
 // The rules
 
-/** Hiring systems that send mail for many companies. */
-const HIRING = ["greenhouse.io", "lever.co", "myworkday.com", "ashbyhq.com", "smartrecruiters.com", "icims.com"];
 /** Social networks' mail domains. */
 const SOCIAL = ["facebookmail.com", "linkedin.com", "instagram.com", "reddit.com", "redditmail.com", "discord.com", "nextdoor.com", "x.com"];
 /** Developer and work tools: their notices carry an unsubscribe link (to stop a repository's notices), but are updates, not promotions. */
 const TOOLS = ["github.com", "gitlab.com", "bitbucket.org", "atlassian.net", "atlassian.com"];
 /** A reply's subject: "Re:" (and "Aw:", "Sv:"). */
 const REPLY = /^\s*(re|aw|sv)\s*:/i;
-/**
- * Phrases that almost only hiring mail has, looked for in the subject and the start of the text: about an application,
- * about the next steps, and the titles in a recruiter's signature. Never single words like "interview" or "position",
- * which newsletters use all the time.
- */
-const JOB_PHRASES = [
-  "your application", "received your application", "thank you for applying", "thanks for applying", "applied for", "application status",
-  "interview invitation", "schedule an interview", "schedule a phone screen", "a phone screen with", "next steps in the hiring process",
-  "recruiter", "talent acquisition", "hiring manager", "hiring team", "people operations",
-];
 const VET_WORDS =["vet", "veterinary", "animal hospital"];
 const BILL_WORDS = ["invoice", "bill", "statement", "payment due", "autopay"];
 const TRIP_WORDS = ["flight", "boarding pass", "itinerary", "reservation", "check-in", "hotel", "booking"];
@@ -264,10 +254,8 @@ const ORDER_PHRASES = ["estimated arrival", "estimated delivery", "order number"
   "transaction id", "transfer amount", "has been deposited", "available balance"];
 
 /** The sites of the fixed lists, for fromAny, and the patterns of the fixed word lists. */
-const HIRING_SITES = new Set(HIRING.map(siteOf));
 const SOCIAL_SITES = new Set(SOCIAL.map(siteOf));
 const TOOL_SITES = new Set(TOOLS.map(siteOf));
-const JOB_RE = wordPattern(JOB_PHRASES);
 const BILL_RE = wordPattern(BILL_WORDS);
 const TRIP_RE = wordPattern(TRIP_WORDS);
 const TRANSACTION_RE = wordPattern(TRANSACTION_WORDS);
@@ -288,7 +276,6 @@ interface Records {
   inDomain: string[];
 }
 interface Prepared {
-  jobs: Records | null;
   bills: Records | null;
   /** The pets' names and the vet words. */
   pets: RegExp | null;
@@ -303,7 +290,6 @@ function prepare(ctx: BundleContext): Prepared {
       inDomain: list.map((r) => r.name).filter((n) => n.length >= 4).map((n) => n.toLowerCase()),
     });
     p = {
-      jobs: ctx.jobs ? records(ctx.jobs.map((j) => ({ name: j.company, url: j.url }))) : null,
       bills: ctx.bills ? records(ctx.bills.map((b) => ({ name: b.title, url: b.url }))) : null,
       pets: ctx.pets ? wordPattern([...ctx.pets, ...VET_WORDS]) : null,
     };
@@ -314,27 +300,23 @@ function prepare(ctx: BundleContext): Prepared {
 
 /**
  * The bundle a mail sits in, or null when it stands alone (a person's mail). The rules, most specific first (the first
- * that matches wins); test/mail-bundles.test.ts has a case for each:
- *  1. jobs:  ctx.jobs is not null, and the sender's domain is the same site as an application's url, or the sender's
- *            name has its company (a name of 4 or more letters, its domain too); or the mail comes from a hiring system (greenhouse.io, lever.co,
- *            myworkday.com, ashbyhq.com, smartrecruiters.com, icims.com); or a job phrase (JOB_PHRASES) is in the
- *            subject or the start of the text. The only rule that also takes a person's mail
- *            (a recruiter writes as a person).
- *  2. A person's mail (not automated, no unsubscribe) stands alone: return null.
- *  3. pet:   ctx.pets is not null, and a pet's name, or "vet", "veterinary", "animal hospital", is in the sender's name
+ * that matches wins); test/mail-bundles.test.ts has a case for each. The owner's own bundles come before all of them.
+ * (Until 2026-11-25 a first rule put hiring mail, a recruiter's too, in Jobs while Job search was on.)
+ *  1. A person's mail (not automated, no unsubscribe) stands alone: return null.
+ *  2. pet:   ctx.pets is not null, and a pet's name, or "vet", "veterinary", "animal hospital", is in the sender's name
  *            or the subject.
- *  4. bills: ctx.bills is not null, and the sender is the same site as a record's url or has its title; or the subject
+ *  3. bills: ctx.bills is not null, and the sender is the same site as a record's url or has its title; or the subject
  *            has invoice, bill, statement, payment due, autopay.
- *  5. trips:     flight, boarding pass, itinerary, reservation, check-in, hotel, booking.
- *  6. purchases (Transactions): a buying or money word (TRANSACTION_WORDS: order, receipt, shipped, transfer, deposit, refund,
+ *  4. trips:     flight, boarding pass, itinerary, reservation, check-in, hotel, booking.
+ *  5. purchases (Transactions): a buying or money word (TRANSACTION_WORDS: order, receipt, shipped, transfer, deposit, refund,
  *                payment received...) in the subject; or an order or money phrase (ORDER_PHRASES) in the start of the text.
- *  7. other (Updates): the sender's domain is a social network's (facebookmail.com, linkedin.com, instagram.com, reddit.com,
+ *  6. other (Updates): the sender's domain is a social network's (facebookmail.com, linkedin.com, instagram.com, reddit.com,
  *                redditmail.com, discord.com, nextdoor.com, x.com) or a developer or work tool's (TOOLS: github.com,
  *                gitlab.com, ...), though it carries unsubscribe.
- *  8. none:      a reply in a mailing list's discussion (a List-Id, a "Re:" subject, and it answers another mail)
+ *  7. none:      a reply in a mailing list's discussion (a List-Id, a "Re:" subject, and it answers another mail)
  *                stands alone, as people talking. "Re:" alone is not enough: a newsletter writes it to look like one.
- *  9. promos (Promotions): anything left that carries unsubscribe.
- * 10. other (Updates): anything else a system sent.
+ *  8. promos (Promotions): anything left that carries unsubscribe.
+ *  9. other (Updates): anything else a system sent.
  */
 export function bundleOf(mail: BundleMail, ctx: BundleContext): string | null {
   const domain = domainOf(mail.from.address);
@@ -344,7 +326,7 @@ export function bundleOf(mail: BundleMail, ctx: BundleContext): string | null {
   // Each part of the mail is made into wordText once, however many bundles look at it.
   const name = wordText(mail.from.name);
   const subject = wordText(mail.subject);
-  /** The start of the text, where the job and order phrases are looked for. */
+  /** The start of the text, where the order phrases are looked for. */
   let start: string | null = null;
   const textStart = () => (start ??= wordText((mail.text ?? "").slice(0, TEXT_START)));
   /** Whether the sender's domain is one of these sites. */
@@ -360,26 +342,20 @@ export function bundleOf(mail: BundleMail, ctx: BundleContext): string | null {
   const own = ctx.custom?.length ? customBundleOf(mail, ctx.custom) : null;
   if (own) return own;
 
-  // 1. Jobs: the one rule that takes a person's mail too, since a recruiter writes as a person.
-  if (p.jobs) {
-    const sounds = hasWordIn(subject, JOB_RE) || hasWordIn(textStart(), JOB_RE);
-    if (fromRecord(p.jobs) || fromAny(HIRING_SITES) || sounds) return "jobs";
-  }
-
-  // 2. A person's mail stands alone.
+  // 1. A person's mail stands alone.
   if (!mail.automated && !mail.unsubscribe) return null;
 
-  // 3. Pet: a pet's name or a vet word, in the sender's name or the subject.
+  // 2. Pet: a pet's name or a vet word, in the sender's name or the subject.
   if (p.pets) {
     if (hasWordIn(name, p.pets) || hasWordIn(subject, p.pets)) return "pet";
   }
 
-  // 4. Bills: a renewal record's site or name, or a bill word in the subject.
+  // 3. Bills: a renewal record's site or name, or a bill word in the subject.
   if (p.bills) {
     if (fromRecord(p.bills) || hasWordIn(subject, BILL_RE)) return "bills";
   }
 
-  // 5 to 9: the bundles every mail can have.
+  // 4 to 9: the bundles every mail can have.
   if (hasWordIn(subject, TRIP_RE)) return "trips";
   if (hasWordIn(subject, TRANSACTION_RE) || hasWordIn(textStart(), ORDER_RE)) return "purchases";
   if (fromAny(SOCIAL_SITES) || fromAny(TOOL_SITES)) return "other";

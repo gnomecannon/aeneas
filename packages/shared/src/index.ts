@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MusicProfileFields } from "./music.js";
+import { InvitationFields } from "./invitations.js";
 
 // ---------- enums ----------
 export const Kind = z.enum([
@@ -10,9 +11,17 @@ export const Kind = z.enum([
   "inventory", "procedure", "music_idea", "quiz",
   "monitor", "incident",
   "checklist", "application", "game", "film", "image", "person",
-  "music_profile",
+  "music_profile", "invitation",
 ]);
 export type Kind = z.infer<typeof Kind>;
+
+/**
+ * Kinds whose module was taken out of the app: Job search's `application` on 2026-11-25. They stay kinds, so items
+ * already saved stay in the database, sync as before and an older app's edit is not refused, but nothing new writes
+ * them and nothing shows them: no screen, search, link or assistant tool (CONTRACT.md, Job search). EACore `Kind.gone`
+ * holds the same list.
+ */
+export const GONE_KINDS: readonly string[] = ["application"];
 
 export const Space = z.enum(["personal", "work"]);
 export type Space = z.infer<typeof Space>;
@@ -116,7 +125,7 @@ export const TaskFields = z.object({
   snooze_log: z.array(z.object({ at: instant, until: instant, reason: z.string() })).optional(),
   /** Reminder times already notified, so each fires once. */
   fired: z.array(instant).optional(),
-  /** The item this task is about (a renewal, a pet event, a job application). */
+  /** The item this task is about (a renewal, a pet event; a job application's follow-up before 2026-11-25). */
   linked_id: z.string().optional(),
   /**
    * The Apple Reminders item it mirrors, written by the iPhone and Mac. `list_key` (since 1.0.18) names its list the
@@ -231,6 +240,8 @@ export const EventFields = z.object({
   caldav: z.object({ account: z.string(), calendar: z.string(), uid: z.string(), from_caldav: z.boolean().optional() }).optional(),
   /** The calendar it is on, as the app that brought it in names it (`apple:<account>/<calendar>`), for its color. */
   calendar_key: z.string().max(300).optional(),
+  /** The owner declined it and it stays on its calendar (Invitations): clients leave it out, as Calendar does. */
+  declined: z.boolean().optional(),
 });
 
 /**
@@ -575,6 +586,7 @@ export const ChecklistFields = z.object({
   archived: z.boolean().optional(),
 });
 
+/** Older kind (GONE_KINDS): Job search was taken out on 2026-11-25. Its fields, for reading old data. */
 export const ApplicationFields = z.object({
   company: z.string(),
   role: z.string(),
@@ -711,6 +723,7 @@ export const FieldsByKind = {
   monitor: MonitorFields, incident: IncidentFields,
   checklist: ChecklistFields, application: ApplicationFields, game: GameFields, film: FilmFields, image: ImageFields, person: PersonFields,
   music_profile: MusicProfileFields,
+  invitation: InvitationFields,
 } as const;
 
 // ---------- envelope ----------
@@ -1361,3 +1374,4 @@ export * from "./taskLists.js";
 export * from "./calendars.js";
 export * from "./music.js";
 export * from "./nextLine.js";
+export * from "./invitations.js";

@@ -683,7 +683,6 @@ public enum Mail {
         Bundle(id: "trips", name: "Trips"),
         Bundle(id: "bills", name: "Bills", module: "renewals", moduleName: "Renewals and bills"),
         Bundle(id: "pet", name: "Pet", module: "pet", moduleName: "Pet"),
-        Bundle(id: "jobs", name: "Jobs", module: "jobs", moduleName: "Job search"),
     ]
 
     /// The ids a build of the renaming used for a few days (2026-11-22), by the id every app knows the bundle by.

@@ -181,7 +181,12 @@ public struct TaskVisibility: Sendable {
 
     public init(_ setting: SourcesSetting?) { self.init(lists: setting?.lists ?? []) }
 
-    public func shows(_ e: Entity) -> Bool { e.kind != .task || shows(fields: e.fields) }
+    /// A task in a list that is off is hidden; so (since 2026-11-25) is an event the owner declined, which stays on its
+    /// calendar but is hidden as Calendar hides it (Invitations, `Entity.isDeclined`).
+    public func shows(_ e: Entity) -> Bool {
+        if e.kind == .event { return !e.isDeclined }
+        return e.kind != .task || shows(fields: e.fields)
+    }
 
     public func shows(fields: [String: JSONValue]) -> Bool {
         guard anyOff, let a = fields["apple"]?.objectValue else { return true }

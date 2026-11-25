@@ -54,6 +54,8 @@ export interface InboxMail {
   rcpt?: string[];
   /** Its attachments, from its structure (no file read): names, types and sizes. */
   attachments?: import("./icloud.js").MailAttachment[];
+  /** Its first calendar part's text (an invitation, a cancellation; Invitations), at most 256 KB; absent when none. */
+  calendar?: string;
 }
 
 /**

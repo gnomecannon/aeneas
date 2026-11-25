@@ -28,7 +28,6 @@ import { installHistory } from "./history.js";
 import { foldHubMachine } from "./tech.js";
 import { setupMachineAccess } from "./machinesetup.js";
 import { backupChecker, sshRunner } from "./backups.js";
-import { installAdminHooks, syncApplicationReminder } from "./admin.js";
 import { linkedTask, migrateRemindersToTasks, syncLinkedTask } from "./reminders.js";
 import { requeueParkedMail } from "./mail-filer.js";
 import { migrateRunbookTitles } from "./memory.js";
@@ -40,7 +39,6 @@ import { BackupKey, BackupKeyError } from "./backupkey.js";
 import { FeelStore } from "./feel.js";
 import { SourcesStore, sourcesChanged, tellSources } from "./sources.js";
 import { DashboardStore } from "./dashboard.js";
-import { LayoutStore } from "./layouts.js";
 import { ConnectionStore } from "./imports/connections.js";
 import { WikiStore } from "./wiki.js";
 import { ModuleStore, type ModuleId } from "./modules.js";
@@ -80,7 +78,6 @@ export interface Hub {
   sources: SourcesStore;
   /** Dashboard tiles, one board for every device. */
   dashboard: DashboardStore;
-  layouts: LayoutStore;
   /** ISO time this hub object was built; /status reports uptime from it. */
   startedAt: string;
   /** Reads a TLS certificate's expiry for watch probes. Tests replace it so no socket is opened. */
@@ -140,7 +137,10 @@ function keepSeqMark(store: Store, file: string): void {
 const pendingMarks = new Set<() => void>();
 let exitHooked = false;
 
-/** Modules whose items carry a reminder task the hub keeps in step (watches.ts, pets.ts, admin.ts). */
+/**
+ * Modules whose items carry a reminder task the hub keeps in step (watches.ts, pets.ts). Job search's follow-ups went
+ * with it on 2026-11-25: such a task is left as it is, an ordinary task nothing moves any more.
+ */
 const REMINDER_OWNERS: Partial<Record<ModuleId, { kind: string; sync: (hub: Hub, e: Entity) => void }>> = {
   renewals: { kind: "watch", sync: (hub, e) => { syncWatchReminder(hub.store, e); } },
   // As the pet hook does: a handoff written while Pet was off moves the next one, then each event's reminder.
@@ -148,7 +148,6 @@ const REMINDER_OWNERS: Partial<Record<ModuleId, { kind: string; sync: (hub: Hub,
     if (e.fields.type === "custody" && !e.deleted_at && e.fields.with) syncHandoffs(hub, String(e.fields.pet ?? ""));
     syncPetReminder(hub.store, hub.store.get(e.id) ?? e);
   } },
-  jobs: { kind: "application", sync: (hub, e) => { syncApplicationReminder(hub.store, e); } },
 };
 
 export function createHub(cfg: Config): Hub {
@@ -178,7 +177,7 @@ export function createHub(cfg: Config): Hub {
     hub.connections.update((c) => { c.helper_vault = { password, created_at: nowIso() }; });
     return password;
   });
-  const hub: Hub = { helpers, cfg, db, chatDb, mailDb, bus, store, vault, ai, map, devices, deviceKeys: new DeviceKeys(path.join(cfg.dataDir, "device-keys.json")), work: new WorkSpace(path.join(cfg.dataDir, "work-space.json")), feel: new FeelStore(path.join(cfg.dataDir, "feel.json")), sources: new SourcesStore(path.join(cfg.dataDir, "sources.json")), dashboard: new DashboardStore(path.join(cfg.dataDir, "dashboard.json")), layouts: new LayoutStore(path.join(cfg.dataDir, "layouts")), startedAt: nowIso(), tlsProbe: (url) => probeTls(url), checkers: { ...defaultCheckers, backup: backupChecker(sshRunner, cfg.backupJobs) }, connections: new ConnectionStore(path.join(cfg.dataDir, "connections.json"), secretBox), secretBox, profile: new ProfileStore(path.join(cfg.dataDir, "profile.json"), cfg.ownerName), wiki: new WikiStore(path.join(cfg.dataDir, "wiki.json")), feedKeys: new FeedKeys(path.join(cfg.dataDir, "feed-keys.json")), backupKey: new BackupKey(cfg.backupKeyFile, path.join(cfg.dataDir, "backup-recovery.json")),alerts: new AlertStore(path.join(cfg.dataDir, "alerts.json")), modules: new ModuleStore(path.join(cfg.dataDir, "modules.json"), { preset: cfg.modulesPreset, existing: () => store.hasOwnerData() }), fetch: (input, init) => fetch(input, init), close: () => { stopOutbox(hub); db.close(); chatDb.close(); mailDb.close(); } };
+  const hub: Hub = { helpers, cfg, db, chatDb, mailDb, bus, store, vault, ai, map, devices, deviceKeys: new DeviceKeys(path.join(cfg.dataDir, "device-keys.json")), work: new WorkSpace(path.join(cfg.dataDir, "work-space.json")), feel: new FeelStore(path.join(cfg.dataDir, "feel.json")), sources: new SourcesStore(path.join(cfg.dataDir, "sources.json")), dashboard: new DashboardStore(path.join(cfg.dataDir, "dashboard.json")), startedAt: nowIso(), tlsProbe: (url) => probeTls(url), checkers: { ...defaultCheckers, backup: backupChecker(sshRunner, cfg.backupJobs) }, connections: new ConnectionStore(path.join(cfg.dataDir, "connections.json"), secretBox), secretBox, profile: new ProfileStore(path.join(cfg.dataDir, "profile.json"), cfg.ownerName), wiki: new WikiStore(path.join(cfg.dataDir, "wiki.json")), feedKeys: new FeedKeys(path.join(cfg.dataDir, "feed-keys.json")), backupKey: new BackupKey(cfg.backupKeyFile, path.join(cfg.dataDir, "backup-recovery.json")),alerts: new AlertStore(path.join(cfg.dataDir, "alerts.json")), modules: new ModuleStore(path.join(cfg.dataDir, "modules.json"), { preset: cfg.modulesPreset, existing: () => store.hasOwnerData() }), fetch: (input, init) => fetch(input, init), close: () => { stopOutbox(hub); db.close(); chatDb.close(); mailDb.close(); } };
   keepSeqMark(store, path.join(cfg.dataDir, "sync-mark.json"));
   // Tasks in an Apple Reminders list that is switched off are hidden from every list people and the assistant see.
   store.shows = (e) => hub.sources.shows(e);
@@ -209,7 +208,7 @@ export function createHub(cfg: Config): Hub {
   ai.moduleOn = hub.modules.check;
   hub.modules.activeProbe = (id) => (id === "calendars" ? calendarSyncActive(hub) : undefined);
   // A module switched on gets its starter content (monitors, snippets, music sheets, food) now, once. The reminders
-  // the hub makes for a module's items (a renewal, a vet visit, a job follow-up) are set aside on every device while
+  // the hub makes for a module's items (a renewal, a vet visit) are set aside on every device while
   // it is off and made again from the items when it comes back on.
   hub.modules.onChange((on, off) => {
     for (const id of off) {
@@ -259,7 +258,6 @@ export function createHub(cfg: Config): Hub {
   installMailHooks(hub);
   installRecordHooks(hub);
   installProjectHooks(hub);
-  installAdminHooks(hub);
   migrateRemindersToTasks(store);
   migrateRunbookTitles(store);
   const cups = migrateCaffeineToCups(store);

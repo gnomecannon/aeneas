@@ -164,6 +164,8 @@ export function eventSpan(e: Entity): Interval | null {
 function eventSpans(hub: Hub): (Entity & { span: Interval })[] {
   const out: (Entity & { span: Interval })[] = [];
   for (const e of hub.store.list({ kind: "event", limit: 100000 })) {
+    // A declined event stays on its calendar but takes no time, as Calendar hides it (Invitations).
+    if (e.fields.declined === true) continue;
     const span = eventSpan(e);
     if (span) out.push(Object.assign({}, e, { span }));
   }

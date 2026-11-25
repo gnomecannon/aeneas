@@ -4,9 +4,10 @@ import path from "node:path";
 import { isOn, moduleOfScreen, SCREEN_MODULE } from "./modules";
 import { screenId } from "./bar";
 import { AREAS } from "../components/Shell";
+import { GONE_KINDS } from "@everythingapp/shared";
 
 // The hub's module ids (hub/src/modules.ts). A screen naming any other id would never be hidden.
-const HUB_IDS = ["renewals", "dashboard", "homelab", "projects", "music", "wiki", "images", "quiz", "health", "pet", "food", "sensors", "games", "films", "apple_music", "calc", "jobs", "layouts", "mail_inbox", "web", "reference"];
+const HUB_IDS = ["renewals", "dashboard", "homelab", "projects", "music", "wiki", "images", "quiz", "health", "pet", "food", "sensors", "games", "films", "apple_music", "calc", "mail_inbox", "web", "reference"];
 const CORE = ["/inbox", "/tasks", "/week", "/notes", "/memory", "/people", "/lists"];
 
 describe("modules", () => {
@@ -19,7 +20,6 @@ describe("modules", () => {
   });
 
   it("finds the module of a screen's sub-paths by the longest match", () => {
-    expect(moduleOfScreen("/lists/jobs/123")).toBe("jobs");
     expect(moduleOfScreen("/lists/abc")).toBeUndefined();
     expect(moduleOfScreen("/hosts/core")).toBe("homelab");
     expect(moduleOfScreen("/petition")).toBeUndefined();
@@ -48,10 +48,18 @@ describe("modules", () => {
       if (m) expect(group.get(m), i.path).toBe(a.title);
     }
     // The Apple app's Library (and the iPad and Mac sidebar): the same areas with the same screens, in the same order.
-    // Layout sketches is a screen of the web, Windows and Android apps only.
     const swift = fs.readFileSync(path.join(root, "apple/EverythingApp/AppModel.swift"), "utf8");
     const apple = [...swift.matchAll(/LibraryArea\(title: "([^"]+)", sections: \[([^\]]*)\]\)/g)]
       .map((m) => ({ title: m[1], ids: m[2].split(",").map((x) => x.trim().replace(/^\./, "")) }));
-    expect(apple).toEqual(AREAS.map((a) => ({ title: a.title, ids: a.items.map((i) => screenId(i.path)).filter((id) => id !== "layouts") })));
+    expect(apple).toEqual(AREAS.map((a) => ({ title: a.title, ids: a.items.map((i) => screenId(i.path)) })));
+  });
+
+  it("shows no item of a kind whose module was taken out, on the Apple apps either (Job search, 2026-11-25)", () => {
+    expect([...GONE_KINDS]).toEqual(["application"]);
+    expect(moduleOfScreen("/lists/jobs")).toBeUndefined();
+    const swift = fs.readFileSync(path.join(__dirname, "../../../apple/Packages/EACore/Sources/EACore/Entity.swift"), "utf8");
+    const gone = /public static let gone: Set<Kind> = \[([^\]]*)\]/.exec(swift);
+    expect(gone, "Kind.gone in Entity.swift").toBeTruthy();
+    expect([...gone![1].matchAll(/\.(\w+)/g)].map((m) => m[1])).toEqual([...GONE_KINDS]);
   });
 });

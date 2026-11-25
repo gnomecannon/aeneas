@@ -1,0 +1,59 @@
+{
+  "now": "2026-11-25T12:00:00.000Z",
+  "cases": [
+    {
+      "name": "one per UID: the iCloud one is listed, the mail and Apple Calendar copies are not",
+      "items": [
+        { "id": "d1", "updated_at": "2026-11-25T11:00:00.000Z", "fields": { "uid": "u1", "answer_by": "open_in_calendar", "answer": "needs_action", "start": "2026-11-27T19:00:00.000Z", "end": "2026-11-27T21:00:00.000Z" } },
+        { "id": "m1", "updated_at": "2026-11-25T10:00:00.000Z", "fields": { "uid": "u1", "answer_by": "mail", "answer": "needs_action", "start": "2026-11-27T19:00:00.000Z", "end": "2026-11-27T21:00:00.000Z" } },
+        { "id": "c1", "updated_at": "2026-11-25T09:00:00.000Z", "fields": { "uid": "u1", "answer_by": "caldav", "answer": "needs_action", "start": "2026-11-27T19:00:00.000Z", "end": "2026-11-27T21:00:00.000Z" } }
+      ],
+      "pending": ["c1"], "answered": [], "count": 1
+    },
+    {
+      "name": "mail comes before Apple Calendar",
+      "items": [
+        { "id": "d1", "fields": { "uid": "u2", "answer_by": "open_in_calendar", "answer": "needs_action", "start": "2026-11-28T09:00:00.000Z", "end": "2026-11-28T10:00:00.000Z" } },
+        { "id": "m1", "fields": { "uid": "u2", "answer_by": "mail", "answer": "needs_action", "start": "2026-11-28T09:00:00.000Z", "end": "2026-11-28T10:00:00.000Z" } }
+      ],
+      "pending": ["m1"], "answered": [], "count": 1
+    },
+    {
+      "name": "pending ones by start; ended and deleted ones are not listed",
+      "items": [
+        { "id": "late", "fields": { "uid": "a", "answer_by": "caldav", "answer": "needs_action", "start": "2026-12-03T18:00:00.000Z", "end": "2026-12-03T19:00:00.000Z" } },
+        { "id": "soon", "fields": { "uid": "b", "answer_by": "mail", "answer": "needs_action", "start": "2026-11-26T00:00:00.000Z", "end": "2026-11-27T00:00:00.000Z", "all_day": true } },
+        { "id": "over", "fields": { "uid": "c", "answer_by": "caldav", "answer": "needs_action", "start": "2026-11-25T09:00:00.000Z", "end": "2026-11-25T11:00:00.000Z" } },
+        { "id": "gone", "deleted_at": "2026-11-25T08:00:00.000Z", "fields": { "uid": "d", "answer_by": "caldav", "answer": "needs_action", "start": "2026-11-29T09:00:00.000Z", "end": "2026-11-29T10:00:00.000Z" } }
+      ],
+      "pending": ["soon", "late"], "answered": [], "count": 2
+    },
+    {
+      "name": "answered in the last 7 days, newest answer first",
+      "items": [
+        { "id": "a3", "fields": { "uid": "x3", "answer_by": "caldav", "answer": "declined", "answered_at": "2026-11-17T12:00:00.000Z", "start": "2026-11-30T09:00:00.000Z", "end": "2026-11-30T10:00:00.000Z" } },
+        { "id": "a1", "fields": { "uid": "x1", "answer_by": "caldav", "answer": "accepted", "answered_at": "2026-11-22T12:00:00.000Z", "start": "2026-11-30T09:00:00.000Z", "end": "2026-11-30T10:00:00.000Z" } },
+        { "id": "a2", "fields": { "uid": "x2", "answer_by": "mail", "answer": "tentative", "answered_at": "2026-11-24T12:00:00.000Z", "start": "2026-11-20T09:00:00.000Z", "end": "2026-11-20T10:00:00.000Z" } }
+      ],
+      "pending": [], "answered": ["a2", "a1"], "count": 0
+    },
+    {
+      "name": "a mail answer not sent yet stays among the pending ones and is not counted",
+      "items": [
+        { "id": "w", "fields": { "uid": "s1", "answer_by": "mail", "answer": "accepted", "answered_at": "2026-11-25T11:59:00.000Z", "start": "2026-11-28T09:00:00.000Z", "end": "2026-11-28T10:00:00.000Z", "reply": { "outbox": "o1", "state": "waiting", "answer": "accepted", "was": "needs_action", "send_at": "2026-11-25T12:00:05.000Z" } } },
+        { "id": "f", "fields": { "uid": "s2", "answer_by": "mail", "answer": "declined", "answered_at": "2026-11-25T11:00:00.000Z", "start": "2026-11-29T09:00:00.000Z", "end": "2026-11-29T10:00:00.000Z", "reply": { "outbox": "o2", "state": "failed", "answer": "declined", "was": "needs_action", "send_at": "2026-11-25T11:00:10.000Z", "error": "The server could not be reached." } } },
+        { "id": "s", "fields": { "uid": "s3", "answer_by": "mail", "answer": "accepted", "answered_at": "2026-11-25T10:00:00.000Z", "start": "2026-11-29T09:00:00.000Z", "end": "2026-11-29T10:00:00.000Z", "reply": { "outbox": "o3", "state": "sent", "answer": "accepted", "was": "needs_action", "send_at": "2026-11-25T10:00:10.000Z" } } },
+        { "id": "n", "fields": { "uid": "s4", "answer_by": "caldav", "answer": "needs_action", "start": "2026-11-30T09:00:00.000Z", "end": "2026-11-30T10:00:00.000Z" } }
+      ],
+      "pending": ["w", "f", "n"], "answered": ["s"], "count": 1
+    },
+    {
+      "name": "an answered copy keeps a pending copy from another place out of the list",
+      "items": [
+        { "id": "c", "fields": { "uid": "g1", "answer_by": "mail", "answer": "accepted", "answered_at": "2026-11-25T08:00:00.000Z", "start": "2026-11-28T09:00:00.000Z", "end": "2026-11-28T10:00:00.000Z" } },
+        { "id": "d", "fields": { "uid": "g1", "answer_by": "open_in_calendar", "answer": "needs_action", "start": "2026-11-28T09:00:00.000Z", "end": "2026-11-28T10:00:00.000Z" } }
+      ],
+      "pending": [], "answered": ["c"], "count": 0
+    }
+  ]
+}

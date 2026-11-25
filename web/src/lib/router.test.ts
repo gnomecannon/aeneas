@@ -16,10 +16,20 @@ describe("after pairing", () => {
 });
 
 describe("routes", () => {
-  it("open on Today, and an old link to Now opens Today", () => {
+  it("open on Today, an old link to Now or Layout sketches opens Today, and one to Job applications opens Lists", () => {
     expect(routeOf("").path).toBe("/today");
     expect(routeOf("#/now").path).toBe("/today");
     expect(routeOf("#/now/abc").path).toBe("/today");
+    expect(routeOf("#/layouts").path).toBe("/today");
+    expect(routeOf("#/layouts/0123456789abcdef").path).toBe("/today");
+    expect(routeOf("#/layoutsx").path).toBe("/layoutsx");
+    // Job applications went with Job search on 2026-11-25; it was a page in Lists (/career before that).
+    for (const old of ["#/lists/jobs", "#/lists/jobs/0123456789abcdef", "#/career", "#/career/0123456789abcdef"]) {
+      expect(routeOf(old).path, old).toBe("/lists");
+      expect(routeOf(old).parts, old).toEqual(["lists"]);
+    }
+    expect(routeOf("#/lists/abc").parts).toEqual(["lists", "abc"]);
+    expect(routeOf("#/careers").path).toBe("/careers");
     expect(routeOf("#/notes/abc?x=1").parts).toEqual(["notes", "abc"]);
     expect(routeOf("#/notes/abc?x=1").params.get("x")).toBe("1");
   });

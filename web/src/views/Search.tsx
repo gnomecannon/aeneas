@@ -7,6 +7,7 @@ import { fmtDateTime } from "../lib/time";
 import type { ChatHit } from "../sync/api";
 import { useSyncState } from "../sync/hooks";
 import { isShown } from "../lib/sources";
+import { GONE_KINDS } from "@everythingapp/shared";
 
 interface Hit {
   id: string;
@@ -18,13 +19,14 @@ interface Hit {
 
 async function localSearch(q: string): Promise<Hit[]> {
   const s = q.toLowerCase();
-  // A task in an Apple Reminders list that is switched off is hidden here as on every screen.
-  const all = await db.entities.filter((e) => !e.deleted_at && isShown(e)).toArray();
+  // A task in an Apple Reminders list that is switched off is hidden here as on every screen, and so is a kind no screen
+  // shows any more (a job application: GONE_KINDS).
+  const all = await db.entities.filter((e) => !e.deleted_at && isShown(e) && !GONE_KINDS.includes(e.kind)).toArray();
   const hits: Hit[] = [];
   for (const e of all) {
     const f = e.fields as Record<string, unknown>;
-    const title = e.kind === "application" ? `${String(f.role ?? "")} at ${String(f.company ?? "")}` : String(f.title ?? f.text ?? f.key ?? f.name ?? f.topic ?? f.what ?? f.value ?? "");
-    const body = [f.body, f.notes, f.value, f.review, f.host, f.company, f.note, Array.isArray(f.tags) ? f.tags.join(" ") : ""].filter((x) => typeof x === "string" && x).join("\n");
+    const title = String(f.title ?? f.text ?? f.key ?? f.name ?? f.topic ?? f.what ?? f.value ?? "");
+    const body = [f.body, f.notes, f.value, f.review, f.host, f.note, Array.isArray(f.tags) ? f.tags.join(" ") : ""].filter((x) => typeof x === "string" && x).join("\n");
     const hay = `${title}\n${body}`.toLowerCase();
     const i = hay.indexOf(s);
     if (i < 0) continue;
@@ -53,7 +55,7 @@ export function Search({ q }: { q: string }) {
         if (!engine.client) throw new Error("no hub");
         const r = await engine.client.search(q);
         if (alive) {
-          setHits(r.hits);
+          setHits(r.hits.filter((h) => !GONE_KINDS.includes(h.kind)));
           setChats(r.chats ?? []);
           setSrc("hub");
         }

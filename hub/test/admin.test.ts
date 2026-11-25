@@ -3,19 +3,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { makeHub } from "./helpers.js";
-import { setBackendOverride, type Backend } from "../src/ai/backends.js";
-import { inventedOrganizations, seedChecklists, statesFromNote, US_STATES } from "../src/admin.js";
+import { seedChecklists, statesFromNote, US_STATES } from "../src/admin.js";
 
 const DAY = 24 * 3600_000;
 const post = (json: unknown) => ({ method: "POST", json });
-
-function cannedBackend(text: string): Backend {
-  return {
-    name: "adapter", model: "canned",
-    async chat() { return { text, usage: {} }; },
-    async stream(_m, onToken) { onToken(text); return { text, usage: {} }; },
-  };
-}
 
 // ---------- checklists ----------
 
@@ -106,127 +97,39 @@ test("admin: checklist seed creates the templates and the 50 states once, marked
   } finally { t.cleanup(); }
 });
 
-// ---------- applications ----------
+// ---------- Job search, taken out on 2026-11-25 ----------
 
-test("admin: an application keeps one follow-up reminder at next_at, moved on edit and cleared on a closing stage", async () => {
+test("admin: Job search is gone: an application is still kept and synced, but nothing makes its follow-up, lists, searches or drafts for it", async () => {
   const t = makeHub();
   try {
+    // An older app may still write one: the kind stays, so the hub keeps it instead of refusing the edit.
     const res = await t.api("/entities", post({ kind: "application", fields: { company: "Acme", role: "SysAdmin", stage: "applied", next_at: "2026-11-02T14:00:00.000Z", next_step: "email the recruiter" } }));
     assert.equal(res.status, 201);
     const app = await res.json() as any;
-    let rems = t.hub.store.list({ kind: "task" });
-    assert.equal(rems.length, 1);
-    assert.equal(rems[0].fields.title, "Follow up: Acme SysAdmin");
-    assert.equal(rems[0].fields.remind_at, "2026-11-02T14:00:00.000Z");
-    assert.equal(rems[0].fields.friction, "none");
-    assert.equal(rems[0].fields.linked_id, app.id);
-    assert.equal(t.hub.store.get(app.id)!.fields.reminder_id, rems[0].id);
-
-    t.hub.store.patch(rems[0].id, { status: "done" });
-    await t.api(`/entities/${app.id}`, { method: "PATCH", json: { fields: { next_at: "2026-11-09T15:00:00.000Z", stage: "interview" } } });
-    rems = t.hub.store.list({ kind: "task" });
-    assert.equal(rems.length, 1);
-    assert.equal(rems[0].fields.remind_at, "2026-11-09T15:00:00.000Z");
-    assert.equal(rems[0].fields.status, "scheduled");
-
-    await t.api(`/entities/${app.id}`, { method: "PATCH", json: { fields: { stage: "rejected" } } });
-    assert.equal(t.hub.store.list({ kind: "task" }).length, 0);
-    assert.equal(t.hub.store.get(app.id)!.fields.reminder_id, undefined);
-
-    // Removing next_at clears it too.
-    const b = t.hub.store.create("application", { company: "Globex", role: "IT Lead", stage: "screen", next_at: "2026-11-03T14:00:00.000Z" });
-    assert.equal(t.hub.store.list({ kind: "task" }).length, 1);
-    t.hub.store.patch(b.id, { next_at: null });
-    assert.equal(t.hub.store.list({ kind: "task" }).length, 0);
-  } finally { t.cleanup(); }
-});
-
-test("admin: the board groups by stage in pipeline order with counts and follow-ups soonest first", async () => {
-  const t = makeHub();
-  try {
-    const s = t.hub.store;
-    s.create("application", { company: "A", role: "r", stage: "applied", next_at: "2026-11-05T14:00:00.000Z" });
-    s.create("application", { company: "B", role: "r", stage: "applied", next_at: "2026-11-01T14:00:00.000Z" });
-    s.create("application", { company: "C", role: "r", stage: "applied" });
-    s.create("application", { company: "D", role: "r", stage: "interview", next_at: "2020-01-01T14:00:00.000Z", next_step: "thank you note" });
-    s.create("application", { company: "E", role: "r", stage: "rejected", next_at: "2026-11-02T14:00:00.000Z" });
-    s.create("game", { name: "Valheim" });
-    const board = await (await t.api("/applications/board")).json() as any;
-    assert.deepEqual(board.stages.map((x: any) => x.stage), ["saved", "applied", "screen", "interview", "offer", "rejected", "withdrawn", "accepted"]);
-    const applied = board.stages.find((x: any) => x.stage === "applied");
-    assert.equal(applied.count, 3);
-    assert.deepEqual(applied.applications.map((a: any) => a.fields.company), ["B", "A", "C"]);
-    assert.equal(board.total, 5);
-    assert.equal(board.active, 4);
-    assert.deepEqual(board.follow_ups.map((f: any) => f.company), ["D", "B", "A"]);
-    assert.equal(board.follow_ups[0].overdue, true);
-    assert.equal(board.follow_ups[0].next_step, "thank you note");
+    assert.equal(t.hub.store.list({ kind: "task" }).length, 0, "no follow-up is made");
+    // A follow-up made while Job search was on is left as it is: an ordinary task nothing moves.
+    const follow = t.hub.store.create("task", { title: "Follow up: Acme SysAdmin", status: "scheduled", order: 1, remind_at: "2026-11-02T14:00:00.000Z", friction: "none", linked_id: app.id });
+    t.hub.store.patch(app.id, { reminder_id: follow.id });
+    await t.api(`/entities/${app.id}`, { method: "PATCH", json: { fields: { next_at: "2026-11-09T15:00:00.000Z", stage: "rejected" } } });
+    assert.equal(t.hub.store.get(follow.id)!.fields.remind_at, "2026-11-02T14:00:00.000Z");
+    assert.equal(t.hub.store.get(follow.id)!.deleted_at, null);
+    assert.equal(t.hub.store.get(app.id)!.fields.stage, "rejected", "the item itself is kept as written");
+    // Its routes are the hub's plain 404 now.
+    for (const [method, p] of [["GET", "/applications/board"], ["POST", `/applications/${app.id}/cover-letter`], ["GET", "/library/applications"]]) {
+      const r = await t.api(p, method === "POST" ? post({}) : {});
+      assert.equal(r.status, 404, p);
+      assert.deepEqual(await r.json(), { error: "not found" }, p);
+    }
+    // Search and the follow-up's related items leave it out.
+    const hits = (await (await t.api("/search?q=Acme")).json() as { hits: { id: string }[] }).hits;
+    assert.ok(!hits.some((h) => h.id === app.id));
+    assert.ok(hits.some((h) => h.id === follow.id), "the task is found");
+    const related = await (await t.api(`/entities/${follow.id}/related`)).json() as { id: string }[] | { related: { id: string }[] };
+    assert.ok(!JSON.stringify(related).includes(app.id));
+    // /status counts lists and games only.
+    t.hub.store.create("game", { name: "Valheim" });
     const status = await (await t.api("/status")).json() as any;
-    assert.deepEqual(status.admin, { checklists_open: 0, applications_active: 4, games: 1 });
-  } finally { t.cleanup(); }
-});
-
-// ---------- cover letters ----------
-
-function seedCareer(t: ReturnType<typeof makeHub>) {
-  t.hub.store.create("fact", { category: "identity", key: "name", value: "Robin" });
-  t.hub.store.create("fact", { category: "history", key: "background", value: "8+ years in IT. Previous: Contoso solutions engineer." });
-  t.hub.store.create("fact", { category: "health", key: "meds", value: "should never reach a cover letter" });
-  return t.hub.store.create("application", { company: "Acme Robotics", role: "Systems Administrator", stage: "saved" });
-}
-
-test("admin: cover letter through the adapter saves the note and links it", async () => {
-  const t = makeHub();
-  let seenSystem = "";
-  const real = t.hub.ai.draft.bind(t.hub.ai);
-  t.hub.ai.draft = async (sid, system, user, opts) => { seenSystem = system(false); return real(sid, system, user, opts); };
-  try {
-    const app = seedCareer(t);
-    const res = await t.api(`/applications/${app.id}/cover-letter`, post({ job_text: "Acme Robotics is hiring a Systems Administrator to run Linux and Windows fleets." }));
-    assert.equal(res.status, 200);
-    const out = await res.json() as any;
-    assert.equal(out.backend, "adapter");
-    assert.equal(out.note.fields.path, "Career/Cover letters/Acme Robotics - Systems Administrator.md");
-    assert.equal(out.note.fields.title, "Cover letter: Acme Robotics - Systems Administrator");
-    assert.ok(!/[\u2013\u2014]/.test(out.note.fields.body));
-    assert.equal(t.hub.store.get(app.id)!.fields.letter_note_id, out.note.id);
-    assert.ok(fs.existsSync(path.join(t.hub.cfg.vaultDir, out.note.fields.path)));
-    assert.match(seenSystem, /Never invent employers/);
-    assert.match(seenSystem, /Contoso solutions engineer/);
-    assert.ok(!seenSystem.includes("should never reach"));
-    // A second draft overwrites the same note.
-    const again = await (await t.api(`/applications/${app.id}/cover-letter`, post({}))).json() as any;
-    assert.equal(again.note.id, out.note.id);
-  } finally { t.cleanup(); }
-});
-
-test("admin: a draft naming an employer missing from facts and job text is a 422 with the names", async () => {
-  const t = makeHub();
-  setBackendOverride(cannedBackend("Dear team,\n\nI spent five years at Initech running servers, and I worked with Globex Corporation on backups. At Contoso I learned support. I would bring that to Acme Robotics.\n\nRobin"));
-  try {
-    const app = seedCareer(t);
-    const res = await t.api(`/applications/${app.id}/cover-letter`, post({ job_text: "Systems Administrator at Acme Robotics" }));
-    assert.equal(res.status, 422);
-    const body = await res.json() as any;
-    assert.deepEqual(body.detail.invented, ["Initech", "Globex Corporation"]);
-    assert.equal(t.hub.store.list({ kind: "note" }).length, 0);
-    assert.equal(t.hub.store.get(app.id)!.fields.letter_note_id, undefined);
-  } finally { setBackendOverride(null); t.cleanup(); }
-});
-
-test("admin: the invented-employer check stays conservative", () => {
-  const allowed = "Acme Robotics Systems Administrator Contoso";
-  assert.deepEqual(inventedOrganizations("I worked at Contoso and with my team at Acme. At Monday standups I spoke with The team.", allowed), []);
-  assert.deepEqual(inventedOrganizations("I was a lead at Hooli Inc. for two years.", allowed), ["Hooli Inc"]);
-});
-
-test("admin: cover letter is a 503 no model without any backend", async () => {
-  const t = makeHub({ aiFake: false });
-  try {
-    const app = seedCareer(t);
-    const res = await t.api(`/applications/${app.id}/cover-letter`, post({ job_text: "x" }));
-    assert.equal(res.status, 503);
-    assert.deepEqual(await res.json(), { error: "no model" });
+    assert.deepEqual(status.admin, { checklists_open: 0, games: 1 });
   } finally { t.cleanup(); }
 });
 

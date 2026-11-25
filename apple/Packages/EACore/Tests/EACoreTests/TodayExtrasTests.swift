@@ -69,15 +69,4 @@ final class TodayExtrasTests: XCTestCase {
         XCTAssertTrue(TodayExtras.mentions("Beth's game night", ["beth"]))
         XCTAssertFalse(TodayExtras.mentions("Lizard show", ["beth"]))
     }
-
-    func testFollowUpsDueByTonight() {
-        let now = day(28, 12)
-        func app(_ c: String, _ stage: String, _ at: Date?) -> Entity {
-            var f: [String: JSONValue] = ["company": .string(c), "role": "Admin", "stage": .string(stage)]
-            if let at { f["next_at"] = .string(ISO.string(at)) }
-            return Entity(kind: .application, fields: f)
-        }
-        let r = TodayExtras.followUpsDue([app("B", "screen", day(28, 20)), app("C", "applied", day(29, 9)), app("D", "rejected", day(27)), app("E", "saved", nil), app("A", "applied", day(26))], now: now, calendar: cal)
-        XCTAssertEqual(r.map { $0.str("company") }, ["A", "B"])
-    }
 }

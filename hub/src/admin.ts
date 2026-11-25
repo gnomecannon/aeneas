@@ -1,16 +1,13 @@
 import { parseRepeat } from "@everythingapp/shared";
 import type { Entity } from "@everythingapp/shared";
-import type { Hub } from "./hub.js";
 import type { Store } from "./store.js";
 import { StoreError } from "./store.js";
 import { dayKey } from "./metrics.js";
-import { linkedTask, syncLinkedTask } from "./reminders.js";
-import { aboutOwner } from "./ai/prompt.js";
 
 /**
- * Module 7, life admin: checklists (templates are copied, never ticked), the job pipeline with one linked
- * follow-up reminder per application, cover letters that may not invent employers, a deterministic game
- * picker, four stateless calculators with exact cent rounding, and subscription totals from watches.
+ * Module 7, life admin: checklists (templates are copied, never ticked), a deterministic game picker, four stateless
+ * calculators with exact cent rounding, and subscription totals from watches. The job pipeline and its cover letters
+ * went with Job search on 2026-11-25 (CONTRACT.md, Job search).
  */
 
 const DAY_MS = 24 * 3600_000;
@@ -53,143 +50,6 @@ export function toggleChecklistItem(store: Store, id: string, body: { index?: un
     return done_at ? rest : { ...rest, done_at: now.toISOString() };
   });
   return store.patch(id, { items: next });
-}
-
-// ---------- applications ----------
-
-export const STAGES = ["saved", "applied", "screen", "interview", "offer", "rejected", "withdrawn", "accepted"] as const;
-const CLOSED_STAGES = new Set(["rejected", "withdrawn", "accepted"]);
-export const isActiveApplication = (a: Entity) => !CLOSED_STAGES.has(String(a.fields.stage));
-
-export function applicationReminder(store: Store, app: Entity): Entity | null {
-  return linkedTask(store, app);
-}
-
-/**
- * One task per open application reminding at `next_at`, `Follow up: <company> <role>`, friction `none`. Deleted (and
- * `reminder_id` cleared) when `next_at` goes away, the stage closes, or the application is deleted.
- */
-export function syncApplicationReminder(store: Store, app: Entity): Entity | null {
-  if (app.kind !== "application") return null;
-  const at = typeof app.fields.next_at === "string" ? new Date(app.fields.next_at) : null;
-  if (app.deleted_at || !at || Number.isNaN(at.getTime()) || !isActiveApplication(app)) {
-    return syncLinkedTask(store, app, null, app.deleted_at ?? undefined);
-  }
-  const title = `Follow up: ${String(app.fields.company ?? "")} ${String(app.fields.role ?? "")}`.trim();
-  return syncLinkedTask(store, app, { title, remind_at: at.toISOString(), friction: "none" });
-}
-
-export function installAdminHooks(hub: Hub): void {
-  hub.store.afterWrite((entity) => {
-    if (entity.kind === "application" && hub.modules.on("jobs")) syncApplicationReminder(hub.store, entity);
-  });
-}
-
-export interface Board {
-  stages: { stage: string; count: number; applications: Entity[] }[];
-  total: number;
-  active: number;
-  follow_ups: { id: string; company: string; role: string; stage: string; next_step: string | null; next_at: string; overdue: boolean }[];
-}
-
-/** Every stage in pipeline order (empty ones included), soonest `next_at` first, then most recently touched. */
-export function applicationBoard(store: Store, now: Date = new Date()): Board {
-  const apps = store.list({ kind: "application", limit: 100000 });
-  const nextAt = (a: Entity) => (typeof a.fields.next_at === "string" ? a.fields.next_at : "");
-  const order = (a: Entity, b: Entity) => {
-    const x = nextAt(a), y = nextAt(b);
-    if (x && y && x !== y) return x.localeCompare(y);
-    if (!!x !== !!y) return x ? -1 : 1;
-    return b.updated_at.localeCompare(a.updated_at);
-  };
-  const stages = STAGES.map((stage) => {
-    const applications = apps.filter((a) => a.fields.stage === stage).sort(order);
-    return { stage, count: applications.length, applications };
-  });
-  const follow_ups = apps.filter((a) => isActiveApplication(a) && nextAt(a))
-    .sort((a, b) => nextAt(a).localeCompare(nextAt(b)))
-    .map((a) => ({
-      id: a.id, company: String(a.fields.company), role: String(a.fields.role), stage: String(a.fields.stage),
-      next_step: typeof a.fields.next_step === "string" ? a.fields.next_step : null, next_at: nextAt(a),
-      overdue: new Date(nextAt(a)).getTime() < now.getTime(),
-    }));
-  return { stages, total: apps.length, active: apps.filter(isActiveApplication).length, follow_ups };
-}
-
-// ---------- cover letters ----------
-
-/** Words that may follow "at" or "with" capitalized without naming an organization. */
-const NOT_ORGS = new Set([
-  "i", "a", "an", "the", "my", "our", "your", "their", "his", "her", "its", "this", "that", "these", "those", "me", "you", "us", "them",
-  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-  "january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december",
-  "first", "least", "most", "best", "home", "work", "length", "scale", "all", "each", "every", "both", "no", "some", "any", "one", "two", "three",
-  "regards", "sincerely", "thanks", "thank", "dear", "hello", "hi",
-]);
-
-/**
- * Capitalized names that follow "at " or "with " and appear nowhere in the allowed text. Deliberately narrow:
- * a phrase passes when any of its words (three letters or more) appears in the allowed text, so it only flags
- * names the prompt never mentioned.
- */
-export function inventedOrganizations(draft: string, allowed: string): string[] {
-  const corpus = allowed.toLowerCase();
-  const out: string[] = [];
-  const re = /\b(?:at|with)\s+((?:[A-Z][\w&.'’-]*)(?:\s+(?:[A-Z][\w&.'’-]*|&|of|and))*)/g;
-  for (const m of draft.matchAll(re)) {
-    const phrase = m[1].replace(/\s+(?:of|and|&)$/, "").replace(/[.'’,-]+$/, "");
-    const words = phrase.split(/\s+/).filter((w) => /^[A-Z]/.test(w));
-    if (!words.length || NOT_ORGS.has(words[0].toLowerCase())) continue;
-    const significant = words.map((w) => w.toLowerCase().replace(/[.'’,-]+$/, "")).filter((w) => w.length >= 3 && !NOT_ORGS.has(w));
-    if (!significant.length) continue;
-    if (significant.some((w) => corpus.includes(w))) continue;
-    if (!out.includes(phrase)) out.push(phrase);
-  }
-  return out;
-}
-
-const safeName = (s: unknown) => String(s ?? "").replace(/[\\/:*?"<>|\0#^[\]]+/g, " ").replace(/\s+/g, " ").trim() || "untitled";
-
-export function coverLetterPath(app: Entity): string {
-  return `Career/Cover letters/${safeName(app.fields.company)} - ${safeName(app.fields.role)}.md`;
-}
-
-export const COVER_LETTER_RULE = "Never invent employers, job titles, dates, degrees, certifications or skills. Use only what the facts below and the job posting say. When the facts do not cover something the posting asks for, leave it out rather than claim it.";
-
-/** POST /applications/:id/cover-letter. */
-export async function draftCoverLetter(hub: Hub, id: string, body: { job_text?: unknown; tone?: unknown; allow_cloud?: unknown }): Promise<{ note: Entity; backend: string }> {
-  const app = getKind(hub.store, id, "application", "application");
-  if (!hub.ai.available()) throw new StoreError(503, "no model");
-  const jobText = typeof body.job_text === "string" ? body.job_text.trim().slice(0, 20000) : "";
-  const tone = typeof body.tone === "string" && body.tone.trim() ? body.tone.trim().slice(0, 200) : "plain, direct and specific";
-  const facts = hub.store.list({ kind: "fact", limit: 100000 })
-    // The owner's own identity and history: a fact about someone else (their employer, their degree) is not the owner's.
-    .filter((f) => f.space !== "work" && aboutOwner(f) && (f.fields.category === "identity" || f.fields.category === "history"))
-    .sort((a, b) => String(a.fields.category).localeCompare(String(b.fields.category)) || String(a.fields.key).localeCompare(String(b.fields.key)));
-  const styleRules = hub.store.list({ kind: "rule", limit: 100000 }).filter((r) => r.fields.active !== false && (r.fields.enforce === "both" || r.fields.enforce === "filter"));
-  const company = String(app.fields.company);
-  const role = String(app.fields.role);
-  const system = (cloud: boolean) => {
-    const usable = facts.filter((f) => !(cloud && f.fields.private === true));
-    return [
-      `Write a cover letter in the user's own voice for the ${role} role at ${company}. Output only the letter, no preamble. Tone: ${tone}. Under 350 words.`,
-      `Hard rule: ${COVER_LETTER_RULE}`,
-      styleRules.length ? "Style rules:\n" + styleRules.map((r) => `- ${r.fields.text}`).join("\n") : "",
-      "Facts about the user (identity and history only):\n" + (usable.length ? usable.map((f) => `- ${f.fields.key}: ${f.fields.value}`).join("\n") : "- none recorded"),
-    ].filter(Boolean).join("\n\n");
-  };
-  const user = [`Company: ${company}`, `Role: ${role}`, jobText ? `Job posting:\n${jobText}` : "No job posting was given."].join("\n\n");
-  const out = await hub.ai.draft(`cover-letter:${id}`, system, user, { allow_cloud: body.allow_cloud === true });
-  if (!out) throw new StoreError(503, "no model");
-  const allowed = [company, role, jobText, ...facts.map((f) => `${f.fields.key} ${f.fields.value}`)].join("\n");
-  const invented = inventedOrganizations(out.text, allowed);
-  if (invented.length) throw new StoreError(422, "draft names employers that are not in the facts or the job text", { invented, backend: out.backend });
-  const path = coverLetterPath(app);
-  hub.vault.writeOwn(path, { title: `Cover letter: ${company} - ${role}`, tags: ["career", "cover-letter"], body: `${out.text.trim()}\n` });
-  const note = hub.store.list({ kind: "note", where: { path } })[0];
-  if (!note) throw new StoreError(500, "cover letter note was not written");
-  if (app.fields.letter_note_id !== note.id) hub.store.patch(app.id, { letter_note_id: note.id });
-  return { note, backend: out.backend };
 }
 
 // ---------- games ----------
@@ -521,12 +381,8 @@ export function seedChecklists(store: Store, rows: any[], now: Date = new Date()
   return out;
 }
 
-export function adminStatus(store: Store): { checklists_open: number; applications_active: number; games: number } {
+export function adminStatus(store: Store): { checklists_open: number; games: number } {
   const checklists_open = store.list({ kind: "checklist", limit: 100000 })
     .filter((c) => c.fields.template !== true && c.fields.archived !== true && itemsOf(c).some((i) => !i.done_at)).length;
-  return {
-    checklists_open,
-    applications_active: store.list({ kind: "application", limit: 100000 }).filter(isActiveApplication).length,
-    games: store.list({ kind: "game", limit: 100000 }).length,
-  };
+  return { checklists_open, games: store.list({ kind: "game", limit: 100000 }).length };
 }

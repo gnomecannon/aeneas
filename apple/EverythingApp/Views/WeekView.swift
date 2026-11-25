@@ -25,6 +25,7 @@ struct WeekView: View {
     @State private var reloadTask: Task<Void, Never>?
     @State private var query = ""
     @State private var showCalendars = false
+    @State private var showInvitations = false
     #if DEBUG
     @State private var debugApplied = false
     #endif
@@ -107,6 +108,12 @@ struct WeekView: View {
                 .frame(minWidth: 380, minHeight: 460)
                 #endif
         }
+        .sheet(isPresented: $showInvitations) {
+            NavigationStack { InvitationsView() }
+                #if os(macOS)
+                .frame(minWidth: 420, minHeight: 480)
+                #endif
+        }
         .task(id: LocalPlanner.dateString(weekStart)) { await reload() }
         .refreshable { await engine.sync(); await reload() }
         // Only changes to what the week shows reload it, as on Today. Every change fetched the week again, Ops's fresh
@@ -144,6 +151,12 @@ struct WeekView: View {
                 .disabled(searching || isToday)
             Button { shift(1) } label: { Label("Next \(view.period)", systemImage: "chevron.right") }
                 .disabled(searching)
+            // Invitations (CONTRACT.md, Invitations): shown while one waits or was answered in the last 7 days.
+            let invites = Invitations.list(engine.list(.invitation), now: Date())
+            if !invites.pending.isEmpty || !invites.answered.isEmpty {
+                Button { showInvitations = true } label: { InvitationsButtonLabel(count: invites.count) }
+                    .help("Invitations waiting for your answer")
+            }
             Button { showCalendars = true } label: {
                 Label(hidden.isEmpty ? "Calendars" : "Calendars, some off", systemImage: hidden.isEmpty ? "calendar" : "calendar.badge.minus")
             }

@@ -1,4 +1,4 @@
-import { mentionedName, mentionNames, mentionNamesOf, type Entity } from "@everythingapp/shared";
+import { GONE_KINDS, mentionedName, mentionNames, mentionNamesOf, type Entity } from "@everythingapp/shared";
 import { ftsText, StoreError, type Store } from "./store.js";
 import { people } from "./people.js";
 
@@ -13,7 +13,7 @@ export type Related = { id: string; kind: string; title: string; why: string; at
 
 const OUT_WHY: Record<string, string> = {
   converted_to: "Filed as", person_id: "About", project_id: "Project", reminder_id: "Reminder", diary_id: "Diary",
-  linked_id: "Linked", runbook_id: "Runbook", journal_id: "Change", inventory_id: "Inventory", letter_note_id: "Letter",
+  linked_id: "Linked", runbook_id: "Runbook", journal_id: "Change", inventory_id: "Inventory",
 };
 const IN_WHY: Record<string, string> = {
   converted_to: "Captured", person_id: "About them", project_id: "In this project", reminder_id: "Reminder for it", diary_id: "Captured",
@@ -62,8 +62,9 @@ export function relatedItems(store: Store, id: string, limit = 40): Related[] {
   if (!e || e.deleted_at) throw new StoreError(404, "not found");
   const out = new Map<string, Related & { rank: number }>();
   const add = (x: Entity | null, why: string, rank: number, lines?: string[]) => {
-    // A task in an Apple Reminders list that is switched off is hidden here too.
-    if (!x || x.deleted_at || x.id === e.id || out.has(x.id) || !store.shows(x)) return;
+    // A task in an Apple Reminders list that is switched off is hidden here too, and so is a kind whose module was taken
+    // out (a job application a follow-up task or a cover letter points at: GONE_KINDS).
+    if (!x || x.deleted_at || x.id === e.id || out.has(x.id) || !store.shows(x) || GONE_KINDS.includes(x.kind)) return;
     // A work item is marked, so a cloud model is never shown it (the assistant's people tool lists these).
     out.set(x.id, { id: x.id, kind: x.kind, title: titleOf(x), why, at: x.updated_at, rank, ...(lines?.length ? { lines } : {}), ...(x.space === "work" ? { work: true } : {}) });
   };

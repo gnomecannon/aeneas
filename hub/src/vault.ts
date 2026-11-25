@@ -260,7 +260,7 @@ export class Vault {
   }
 
   /**
-   * Write a note the hub makes itself (a project's plan, a cover letter) over the one at `rel`, keeping what others
+   * Write a note the hub makes itself (a project's plan) over the one at `rel`, keeping what others
    * added to it: the owner's tags and the linker's next to `tags`, its related links and its other properties.
    */
   writeOwn(rel: string, note: { title: string; tags: string[]; body: string }): VaultEntry {

@@ -7,6 +7,7 @@ import { mergeGoogleSignIns } from "./imports/icloud.js";
 import { startMailInboxJob } from "./mail-inbox.js";
 import { startOutbox } from "./mail-outbox.js";
 import { startCalendarJob } from "./calendar-sync.js";
+import { startInvitationsJob } from "./invitations.js";
 import { startHelpingRefresh } from "./helping.js";
 import { kick as kickImports } from "./imports/bulk.js";
 import { startNoteLinker } from "./note-linker.js";
@@ -267,6 +268,7 @@ async function main(): Promise<void> {
   // Mail waiting to be sent when the hub stopped goes now (mail-outbox.ts); only this serving hub sends.
   const stopOutboxJob = startOutbox(hub);
   const stopCalendars = startCalendarJob(hub);
+  const stopInvitations = startInvitationsJob(hub);
   const stopHelping = startHelpingRefresh(hub);
   const stopNotes = startNoteLinker(hub);
   const stopGallery = startGalleryJob(hub);
@@ -310,6 +312,7 @@ async function main(): Promise<void> {
     stopReference();
     stopImports();
     stopCalendars();
+    stopInvitations();
     stopHelping();
     stopMail();
     stopMailInbox();

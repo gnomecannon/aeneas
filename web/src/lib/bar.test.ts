@@ -3,7 +3,7 @@ import path from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { BAR_LIBRARY, BAR_SCREENS, DEFAULT_BAR, barLayout, barTabs, type Bar } from "@everythingapp/shared";
+import { BAR_GONE, BAR_LIBRARY, BAR_SCREENS, DEFAULT_BAR, barLayout, barTabs, type Bar } from "@everythingapp/shared";
 import { AREAS, PRIMARY, SCREEN_LABELS, listedPaths } from "../components/Shell";
 import { SCREEN_ICONS } from "../components/ScreenIcon";
 import { BottomBar, type BarItem } from "../components/BottomBar";
@@ -33,6 +33,11 @@ describe("bottom bar", () => {
     const list = /public static let all: \[String\] = \[([^\]]+)\]/.exec(swift);
     expect(list, "BarScreen.all in Bar.swift").toBeTruthy();
     expect([...list![1].matchAll(/"([^"]+)"/g)].map((m) => m[1])).toEqual([...BAR_SCREENS]);
+    // The screens taken out, which leave a setting when it is read: the same on both sides, and none of them shown.
+    const gone = /public static let gone: \[String\] = \[([^\]]*)\]/.exec(swift);
+    expect(gone, "BarScreen.gone in Bar.swift").toBeTruthy();
+    expect([...gone![1].matchAll(/"([^"]+)"/g)].map((m) => m[1])).toEqual([...BAR_GONE]);
+    for (const id of BAR_GONE) expect(SCREEN_LABELS[id], id).toBeUndefined();
   });
 
   it("lights the screen that is showing when it has a place, else Library", () => {
@@ -50,7 +55,7 @@ describe("bottom bar", () => {
     expect(barShowing("/journal", mine)).toBe("ops");
     expect(barShowing("/images", mine)).toBe("images");
     expect(barShowing("/gallery", mine)).toBe("images");
-    expect(barShowing("/lists/jobs/1", mine)).toBe("lists");
+    expect(barShowing("/lists/abc", mine)).toBe("lists");
     expect(barShowing("/today", mine)).toBe(BAR_LIBRARY);
   });
 

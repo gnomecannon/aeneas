@@ -50,6 +50,9 @@ function times(title: string, location: string | undefined, start: ICAL.Time, en
   return { title, start: s.toISOString(), end: (e < s ? s : e).toISOString(), all_day: false, ...(location ? { location } : {}) };
 }
 
+/** An event's title, place and times as the hub keeps them, from ical.js times (Invitations reads them the same way). */
+export const eventTimes = times;
+
 const textOf = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v)).replace(/\s+/g, " ").trim();
 
 /**

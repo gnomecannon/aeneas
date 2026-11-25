@@ -95,7 +95,6 @@ export function ftsText(kind: string, f: Record<string, any>): { title: string; 
     case "snippet": return { title: s(f.title), text: [s(f.body), arr(f.tags), s(f.host)].join("\n") };
     case "procedure": return { title: s(f.title), text: Array.isArray(f.steps) ? f.steps.map((x: any) => `${s(x.text)} ${s(x.command)}`).join("\n") : "" };
     case "watch": return { title: s(f.title), text: [s(f.category), s(f.notes)].join("\n") };
-    case "application": return { title: [s(f.role), s(f.company)].join(" at "), text: [s(f.stage), s(f.notes), s(f.next_step)].join("\n") };
     case "game": return { title: s(f.name), text: [arr(f.genres), s(f.notes)].join("\n") };
     case "person": return { title: [s(f.name), s(f.nickname)].filter(Boolean).join(" "), text: [s(f.organization), s(f.relationship), Array.isArray(f.emails) ? f.emails.map((x: any) => s(x.value)).join(" ") : "", Array.isArray(f.addresses) ? f.addresses.map((x: any) => [x.street, x.city].filter(Boolean).join(" ")).join("\n") : ""].join("\n") };
     case "image": return { title: s(f.title) || s(f.prompt).slice(0, 120), text: [s(f.prompt), s(f.caption)].join("\n") };
@@ -111,7 +110,8 @@ export function ftsText(kind: string, f: Record<string, any>): { title: string; 
   }
 }
 
-const WORK_KINDS = new Set(["task", "event"]);
+/** Kinds a work entity may be (CONTRACT.md, Spaces): calendar events, their invitations (since 2026-11-25) and tasks. */
+const WORK_KINDS = new Set(["task", "event", "invitation"]);
 
 export class Store {
   private hooks: AfterWriteHook[] = [];
@@ -330,7 +330,7 @@ export class Store {
       // on a device before the move (older builds name the space they saw in every patch) no longer moves it back.
       const moving = !!prev && !!patch.space && patch.space !== prev.space && (!prev.field_ts.space || prev.field_ts.space > future || patch.ts > prev.field_ts.space);
       const space = prev ? (moving ? patch.space! : prev.space) : (patch.space ?? "personal");
-      if (space === "work" && !WORK_KINDS.has(patch.kind)) throw new StoreError(422, "work space holds only task and event entities");
+      if (space === "work" && !WORK_KINDS.has(patch.kind)) throw new StoreError(422, "work space holds only task, event and invitation entities");
 
       // deleted_at is an envelope column that moves through the same LWW rule as any field.
       const { deleted_at: deletedIn, ...rawFields } = patch.fields;

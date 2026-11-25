@@ -5,8 +5,8 @@ import { readJsonObject } from "../http.js";
 import { StoreError } from "../store.js";
 import { autoModel, hubAddress, pairingLinks, pullState, removeAi, saveAi, setupDetect, setupView, setupViewChecked, startPull } from "../setup.js";
 import {
-  applicationBoard, calcPayoff, calcSplit, calcUnit, draftCoverLetter, instantiateChecklist,
-  markPlayed, pickGame, renewalTotals, subscriptions, toggleChecklistItem,
+  calcPayoff, calcSplit, calcUnit, instantiateChecklist, markPlayed, pickGame, renewalTotals, subscriptions,
+  toggleChecklistItem,
 } from "../admin.js";
 import { calcTakeHome } from "../takehome.js";
 import { mealsTax } from "../mealstax.js";
@@ -97,9 +97,6 @@ export function adminRoutes() {
     try { hub.modules.set(body); } catch (e) { throw new StoreError(422, (e as Error).message); }
     return c.json({ modules: hub.modules.list(), ...alertsBody(hub) });
   });
-
-  r.get("/applications/board", (c) => c.json(applicationBoard(c.get("hub").store)));
-  r.post("/applications/:id/cover-letter", async (c) => c.json(await draftCoverLetter(c.get("hub"), c.req.param("id"), await optionalBody(c))));
 
   r.post("/games/pick", async (c) => c.json(pickGame(c.get("hub").store, await readJsonObject(c))));
   r.post("/games/:id/played", async (c) => c.json(markPlayed(c.get("hub").store, c.req.param("id"), await optionalBody(c))));

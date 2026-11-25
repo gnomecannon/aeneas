@@ -1,7 +1,7 @@
 import SwiftUI
 import EACore
 
-// Life admin helpers shared by Lists, Career and Games. Ported from web/src/lib/admin.ts and web/src/sync/admin.ts.
+// Life admin helpers shared by Lists and Games. Ported from web/src/lib/admin.ts and web/src/sync/admin.ts.
 // Names carry an Admin prefix because every area's files compile into one target.
 
 // MARK: Checklists
@@ -141,87 +141,6 @@ extension SyncEngine {
             return copy.id
         }
         return await create(kind: .checklist, fields: AdminChecklist.instantiateFields(template, title: title))?.id
-    }
-}
-
-// MARK: Career
-
-enum AdminStage: String, CaseIterable, Identifiable {
-    case saved, applied, screen, interview, offer, rejected, withdrawn, accepted
-    var id: String { rawValue }
-    var title: String { rawValue.capitalized }
-    static let active: [AdminStage] = [.saved, .applied, .screen, .interview, .offer]
-    static let closed: [AdminStage] = [.accepted, .rejected, .withdrawn]
-    var isActive: Bool { Self.active.contains(self) }
-
-    /// The next step forward in the pipeline, for the one-tap advance.
-    var next: AdminStage? {
-        switch self {
-        case .saved: return .applied
-        case .applied: return .screen
-        case .screen: return .interview
-        case .interview: return .offer
-        case .offer: return .accepted
-        default: return nil
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .saved: return .gray
-        case .applied: return .blue
-        case .screen: return .teal
-        case .interview: return .purple
-        case .offer, .accepted: return .green
-        case .rejected: return .red
-        case .withdrawn: return .secondary
-        }
-    }
-
-    /// An offer or a yes is good news and a no bad news, in the theme's status colors; the other stages keep their own.
-    var tone: StatusTone? {
-        switch self {
-        case .offer, .accepted: return .ok
-        case .rejected: return .danger
-        default: return nil
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .saved: return "bookmark"
-        case .applied: return "paperplane"
-        case .screen: return "phone"
-        case .interview: return "person.2"
-        case .offer: return "envelope.open"
-        case .accepted: return "checkmark.seal"
-        case .rejected: return "xmark.circle"
-        case .withdrawn: return "arrow.uturn.backward.circle"
-        }
-    }
-
-    static func of(_ e: Entity) -> AdminStage { AdminStage(rawValue: e.str("stage")) ?? .saved }
-}
-
-enum AdminBoard {
-    /// Within a stage: a next_at first (soonest first), then most recently updated.
-    static func sorted(_ apps: [Entity]) -> [Entity] {
-        apps.sorted { a, b in
-            let x = a.str("next_at"), y = b.str("next_at")
-            if !x.isEmpty, !y.isEmpty, x != y { return (ISO.date(x) ?? .distantFuture) < (ISO.date(y) ?? .distantFuture) }
-            if x.isEmpty != y.isEmpty { return !x.isEmpty }
-            return a.updated_at > b.updated_at
-        }
-    }
-
-    static func column(_ apps: [Entity], _ stage: AdminStage) -> [Entity] {
-        sorted(apps.filter { AdminStage.of($0) == stage })
-    }
-
-    /// Active applications with a next_at, soonest first.
-    static func followUps(_ apps: [Entity]) -> [Entity] {
-        apps.filter { AdminStage.of($0).isActive && $0.date("next_at") != nil }
-            .sorted { ($0.date("next_at") ?? .distantFuture) < ($1.date("next_at") ?? .distantFuture) }
     }
 }
 

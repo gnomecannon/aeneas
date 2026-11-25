@@ -31,7 +31,6 @@ import { adminRoutes } from "./routes/admin.js";
 import { importRoutes } from "./routes/imports.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { wikiRoutes } from "./routes/wiki.js";
-import { layoutRoutes } from "./routes/layouts.js";
 import { backupRoutes } from "./routes/backup.js";
 import { hubsRoutes } from "./routes/hubs.js";
 import { referenceRoutes } from "./routes/reference.js";
@@ -49,6 +48,8 @@ import { errCode } from "./logsafe.js";
 import { alertGoesOut, alertsBody } from "./alerts.js";
 import { googleApp } from "./imports/gmail.js";
 import { proposeMail } from "./mail-proposals.js";
+import { answerInvitation, installInvitations } from "./invitations.js";
+import { invitationRoutes } from "./routes/invitations.js";
 
 /**
  * The web app at /app: its own scripts and styles only, pictures and recordings from the hub (and blob: and data: ones
@@ -196,7 +197,7 @@ export function createApp(hub: Hub): App {
   const small = bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => c.json({ error: "request body too large", detail: { max_bytes: MAX_BODY_BYTES } }, 413) });
   const upload = bodyLimit({ maxSize: MAX_UPLOAD_BYTES, onError: (c) => c.json({ error: "the file is over 25 MB", detail: { max_bytes: MAX_UPLOAD_BYTES } }, 413) });
   // An import upload streams to disk with its own limit (imports/bulk.ts); pasted text gets 25 MB.
-  app.use("*", (c, next) => c.req.path === "/imports/upload" ? next() : (c.req.path === "/images/library" || c.req.path === "/layouts/pictures" || c.req.path === "/imports/text" || c.req.path === "/music/hum" || c.req.path === "/mail/drafts" || c.req.path === "/mail/send" || c.req.path.startsWith("/ai/photos/") || c.req.path === "/connections/password-manager/keepass/import" ? upload : small)(c, next));
+  app.use("*", (c, next) => c.req.path === "/imports/upload" ? next() : (c.req.path === "/images/library" || c.req.path === "/imports/text" || c.req.path === "/music/hum" || c.req.path === "/mail/drafts" || c.req.path === "/mail/send" || c.req.path.startsWith("/ai/photos/") || c.req.path === "/connections/password-manager/keepass/import" ? upload : small)(c, next));
 
   // The built web client, when present, is served at /app so any browser on the tailnet can use it.
   const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../web/dist");
@@ -487,7 +488,6 @@ ${p.contact ? `<h2>Contact</h2>\n<p>${esc(p.contact)}</p>` : ""}
   app.route("/", importRoutes());
   app.route("/", dashboardRoutes());
   app.route("/", wikiRoutes());
-  app.route("/", layoutRoutes());
   app.route("/", creativeRoutes());
   app.route("/", opsRoutes());
   app.route("/", adminRoutes());
@@ -496,11 +496,15 @@ ${p.contact ? `<h2>Contact</h2>\n<p>${esc(p.contact)}</p>` : ""}
   app.route("/", referenceRoutes());
   app.route("/", mailRoutes());
   app.route("/", calendarRoutes());
+  app.route("/", invitationRoutes());
   app.route("/", appUpdateRoutes());
   app.route("/", helperRoutes());
   // Assistant tools call this same app in-process, with the hub's own token, so they get the routes' validation and hooks.
   // propose_mail keeps a mail for the owner to send from its card in the chat; it never sends (mail-proposals.ts).
   hub.ai.setMailProposer((input, turn) => proposeMail(hub, input, turn));
+  // Invitations: the outbox's changes reach the answers sent by mail; the assistant answers one only after a yes.
+  installInvitations(hub);
+  hub.ai.setInvitationAnswerer((id, answer) => answerInvitation(hub, id, answer));
   hub.ai.setApi(async (method, path, body) => {
     const refused = refuseToolCall(method, path);
     if (refused) return { status: 403, data: { error: `refused: ${refused}` } };

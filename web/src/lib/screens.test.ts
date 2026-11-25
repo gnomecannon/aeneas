@@ -9,7 +9,7 @@ describe("screens", () => {
     expect(screenOf("/now").title).toBe("Today");
     expect(screenOf("/inbox").title).toBe("Unsorted Info");
     expect(screenOf("/notes/map").title).toBe("Notes map");
-    expect(screenOf("/lists/jobs/123").title).toBe("Job applications");
+    expect(screenOf("/lists/abc").title).toBe("Lists");
     expect(screenOf("/settings/connection").title).toBe("Connection");
     expect(screenOf("/settings/theme/colors/abc").title).toBe("App colors");
     expect(screenOf("/settings").title).toBe("Settings");

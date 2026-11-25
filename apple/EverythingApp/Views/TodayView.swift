@@ -350,7 +350,8 @@ struct TimelineList: View {
             }
         case .free(let f):
             let time = Text(timeRange(f.start, f.end)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            let free = Text("Free, \(f.hours.formatted()) h").font(.body.weight(.medium))
+            // In hours and minutes, as the line at the top says it: "6.45 h" read as a decimal of hours.
+            let free = Text("Free, \(TodayBoard.durationWords(f.hours * 3600))").font(.body.weight(.medium))
             let schedule = Button { onSchedule(f) } label: { Label("Schedule here", systemImage: "plus") }
                 .buttonStyle(.bordered)
             // On a narrow phone the button goes under the words: squeezed beside them, "Schedule" broke in two. Where

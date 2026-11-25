@@ -12,7 +12,6 @@
 import type { Entity, LineWords, NextLine, TodayCard } from "@everythingapp/shared";
 import { durationWords, freeTime, lineWords, nextLine } from "@everythingapp/shared";
 import type { TimelineItem } from "./planner";
-import { localDate } from "./planner";
 import type { DueReminder } from "./reminders";
 import { fmtDate, fmtTime } from "./time";
 
@@ -54,23 +53,25 @@ export function nowWords(line: NowLine, free: string | null): LineWords {
 export type Need =
   | { key: string; kind: "reminder"; title: string; detail: string; reminder: DueReminder }
   | { key: string; kind: "renewal"; title: string; detail: string; watch: Entity; overdue: boolean }
-  | { key: string; kind: "followup"; title: string; detail: string; app: Entity; late: boolean }
   | { key: string; kind: "med"; title: string; detail: string; med: string }
-  | { key: string; kind: "unsorted"; title: string; detail: string; count: number };
+  | { key: string; kind: "unsorted"; title: string; detail: string; count: number }
+  | { key: string; kind: "invitations"; title: string; detail: string; count: number };
 
 /**
  * Everything waiting on the owner right now, in the order to take it: reminders whose time has come (oldest first),
- * renewals the owner has to make (never the ones on autopay), job follow ups due, regular meds not yet logged today,
- * and captures the assistant could not file. A renewal's own reminder says the same as the renewal, so only the
- * renewal is listed. Tech's looks are not here: Tech's card above Needs you holds them.
+ * renewals the owner has to make (never the ones on autopay), regular meds not yet logged today, and captures the
+ * assistant could not file. A renewal's own reminder says the same as the renewal, so only the renewal is listed.
+ * Tech's looks are not here: Tech's card above Needs you holds them. (Job follow-ups were here until Job search was
+ * taken out on 2026-11-25.)
  */
 export function needsYou(input: {
   reminders: DueReminder[];
   watches: Entity[];
-  followUps: Entity[];
   meds: { name: string; takenAt: string | null }[];
   unsorted: number;
   now: Date;
+  /** Invitations waiting for an answer (lib/invitations.ts invitationsNeed): one row for them all, after the reminders. */
+  invitations?: { title: string; detail: string; count: number } | null;
 }): Need[] {
   const { now } = input;
   const out: Need[] = [];
@@ -80,19 +81,12 @@ export function needsYou(input: {
     if (renewing.has(String(r.entity.fields.linked_id ?? ""))) continue;
     out.push({ key: `r:${r.key}`, kind: "reminder", title: String(r.entity.fields.title ?? ""), detail: `Reminder, ${cameDue(r.at, now)}`, reminder: r });
   }
+  if (input.invitations?.count) out.push({ key: "invitations", kind: "invitations", ...input.invitations });
   for (const w of toRenew) {
     const days = daysUntil(String(w.fields.due ?? ""), now);
     out.push({
       key: `w:${w.id}`, kind: "renewal", title: `Renew ${String(w.fields.title ?? "")}`, overdue: days < 0, watch: w,
       detail: days === 0 ? "Due today" : days < 0 ? `${-days} day${days === -1 ? "" : "s"} overdue` : `Due in ${days} day${days === 1 ? "" : "s"}`,
-    });
-  }
-  for (const a of input.followUps) {
-    const late = localDate(new Date(String(a.fields.next_at))) < localDate(now);
-    out.push({
-      key: `a:${a.id}`, kind: "followup", app: a, late,
-      title: `Follow up with ${String(a.fields.company ?? "")}`,
-      detail: [a.fields.next_step ? String(a.fields.next_step) : "", late ? "late" : `today, ${fmtTime(String(a.fields.next_at))}`].filter(Boolean).join(", "),
     });
   }
   for (const m of input.meds) {

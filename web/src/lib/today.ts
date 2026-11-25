@@ -1,16 +1,5 @@
 import type { Entity } from "@everythingapp/shared";
 
-const CLOSED = new Set(["rejected", "withdrawn", "accepted"]);
-
-/** Job applications whose next step is due by the end of today, oldest first. */
-export function followUpsDue(apps: Entity[], now: Date): Entity[] {
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-  return apps
-    .filter((a) => !a.deleted_at && a.fields.next_at && !CLOSED.has(String(a.fields.stage)) && Date.parse(String(a.fields.next_at)) <= end.getTime())
-    .sort((a, b) => Date.parse(String(a.fields.next_at)) - Date.parse(String(b.fields.next_at)));
-}
-
 function dayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }

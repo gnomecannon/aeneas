@@ -23,6 +23,7 @@ import { blockedForm, blockRefusal, isBlocked, unsubscribeWays } from "./mail-un
 import { readTriage, TRIAGE_BATCH, TRIAGE_DAYS, TRIAGE_SYSTEM, triagePrompt, type Triage } from "./mail-triage.js";
 import { assembled, buildMessage, checkedFiles, checkedLine, fileName, checkedNew, checkedText, DRAFT_TEXT_MAX, FILES_BYTES, FILES_MAX, forwardQuote, forwardSubject, replyAllCc, type DraftFile, GREETING_SYSTEM, greetingPrompt, plainGreeting, readSuggestion, replyFields } from "./mail-compose.js";
 import { withPriority } from "./ai/backends.js";
+import { takeMailInvite } from "./invitations-take.js";
 
 /**
  * The Mail screen's store (CONTRACT.md, Mail): the mail of each linked mailbox's Inbox (iCloud, Gmail or another mail
@@ -135,6 +136,19 @@ CREATE TABLE IF NOT EXISTS outbox (
   sent_at TEXT,
   filed INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS mail_invites (
+  id TEXT PRIMARY KEY,
+  account TEXT NOT NULL,
+  uid TEXT NOT NULL,
+  sequence INTEGER NOT NULL,
+  stamp TEXT,
+  message TEXT NOT NULL,
+  message_id TEXT,
+  organizer TEXT NOT NULL,
+  ics TEXT NOT NULL,
+  added_event TEXT,
+  made_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS mail_proposals (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
@@ -152,6 +166,8 @@ CREATE TABLE IF NOT EXISTS mail_proposals (
  * - `social`: no bundle since 2026-11-22. Its mail is in Updates, which is the bundle Other was, with Other's id and
  *   Other's settings. Social's own settings are dropped, never moved onto it: with Social set to "never", every notice
  *   Other held (a changed password, a sign-in from a new device) would have left the Inbox without a word.
+ * - `jobs`: no bundle since 2026-11-25, when Job search was taken out. Its mail is sorted like any other, and its
+ *   settings are dropped the same way.
  * - the ids a build of the renaming used for a few days (SHORT_LIVED_BUNDLE_IDS) move back to the bundle's real id,
  *   unless that one has a setting of its own.
  */
@@ -183,7 +199,7 @@ function settleBundleIds(db: DB): void {
 
 /**
  * The bundle a settings request names: one of the built-in ones or the owner's own. An app that still lists Social
- * (shipped before 2026-11-22) is told why it cannot be set, in words that app can show.
+ * (shipped before 2026-11-22) or Jobs (before 2026-11-25) is told why it cannot be set, in words that app can show.
  */
 function settingsBundle(db: DB, asSent: string): string {
   const bundle = bundleIdAsSent(asSent);
@@ -445,6 +461,8 @@ export function deleteMailbox(db: DB, account: string): number {
   // Its outbox too: mail waiting to be sent from it is not sent (there is nothing left to send it with).
   db.prepare("DELETE FROM outbox WHERE account = ?").run(account);
   db.prepare("DELETE FROM mail_proposals WHERE account = ?").run(account);
+  // Its invitations' requests (Invitations): the invitations themselves go at the next sweep.
+  db.prepare("DELETE FROM mail_invites WHERE account = ?").run(account);
   db.prepare("DELETE FROM folders WHERE account = ?").run(account);
   db.prepare("DELETE FROM mailboxes WHERE account = ?").run(account);
   db.prepare("DELETE FROM moved_out WHERE account = ?").run(account);
@@ -455,7 +473,7 @@ export function deleteMailbox(db: DB, account: string): number {
 /** Kept mail of mailboxes the Mail screen no longer shows (`shown`: those it does): gone. Nothing to do, as a rule. */
 export function forgetUnlinked(db: DB, shown: string[]): number {
   const kept = new Set<string>();
-  for (const t of ["inbox", "folder_mail", "folders", "mailboxes", "moved_out", "outbox", "mail_proposals"]) for (const r of db.prepare(`SELECT DISTINCT account FROM ${t}`).all() as { account: string }[]) kept.add(r.account);
+  for (const t of ["inbox", "folder_mail", "folders", "mailboxes", "moved_out", "outbox", "mail_proposals", "mail_invites"]) for (const r of db.prepare(`SELECT DISTINCT account FROM ${t}`).all() as { account: string }[]) kept.add(r.account);
   let n = 0;
   for (const account of kept) if (!shown.includes(account)) n += deleteMailbox(db, account);
   return n;
@@ -470,6 +488,7 @@ export function deleteAllMail(db: DB): number {
   db.prepare("DELETE FROM logos").run();
   db.prepare("DELETE FROM outbox").run();
   db.prepare("DELETE FROM mail_proposals").run();
+  db.prepare("DELETE FROM mail_invites").run();
   // Nothing of the mail stays, the keys of what left included: every device gets the whole (empty) list next.
   db.prepare("DELETE FROM inbox_gone").run();
   db.prepare("UPDATE list_changes SET floor = seq WHERE id = 1").run();
@@ -2292,6 +2311,11 @@ export function refreshMail(hub: Hub, opts: { owner?: boolean } = {}, now: Date 
         const before = (db.prepare("SELECT last_refresh FROM mailboxes WHERE account = ?").get(account) as { last_refresh: string | null } | undefined)?.last_refresh ?? null;
         const r = keepInbox(db, account, found, { readOnly: ro });
         for (const key of r.woken) unsnoozeMail(hub, key, {}, now);
+        // Invitations that came to this mailbox, and their updates and cancellations (invitations.ts).
+        for (const m of found.mails) {
+          if (!m.calendar || m.mine) continue;
+          try { takeMailInvite(hub, account, mailKey(account, m.id), { calendar: m.calendar, message_id: m.message_id }, now); } catch (e) { console.error(`[invitations] ${errCode(e)}`); }
+        }
         // New mail since the last refresh, never the first one (a mailbox's first 90 days).
         if (before) arrived.push(...r.fresh.filter((key) => { const at = (db.prepare("SELECT at FROM inbox WHERE key = ?").get(key) as { at: string } | undefined)?.at; return !!at && Date.parse(at) >= Date.parse(before) - NOTIFY_SLACK_MS; }));
         save.run(account, new Date().toISOString(), null, found.more ? 1 : 0);

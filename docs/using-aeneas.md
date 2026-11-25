@@ -41,8 +41,7 @@ Today is the day as a status board, the same on every device. From the top, as i
   needs a look. It is folded each time you open Today. Press it to see each one with Propose a fix, Acknowledge and
   Open, then the ones you acknowledged, and Open Tech.
 - **Needs you** lists only what waits on you, numbered in the order to take it, each with its buttons: reminders
-  that have come due, renewals to renew, job follow-ups, a medicine not logged today, and captures the assistant could
-  not file. A charge on autopay is not on Today at all: it pays itself, and Renewals lists it.
+  that have come due, renewals to renew, a medicine not logged today, and captures the assistant could not file. A charge on autopay is not on Today at all: it pays itself, and Renewals lists it.
 - **Schedule** names the all-day things first (events, and a plan rule for the whole day), then the day in time
   order with Schedule here on free time, then the people in today's plans with what you have noted about them.
 - **To do** lists your open tasks: the circle finishes one, Start makes it the task you are doing. The task you
@@ -102,6 +101,18 @@ Week is your calendar, laid out the way Apple's Calendar app does it:
   in Week (every view and search); tick it to bring them back. Show all ticks them all. The choice is the same on every
   device. Today, your free time and the assistant still count those events. Events made in Aeneas on no calendar are
   listed as Made in Aeneas.
+- **Invitations** shows beside Calendars when someone has invited you, with how many wait for your answer. Each one has
+  **Accept**, **Maybe** and **Decline**, and is answered the way Calendar would, through where it came from:
+  - an invitation in an iCloud calendar your hub keeps in step: the hub answers in the calendar and iCloud tells the
+    organizer;
+  - an invitation that came by mail (Google, Exchange and others) to a mailbox on the Mail screen: Aeneas sends the
+    standard answer calendar apps send, from that mailbox, with 10 seconds of **Undo**; Accept and Maybe also put the
+    event on your calendar, unless it is there already;
+  - an invitation only Apple Calendar has on your iPhone, iPad or Mac: Apple does not let other apps answer those, so
+    the row has **Open in Calendar** (on the web, Windows and Android it says to answer it in your calendar app).
+  Answered ones stay under Answered for 7 days. A declined event stays on its calendar but is hidden, as Calendar hides
+  it. Today's Needs you says "2 invitations" while some wait. The assistant can list them and answer one, but only after
+  you say yes to that answer in the chat.
 
 ## Tasks
 
@@ -268,8 +279,8 @@ the mail itself. It works with the Mail screen off.
 
 **Mail** (the Mail screen, in the web, Windows, Android, iPhone, iPad and Mac apps, not on the Apple Watch). Your
 Inbox by day, for each mailbox you link: iCloud Mail, Gmail, or another mail server that takes an app password. Kinds
-of mail are gathered into colored bundles: Transactions, Trips, Updates and Promotions, and Bills, Pet and Jobs while
-those modules are on. A person's mail stands on its own.
+of mail are gathered into colored bundles: Transactions, Trips, Updates and Promotions, and Bills and Pet while those
+modules are on. A person's mail stands on its own.
 
 - **Pin** keeps a mail out of its bundle and out of a Sweep. A pin is your mailbox's own flag: flag a mail in your
   mail app and it is pinned here, and the other way round.

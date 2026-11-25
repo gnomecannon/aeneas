@@ -799,6 +799,24 @@ export function textParts(node: ImapPart | undefined): { part: string; html: boo
   return out;
 }
 
+/**
+ * A message's first calendar part (Invitations, since 2026-11-25): `text/calendar`, `application/ics` or a file whose
+ * name ends `.ics`, at most PART_MAX; null when it has none. Only its number: nothing is downloaded here.
+ */
+export function calendarPart(node: ImapPart | undefined): string | null {
+  let found: string | null = null;
+  const walk = (n: ImapPart | undefined) => {
+    if (!n || found) return;
+    if (n.childNodes?.length) { for (const c of n.childNodes) walk(c); return; }
+    const type = (n.type ?? "").toLowerCase();
+    const named = String(n.dispositionParameters?.filename ?? n.parameters?.name ?? "").toLowerCase();
+    const base64 = (n.encoding ?? "").toLowerCase() === "base64";
+    if ((type === "text/calendar" || type === "application/ics" || named.endsWith(".ics")) && (n.size ?? 0) * (base64 ? 0.75 : 1) <= PART_MAX) found = n.part ?? "1";
+  };
+  walk(node);
+  return found;
+}
+
 async function readStream(s: NodeJS.ReadableStream | undefined): Promise<string> {
   if (!s) return "";
   const chunks: Buffer[] = [];
@@ -1128,6 +1146,12 @@ export async function listInboxICloud(hub: Hub, accountKey: string, since: Date,
         // Cards from the raw HTML: cleaning takes out the sender's schema.org data (a script) with every other script.
         m.cards = mailCards(html.join("\n"), m.subject, m.text, m.from, m.automated);
         m.attachments = attachmentParts(msg.bodyStructure);
+        // An invitation's calendar part (Invitations): read like the text, BODY.PEEK, and never a reason to stop.
+        const cal = calendarPart(msg.bodyStructure);
+        if (cal) {
+          try { m.calendar = await readStream((await c.download(String(uid), cal, { uid: true, maxBytes: PART_MAX }))?.content); }
+          catch (e) { console.error(`[mail-inbox] a mail's calendar part could not be read: ${errCode(e)}`); }
+        }
         mails.push(m);
       }
       // Mail kept before threads: the Message-IDs it answers, headers only (at most REFS_MAX a refresh).

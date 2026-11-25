@@ -163,18 +163,6 @@ export interface OwnKeyGuide {
 /** GET /setup/backup: backups and the recovery key that opens them. */
 export interface BackupStatus { encrypted: boolean; recipient: string; recovery_saved: boolean; backups: number; disk: { encrypted: boolean | null; detail: string } }
 
-/** Layout sketches (module `layouts`): a picture of a screen with parts moved, resized, taken away or added. */
-export interface LayoutRect { x: number; y: number; w: number; h: number }
-export interface LayoutPiece { id: string; from: LayoutRect | null; to: LayoutRect | null; label?: string; note?: string }
-export type LayoutPlatform = "iphone" | "ipad" | "mac" | "watch" | "windows" | "web" | "other";
-export type LayoutStatus = "draft" | "ready" | "done";
-export interface Layout {
-  id: string; title: string; platform: LayoutPlatform; screen: string; status: LayoutStatus;
-  picture_id: string; width: number; height: number; after_id: string | null; note: string;
-  pieces: LayoutPiece[]; created_at: string; updated_at: string; deleted_at?: string | null;
-}
-export type LayoutSummary = Omit<Layout, "pieces" | "deleted_at"> & { pieces_count: number };
-
 export interface HubConfig {
   hubUrl: string;
   token: string;
@@ -731,11 +719,6 @@ export class HubClient {
     return this.req<Entity>("POST", `/checklists/${encodeURIComponent(id)}/toggle`, { index });
   }
 
-  /** 422 (HubError, `detail` names the employers the draft invented) or 503 `no model`. */
-  coverLetter(id: string, body: { job_text?: string; tone?: string }) {
-    return this.req<{ note: Entity; backend: string }>("POST", `/applications/${encodeURIComponent(id)}/cover-letter`, body);
-  }
-
   connections() {
     return this.req<Connections>("GET", "/connections");
   }
@@ -1166,6 +1149,16 @@ export class HubClient {
   mailOutboxRetry(id: string) {
     return this.req<OutboxItem>("POST", `/mail/outbox/${encodeURIComponent(id)}/retry`, {});
   }
+  /**
+   * Invitations: the owner's Accept, Maybe or Decline, answered by the hub through where the invitation came from (the
+   * iCloud calendar, or a reply mail with Undo); Undo and Try again for an answer that goes by mail.
+   */
+  answerInvitation(id: string, answer: "accepted" | "tentative" | "declined") {
+    return this.req<{ invitation: Entity; outbox?: { id: string; state: string; send_at: string } }>("POST", `/invitations/${encodeURIComponent(id)}/answer`, { answer });
+  }
+  invitationAct(id: string, what: "undo" | "retry") {
+    return this.req<{ invitation: Entity }>("POST", `/invitations/${encodeURIComponent(id)}/${what}`, {});
+  }
   /** A mail the assistant wrote: its card. 404 once the hub no longer keeps it (24 hours). */
   mailProposal(id: string) {
     return this.req<MailProposal>("GET", `/mail/proposals/${encodeURIComponent(id)}`);
@@ -1575,25 +1568,6 @@ export class HubClient {
     return res.json() as Promise<Entity>;
   }
   imageCancel(id: string) { return this.req<unknown>("POST", `/images/jobs/${encodeURIComponent(id)}/cancel`, {}); }
-
-  // ---- layout sketches ----
-  async layouts() { return (await this.req<{ layouts: LayoutSummary[] }>("GET", "/layouts")).layouts; }
-  layout(id: string) { return this.req<Layout>("GET", `/layouts/${encodeURIComponent(id)}`); }
-  createLayout(body: { title: string; platform: LayoutPlatform; screen?: string; picture_id: string; note?: string; pieces?: LayoutPiece[] }) { return this.req<Layout>("POST", "/layouts", body); }
-  saveLayout(id: string, patch: Partial<Pick<Layout, "title" | "platform" | "screen" | "note" | "pieces" | "status" | "after_id">>) { return this.req<Layout>("PUT", `/layouts/${encodeURIComponent(id)}`, patch); }
-  deleteLayout(id: string) { return this.req<{ ok: true }>("DELETE", `/layouts/${encodeURIComponent(id)}`); }
-  /** Store a picture for a sketch (raw PNG, JPEG or WebP, 20 MB at most). */
-  async uploadLayoutPicture(file: Blob): Promise<{ picture_id: string; width: number; height: number }> {
-    const res = await this.fetchImpl(this.url("/layouts/pictures"), { method: "POST", headers: this.headers({ "Content-Type": file.type || "application/octet-stream" }), body: file });
-    if (!res.ok) { let m = `${res.status}`; try { m = (await res.json()).error ?? m; } catch { /* no body */ } throw new HubError(res.status, m); }
-    return res.json() as Promise<{ picture_id: string; width: number; height: number }>;
-  }
-  /** A sketch's picture as a blob (the endpoint needs the bearer header, so no plain <img src>). */
-  async layoutPicture(id: string): Promise<Blob> {
-    const res = await this.fetchImpl(this.url(`/layouts/pictures/${encodeURIComponent(id)}`), { headers: this.headers() });
-    if (!res.ok) throw new HubError(res.status, `picture ${res.status}`);
-    return res.blob();
-  }
 
   /** An image stored with a chat, as a blob (the endpoint needs the bearer header, so no plain <img src>). */
   async aiImage(id: string): Promise<Blob> {

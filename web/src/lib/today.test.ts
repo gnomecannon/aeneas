@@ -1,24 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Entity } from "@everythingapp/shared";
-import { followUpsDue, regularMeds } from "./today";
+import { regularMeds } from "./today";
 
 let n = 0;
 function e(kind: string, fields: Record<string, unknown>): Entity {
   n += 1;
   return { id: `id${n}`, kind, space: "personal", fields, field_ts: {}, created_at: "", updated_at: "", deleted_at: null } as unknown as Entity;
 }
-
-describe("followUpsDue", () => {
-  it("keeps open applications due by tonight, oldest first", () => {
-    const now = new Date(2026, 9, 28, 12, 0);
-    const late = e("application", { company: "A", stage: "applied", next_at: new Date(2026, 9, 26, 9).toISOString() });
-    const tonight = e("application", { company: "B", stage: "screen", next_at: new Date(2026, 9, 28, 20).toISOString() });
-    const tomorrow = e("application", { company: "C", stage: "applied", next_at: new Date(2026, 9, 29, 9).toISOString() });
-    const closed = e("application", { company: "D", stage: "rejected", next_at: new Date(2026, 9, 27, 9).toISOString() });
-    const none = e("application", { company: "E", stage: "saved" });
-    expect(followUpsDue([tonight, tomorrow, closed, none, late], now).map((x) => x.fields.company)).toEqual(["A", "B"]);
-  });
-});
 
 describe("regularMeds", () => {
   const now = new Date(2026, 9, 28, 12, 0);

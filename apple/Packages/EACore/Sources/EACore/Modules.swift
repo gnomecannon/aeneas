@@ -173,9 +173,9 @@ public struct AlertsResponse: Codable, Equatable, Sendable {
 
 /// The module ids this app has screens or parts for. Anything else from the hub is only listed in Settings.
 public enum AppModule: String, CaseIterable, Sendable {
-    case renewals, dashboard, homelab, projects, music, wiki, images, quiz, health, pet, food, sensors, games, films, calc, jobs, web
+    case renewals, dashboard, homelab, projects, music, wiki, images, quiz, health, pet, food, sensors, games, films, calc, web
     // Device features with no screen of their own (group "On your devices"), and newer areas.
-    case voice, notifications, layouts, mail, contacts
+    case voice, notifications, mail, contacts
     /// Offline reference: Wikipedia and other open references kept on the hub (since 2026-11-16).
     case reference
     case appleReminders = "apple_reminders"
@@ -204,7 +204,6 @@ public enum AppModule: String, CaseIterable, Sendable {
         case .sensor, .reading: return .sensors
         case .game: return .games
         case .film: return .films
-        case .application: return .jobs
         case .music_profile: return .appleMusic
         default: return nil
         }

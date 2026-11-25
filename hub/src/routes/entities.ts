@@ -1,7 +1,7 @@
 import { appendDiary } from "../diary.js";
 import { queueFiling, sortCapture } from "../capture-filer.js";
 import { Hono } from "hono";
-import { CaptureRequest, effectiveAt, Kind, LogType, nowIso, Space } from "@everythingapp/shared";
+import { CaptureRequest, effectiveAt, GONE_KINDS, Kind, LogType, nowIso, Space } from "@everythingapp/shared";
 import type { Entity } from "@everythingapp/shared";
 import { moduleOfKind } from "../modules.js";
 import { StoreError } from "../store.js";
@@ -246,8 +246,9 @@ export function entityRoutes() {
     if (!q) throw new StoreError(400, "q required");
     const kinds = (c.req.query("kinds") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     const limit = Math.min(parseInt(c.req.query("limit") ?? "50", 10) || 50, 200);
-    // Items of a module that is off stay out of search, as their screens do.
-    const shown = (kind: string) => { const m = moduleOfKind(kind); return !m || hub.modules.on(m); };
+    // Items of a module that is off stay out of search, as their screens do, and so do those of a kind whose module was
+    // taken out (a job application: GONE_KINDS).
+    const shown = (kind: string) => { const m = moduleOfKind(kind); return !GONE_KINDS.includes(kind) && (!m || hub.modules.on(m)); };
     // Assistant chats too (kept in the chat database, not as items), unless the search asks for item kinds only.
     const chats = !kinds.length || kinds.includes("chat") ? hub.ai.sessions.search(q, Math.min(limit, 20)) : [];
     // A task in an Apple Reminders list that is switched off is hidden from search as from every list.

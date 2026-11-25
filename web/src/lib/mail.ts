@@ -642,7 +642,6 @@ export const BUNDLES: Bundle[] = [
   { id: "trips", name: "Trips" },
   { id: "bills", name: "Bills", module: "renewals", moduleName: "Renewals and bills", screen: "/renewals" },
   { id: "pet", name: "Pet", module: "pet", moduleName: "Pet", screen: "/pet" },
-  { id: "jobs", name: "Jobs", module: "jobs", moduleName: "Job search", screen: "/lists/jobs" },
 ];
 
 /** The bundles shown: the always-there ones, and a module's only while it is on. */

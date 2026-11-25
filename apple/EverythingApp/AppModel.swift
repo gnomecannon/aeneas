@@ -21,7 +21,7 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
     // Body and home
     case health, logs, dashboard, pet, food
     // Life admin
-    case renewals, lists, career, calc
+    case renewals, lists, calc
     // Making
     case projects, procedures, music, images
     // Tech
@@ -63,7 +63,6 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .sensors: return "Sensors"
         case .mail: return "Mail"
         case .lists: return "Lists"
-        case .career: return "Job applications"
         case .games: return "Games"
         case .films: return "Films"
         // Apple Music listening (module apple_music). Song ideas, `music`, is the Making screen.
@@ -107,7 +106,6 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .sensors: return "thermometer.medium"
         case .mail: return "envelope"
         case .lists: return "checkmark.square"
-        case .career: return "briefcase"
         case .games: return "gamecontroller"
         case .films: return "film"
         case .listening: return "headphones"
@@ -136,7 +134,6 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         // What you watch, play and listen to. Music is the Apple Music taste this iPhone, iPad or Mac reads.
         LibraryArea(title: "Media", sections: [.films, .games, .listening]),
         LibraryArea(title: "Body and home", sections: [.health, .logs, .dashboard, .pet, .food]),
-        // Job applications, the Job search module's screen, is inside Lists.
         LibraryArea(title: "Life admin", sections: [.renewals, .lists, .calc]),
         LibraryArea(title: "Making", sections: [.projects, .procedures, .music, .images]),
         // Since 2026-11-19 one screen: a card per machine, service and place, each opening its page (checks, readings,
@@ -180,7 +177,6 @@ enum Section: String, CaseIterable, Identifiable, Hashable, Codable {
         case .films: return .films
         case .listening: return .appleMusic
         case .calc: return .calc
-        case .career: return .jobs
         case .mail: return .mailInbox
         default: return nil
         }
@@ -800,7 +796,7 @@ final class AppModel: ObservableObject {
     }
 
     /// Screens that select a focused item themselves; any other item opens on its own over the current screen.
-    private static let focusingKinds: Set<Kind> = [.note, .application, .film]
+    private static let focusingKinds: Set<Kind> = [.note, .film]
 
     private func show(_ e: Entity) {
         if Self.focusingKinds.contains(e.kind) {
@@ -863,7 +859,7 @@ final class AppModel: ObservableObject {
             section = .tasks
         case "section":
             // everythingapp://section/<name>, e.g. everythingapp://section/films; section/now (gone) opens Today.
-            if let name = url.pathComponents.dropFirst().first, let s = Section(rawValue: name == "now" ? "today" : name) { section = s }
+            if let name = url.pathComponents.dropFirst().first, let s = Section(rawValue: Self.goneSections[name] ?? name) { section = s }
         case "item":
             // everythingapp://item/<id>: the screen that holds it (Spotlight, notifications, Shortcuts).
             if let id = url.pathComponents.dropFirst().first { open(itemId: id) }
@@ -884,9 +880,13 @@ final class AppModel: ObservableObject {
             else { googleReturn = SignInReturn(ok: true, text: q.first(where: { $0.name == "message" })?.value ?? "Gmail linked.") }
             section = .settings
         default:
-            if let s = Section(rawValue: host) { section = s }
+            if let s = Section(rawValue: Self.goneSections[host] ?? host) { section = s }
         }
     }
+
+    /// Screens that went on 2026-11-25, and the one an old link to each opens: Now opens Today (Today's top line, the
+    /// Next line, says it), and Job applications (`career`, taken out with Job search) opens Lists, the screen it was in.
+    static let goneSections: [String: String] = ["now": Section.today.rawValue, "career": Section.lists.rawValue]
 
     func healthImportIfDue() async {
         #if os(iOS)

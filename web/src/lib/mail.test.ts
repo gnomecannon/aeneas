@@ -623,7 +623,7 @@ describe("mail bundle ids", () => {
   const css = fs.readFileSync(path.join(__dirname, "../styles.css"), "utf8");
   const screen = fs.readFileSync(path.join(__dirname, "../views/Mail.tsx"), "utf8");
   it("keeps the ids the apps already on people's devices know, under the new names and in the new order", () => {
-    expect(BUNDLES.map((b) => [b.id, b.name])).toEqual([["purchases", "Transactions"], ["other", "Updates"], ["promos", "Promotions"], ["trips", "Trips"], ["bills", "Bills"], ["pet", "Pet"], ["jobs", "Jobs"]]);
+    expect(BUNDLES.map((b) => [b.id, b.name])).toEqual([["purchases", "Transactions"], ["other", "Updates"], ["promos", "Promotions"], ["trips", "Trips"], ["bills", "Bills"], ["pet", "Pet"]]);
     expect(new Set(Object.values(CARD_ICON))).toEqual(new Set(["purchases", "trips", "bills"]));
   });
   it("has a color, a bar, a side list entry and an icon for every bundle id, and nothing under the renamed ids", () => {
@@ -634,7 +634,8 @@ describe("mail bundle ids", () => {
       expect(css, id).toContain(`.mailx-nav.b-${id},`);
       expect(screen, id).toMatch(new RegExp(`\\n  ${id}: "M`));
     }
-    for (const gone of ["transactions", "updates", "promotions", "social"]) {
+    // Social went on 2026-11-22, Jobs with Job search on 2026-11-25.
+    for (const gone of ["transactions", "updates", "promotions", "social", "jobs"]) {
       expect(css, gone).not.toMatch(new RegExp(`b-${gone}|bt-${gone}`));
       expect(screen, gone).not.toMatch(new RegExp(`\\n  ${gone}: "M`));
     }

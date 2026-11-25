@@ -81,6 +81,11 @@ export interface Draft {
   references?: string[];
   /** Files attached (checkedFiles, or a forwarded mail's own): parts after the text. */
   files?: DraftFile[];
+  /**
+   * An invitation's answer (iMIP, RFC 6047; Invitations): the METHOD:REPLY iCalendar text, sent beside the text as
+   * `multipart/alternative`, the way calendar apps send it. Never with files.
+   */
+  calendar?: string;
 }
 
 /** A file in a draft: its name (cleaned), its type (or application/octet-stream), its bytes. */
@@ -131,6 +136,17 @@ export function buildMessage(d: Draft, now = new Date()): { raw: Buffer; message
   ];
   const b64 = (b: Buffer) => b.toString("base64").replace(/.{76}/g, "$&\r\n");
   const text = b64(Buffer.from(d.text.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n")));
+  if (d.calendar) {
+    // The text for a person, then the answer for their calendar app: the last form of an alternative is the richest.
+    const boundary = `aeneas-${crypto.randomBytes(12).toString("hex")}`;
+    headers.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    const parts = [
+      `Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${text}`,
+      `Content-Type: text/calendar; method=REPLY; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${b64(Buffer.from(d.calendar))}`,
+    ];
+    const body = `${parts.map((p) => `--${boundary}\r\n${p}\r\n`).join("")}--${boundary}--`;
+    return { raw: Buffer.from(`${headers.join("\r\n")}\r\n\r\n${body}\r\n`), message_id };
+  }
   if (!d.files?.length) {
     headers.push("Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: base64");
     return { raw: Buffer.from(`${headers.join("\r\n")}\r\n\r\n${text}\r\n`), message_id };

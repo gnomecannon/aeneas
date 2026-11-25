@@ -28,7 +28,8 @@ final class PermissionPlanTests: XCTestCase {
         XCTAssertEqual(m[8].setup, ModuleInfo.AdvancedSetup(minutes: "2", needs: "your own Steam key, for playtime"))
         XCTAssertEqual(AppModule(rawValue: "apple_reminders"), .appleReminders)
         XCTAssertEqual(AppModule(rawValue: "apple_calendar"), .appleCalendar)
-        XCTAssertNotNil(AppModule(rawValue: "layouts"))
+        XCTAssertNil(AppModule(rawValue: "layouts"), "Layout sketches was taken out on 2026-11-25")
+        XCTAssertNil(AppModule(rawValue: "jobs"), "Job search was taken out on 2026-11-25")
         XCTAssertNotNil(AppModule(rawValue: "mail"))
     }
 

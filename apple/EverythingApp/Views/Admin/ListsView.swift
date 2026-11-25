@@ -41,17 +41,6 @@ struct ListsView: View {
 
     private var list: some View {
         List {
-            if model.isOn(.jobs) {
-                SwiftUI.Section {
-                    PageLink { CareerView() } label: {
-                        let apps = engine.list(.application)
-                        let open = apps.filter { !AdminStage.closed.map(\.rawValue).contains($0.str("stage")) }.count
-                        LabeledContent { Text(apps.isEmpty ? "None yet" : "\(open) open of \(apps.count)").foregroundStyle(.secondary) } label: {
-                            Label("Job applications", systemImage: "briefcase")
-                        }
-                    }
-                }
-            }
             SwiftUI.Section("Open lists") {
                 if open.isEmpty {
                     Text(templates.isEmpty ? "No open lists. Tap + to start one." : "No open lists. Tap Use on a template below, or tap + for a blank list.")
@@ -117,21 +106,6 @@ struct ListsView: View {
     /// Unarchive is a swipe only).
     private var cards: some View {
         WidePage {
-            if model.isOn(.jobs) {
-                CardGrid {
-                    PageLink { CareerView() } label: {
-                        let apps = engine.list(.application)
-                        let open = apps.filter { !AdminStage.closed.map(\.rawValue).contains($0.str("stage")) }.count
-                        HStack {
-                            Label("Job applications", systemImage: "briefcase")
-                            Spacer(minLength: 8)
-                            Text(apps.isEmpty ? "None yet" : "\(open) open of \(apps.count)").foregroundStyle(.secondary)
-                        }
-                        .gridCard()
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
             WideSection("Open lists") {
                 if open.isEmpty {
                     Text(templates.isEmpty ? "No open lists. Tap + to start one." : "No open lists. Tap Use on a template below, or tap + for a blank list.")

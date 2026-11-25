@@ -7,6 +7,8 @@ import { stableId } from "./imports/util.js";
 import { appPassword, linkedAsOtherMail, mailUsed, REFUSED, type ICloudAccount } from "./imports/icloud.js";
 import { DavConflict, DavRefused, deleteEvent, discoverCalendars, getEvent, icloudHost, listEvents, putEvent, type DavLogin } from "./imports/caldav.js";
 import { newEventIcs, parseObject, updatedEventIcs, type EventTimes } from "./calendar-ics.js";
+import { quietly, syncWriting } from "./calendar-quiet.js";
+import { takeCalDavInvites } from "./invitations-take.js";
 
 /**
  * Calendar sync on the hub (`calendars` module): the iCloud calendars the owner chooses are kept in step with the
@@ -35,6 +37,8 @@ export interface CalendarConf {
   target: string | null;
   last_sync?: string;
   last_error?: string | null;
+  /** The addresses iCloud knows the account by (calendar-user-address-set), for Invitations. */
+  addresses?: string[];
 }
 
 const DAY = 86_400_000;
@@ -97,14 +101,9 @@ function saveRow(hub: Hub, r: Row) {
 }
 function dropRow(hub: Hub, entityId: string) { hub.db.prepare("DELETE FROM caldav_events WHERE entity_id = ?").run(entityId); }
 
-/** Writes the sync itself makes, which must not start another sync. */
-let syncing = 0;
-export const syncWriting = () => syncing > 0;
-
-function write<T>(f: () => T): T {
-  syncing++;
-  try { return f(); } finally { syncing--; }
-}
+/** Writes the sync itself makes, which must not start another sync (calendar-quiet.ts). */
+export { syncWriting };
+const write = quietly;
 
 /** The event fields a server event gives (null clears a place the server no longer has). */
 function fieldsFrom(t: EventTimes, had?: Entity): Record<string, unknown> {
@@ -136,9 +135,11 @@ export async function syncAccount(hub: Hub, email: string, now: Date = new Date(
   const login = loginOf(acct);
   try {
     // The list of calendars, again each run: one added or renamed in iCloud shows, and addresses stay current.
-    const found = await discoverCalendars(login);
+    const also: { addresses?: string[] } = {};
+    const found = await discoverCalendars(login, also);
     const calendars = found.map(({ ctag: _c, ...c }) => c);
     const chosen = conf.chosen.filter((u) => calendars.some((c) => c.url === u));
+    if (also.addresses) saveConf(hub, email, { addresses: also.addresses });
     // A Read only account (Internet Accounts) is read and never written: no calendar of it takes an edit or a new event.
     const ro = acct.read_only === true;
     const target = !ro && conf.target && chosen.includes(conf.target) && calendars.find((c) => c.url === conf.target)?.writable ? conf.target : null;
@@ -153,10 +154,14 @@ export async function syncAccount(hub: Hub, email: string, now: Date = new Date(
     // Everything in the chosen calendars, read before anything is written.
     const singles = new Map<string, Remote>();
     const repeating: { calendar: string; url: string; uid: string; occurrences: EventTimes[] }[] = [];
+    // Everything read, for Invitations: invitations are found in the same events, with nothing more asked of iCloud.
+    const read: { calendar: string; url: string; etag: string | null; data: string }[] = [];
+    const readAt = new Date();
     const from = new Date(now.getTime() - SINGLE_BACK);
     const to = new Date(now.getTime() + SINGLE_AHEAD);
     for (const cal of chosen) {
       for (const o of await listEvents(login, cal, from, to)) {
+        read.push({ calendar: cal, url: o.url, etag: o.etag, data: o.data });
         const p = parseObject(o.data, new Date(now.getTime() - OCC_BACK), new Date(now.getTime() + OCC_AHEAD));
         if (!p) continue;
         if (p.occurrences) repeating.push({ calendar: cal, url: o.url, uid: p.uid, occurrences: p.occurrences });
@@ -286,6 +291,10 @@ export async function syncAccount(hub: Hub, email: string, now: Date = new Date(
     for (const e of hub.store.list({ kind: "event", space: "personal" })) {
       if (e.fields.source === "eventkit" && occKeys.has(`${e.fields.title}|${snapOf(e.fields)?.start}`)) write(() => hub.store.patch(e.id, { deleted_at: nowIso() }));
     }
+
+    // 5. Invitations in what was read, and whether the owner declined each event (Invitations).
+    try { takeCalDavInvites(hub, { account: email, chosen, objects: read, readAt, now }); }
+    catch (e) { console.error(`[invitations] ${errCode(e)}`); }
 
     saveConf(hub, email, { last_sync: nowIso(), last_error: null });
     return out;

@@ -198,7 +198,6 @@ extension Mail.Bundle {
         case "promos": return "tag"
         case "bills": return "doc.text"
         case "pet": return "pawprint"
-        case "jobs": return "briefcase"
         default: return "line.3.horizontal"
         }
     }

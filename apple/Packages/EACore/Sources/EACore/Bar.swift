@@ -5,18 +5,23 @@ import Foundation
 /// (CONTRACT.md, Feel). The rules here are the ones in `packages/shared/src/bar.ts`, which the hub checks by and the
 /// web client draws and edits by; tests on both sides keep the two and the contract the same.
 public enum BarScreen {
-    /// Every screen a place can hold, by id: the app's `Section` names where it has the screen. `layouts` and `status`
-    /// are screens of the web, Windows and Android apps only, so this app skips them when it draws the bar.
+    /// Every screen a place can hold, by id: the app's `Section` names where it has the screen. `status` is a screen of
+    /// the web, Windows and Android apps only, so this app skips it when it draws the bar.
     public static let all: [String] = [
         "today", "assistant", "capture", "library", "search",
         "inbox", "tasks", "week", "renewals", "dashboard",
         "notes", "memory", "people", "reference",
         "ops", "sensors",
-        "projects", "procedures", "music", "wiki", "images", "quiz", "layouts",
+        "projects", "procedures", "music", "wiki", "images", "quiz",
         "health", "logs", "pet", "food",
         "mail", "lists", "games", "films", "listening", "calc",
         "status",
     ]
+
+    /// Screens taken out of the app, by id: Layout sketches (`layouts`) and Job applications (`career`, the old
+    /// `Section` id; no bar ever offered it, as it was a page in Lists) on 2026-11-25. Read from a setting, such an id
+    /// leaves it and its place is free. Any other id a build does not know is kept: a newer app may have put it there.
+    public static let gone: [String] = ["layouts", "career"]
 
     /// The one screen that always has a place: every other screen, and Settings, is reached from it.
     public static let library = "library"
@@ -78,7 +83,8 @@ public struct BarSetting: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey { case count, first, second }
 
-    /// A value that breaks a rule does not decode, so what reads it (`try?`) falls back to the default.
+    /// A value that breaks a rule does not decode, so what reads it (`try?`) falls back to the default. A screen taken
+    /// out (`BarScreen.gone`) leaves the setting, and the screens after it in its row move up.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         count = try c.decode(Int.self, forKey: .count)
@@ -87,6 +93,8 @@ public struct BarSetting: Codable, Equatable, Sendable {
         guard isValid else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "the bottom bar breaks a rule"))
         }
+        first.removeAll { BarScreen.gone.contains($0) }
+        second.removeAll { BarScreen.gone.contains($0) }
     }
 
     public subscript(row: BarRow) -> [String] {

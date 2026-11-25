@@ -1,6 +1,6 @@
 import Foundation
 
-/// Meds, job follow-ups and people shown on Today. Same rules as the web app's `lib/today.ts`.
+/// Meds and people shown on Today. Same rules as the web app's `lib/today.ts`.
 public enum TodayExtras {
     public struct Med: Equatable, Sendable {
         public var name: String
@@ -221,16 +221,6 @@ public enum TodayExtras {
             out.append(PersonToday(id: p.id, name: shortName(p), plans: mine, notes: notes))
         }
         return out
-    }
-
-    private static let closedStages: Set<String> = ["rejected", "withdrawn", "accepted"]
-
-    /// Job applications whose next step is due by the end of today, oldest first.
-    public static func followUpsDue(_ apps: [Entity], now: Date = Date(), calendar: Calendar = .current) -> [Entity] {
-        guard let end = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: now) else { return [] }
-        return apps
-            .filter { !$0.isDeleted && !closedStages.contains($0.str("stage")) && ($0.date("next_at").map { $0 <= end } ?? false) }
-            .sorted { ($0.date("next_at") ?? .distantPast) < ($1.date("next_at") ?? .distantPast) }
     }
 
     /// Meds taken regularly: logged on at least 2 different days in the 7 days before today, with when today's was

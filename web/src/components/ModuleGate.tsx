@@ -6,7 +6,7 @@ import { moduleOfScreen, setModules, useModules } from "../lib/modules";
  * a screen whose hub calls all answer "off". Reached from an old link, a keyboard shortcut or another window.
  */
 export function ModuleGate({ path, children }: { path: string; children: ReactNode }) {
-  const id = moduleOfScreen(path.startsWith("/career") ? "/lists/jobs" : path);
+  const id = moduleOfScreen(path);
   const { list, on } = useModules();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");

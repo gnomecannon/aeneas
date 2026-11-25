@@ -1,5 +1,3 @@
-import type { LayoutPlatform } from "../sync/api";
-
 /** Hash route for an entity of a given kind, used by search hits, Capture results and the Status friction list.
  * `title` narrows screens that list many items (games, films) to the one found. */
 export function linkFor(kind: string, id: string, title?: string): string {
@@ -55,14 +53,14 @@ export function linkFor(kind: string, id: string, title?: string): string {
       return "#/sensors";
     case "checklist":
       return `#/lists/${id}`;
-    case "application":
-      return `#/lists/jobs/${id}`;
     case "game":
       return `#/games${q}`;
     case "film":
       return `#/films${q}`;
     case "music_profile":
       return "#/listening";
+    case "invitation":
+      return "#/week?invitations=1";
     case "device":
       return "#/settings";
     default:
@@ -76,15 +74,15 @@ export const KIND_LABELS: Record<string, string> = {
   runbook: "fix notes", ledger: "troubleshooting", project: "project", device: "device", watch: "renewal", plan_rule: "plan rule",
   journal: "change journal", snippet: "snippet", pet_event: "pet", sensor: "sensor", reading: "reading", food_option: "food",
   inventory: "inventory", procedure: "procedure", music_idea: "music idea", quiz: "quiz", monitor: "monitor", incident: "incident",
-  checklist: "list", application: "job application", game: "game", film: "film", person: "person", image: "image",
-  music_profile: "Apple Music taste",
+  checklist: "list", game: "game", film: "film", person: "person", image: "image",
+  music_profile: "Apple Music taste", invitation: "invitation",
 };
 export const kindLabel = (kind: string) => KIND_LABELS[kind] ?? kind;
 
-/** A device or sketch platform as people say it ("iPhone", not "iphone"). */
-export const PLATFORM_LABEL: Record<LayoutPlatform, string> = {
-  iphone: "iPhone", ipad: "iPad", mac: "Mac", watch: "Watch", windows: "Windows", web: "Web", other: "Other",
+/** A device's platform as people say it ("iPhone", not "iphone"). */
+const PLATFORM_LABEL: Record<string, string> = {
+  iphone: "iPhone", ipad: "iPad", mac: "Mac", watch: "Watch", windows: "Windows", web: "Web",
 };
-export const platformLabel = (platform: string) => (PLATFORM_LABEL as Record<string, string>)[platform] ?? platform;
+export const platformLabel = (platform: string) => PLATFORM_LABEL[platform] ?? platform;
 /** Where a capture came from, as people say it (Unsorted Info): a device, or a Shortcut, Voice or the API (EACore `Source.label`). */
 export const captureSourceLabel = (source: string) => ({ shortcut: "Shortcut", voice: "Voice", api: "API" } as Record<string, string>)[source] ?? platformLabel(source);

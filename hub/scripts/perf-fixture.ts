@@ -147,12 +147,11 @@ for (let d = 0; d < n(365); d++) {
   if (chance(0.7)) make("log", { type: "caffeine", value: int(1, 3), unit: "cups", at: at(9), source: "web" });
 }
 
-// Renewals, pet events, games, films, applications.
+// Renewals, pet events, games, films.
 for (let i = 0; i < n(45); i++) make("watch", { title: `${pick(["Domain", "Streaming", "Cloud storage", "Gym", "Insurance", "Password manager", "VPN"])} ${i}`, category: pick(["subscription", "domain", "insurance", "warranty"] as const), due: iso(when(int(1, 360))), lead_days: 7, repeat: "every 1 years", cost: int(5, 200) });
 for (let i = 0; i < n(700); i++) make("pet_event", { pet: "Biscuit", type: pick(["food", "food", "note", "med"] as const), at: iso(when(-int(0, 365))), note: sentence(3, 8) });
 for (let i = 0; i < n(250); i++) make("game", { name: `${pick(WORDS)} ${pick(WORDS)} ${i}`, steam_appid: 100000 + i, playtime_min: int(0, 6000), source: "steam" });
 for (let i = 0; i < n(150); i++) make("film", { title: `The ${pick(WORDS)} ${pick(WORDS)}`, year: int(1960, 2026), watched_on: [ymd(when(-int(0, 365)))], rating: int(1, 10) / 2, source: "letterboxd" });
-for (let i = 0; i < n(25); i++) make("application", { company: `${pick(FAMILY)} Labs`, role: pick(["Engineer", "Designer", "Analyst"]), stage: pick(["applied", "screen", "interview", "offer", "rejected"] as const) });
 
 const entitiesMs = Date.now() - t0;
 

@@ -4,7 +4,6 @@ import EACore
 extension Entity {
     /// The name an item goes by, whatever its kind.
     var displayTitle: String {
-        if kind == .application { return "\(str("company")) \(str("role"))".trimmingCharacters(in: .whitespaces) }
         if kind == .pet_event { return [str("type"), str("note")].filter { !$0.isEmpty }.joined(separator: ", ") }
         for k in ["title", "name", "text", "value"] where !str(k).isEmpty { return str(k) }
         return SearchView.section(for: kind).title
@@ -12,7 +11,8 @@ extension Entity {
 }
 
 /// "Renewals: Domain" as a button that opens the item a reminder (or a task's project) points at.
-/// Nothing when the item is gone.
+/// Nothing when the item is gone, or when no screen shows its kind any more (a job application a follow-up task points
+/// at: `Kind.gone`).
 struct LinkedItem: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -20,7 +20,7 @@ struct LinkedItem: View {
     var showsScreen = true
 
     var body: some View {
-        if let id, let e = engine.get(id), !e.isDeleted {
+        if let id, let e = engine.get(id), !e.isDeleted, !Kind.gone.contains(e.kind) {
             Button {
                 model.open(itemId: e.id)
             } label: {

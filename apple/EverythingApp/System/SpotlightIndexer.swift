@@ -3,7 +3,7 @@ import CoreSpotlight
 import EACore
 
 /// Puts the things people look for (notes, tasks, projects, snippets, fix notes, lists, games, films, procedures, music
-/// ideas, job applications) into Spotlight, titles and a short line only (never a note's text), never the work space.
+/// ideas) into Spotlight, titles and a short line only (never a note's text), never the work space.
 /// Only when the person turned on Settings, Privacy on this device, Show in Spotlight (off by default); turning it off
 /// removes everything this app put there. Tapping a result opens it through `everythingapp://item/<id>`. Kept current
 /// by a debounced pass after each sync: only changed items are written, and deleted ones removed.
@@ -16,7 +16,8 @@ final class SpotlightIndexer {
     private var loaded = false
     private let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!.appendingPathComponent("spotlight-index.json")
 
-    static let kinds: Set<Kind> = [.note, .task, .project, .snippet, .runbook, .checklist, .game, .film, .procedure, .music_idea, .application]
+    /// Job applications left with Job search on 2026-11-25 (`Kind.gone`): the next pass takes them out of Spotlight.
+    static let kinds: Set<Kind> = [.note, .task, .project, .snippet, .runbook, .checklist, .game, .film, .procedure, .music_idea]
 
     func update(_ engine: SyncEngine) async {
         if !loaded {
@@ -86,7 +87,6 @@ final class SpotlightIndexer {
         case .film: line = ["Film", e.number("year").map { String(Int($0)) }, e.str("last_watched").isEmpty ? nil : "watched \(e.str("last_watched"))"].compactMap { $0 }.joined(separator: ", ")
         case .procedure: line = "Procedure"
         case .music_idea: line = "Song idea, \(e.str("type"))"
-        case .application: title = "\(e.str("role")) at \(e.str("company"))"; line = "Job application, \(e.str("stage"))"
         default: break
         }
         a.title = StyleGuard.dashes(title.isEmpty ? "Untitled" : title)

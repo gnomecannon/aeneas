@@ -33,6 +33,7 @@ struct TodayBoardView: View {
     @State private var acking: Entity?
     /// Tech's card is folded each time Today opens: the screen's own state, never saved.
     @State private var techOpen = false
+    @State private var showInvitations = false
 
     private var setting: TodaySetting { feel.settings.shownToday }
 
@@ -66,6 +67,12 @@ struct TodayBoardView: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .sheet(item: $acking) { inc in AckSheet(incident: inc) }
+        .sheet(isPresented: $showInvitations) {
+            NavigationStack { InvitationsView() }
+                #if os(macOS)
+                .frame(minWidth: 420, minHeight: 480)
+                #endif
+        }
         // Tech folds again when Today is left (another tab, a page opened over it), so Today always opens with it
         // folded: the iPhone keeps a tab's screen, and its state, while another tab shows.
         .onDisappear { techOpen = false }
@@ -315,9 +322,9 @@ struct TodayBoardView: View {
         return TodayBoard.needsYou(
             reminders: Mail.dueReminders(tasks, now: now), tasks: tasks,
             watches: model.isOn(.renewals) ? today.watches_due_soon : [],
-            followUps: model.isOn(.jobs) ? TodayExtras.followUpsDue(engine.list(.application), now: now) : [],
             meds: model.isOn(.health) ? TodayExtras.regularMeds(engine.logs(type: .med, days: 9), now: now) : [],
-            unsorted: engine.unprocessedCaptures.count, now: now)
+            unsorted: engine.unprocessedCaptures.count, now: now,
+            invitations: Invitations.need(engine.list(.invitation), now: now).map { ($0.count, $0.detail) })
     }
 
     private func needsCard(now: Date) -> some View {
@@ -377,13 +384,13 @@ struct TodayBoardView: View {
             Button("Renewed") { Task { await engine.renewWatch(w.id) } }.buttonStyle(.themedProminent)
                 .accessibilityLabel("Mark \(w.str("title")) renewed")
             Button("Open") { model.open(itemId: w.id) }.buttonStyle(.borderless)
-        case .followUp(let a, _, _):
-            Button("Open") { model.open(itemId: a.id) }.buttonStyle(.bordered)
         case .med(let name):
             Button("Took \(name)") { Task { _ = await engine.log(type: .med, value: .string(name)) } }.buttonStyle(.themedProminent)
                 .help("Log \(name) as taken now")
         case .unsorted:
             Button("Sort them") { model.section = .inbox }.buttonStyle(.bordered)
+        case .invitations:
+            Button("Open") { showInvitations = true }.buttonStyle(.bordered)
         }
     }
 

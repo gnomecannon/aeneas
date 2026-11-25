@@ -79,7 +79,6 @@ export const AREAS: Array<{ title: string; items: Item[] }> = [
     { path: "/procedures", label: "Procedures" },
     { path: "/music", label: "Song ideas" },
     { path: "/gallery", label: "Image Gallery" },
-    { path: "/layouts", label: "Layout sketches" },
   ] },
   // Since 2026-11-19 one screen: a card per machine, service and place, each opening its page (checks, readings, fix
   // notes, changes, snippets). With Machines off, the home sensors are the Sensors screen.
@@ -108,9 +107,7 @@ const OTHER: Item[] = [
   { path: "/plan-rules", label: "Plan rules" },
   { path: "/notes/map", label: "Notes map" },
   { path: "/images", label: "Create image" },
-  { path: "/lists/jobs", label: "Job applications" },
   { path: "/music/projects", label: "Music projects" },
-  { path: "/career", label: "Job applications" },
   { path: "/reminders", label: "Tasks" },
   { path: "/item", label: "Item" },
   { path: "/welcome", label: "Welcome" },

@@ -159,7 +159,11 @@ final class ModulesTests: XCTestCase {
     }
 
     func testKindsBelongToTheHubsModules() {
-        XCTAssertEqual(AppModule.of(kind: .application), .jobs)
+        // Job search was taken out on 2026-11-25: its kind stays one this app decodes, belongs to no module, and shows
+        // nowhere (`Kind.gone`).
+        XCTAssertNil(AppModule.of(kind: .application))
+        XCTAssertEqual(Kind.gone, [.application])
+        XCTAssertEqual(Kind(rawValue: "application"), .application)
         XCTAssertEqual(AppModule.of(kind: .incident), .homelab)
         XCTAssertEqual(AppModule.of(kind: .inventory), .projects)
         XCTAssertNil(AppModule.of(kind: .task))

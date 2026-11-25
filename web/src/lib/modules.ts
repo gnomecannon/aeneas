@@ -99,8 +99,6 @@ export const SCREEN_MODULE: Record<string, string> = {
   "/films": "films",
   "/listening": "apple_music",
   "/calc": "calc",
-  "/lists/jobs": "jobs",
-  "/layouts": "layouts",
   "/reference": "reference",
   "/mail": "mail_inbox",
 };

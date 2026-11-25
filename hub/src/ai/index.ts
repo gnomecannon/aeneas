@@ -293,6 +293,9 @@ export class Gateway {
   setApi(api: ApiCall): void { this.api = api; }
   /** Let propose_mail keep a proposal on the hub (never send it: the owner's Send on its card does). */
   setMailProposer(f: (input: Record<string, unknown>, turn: { sessionId: string; ownerText: string; photoIds: string[] }) => MailProposal): void { this.mailProposer = f; }
+  /** Answers an invitation (invitations.ts answerInvitation), set by createApp; answer_invitation calls it only after the owner's yes. */
+  private invitationAnswerer: ((id: string, answer: string) => Promise<{ invitation: { fields: Record<string, unknown> } }>) | null = null;
+  setInvitationAnswerer(f: (id: string, answer: string) => Promise<{ invitation: { fields: Record<string, unknown> } }>): void { this.invitationAnswerer = f; }
 
   /** The context the hub plans every request for and asks Ollama for: EA_OLLAMA_NUM_CTX, raised to the floor. */
   numCtx(): number { return Math.max(this.cfg.ollamaNumCtx, this.ctxNeeded); }
@@ -919,6 +922,8 @@ export class Gateway {
         ...(req.device?.photos && onEvent ? { askDevicePhotos: (count: number, sinceDays?: number) => this.askPhotos(count, sinceDays, onEvent) } : {}),
         userImages: imageIds,
         onStatus: (text) => onEvent?.({ type: "status", text }),
+        // Only a chat with the owner answers an invitation (never a capture being filed), and only after their yes.
+        ...(this.invitationAnswerer && !req.filing && !req.messages?.length ? { answerInvitation: this.invitationAnswerer } : {}),
         // Only a chat with the owner proposes a mail (never a capture being filed), checked against what they wrote.
         ...(this.mailProposer && !req.filing && !req.messages?.length ? {
           proposeMail: (input: Record<string, unknown>) => {
@@ -1066,7 +1071,7 @@ export class Gateway {
   }
 
   /**
-   * One plain-text draft with no session side effects (Module 7 cover letters). Tries the `draft` route first
+   * One plain-text draft with no session side effects (draft_in_my_voice). Tries the `draft` route first
    * (the adapter, the user's own voice, then the local model), then the general route. `system` is built per
    * backend so the caller can drop private facts before a cloud call. The style filter runs on the result.
    * Returns null when no backend answered.

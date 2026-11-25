@@ -48,6 +48,26 @@ export function seedWorld(hub: Hub): Record<string, string> {
   ids.games = s.create("event", { title: "Board games at Devon's", start: iso(2, "19:00"), end: iso(2, "22:00"), all_day: false }).id;
   s.create("event", { title: "Apple picking with Jamie and Priya", start: new Date(`${ymd(-3)}T00:00:00`).toISOString(), end: new Date(`${ymd(-2)}T00:00:00`).toISOString(), all_day: true });
 
+  // Invitations waiting for Alex's answer (Week, Invitations; Today's Needs you), one from each place they come from:
+  // an iCloud calendar the hub keeps in step, a mail, and Apple Calendar on the iPhone (a Google calendar there). Every
+  // address is made up (example.com); answering one on the demo hub says it cannot reach the calendar or the mail.
+  ids.bookclub = s.create("invitation", {
+    title: "Book club at Priya's", start: iso(3, "18:30"), end: iso(3, "20:30"), all_day: false, location: "Priya's flat, 4th floor",
+    organizer: { name: "Priya", address: "priya@example.com" }, answer: "needs_action", answer_by: "caldav",
+    from: { kind: "icloud", account: "alex@example.com", calendar: "https://caldav.example.com/alex/calendars/home/", href: "https://caldav.example.com/alex/calendars/home/book-club.ics" },
+    uid: "sample-invite-book-club@example.com", sequence: 0, sample: true,
+  }).id;
+  ids.birthday = s.create("invitation", {
+    title: "Devon's birthday dinner", start: iso(5, "19:00"), end: iso(5, "22:00"), all_day: false, location: "Luigi's Trattoria",
+    organizer: { name: "Devon Hale", address: "devon@example.com" }, answer: "needs_action", answer_by: "mail",
+    from: { kind: "mail", mailbox: "alex@example.com", message: "sample-invite-mail" }, uid: "sample-invite-birthday@example.com", sequence: 1, sample: true,
+  }).id;
+  ids.meeting = s.create("invitation", {
+    title: "Neighborhood garden meeting", start: iso(4, "10:00"), end: iso(4, "11:30"), all_day: false, location: "Community center, room 3B",
+    organizer: { name: "Robin", address: "robin@example.com" }, answer: "needs_action", answer_by: "open_in_calendar",
+    from: { kind: "device", device: "sample-iphone", event: "sample-invite-garden" }, uid: "sample-invite-garden@example.com", sequence: 0, sample: true,
+  }).id;
+
   appendDiary(s, "Walked Pepper around Riverside Park, about 40 minutes", at(-1, "08:10"));
   appendDiary(s, "Lunch at Chipotle with Priya, she's starting a new job at Northwind", at(-2, "12:40"));
   appendDiary(s, "Replaced the noisy fan in the NAS, it's quiet now", at(-4, "21:15"));

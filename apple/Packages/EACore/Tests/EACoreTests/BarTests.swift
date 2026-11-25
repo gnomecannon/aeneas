@@ -48,6 +48,22 @@ final class BarTests: XCTestCase {
         XCTAssertFalse(BarScreen.isId("café"))
     }
 
+    func testAScreenTakenOutOfTheAppLeavesTheSettingWhenItIsRead() throws {
+        XCTAssertEqual(BarScreen.gone, ["layouts", "career"])
+        for id in BarScreen.gone { XCTAssertFalse(BarScreen.all.contains(id), id) }
+        // Layout sketches (2026-11-25): from the hub's answer or this device's own copy alike.
+        XCTAssertNil(decode(#"{"count":5,"first":["today","layouts","capture","library"],"second":["tasks","layouts"]}"#),
+                     "two places for one id still break a rule")
+        XCTAssertEqual(decode(#"{"count":5,"first":["today","layouts","capture","library"],"second":["tasks","someNewScreen"]}"#),
+                       bar(5, ["today", "capture", "library"], ["tasks", "someNewScreen"]), "the screens after it move up; an unknown id stays")
+        XCTAssertEqual(decode(#"{"count":3,"first":["layouts"],"second":["layouts-x"]}"#), bar(3, [], ["layouts-x"]))
+        let feel = try JSONCoding.decode(FeelSettings.self, from: #"{"bar":{"count":3,"first":["today","layouts"],"second":[]}}"#)
+        XCTAssertEqual(feel.bar, bar(3, ["today"]))
+        // Job applications (2026-11-25, `career`), and both at once.
+        XCTAssertEqual(decode(#"{"count":4,"first":["today","career","lists","library"],"second":["layouts","tasks"]}"#),
+                       bar(4, ["today", "lists", "library"], ["tasks"]))
+    }
+
     func testTheFeelSettingReadsItAndFallsBackToTheDefault() throws {
         let with = try JSONCoding.decode(FeelSettings.self, from: #"{"bar":{"count":3,"first":["today","library","mail"],"second":["tasks"]}}"#)
         XCTAssertEqual(with.bar, bar(3, ["today", "library", "mail"], ["tasks"]))
@@ -126,12 +142,12 @@ final class BarTests: XCTestCase {
     }
 
     func testAScreenThatIsOffOrUnknownIsSkippedWhenDrawnAndStaysInTheSetting() {
-        let b = bar(5, ["today", "music", "capture", "library", "layouts"], ["tasks", "futureScreen", "mail"])
-        let off: Set<String> = ["music", "layouts", "futureScreen", "mail"]
+        let b = bar(5, ["today", "music", "capture", "library", "quiz"], ["tasks", "futureScreen", "mail"])
+        let off: Set<String> = ["music", "quiz", "futureScreen", "mail"]
         let drawn = b.layout { !off.contains($0) }
         XCTAssertEqual(drawn, BarLayout(count: 5, first: ["today", "capture", "library"], second: ["tasks"]))
         XCTAssertEqual(drawn.tabs, ["today", "capture", "library", "tasks"])
-        XCTAssertEqual(b.first, ["today", "music", "capture", "library", "layouts"], "the setting is as it was")
+        XCTAssertEqual(b.first, ["today", "music", "capture", "library", "quiz"], "the setting is as it was")
         // Its place waits for it: back on, it is drawn where it was.
         XCTAssertEqual(b.layout { _ in true }.first, b.first)
         // A second row with nothing to draw is an empty second row: no grabber.

@@ -25,11 +25,9 @@
  * seeded monitors (Ollama down with an open incident, mini-pc over Tailscale unknown) with 24 h of checks kept beside the
  * store, and `ops` on /status. Enabled monitors are checked every 60 s. GET /ops?down=1 takes server down (an incident and a
  * `monitor` notify); GET /ops?up=1 brings every down monitor back and closes its incident.
- * Module 7: /checklists/:id/instantiate, /checklists/:id/toggle, /applications/board, /applications/:id/cover-letter, /games/pick,
- * /games/:id/played, /calc/split|payoff|unit, /finance/subscriptions, the `checklist`, `application` and `game` kinds,
- * and `admin` on /status. Seeds the four packing templates, "US states visited" with a few states done, applications across
- * stages, eight games owned across four friends and a second subscription. Cover letters: job text containing "nomodel" answers
- * 503 `no model`, job text containing "guard" answers 422 with the invented employer names in `detail.names`.
+ * Module 7: /checklists/:id/instantiate, /checklists/:id/toggle, /games/pick, /games/:id/played, /calc/split|payoff|unit,
+ * /finance/subscriptions, the `checklist` and `game` kinds, and `admin` on /status. Seeds the four packing templates,
+ * "US states visited" with a few states done, eight games owned across four friends and a second subscription.
  * Feel: GET and PUT /prefs/feel, kept in memory, with `effective` from the newest keyed music idea when following music.
  * Image shapes: POST /prefs/feel/images?name= (raw PNG or WebP, 512 KB at most; 413, 415 and 422 as the hub answers),
  * GET and DELETE /prefs/feel/images/:id. An older `{ theme: "custom", colors }` becomes the palette "My colors".
@@ -67,7 +65,7 @@ import { deriveHosts, detectHost, renderSnippet, type SnippetF } from "../src/li
 import { advanceProcedure, parseMusicQuick, partRows, stepsFromText, type Part, type ProcedureF, type QuizF } from "../src/lib/creative";
 import { uptimePct, type CheckRow, type IncidentF, type MonitorF } from "../src/lib/ops";
 import { payoff as calcPayoff, split as calcSplit, subscriptions as calcSubs, unitPrices } from "../src/lib/calc";
-import { ACTIVE_STAGES, STATES, groupBoard, instantiateFields, toggleItem, type ApplicationF, type ChecklistF, type GameF } from "../src/lib/admin";
+import { STATES, instantiateFields, toggleItem, type ChecklistF, type GameF } from "../src/lib/admin";
 import { KEYS, SCALES, SHAPES, SYNTHS, THEMES, parseKey } from "../src/feel/theory";
 import { APP_THEMES, DEFAULT_FEEL, MAX_IMAGES, appThemeExists, cleanPatch, normalizeFeel, paletteExists, type Feel } from "../src/feel/prefs";
 import { MODULES } from "../../hub/src/modules";
@@ -1183,15 +1181,6 @@ function seedAdmin() {
   create("checklist", { title: "US states visited", kind: "states", items: STATES.map(([, name]) => (visited.has(name) ? { text: name, done_at: day } : { text: name })), template: false, tags: ["travel"] });
   create("checklist", { title: "Camping weekend, Oct", kind: "packing", items: ["Tent", "Sleeping bag", "Pad", "Headlamp", "Stove and fuel", "Water filter"].map((text, i) => (i < 3 ? { text, done_at: hoursAgo(5) } : { text })), template: false, tags: ["packing"] });
 
-  const app = (fields: Record<string, unknown>) => create("application", fields);
-  app({ company: "Northwind Health", role: "Systems Administrator", stage: "interview", applied_at: hoursAgo(24 * 12), next_step: "Panel interview", next_at: hoursAhead(50), remote: "hybrid", salary: "95-110k", url: "https://jobs.example/northwind/1" });
-  app({ company: "Contoso Labs", role: "Infrastructure Engineer", stage: "screen", applied_at: hoursAgo(24 * 6), next_step: "Recruiter call", next_at: hoursAhead(26), remote: "remote" });
-  app({ company: "Fabrikam", role: "Linux Admin", stage: "applied", applied_at: hoursAgo(24 * 3), next_step: "Follow up by email", next_at: hoursAhead(24 * 6), remote: "onsite" });
-  app({ company: "Tailspin Toys", role: "IT Operations Lead", stage: "applied", applied_at: hoursAgo(24 * 9), remote: "hybrid" });
-  app({ company: "Litware", role: "Homelab-friendly SRE", stage: "saved", remote: "remote", notes: "Asks for Proxmox and ZFS." });
-  app({ company: "Adventure Works", role: "Network Engineer", stage: "offer", applied_at: hoursAgo(24 * 30), next_step: "Answer the offer", next_at: hoursAhead(24 * 3), salary: "105k", remote: "hybrid" });
-  app({ company: "Wide World Importers", role: "Sysadmin II", stage: "rejected", applied_at: hoursAgo(24 * 40) });
-
   const g = (fields: Record<string, unknown>) => create("game", { coop: true, genres: [], ...fields });
   g({ name: "Deep Rock Galactic", min_players: 1, max_players: 4, genres: ["shooter", "co-op"], owned_by: ["Alex", "Rob", "Kim", "Dev"], session_hours: 2, rating: 5, last_played: hoursAgo(24 * 3) });
   g({ name: "Valheim", min_players: 1, max_players: 10, genres: ["survival"], owned_by: ["Alex", "Rob", "Kim"], session_hours: 4, rating: 4, last_played: hoursAgo(24 * 40) });
@@ -1231,25 +1220,6 @@ function gamePick(b: { players?: string[]; hours?: number; coop?: boolean; exclu
     ? `Nothing ${players.length === 1 ? `${players[0]} owns` : "every player owns"} fits ${players.length} ${players.length === 1 ? "player" : "players"}${b.hours ? ` in ${b.hours} h` : ""}${b.coop ? ", co-op" : ""}.`
     : `Everyone owns it, fits ${players.length}${pf?.session_hours ? `, about ${pf.session_hours} h` : ""}, ${pf?.last_played ? `last played ${Math.round((Date.now() - new Date(pf.last_played).getTime()) / 86400_000)} days ago` : "never played"}${pf?.rating ? `, rated ${pf.rating}` : ""}.`;
   return { pick, why, runner_up: fits[1] ?? null, considered: fits.length };
-}
-
-const INVENTED = ["Initech", "Globex", "Umbrella Corp", "Hooli"];
-function coverLetter(a: Entity, b: { job_text?: string; tone?: string }): { status: number; body: unknown } {
-  const job = String(b.job_text ?? "");
-  if (/nomodel/i.test(job)) return { status: 503, body: { error: "no model" } };
-  if (/guard/i.test(job)) return { status: 422, body: { error: "draft mentions employers not in your facts or the job text", detail: { invented: INVENTED.slice(0, 2), backend: "adapter" } } };
-  const f = a.fields as ApplicationF;
-  const tone = b.tone ?? "plain";
-  const open = tone === "warm" ? `I would love to bring my homelab and support experience to ${f.company}.` : tone === "direct" ? `I run infrastructure and want to run yours at ${f.company}.` : `I am applying for the ${f.role} role at ${f.company}.`;
-  const body = `${open}\n\nI keep a Proxmox and ZFS homelab, write runbooks for everything I touch, and work in long focused blocks.\n\nThank you for your time.\n\nAlex`;
-  const path = `Career/Cover letters/${f.company} - ${f.role}.md`.replace(/[\\:*?"<>|]/g, "-");
-  const existing = allNotes().find((n) => n.fields.path === path);
-  const note = existing ?? create("note", { title: `${f.company} - ${f.role}`, body, tags: ["career", "cover-letter"], path });
-  if (existing) patchFields(existing, { body });
-  patchFields(a, { letter_note_id: note.id });
-  const backend = "adapter";
-  aiCalls.push({ at: now(), backend, ms: 2400 });
-  return { status: 200, body: { note: entities.get(note.id), backend } };
 }
 
 seed();
@@ -1839,19 +1809,6 @@ const server = http.createServer(async (req, res) => {
       patchFields(c, { items: toggleItem(items, index, now()) });
       return json(res, 200, entities.get(c.id));
     }
-    if (path === "/applications/board" && req.method === "GET") {
-      const apps = allLive().filter((e) => e.kind === "application");
-      const board = groupBoard(apps);
-      return json(res, 200, { stages: board.columns.map((c) => ({ stage: c.stage, count: c.count, applications: c.items })), total: apps.length, active: board.active, follow_ups: board.followUps });
-    }
-    const cv = /^\/applications\/([^/]+)\/cover-letter$/.exec(path);
-    if (cv && req.method === "POST") {
-      const a = entities.get(decodeURIComponent(cv[1]));
-      if (!a || a.kind !== "application" || !live(a)) return json(res, 404, { error: "not found" });
-      const out = coverLetter(a, await readBody(req));
-      await new Promise((r) => setTimeout(r, 400));
-      return json(res, out.status, out.body);
-    }
     if (path === "/games/pick" && req.method === "POST") return json(res, 200, gamePick(await readBody(req)));
     const gp = /^\/games\/([^/]+)\/played$/.exec(path);
     if (gp && req.method === "POST") {
@@ -2106,7 +2063,6 @@ function status() {
     ops: opsStatus(),
     admin: {
       checklists_open: all.filter((e) => e.kind === "checklist" && !e.fields.template && !e.fields.archived && ((e.fields as ChecklistF).items ?? []).some((i) => !i.done_at)).length,
-      applications_active: all.filter((e) => e.kind === "application" && ACTIVE_STAGES.includes((e.fields as ApplicationF).stage)).length,
       games: all.filter((e) => e.kind === "game").length,
     },
   };

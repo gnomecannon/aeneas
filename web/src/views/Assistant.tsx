@@ -37,7 +37,7 @@ export const TOOL_LABELS: Record<string, string> = {
   capture: "Capturing", log_health: "Logging", log_pet: "Logging for the pet", toggle_checklist_item: "Ticking the checklist", music_idea: "Saving the idea",
   remember: "Remembering", forget: "Forgetting", ledger_update: "Updating the ledger", runbook_note: "Writing fix notes", journal_entry: "Journaling",
   create_item: "Saving", update_item: "Updating", delete_item: "Deleting", procedure: "Updating the procedure", quiz: "Checking the quiz",
-  render_snippet: "Filling a snippet", ops_action: "Checking a monitor", sensors: "Reading sensors", project_plan: "Updating the plan", cover_letter: "Drafting a cover letter",
+  render_snippet: "Filling a snippet", ops_action: "Checking a monitor", sensors: "Reading sensors", project_plan: "Updating the plan",
   calculate: "Calculating", checklist_from_template: "Starting a checklist", draft_in_my_voice: "Drafting in your voice", propose_mail: "Writing a mail for you to send", web_search: "Searching the web",
   read_web_page: "Reading a page", list_hosts: "Listing machines", run_command: "Running a command", approve_command: "Running the approved command",
   wiki_search: "Searching the wiki", wiki_page: "Reading the wiki", library: "Checking your library", food_chosen: "Noting the pick",

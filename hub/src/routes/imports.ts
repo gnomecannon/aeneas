@@ -7,7 +7,7 @@ import { connectLetterboxd, disconnectLetterboxd, syncLetterboxd } from "../impo
 import { importHealth } from "../imports/health.js";
 import { listImports, stopImport, textImport, uploadImport } from "../imports/bulk.js";
 import { atlassianReturn, atlassianSignIn, atlassianSpaces, disconnectAtlassian, setAtlassianApp, setAtlassianSpaces, syncConfluence } from "../imports/confluence.js";
-import { applicationsList, filmsLibrary, gamesLibrary } from "../imports/library.js";
+import { filmsLibrary, gamesLibrary } from "../imports/library.js";
 import { checkGoogleApp, disconnectGoogle, googleReturn, googleSignIn, listMail, mailCounts, setGoogleApp } from "../imports/gmail.js";
 import { accountUsed, icloudSource, imapSource, linkICloud, linkImap, setMailboxFeatures, setSendingServer, unlinkICloud, unlinkImap } from "../imports/icloud.js";
 import { guideFor, parseGuideService } from "../guides.js";
@@ -189,7 +189,6 @@ export function importRoutes() {
 
   r.get("/library/games", (c) => c.json(gamesLibrary(c.get("hub"), { sort: c.req.query("sort"), limit: c.req.query("limit"), q: c.req.query("q"), played: c.req.query("played") })));
   r.get("/library/films", (c) => c.json(filmsLibrary(c.get("hub"), { sort: c.req.query("sort"), limit: c.req.query("limit"), q: c.req.query("q"), year: c.req.query("year"), watchlist: c.req.query("watchlist") })));
-  r.get("/library/applications", (c) => c.json(applicationsList(c.get("hub"), { stage: c.req.query("stage"), limit: c.req.query("limit"), q: c.req.query("q"), since: c.req.query("since") })));
   return r;
 }
 

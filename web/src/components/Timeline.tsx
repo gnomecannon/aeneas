@@ -1,5 +1,6 @@
 import { wholeDay, type TimelineItem } from "../lib/planner";
 import { fmtTime } from "../lib/time";
+import { durationWords } from "@everythingapp/shared";
 import { linkFor } from "../lib/links";
 import { useFeel } from "../feel/store";
 import { eventColorStyle } from "../lib/eventColor";
@@ -104,7 +105,7 @@ export function Timeline({ items, onSchedule, onUnschedule, scheduleLabel = "Sch
                   {fmtTime(it.end)}
                 </span>
                 <span className="body row between">
-                  <span className="muted">free, {Math.floor(it.hours)} h</span>
+                  <span className="muted">free, {durationWords(it.hours * 3_600_000)}</span>
                   {onSchedule && (
                     <button className="small" onClick={() => onSchedule(it.start, 3)} aria-label={`${scheduleLabel}, ${fmtTime(it.start)}`}>
                       {scheduleLabel}

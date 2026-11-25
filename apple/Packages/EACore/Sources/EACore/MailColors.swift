@@ -25,7 +25,6 @@ public enum MailColors {
         "promos": Pair(light: "#C2185B", dark: "#C42D6C"),
         "bills": Pair(light: "#8A5A2B", dark: "#8F6232"),
         "pet": Pair(light: "#B55D18", dark: "#AA6229"),
-        "jobs": Pair(light: "#4F5D75", dark: "#5A6880"),
         // A folder's gray, and the app's own neutral marks (Mark read, a notice's capsule).
         "folder": Pair(light: "#5D6470", dark: "#6B7280"),
     ]
@@ -41,7 +40,6 @@ public enum MailColors {
         "promos": Pair(light: "#B8185A", dark: "#E07AA6"),
         "bills": Pair(light: "#8A5A2B", dark: "#C9955F"),
         "pet": Pair(light: "#A25315", dark: "#D38649"),
-        "jobs": Pair(light: "#4F5D75", dark: "#9AA6BA"),
         "folder": Pair(light: "#5D6470", dark: "#9399A5"),
     ]
 

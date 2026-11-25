@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  BAR_SCREENS, DEFAULT_BAR, barAt, barCanEmpty, barCanPick, barCountChange, barEmpty, barLayout, barOrDefault, barPick, barTabs,
+  BAR_GONE, BAR_SCREENS, DEFAULT_BAR, barAt, barCanEmpty, barCanPick, barCountChange, barEmpty, barLayout, barOrDefault, barPick, barTabs,
   barWhere, barWithCount, barWithLibrary, defaultBar, readBar, sameBar, type Bar, type BarCount,
 } from "../src/index.ts";
 
@@ -51,6 +51,21 @@ test("bar: a value that breaks a rule is not a setting, and the default stands i
     assert.equal(readBar(bad), null, JSON.stringify(bad));
     assert.deepEqual(barOrDefault(bad), DEFAULT_BAR);
   }
+});
+
+test("bar: a screen taken out of the app leaves the setting when it is read, and its place is free", () => {
+  assert.deepEqual([...BAR_GONE], ["layouts", "career"]);
+  for (const id of BAR_GONE) assert.ok(!(BAR_SCREENS as readonly string[]).includes(id), id);
+  // Layout sketches (2026-11-25): from the hub's file, a PUT, an answer or a cached copy alike.
+  const twice = { count: 5, first: ["today", "layouts", "capture", "library"], second: ["tasks", "layouts2", "layouts"] };
+  assert.equal(readBar(twice), null, "two places for one id still break a rule");
+  assert.deepEqual(readBar({ count: 5, first: ["today", "layouts", "capture", "library"], second: ["tasks", "someNewScreen"] }),
+    { count: 5, first: ["today", "capture", "library"], second: ["tasks", "someNewScreen"] }, "the screens after it move up; an unknown id stays");
+  assert.deepEqual(readBar({ count: 3, first: ["layouts"], second: ["layouts-x"] }), { count: 3, first: [], second: ["layouts-x"] });
+  assert.deepEqual(barLayout(barOrDefault({ count: 3, first: ["layouts"], second: [] }), all), { count: 3, first: ["library"], second: [] });
+  // Job applications (2026-11-25, `career` in the Apple apps), and both at once.
+  assert.deepEqual(readBar({ count: 4, first: ["today", "career", "lists", "library"], second: ["layouts", "tasks"] }),
+    { count: 4, first: ["today", "lists", "library"], second: ["tasks"] });
 });
 
 test("bar: a lower count cuts each row, and Library keeps a place in its own row", () => {
@@ -110,12 +125,12 @@ test("bar: Library is always reachable", () => {
 });
 
 test("bar: a screen that is off or unknown on this device is skipped when drawn and stays in the setting", () => {
-  const bar: Bar = { count: 5, first: ["today", "music", "capture", "library", "layouts"], second: ["tasks", "futureScreen", "mail"] };
-  const on = (id: string) => !["music", "layouts", "futureScreen", "mail"].includes(id);
+  const bar: Bar = { count: 5, first: ["today", "music", "capture", "library", "quiz"], second: ["tasks", "futureScreen", "mail"] };
+  const on = (id: string) => !["music", "quiz", "futureScreen", "mail"].includes(id);
   const drawn = barLayout(bar, on);
   assert.deepEqual(drawn, { count: 5, first: ["today", "capture", "library"], second: ["tasks"] });
   assert.deepEqual(barTabs(drawn), ["today", "capture", "library", "tasks"]);
-  assert.deepEqual(bar.first, ["today", "music", "capture", "library", "layouts"], "the setting is as it was");
+  assert.deepEqual(bar.first, ["today", "music", "capture", "library", "quiz"], "the setting is as it was");
   // Its place waits for it: back on, it is drawn where it was.
   assert.deepEqual(barLayout(bar, all).first, bar.first);
   // A second row with nothing to draw is an empty second row: no grabber.

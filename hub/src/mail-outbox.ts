@@ -94,6 +94,37 @@ export async function sendMail(hub: Hub, body: Record<string, unknown>, now = ne
 }
 
 /**
+ * A message the hub built itself for the owner's own press (since 2026-11-25: the answer to an invitation, Invitations
+ * in CONTRACT.md), into the outbox as Send puts a mail there: the same checks (409 for a Read only mailbox and one
+ * without a sending server), the same SEND_DELAY_MS of Undo, the same sending and the same copy in Sent.
+ */
+export function queueMessage(hub: Hub, account: string, m: { raw: Buffer; message_id: string; to: string[]; subject: string; text: string }, now = new Date()): { id: string; send_at: string } {
+  const email = emailOf(account);
+  if (readOnly(hub, account)) throw new StoreError(409, readOnlyText(email));
+  const source = sourceOf(account);
+  if (!source?.send || !source.canSend?.(hub, account)) throw new StoreError(409, noSendingServer(email));
+  const id = crypto.randomBytes(12).toString("hex");
+  const sendAt = new Date(now.getTime() + delayMs).toISOString();
+  hub.mailDb.prepare(`INSERT INTO outbox (id, account, state, send_at, made_at, message_id, rcpt, bcc, to_list, subject, text, files, raw, replaces)
+    VALUES (?, ?, 'waiting', ?, ?, ?, ?, NULL, ?, ?, ?, '[]', ?, NULL)`).run(id, account, sendAt, now.toISOString(), m.message_id, JSON.stringify(m.to), JSON.stringify(m.to), m.subject, m.text, sealed(hub, m.raw));
+  const rcpt = m.to.length;
+  console.log(`[mail-outbox] ${mailboxLabel(hub, account)}: 1 mail waits to be sent, ${rcpt} recipients`);
+  scheduleOutbox(hub);
+  return { id, send_at: sendAt };
+}
+
+/** Told whenever a mail in the outbox changes state (claimed, sent, not sent, taken back, tried again), with its id. */
+const listeners = new WeakMap<Hub, ((id: string) => void)[]>();
+export function onOutboxChange(hub: Hub, fn: (id: string) => void): void {
+  const list = listeners.get(hub) ?? [];
+  list.push(fn);
+  listeners.set(hub, list);
+}
+function changed(hub: Hub, id: string): void {
+  for (const fn of listeners.get(hub) ?? []) { try { fn(id); } catch (e) { console.error(`[mail-outbox] listener ${errCode(e)}`); } }
+}
+
+/**
  * Unsubscribe by mail (`POST /mail/messages/:id/unsubscribe` with `{ how: "mailto", send: true }`, since 2026-11-24):
  * the mail to the address the mail's own List-Unsubscribe header gives now (never one from the request), from the
  * mailbox it is in, saying "unsubscribe", into the outbox as Send puts a mail there: the same checks (409 for a Read
@@ -126,6 +157,7 @@ export function takeBack(hub: Hub, id: string): { undone: true } {
   if (hub.mailDb.prepare("DELETE FROM outbox WHERE id = ? AND state IN ('waiting', 'failed')").run(id).changes) {
     console.log("[mail-outbox] 1 mail taken back before it was sent");
     scheduleOutbox(hub);
+    changed(hub, id);
     return { undone: true };
   }
   const r = rowOf(hub, id);
@@ -142,6 +174,7 @@ export function retrySend(hub: Hub, id: string, now = new Date()): OutboxItem {
     throw new StoreError(409, r.state === "sent" ? "It was sent already." : "It is waiting to be sent already.");
   }
   scheduleOutbox(hub);
+  changed(hub, id);
   return itemOf(rowOf(hub, id)!);
 }
 
@@ -201,7 +234,9 @@ export function runOutbox(hub: Hub): Promise<number> {
       if (!due) return;
       // Claimed in one statement: Undo, which deletes only a waiting mail, and this never both win.
       if (hub.mailDb.prepare("UPDATE outbox SET state = 'sending' WHERE id = ? AND state = 'waiting'").run(due.id).changes !== 1) continue;
+      changed(hub, due.id);
       if (await sendOne(hub, rowOf(hub, due.id)!)) sent++;
+      changed(hub, due.id);
     }
   }).catch((e) => console.error(`[mail-outbox] ${errCode(e)}`)).finally(() => scheduleOutbox(hub));
   run.chain = job;
@@ -287,8 +322,10 @@ const SENT_KEPT_MS = 86_400_000;
  */
 export function startOutbox(hub: Hub): () => void {
   const db = hub.mailDb;
+  const stopped = (db.prepare("SELECT id FROM outbox WHERE state = 'sending'").all() as { id: string }[]).map((r) => r.id);
   const cut = db.prepare("UPDATE outbox SET state = 'failed', error = ? WHERE state = 'sending'").run(STOPPED_WHILE_SENDING).changes;
   if (cut) console.error(`[mail-outbox] ${cut} mail may have gone as the hub stopped: shown as not sent`);
+  for (const id of stopped) changed(hub, id);
   db.prepare("DELETE FROM outbox WHERE state = 'sent' AND sent_at < ?").run(new Date(Date.now() - SENT_KEPT_MS).toISOString());
   for (const r of db.prepare("SELECT id FROM outbox WHERE state = 'sent' AND filed = 0").all() as { id: string }[]) void fileSent(hub, r.id, { last: true });
   const waiting = (db.prepare("SELECT COUNT(*) AS n FROM outbox WHERE state = 'waiting'").get() as { n: number }).n;

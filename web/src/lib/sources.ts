@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { readTaskGroups, taskFilter, type Entity, type SourceList, type TaskGroup } from "@everythingapp/shared";
+import { isDeclined, readTaskGroups, taskFilter, type Entity, type SourceList, type TaskGroup } from "@everythingapp/shared";
 import type { SourcesView } from "../sync/api";
 import { HubError } from "../sync/api";
 import { engine } from "../sync/engine";
@@ -77,8 +77,12 @@ export function refreshSources(): Promise<void> {
   return loading;
 }
 
-/** Whether an item shows: every item but a task in an Apple Reminders list that is switched off. */
+/**
+ * Whether an item shows: every item but a task in an Apple Reminders list that is switched off, and (since 2026-11-25)
+ * an event the owner declined, which stays on its calendar but is hidden, as Calendar hides it (Invitations).
+ */
 export function isShown(e: Entity): boolean {
+  if (e.kind === "event") return !isDeclined(e.fields);
   return e.kind !== "task" || shows(e.fields);
 }
 

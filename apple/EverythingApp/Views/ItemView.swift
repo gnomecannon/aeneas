@@ -17,7 +17,6 @@ struct ItemView: View {
             case .film: FilmDetail(id: id)
             case .snippet: SnippetDetailView(id: id)
             case .runbook: RunbookDetailView(id: id)
-            case .application: AdminApplicationDetail(id: id)
             case .checklist: AdminListDetail(id: id)
             case .music_idea: MusicIdeaView(ideaId: id)
             // The Apple Music taste: one item, shown as the Music screen.

@@ -156,7 +156,6 @@ public struct ToolAction: Codable, Sendable, Equatable {
         case "ops_action": return "Checking a monitor"
         case "sensors": return "Reading sensors"
         case "project_plan": return "Updating the plan"
-        case "cover_letter": return "Drafting a cover letter"
         case "calculate": return "Calculating"
         case "checklist_from_template": return "Starting a checklist"
         case "draft_in_my_voice": return "Drafting in your voice"

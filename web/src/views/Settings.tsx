@@ -719,7 +719,6 @@ function Keyboard() {
         <li><kbd>Esc</kbd> closes banners, editors and pictures.</li>
         <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd> sends a message to the assistant and saves a capture.</li>
         <li><kbd>Alt</kbd>+arrows move a next task up or down in Tasks.</li>
-        {on("layouts") && <li>Layout sketches: <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes, <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes, arrows move the chosen part (with <kbd>Shift</kbd>, further), <kbd>Delete</kbd> removes it.</li>}
         {anywhere && <li><kbd>{anywhere}</kbd> opens Capture from any app; <kbd>Esc</kbd> hides it again.</li>}
       </ul>
     </div>

@@ -32,7 +32,7 @@ const under = (path: string, p: string) => path === p || path.startsWith(p + "/"
 
 /**
  * The tab that is lit for a route: the screen the route shows when that screen has a place in the bar (the longest
- * path wins, so Job applications under /lists/jobs is Lists), else Library, the home of everything without a place.
+ * path wins, so a list at /lists/<id> is Lists), else Library, the home of everything without a place.
  */
 export function barShowing(path: string, tabs: string[]): string {
   let best: { id: string; len: number } | null = null;

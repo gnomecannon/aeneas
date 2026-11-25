@@ -34,11 +34,11 @@ enum SampleScreens {
     static let weeksAround = 2
 
     /// Kinds with a screen of their own in ItemView; every other kind opens GenericItemView, which reads Related.
-    static let ownScreens: Set<Kind> = [.person, .note, .project, .film, .snippet, .runbook, .application, .checklist, .music_idea, .music_profile]
+    static let ownScreens: Set<Kind> = [.person, .note, .project, .film, .snippet, .runbook, .checklist, .music_idea, .music_profile]
 
-    /// The toolbar's Export CSV on Logs, Tasks, Journal, Snippets, Games, Films and Career (CSVExportButton).
+    /// The toolbar's Export CSV on Logs, Tasks, Journal, Snippets, Games and Films (CSVExportButton).
     static let csvExports: [(Kind, [String: String])] = [
-        (.log, [:]), (.task, ["space": "personal"]), (.journal, [:]), (.snippet, [:]), (.game, [:]), (.film, [:]), (.application, [:]),
+        (.log, [:]), (.task, ["space": "personal"]), (.journal, [:]), (.snippet, [:]), (.game, [:]), (.film, [:]),
     ]
 
     /// Connections' "Set it up with the guide" links (OwnKeyGuideView), and Add account's Show me how (`icloud`).

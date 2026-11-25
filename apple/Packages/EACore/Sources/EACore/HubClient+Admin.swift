@@ -17,35 +17,10 @@ public struct GamePick: Decodable, Equatable, Sendable {
     }
 }
 
-/// `POST /applications/:id/cover-letter` answer: the saved note and the backend that drafted it.
-public struct CoverLetterResponse: Decodable, Sendable {
-    public var note: Entity
-    public var backend: String
-}
-
-/// Why a cover letter draft failed, read from the hub's status and error body.
-public enum CoverLetterError: Error, LocalizedError, Sendable {
-    /// 503: no model backend is reachable.
-    case noModel
-    /// 422: the draft named employers that are not in the facts or the job text. Nothing was saved.
-    case invented(names: [String], message: String)
-    case hub(HubError)
-
-    public var errorDescription: String? {
-        switch self {
-        case .noModel: return "No model reachable. Try again when the model host is up."
-        case .invented(let names, let message):
-            return names.isEmpty ? "\(message). Nothing was saved." : "The draft named employers not in your facts or the job text: \(names.joined(separator: ", ")). Nothing was saved."
-        case .hub(let h): return h.errorDescription
-        }
-    }
-}
-
-/// Module 7 routes (life admin): checklists, cover letters, the game picker.
+/// Module 7 routes (life admin): checklists and the game picker.
 extension HubClient {
     private struct ToggleBody: Encodable { var index: Int }
     private struct InstantiateBody: Encodable { var title: String? }
-    private struct LetterBody: Encodable { var job_text: String?; var tone: String? }
     private struct PickBody: Encodable { var players: [String]; var hours: Double?; var coop: Bool?; var exclude: [String]? }
     private struct Empty: Encodable {}
 
@@ -58,32 +33,6 @@ extension HubClient {
     public func checklistInstantiate(_ id: String, title: String? = nil) async throws -> Entity {
         let t = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         return try await post("checklists/\(id)/instantiate", InstantiateBody(title: (t?.isEmpty ?? true) ? nil : t), as: Entity.self)
-    }
-
-    /// `POST /applications/:id/cover-letter`. Throws `CoverLetterError` so the 503 and 422 cases can be told apart.
-    public func coverLetter(_ id: String, jobText: String?, tone: String?) async throws -> CoverLetterResponse {
-        let job = jobText?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let body = try JSONCoding.data(LetterBody(job_text: (job?.isEmpty ?? true) ? nil : job, tone: tone))
-        let (status, data): (Int, Data)
-        do { (status, data) = try await transport.send(method: "POST", path: "applications/\(id)/cover-letter", query: [:], body: body) }
-        catch let h as HubError { throw CoverLetterError.hub(h) }
-        guard (200..<300).contains(status) else {
-            let err = try? JSONCoding.decode(APIError.self, from: data)
-            if status == 503 { throw CoverLetterError.noModel }
-            if status == 422 { throw CoverLetterError.invented(names: Self.guardNames(err?.detail), message: err?.error ?? "Rejected") }
-            throw CoverLetterError.hub(.http(status: status, message: err?.error ?? String(decoding: data.prefix(200), as: UTF8.self)))
-        }
-        do { return try decode(CoverLetterResponse.self, data) } catch let h as HubError { throw CoverLetterError.hub(h) }
-    }
-
-    /// Names the hub's 422 cover-letter guard reported, from whichever shape the detail has.
-    static func guardNames(_ detail: JSONValue?) -> [String] {
-        guard let d = detail else { return [] }
-        if let a = d.arrayValue { return a.map(\.displayString) }
-        for k in ["invented", "names", "employers"] {
-            if let a = d.objectValue?[k]?.arrayValue { return a.map(\.displayString) }
-        }
-        return []
     }
 
     /// `POST /games/pick`: one game every listed player owns.

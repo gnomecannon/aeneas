@@ -86,7 +86,7 @@ test("switching a module on brings its starter content; switching it off keeps i
 test("the assistant gets no tools, guide lines or kinds of a module that is off", async () => {
   const t = makeHub();
   try {
-    t.hub.modules.set({ homelab: false, calc: false, web: false, films: false, games: false, jobs: false, renewals: false });
+    t.hub.modules.set({ homelab: false, calc: false, web: false, films: false, games: false, renewals: false });
     const on = t.hub.modules.check;
     const names = availableTools(t.hub.cfg, undefined, on).map((x) => x.name);
     for (const gone of ["run_command", "approve_command", "ops_status", "calculate", "web_search", "read_web_page", "library"]) assert.ok(!names.includes(gone), `${gone} is left out`);
@@ -294,12 +294,90 @@ test("modules: listed area by area in the Library's order, each where the owner 
   assert.deepEqual(["reference", "wiki", "quiz"].map(area), ["Notes", "Notes", "Notes"]);
   assert.deepEqual(["films", "games", "apple_music"].map(area), ["Media", "Media", "Media"]);
   assert.deepEqual(["health", "dashboard", "pet", "food"].map(area), ["Body and home", "Body and home", "Body and home", "Body and home"]);
-  assert.deepEqual(["renewals", "calc", "jobs"].map(area), ["Life admin", "Life admin", "Life admin"]);
-  assert.deepEqual(["projects", "music", "images", "layouts"].map(area), ["Making", "Making", "Making", "Making"]);
+  assert.deepEqual(["renewals", "calc"].map(area), ["Life admin", "Life admin"]);
+  assert.deepEqual(["projects", "music", "images"].map(area), ["Making", "Making", "Making"]);
   // The Music module keeps its id, routes and kinds; only its name changed.
   const music = moduleDef("music");
   assert.equal(music.title, "Song ideas");
   assert.deepEqual([music.prefixes, music.kinds], [["/music"], ["music_idea"]]);
+});
+
+test("modules: Layout sketches was taken out on 2026-11-25; its old switch is ignored and its files are left alone", async () => {
+  const t = makeHub();
+  try {
+    // What a hub that had it may hold: the switch in modules.json and a sketch in <data>/layouts.
+    const sketch = path.join(t.hub.cfg.dataDir, "layouts", "0123456789abcdef.json");
+    fs.mkdirSync(path.dirname(sketch), { recursive: true });
+    fs.writeFileSync(sketch, '{"id":"0123456789abcdef"}');
+    const file = path.join(t.dir, "modules-from-1.0.25.json");
+    fs.writeFileSync(file, JSON.stringify({ calc: true, layouts: true }));
+    const { ModuleStore } = await import("../src/modules.js");
+    const s = new ModuleStore(file, { existing: () => true, preset: "" });
+    assert.ok(!s.list().some((m) => (m.id as string) === "layouts"), "the list devices read no longer names it");
+    assert.equal(s.on("calc"), true, "the other switches stand");
+    assert.throws(() => s.set({ layouts: true }), /no module named layouts/);
+    s.set({ pet: true });
+    assert.ok(!("layouts" in JSON.parse(fs.readFileSync(file, "utf8"))), "the old switch goes at the next change");
+    // EA_MODULES naming it on a new hub is ignored, not an error.
+    const fresh = new ModuleStore(path.join(t.dir, "modules-new.json"), { existing: () => false, preset: "calc, layouts" });
+    assert.deepEqual(fresh.list().filter((m) => m.on).map((m) => m.id), ["calc"]);
+
+    assert.ok(!((await (await t.api("/modules")).json()) as { modules: { id: string }[] }).modules.some((m) => m.id === "layouts"));
+    assert.equal((await t.api("/modules", { method: "PUT", json: { layouts: true } })).status, 422);
+    for (const p of ["/layouts", "/layouts/0123456789abcdef", "/layouts/pictures"]) assert.equal((await t.api(p)).status, 404, p);
+    assert.equal(fs.readFileSync(sketch, "utf8"), '{"id":"0123456789abcdef"}', "the sketch is left as it was");
+  } finally { t.cleanup(); }
+});
+
+test("modules: Job search was taken out on 2026-11-25; its old switch is ignored and its items are left alone", async () => {
+  const t = makeHub();
+  try {
+    const app = t.hub.store.create("application", { company: "Contoso", role: "Analyst", stage: "applied" });
+    const file = path.join(t.dir, "modules-from-1.0.25.json");
+    fs.writeFileSync(file, JSON.stringify({ calc: true, jobs: true }));
+    const { ModuleStore } = await import("../src/modules.js");
+    const s = new ModuleStore(file, { existing: () => true, preset: "" });
+    assert.ok(!s.list().some((m) => (m.id as string) === "jobs"), "the list devices read no longer names it");
+    assert.equal(s.on("calc"), true, "the other switches stand");
+    assert.throws(() => s.set({ jobs: true }), /no module named jobs/);
+    s.set({ pet: true });
+    assert.ok(!("jobs" in JSON.parse(fs.readFileSync(file, "utf8"))), "the old switch goes at the next change");
+    const fresh = new ModuleStore(path.join(t.dir, "modules-new.json"), { existing: () => false, preset: "calc, jobs" });
+    assert.deepEqual(fresh.list().filter((m) => m.on).map((m) => m.id), ["calc"]);
+
+    assert.ok(!((await (await t.api("/modules")).json()) as { modules: { id: string }[] }).modules.some((m) => m.id === "jobs"));
+    assert.equal((await t.api("/modules", { method: "PUT", json: { jobs: true } })).status, 422);
+    for (const p of ["/applications/board", `/applications/${app.id}`, "/library/applications"]) assert.equal((await t.api(p)).status, 404, p);
+    assert.equal(moduleOfKind("application"), null);
+    // The item is kept as it was, and still syncs.
+    assert.deepEqual(t.hub.store.get(app.id)!.fields, { company: "Contoso", role: "Analyst", stage: "applied" });
+    const changes = await (await t.api("/sync/changes?since=0&limit=500")).json() as { changes: { entity: { id: string } }[] };
+    assert.ok(changes.changes.some((c) => c.entity.id === app.id));
+  } finally { t.cleanup(); }
+});
+
+test("the assistant has no job application tools, and keeps a list of applications in Lists instead", async () => {
+  const t = makeHub();
+  try {
+    const names = availableTools(t.hub.cfg, undefined, t.hub.modules.check).map((x) => x.name);
+    assert.ok(!names.includes("cover_letter"));
+    assert.ok(!Object.values(TOOL_MODULE).flat().includes("jobs" as never));
+    const enums = JSON.stringify(TOOLS.map((x) => x.parameters));
+    assert.doesNotMatch(enums, /"application"|"applications"/);
+    assert.doesNotMatch(toolGuide(t.hub.modules.check), /job application|cover letter/i);
+    // What the owner asked for instead: a list in Lists that the assistant makes and adds to.
+    const api = async (method: string, p: string, body?: unknown) => { const r = await t.api(p, { method, json: body }); return { status: r.status, data: await r.json() }; };
+    const ctx = { sessionId: "s", lastUser: "", topic: "", store: t.hub.store, cfg: t.hub.cfg, hosts: null, moduleOn: t.hub.modules.check } as ToolContext;
+    const tool = (name: string, args: Record<string, unknown>) => runTool(api, { name, arguments: args }, ctx, TOOLS.filter((x) => x.name === name));
+    assert.equal((await tool("create_item", { kind: "application", fields: { company: "Contoso", role: "Analyst", stage: "applied" } })).ok, false);
+    const made = await tool("create_item", { kind: "checklist", fields: { title: "Job applications", items: [{ text: "Contoso, Analyst, applied" }] } });
+    assert.equal(made.ok, true, made.text);
+    const list = t.hub.store.list({ kind: "checklist" }).find((c) => c.fields.title === "Job applications")!;
+    const added = await tool("update_item", { id: list.id, fields: { items: [{ text: "Contoso, Analyst, applied" }, { text: "Fabrikam, IT Lead, applied" }] } });
+    assert.equal(added.ok, true, added.text);
+    assert.deepEqual((t.hub.store.get(list.id)!.fields.items as { text: string }[]).map((i) => i.text), ["Contoso, Analyst, applied", "Fabrikam, IT Lead, applied"]);
+    assert.equal(t.hub.store.list({ kind: "application" }).length, 0);
+  } finally { t.cleanup(); }
 });
 
 test("Health names Apple Health and reads only what the iPhone reads from it (App Review 2.5.1)", () => {

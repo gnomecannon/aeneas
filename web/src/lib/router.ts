@@ -9,13 +9,19 @@ export interface Route {
   params: URLSearchParams;
 }
 
+/**
+ * Screens that went on 2026-11-25, and what an old link or bookmark to one opens: Now (Today's top line, the Next line,
+ * says it) and Layout sketches (taken out of the app) open Today; Job applications (taken out with Job search; at
+ * `/lists/jobs`, and `/career` before that) opens Lists, the screen it was in.
+ */
+const GONE: ReadonlyArray<readonly [string, string]> = [["/now", START], ["/layouts", START], ["/lists/jobs", "/lists"], ["/career", "/lists"]];
+
 /** The route a location hash names ("#/notes/abc?x=1"). */
 export function routeOf(hash: string): Route {
   const raw = hash.replace(/^#/, "") || START;
   const [p, q = ""] = raw.split("?");
   const typed = p.startsWith("/") ? p : "/" + p;
-  // The Now screen went on 2026-11-25 (Today's top line, the Next line, says it): an old link or bookmark opens Today.
-  const path = typed === "/now" || typed.startsWith("/now/") ? START : typed;
+  const path = GONE.find(([g]) => typed === g || typed.startsWith(g + "/"))?.[1] ?? typed;
   return { path, parts: path.split("/").filter(Boolean), params: new URLSearchParams(q) };
 }
 

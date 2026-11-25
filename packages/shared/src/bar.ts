@@ -5,17 +5,24 @@
  * apps carry the same rules in EACore `Bar.swift`, and tests on both sides keep the two and the contract the same.
  */
 
-/** Every screen a place can hold, by id. `layouts` and `status` are screens of the web, Windows and Android apps only. */
+/** Every screen a place can hold, by id. `status` is a screen of the web, Windows and Android apps only. */
 export const BAR_SCREENS = [
   "today", "assistant", "capture", "library", "search",
   "inbox", "tasks", "week", "renewals", "dashboard",
   "notes", "memory", "people", "reference",
   "ops", "sensors",
-  "projects", "procedures", "music", "wiki", "images", "quiz", "layouts",
+  "projects", "procedures", "music", "wiki", "images", "quiz",
   "health", "logs", "pet", "food",
   "mail", "lists", "games", "films", "listening", "calc",
   "status",
 ] as const;
+
+/**
+ * Screens taken out of the app, by id: Layout sketches (`layouts`) and Job applications (`career`, its id in the Apple
+ * apps; no bar ever offered it, as it was a page in Lists) on 2026-11-25. Read from a setting, such an id leaves it and
+ * its place is free. Any other id a build does not know is kept: a newer app may have put it there.
+ */
+export const BAR_GONE: readonly string[] = ["layouts", "career"];
 
 /** How many screens a row holds. Fewer means larger icons with more room. */
 export const BAR_COUNTS = [3, 4, 5] as const;
@@ -54,7 +61,8 @@ export function isBarId(v: unknown): v is string {
 /**
  * The setting from an unknown value (a request, a file, a cached copy), or null when it breaks a rule: `count` is 3, 4
  * or 5; each row is a list of at most `count` screen ids; an id has one place across both rows. An id this build does
- * not know is kept: a newer app may have put it there, and it is only skipped when the bar is drawn.
+ * not know is kept: a newer app may have put it there, and it is only skipped when the bar is drawn. A screen taken
+ * out (`BAR_GONE`) leaves the setting, and the screens after it in its row move up.
  */
 export function readBar(raw: unknown): Bar | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -68,7 +76,8 @@ export function readBar(raw: unknown): Bar | null {
   }
   const all = [...rows[0], ...rows[1]];
   if (new Set(all).size !== all.length) return null;
-  return { count, first: rows[0], second: rows[1] };
+  const kept = (row: string[]) => row.filter((id) => !BAR_GONE.includes(id));
+  return { count, first: kept(rows[0]), second: kept(rows[1]) };
 }
 
 /** The setting from an unknown value, the default when it is absent or breaks a rule. */

@@ -103,13 +103,21 @@ function okProps(resp: XNode): XNode[] {
 const prop = (resp: XNode, name: string) => okProps(resp).find((p) => (p.localName ?? p.nodeName.replace(/^.*:/, "")) === name) ?? null;
 const hrefIn = (n: XNode | null) => text(n ? child(n, "href") : null);
 
-/** The calendars of an account that hold events. */
-export async function discoverCalendars(login: DavLogin): Promise<DavCalendar[]> {
+/**
+ * The calendars of an account that hold events. `also`, when given, gets the addresses the server knows the account by
+ * (its principal's `calendar-user-address-set`, `mailto:` ones, lowercase), read in the same request as the
+ * calendars' home: an invitation names the owner by any of them (Invitations).
+ */
+export async function discoverCalendars(login: DavLogin, also?: { addresses?: string[] }): Promise<DavCalendar[]> {
   const p1 = await propfind(login, login.root, "0", "<d:current-user-principal/>");
   const principal = p1.responses.map((r) => hrefIn(prop(r, "current-user-principal"))).find(Boolean);
   if (!principal) throw new StoreError(502, "the calendar server did not say whose calendars these are");
   const principalUrl = new URL(principal, p1.base).toString();
-  const p2 = await propfind(login, principalUrl, "0", "<c:calendar-home-set/>");
+  const p2 = await propfind(login, principalUrl, "0", "<c:calendar-home-set/><c:calendar-user-address-set/>");
+  if (also) {
+    also.addresses = [...new Set(p2.responses.flatMap((r) => { const set = prop(r, "calendar-user-address-set"); return set ? children(set, "href").map((h) => text(h)) : []; })
+      .map((h) => h.trim()).filter((h) => /^mailto:/i.test(h)).map((h) => h.slice(7).trim().toLowerCase()).filter((h) => /^[^\s@]+@[^\s@]+$/.test(h) && h.length <= 254))].slice(0, 20);
+  }
   const home = p2.responses.map((r) => hrefIn(prop(r, "calendar-home-set"))).find(Boolean);
   if (!home) throw new StoreError(502, "the calendar server did not say where the calendars are");
   const homeUrl = new URL(home, p2.base).toString();

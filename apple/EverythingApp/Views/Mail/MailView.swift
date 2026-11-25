@@ -1485,7 +1485,6 @@ struct MailModuleLink: View {
         switch bundle.module {
         case "renewals": return .renewals
         case "pet": return .pet
-        case "jobs": return .career
         default: return nil
         }
     }

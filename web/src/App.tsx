@@ -38,7 +38,6 @@ const Wiki = screen(() => import("./views/Wiki").then((m) => m.Wiki));
 const Quiz = screen(() => import("./views/Quiz").then((m) => m.Quiz));
 const Images = screen(() => import("./views/Images").then((m) => m.Images));
 const Gallery = screen(() => import("./views/Gallery").then((m) => m.Gallery));
-const Layouts = screen(() => import("./views/Layouts").then((m) => m.Layouts));
 const Item = screen(() => import("./views/Item").then((m) => m.Item));
 const People = screen(() => import("./views/People").then((m) => m.People));
 const Journal = screen(() => import("./views/Journal").then((m) => m.Journal));
@@ -50,7 +49,6 @@ const Sensors = screen(() => import("./views/Sensors").then((m) => m.Sensors));
 const Ops = screen(() => import("./views/Ops").then((m) => m.Ops));
 const Food = screen(() => import("./views/Food").then((m) => m.Food));
 const Lists = screen(() => import("./views/Lists").then((m) => m.Lists));
-const JobApplications = screen(() => import("./views/JobApplications").then((m) => m.JobApplications));
 const Games = screen(() => import("./views/Games").then((m) => m.Games));
 const Films = screen(() => import("./views/Films").then((m) => m.Films));
 const Listening = screen(() => import("./views/Listening").then((m) => m.Listening));
@@ -182,7 +180,6 @@ export function App() {
   else if (p.startsWith("/quiz")) view = <Quiz />;
   else if (p.startsWith("/images")) view = <Images />;
   else if (p.startsWith("/gallery")) view = <Gallery />;
-  else if (p.startsWith("/layouts")) view = <Layouts id={route.parts[1]} />;
   else if (p.startsWith("/people")) view = <People id={route.parts[1]} />;
   else if (p.startsWith("/item/")) view = <Item key={route.parts[1]} id={route.parts[1]} />;
   else if (p.startsWith("/journal")) view = <Journal focus={route.params.get("focus")} />;
@@ -193,9 +190,7 @@ export function App() {
   else if (p.startsWith("/sensors")) view = <Sensors />;
   else if (p.startsWith("/ops")) view = <Ops focus={route.params.get("focus")} />;
   else if (p.startsWith("/food")) view = <Food />;
-  else if (p.startsWith("/lists/jobs")) view = <JobApplications id={route.parts[2]} />;
   else if (p.startsWith("/lists")) view = <Lists id={route.parts[1]} />;
-  else if (p.startsWith("/career")) view = <JobApplications id={route.parts[1]} />; // older links
   else if (p.startsWith("/games")) view = <Games key={route.params.get("q") ?? ""} q={route.params.get("q") ?? ""} />;
   else if (p.startsWith("/films")) view = <Films key={route.params.get("q") ?? ""} q={route.params.get("q") ?? ""} />;
   else if (p.startsWith("/listening")) view = <Listening />;
@@ -211,7 +206,8 @@ export function App() {
   else if (p.startsWith("/help/connections")) view = <HelpConnections />;
   else if (p.startsWith("/settings")) view = <Settings parts={route.parts.slice(1)} params={route.params} />;
   else if (p === "/library" || p === "/more") view = <Library />;
-  // An old link to Now (the screen went on 2026-11-25), and any path the app does not know, show Today.
+  // An old link to Now or to Layout sketches (both went on 2026-11-25; lib/router.ts), and any path the app does not
+  // know, show Today. One to Job applications (gone the same day) opens Lists, above.
   else view = <Today />;
 
   // A screen in a window of its own (second monitor): the view alone, no sidebar or tab bar.

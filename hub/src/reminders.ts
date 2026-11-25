@@ -70,7 +70,7 @@ export function ackReminder(store: Store, id: string, now: Date = new Date()): E
   return store.patch(id, completeTaskPatch(t.fields, now));
 }
 
-/** The task an item (renewal, pet event, job application) owns: by its `reminder_id`, else by the task's `linked_id`. */
+/** The task an item (renewal, pet event) owns: by its `reminder_id`, else by the task's `linked_id`. */
 export function linkedTask(store: Store, owner: Entity): Entity | null {
   const byId = typeof owner.fields.reminder_id === "string" ? store.get(owner.fields.reminder_id) : null;
   if (byId && byId.kind === "task" && !byId.deleted_at) return byId;
@@ -118,7 +118,7 @@ export const taskIdForReminder = (reminderId: string) => stableId(`task-from-rem
 export function migrateRemindersToTasks(store: Store): number {
   const reminders = store.list({ kind: "reminder", limit: 1_000_000 });
   if (!reminders.length) return 0;
-  const owners = ["watch", "pet_event", "application"].flatMap((k) => store.list({ kind: k, limit: 1_000_000 }));
+  const owners = ["watch", "pet_event"].flatMap((k) => store.list({ kind: k, limit: 1_000_000 }));
   const now = nowIso();
   let n = 0;
   for (const r of reminders) {

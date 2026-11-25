@@ -191,6 +191,22 @@ test("bottom bar: a file from before it, or with a bar that breaks a rule, reads
   } finally { t.cleanup(); }
 });
 
+test("bottom bar: Layout sketches, taken out on 2026-11-25, leaves a saved bar and a PUT, and its place is free", async () => {
+  const t = makeHub();
+  try {
+    const file = path.join(t.dir, "feel.json");
+    t.hub.feel.set({ bar: { count: 3, first: ["today", "search", "library"], second: [] } });
+    const saved = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify({ ...saved, bar: { count: 4, first: ["today", "layouts", "capture", "library"], second: ["tasks"] } }));
+    const got = (await (await t.api("/prefs/feel")).json()) as { bar: unknown };
+    assert.deepEqual(got.bar, { count: 4, first: ["today", "capture", "library"], second: ["tasks"] });
+    const put = await t.api("/prefs/feel", { method: "PUT", json: { bar: { count: 4, first: ["today", "library"], second: ["layouts", "tasks"] } } });
+    assert.equal(put.status, 200);
+    assert.deepEqual(((await put.json()) as { bar: unknown }).bar, { count: 4, first: ["today", "library"], second: ["tasks"] });
+    assert.deepEqual((JSON.parse(fs.readFileSync(file, "utf8")) as { bar: unknown }).bar, { count: 4, first: ["today", "library"], second: ["tasks"] });
+  } finally { t.cleanup(); }
+});
+
 test("today: the default, a change kept beside the rest of the setting, and what is refused", async () => {
   const t = makeHub();
   try {

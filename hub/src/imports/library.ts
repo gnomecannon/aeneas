@@ -3,7 +3,7 @@ import type { Hub } from "../hub.js";
 import { norm } from "./util.js";
 
 /**
- * Compact, sorted views over games, films and job applications, for the assistant ("my most played games") and for
+ * Compact, sorted views over games and films, for the assistant ("my most played games") and for
  * screens that want a ranked list without loading every field.
  */
 
@@ -54,24 +54,6 @@ export function filmsLibrary(hub: Hub, o: { sort?: string; limit?: unknown; q?: 
       id: e.id, title: e.fields.title, year: e.fields.year ?? null, rating: e.fields.rating ?? null, liked: !!e.fields.liked,
       last_watched: e.fields.last_watched ?? null, times_watched: (e.fields.watched_on as string[] | undefined)?.length ?? 0,
       ...(e.fields.review ? { review: String(e.fields.review).slice(0, 400) } : {}),
-    })),
-  };
-}
-
-export function applicationsList(hub: Hub, o: { stage?: string; limit?: unknown; q?: string; since?: string }) {
-  let all = hub.store.list({ kind: "application", limit: 1_000_000 }).filter((e) => matches(o.q, e.fields.company, e.fields.role));
-  if (o.stage === "open") all = all.filter((e) => !["rejected", "withdrawn", "accepted"].includes(String(e.fields.stage)));
-  else if (o.stage) all = all.filter((e) => e.fields.stage === o.stage);
-  if (o.since && !Number.isNaN(Date.parse(o.since))) all = all.filter((e) => String(e.fields.applied_at ?? e.created_at) >= new Date(o.since!).toISOString());
-  all.sort((a, b) => String(b.fields.applied_at ?? b.created_at).localeCompare(String(a.fields.applied_at ?? a.created_at)));
-  const stages: Record<string, number> = {};
-  for (const e of all) stages[String(e.fields.stage)] = (stages[String(e.fields.stage)] ?? 0) + 1;
-  return {
-    total: all.length,
-    stages,
-    applications: all.slice(0, clampLimit(o.limit, 50)).map((e) => ({
-      id: e.id, company: e.fields.company, role: e.fields.role, stage: e.fields.stage, applied_at: e.fields.applied_at ?? null,
-      url: e.fields.url ?? null, source: e.fields.source ?? "manual", next_step: e.fields.next_step ?? null, next_at: e.fields.next_at ?? null,
     })),
   };
 }
