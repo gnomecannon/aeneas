@@ -281,3 +281,12 @@ test("modules: Receipts and renewals is shown under Mail, and each keeps a switc
     assert.deepEqual(await pair(), [["mail", false], ["mail_inbox", true]]);
   } finally { t.cleanup(); }
 });
+
+test("Health names Apple Health and reads only what the iPhone reads from it (App Review 2.5.1)", () => {
+  const m = MODULES.find((x) => x.id === "health")!;
+  assert.match(m.summary, /Apple Health/);
+  // The iPhone's HealthImporter and Info.plist's NSHealthShareUsageDescription: these seven, and no heart rate.
+  for (const type of ["weight", "blood pressure", "sleep", "steps", "workouts", "caffeine", "mood"]) assert.match(m.reads ?? "", new RegExp(type), type);
+  assert.doesNotMatch(m.reads ?? "", /heart rate/);
+  assert.match(m.reads ?? "", /written back to Apple Health/);
+});

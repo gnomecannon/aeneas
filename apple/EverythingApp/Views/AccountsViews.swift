@@ -6,7 +6,7 @@ import UIKit
 
 /// Settings, Accounts on the iPhone, iPad and Mac (since 2026-11-24), as in the web, Windows and Android apps: every
 /// mail and calendar account once, each opening its own page; Add account, one sheet; what comes in from this device's
-/// own Apple accounts (Calendars, Reminders, Contacts, and Health on the iPhone), one switch each; and Work. Adding a
+/// own Apple accounts (Calendars, Reminders, Contacts, and Apple Health on the iPhone and iPad), one switch each; and Work. Adding a
 /// mailbox took Settings, Modules first, then Connections, then Add Account, and an account's switches stayed hidden
 /// until their module was on; Calendars were set in three places and Reminders had three controls. Here a switch turns
 /// its module on itself. The texts are the web's (EACore AccountTexts and InternetAccount, kept the same).
@@ -83,6 +83,12 @@ struct AccountsSettingsView: View {
             switch p {
             case .calendars: DeviceCalendarsView()
             case .reminders: DeviceRemindersView()
+            case .health:
+                #if os(iOS)
+                AppleHealthSettingsView()
+                #else
+                EmptyView()
+                #endif
             }
         }
         .sheet(isPresented: $adding) {
@@ -204,7 +210,8 @@ struct LetterBadge: View {
 /// From this iPhone (iPad, Mac): what this device's own accounts hold, one switch each, and a chevron to the choices
 /// where there are more. Calendars is this device reading and writing Apple Calendar (it switches the Apple Calendar
 /// module on when that is off, and asks for calendar access here); Reminders is this device's Reminders sync (the Apple
-/// Reminders module on with it); Contacts makes this device the one that mirrors them; Health is the iPhone's import.
+/// Reminders module on with it); Contacts makes this device the one that mirrors them; Apple Health (the iPhone and
+/// iPad) is this device's sync with Apple Health, with Apple Health's look, opening its own page.
 struct FromThisDeviceSection: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -215,7 +222,7 @@ struct FromThisDeviceSection: View {
     /// This device's own Calendars switch (SharedConfig.appleCalendarHere), kept here so the row redraws.
     @State private var calendarsHere = SharedConfig.shared.appleCalendarHere
     #if os(iOS)
-    @State private var healthHere = SharedConfig.shared.healthImportEnabled
+    @ObservedObject private var appleHealth = AppleHealthSwitch.shared
     #endif
     let health: Connections.Health?
     @Binding var page: DevicePage?
@@ -225,7 +232,7 @@ struct FromThisDeviceSection: View {
     /// The device that mirrors Contacts now, while this one asks to take over.
     @State private var takeOver: String?
 
-    enum DevicePage: String, Hashable, Identifiable { case calendars, reminders; var id: String { rawValue } }
+    enum DevicePage: String, Hashable, Identifiable { case calendars, reminders, health; var id: String { rawValue } }
 
     private var sample: Bool { model.config.sampleMode }
     private var here: String { "this \(deviceKind)" }
@@ -236,7 +243,7 @@ struct FromThisDeviceSection: View {
     var body: some View {
         SwiftUI.Section {
             if sample {
-                Text("Sample mode leaves \(here)'s own calendars, reminders and contacts out, so nothing of the sample goes into them.")
+                Text(Self.sampleNote(here: here, health: healthHere))
                     .font(.footnote).foregroundStyle(.secondary)
             }
             DeviceSourceRow(title: "Calendars", symbol: "calendar", summary: calendarsSummary, isOn: calendarsOn, disabled: sample || busy != nil,
@@ -248,9 +255,13 @@ struct FromThisDeviceSection: View {
             DeviceSourceRow(title: "Contacts", symbol: "person.crop.circle", summary: contactsSummary, isOn: contactsOn, disabled: sample || busy != nil,
                             set: setContacts, open: nil)
             #if os(iOS)
-            if model.platform == .iphone {
-                DeviceSourceRow(title: "Health", symbol: "heart", summary: healthSummary, isOn: model.isOn(.health) && healthHere, disabled: sample || busy != nil,
-                                set: setHealth, open: nil)
+            if healthHere {
+                DeviceSourceRow(title: "Apple Health", symbol: "heart.fill", summary: healthSummary, isOn: appleHealth.on(model), disabled: sample || appleHealth.busy,
+                                set: { appleHealth.set($0, model: model, engine: engine) }, open: { page = .health },
+                                icon: AnyView(AppleHealthIcon()))
+                if let n = appleHealth.note {
+                    Text(n.text).font(.footnote).foregroundStyle(n.ok ? AnyShapeStyle(.secondary) : AnyShapeStyle(.dangerText))
+                }
             }
             #endif
             if let note { Text(note.text).font(.footnote).foregroundStyle(note.ok ? AnyShapeStyle(.secondary) : AnyShapeStyle(.dangerText)) }
@@ -269,7 +280,25 @@ struct FromThisDeviceSection: View {
             importer.refreshAccess()
             reminders.refreshAccess()
             calendarsHere = SharedConfig.shared.appleCalendarHere
+            #if os(iOS)
+            appleHealth.refresh()
+            #endif
         }
+    }
+
+    /// Apple Health is on this device: the iPhone and iPad, not the Mac.
+    private var healthHere: Bool {
+        #if os(iOS)
+        HealthImporter.available
+        #else
+        false
+        #endif
+    }
+
+    /// Said at the top in sample mode: what stays out, so nothing of the sample goes into it.
+    static func sampleNote(here: String, health: Bool) -> String {
+        let what = health ? "calendars, reminders, contacts and Apple Health" : "calendars, reminders and contacts"
+        return "Sample mode leaves \(here)'s own \(what) out, so nothing of the sample goes into them."
     }
 
     // MARK: summaries
@@ -301,10 +330,13 @@ struct FromThisDeviceSection: View {
     }
 
     #if os(iOS)
+    /// What Apple Health does here, then where it stands, in sample mode too.
     private var healthSummary: String {
-        guard model.isOn(.health) && healthHere else { return "Off on \(here)" }
-        guard let h = health, let iso = h.last_import, let d = ISO.date(iso) else { return "Nothing sent yet" }
-        return "\(h.total) readings, last sent \(d.shortDateTime)"
+        let what = "Reads weight, sleep, steps and more, and writes what you log."
+        if sample { return "\(what) Off in sample mode." }
+        guard appleHealth.on(model) else { return "\(what) Off on \(here)." }
+        guard let h = health, let iso = h.last_import, let d = ISO.date(iso) else { return "\(what) Nothing sent yet." }
+        return "\(what) \(h.total) readings, last sync \(d.shortDateTime)."
     }
     #endif
 
@@ -387,21 +419,6 @@ struct FromThisDeviceSection: View {
         }
     }
 
-    #if os(iOS)
-    private func setHealth(_ on: Bool) {
-        guard on else {
-            SharedConfig.shared.healthImportEnabled = false
-            healthHere = false
-            return
-        }
-        run("health") {
-            try await needModule(.health)
-            SharedConfig.shared.healthImportEnabled = true
-            healthHere = true
-            return await HealthImporter.shared.requestAndImport(into: engine)
-        }
-    }
-    #endif
 }
 
 /// One row of From this iPhone: a symbol, the name and what it is set to, a switch, and a chevron to its choices when
@@ -414,14 +431,20 @@ struct DeviceSourceRow: View {
     let disabled: Bool
     let set: (Bool) -> Void
     let open: (() -> Void)?
+    /// Drawn in place of the symbol: Apple Health's own look.
+    var icon: AnyView? = nil
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.body.weight(.medium))
-                .foregroundStyle(.tint)
-                .frame(width: 28)
-                .accessibilityHidden(true)
+            if let icon {
+                icon.frame(width: 28)
+            } else {
+                Image(systemName: symbol)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.tint)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+            }
             if let open {
                 // Plain, so the name keeps the text color and the row's switch takes its own taps.
                 Button(action: open) { label }.buttonStyle(.plain)
@@ -451,7 +474,7 @@ struct DeviceSourceRow: View {
     private var label: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).foregroundStyle(.primary)
-            Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())

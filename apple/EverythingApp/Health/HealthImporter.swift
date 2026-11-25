@@ -58,6 +58,35 @@ final class HealthImporter {
         return s
     }
 
+    /// What the Apple Health page lists, in Info.plist's words and order (NSHealthShareUsageDescription and
+    /// NSHealthUpdateUsageDescription): a name, a symbol (the Health screen's) and how it goes. Keep it the same as
+    /// `readTypes` and `shareTypes` above.
+    struct Shown: Identifiable {
+        let title: String
+        let symbol: String
+        let detail: String
+        var id: String { title }
+    }
+    static let readsShown: [Shown] = [
+        Shown(title: "Weight", symbol: "scalemass", detail: ""),
+        Shown(title: "Blood pressure", symbol: "heart", detail: ""),
+        Shown(title: "Sleep", symbol: "bed.double", detail: "Time asleep each night"),
+        Shown(title: "Steps", symbol: "figure.walk", detail: "A total for each day"),
+        Shown(title: "Workouts", symbol: "figure.run", detail: ""),
+        Shown(title: "Caffeine", symbol: "cup.and.saucer", detail: ""),
+        Shown(title: "Mood", symbol: "face.smiling", detail: "State of Mind"),
+    ]
+    static let writesShown: [Shown] = [
+        Shown(title: "Weight", symbol: "scalemass", detail: ""),
+        Shown(title: "Blood pressure", symbol: "heart", detail: ""),
+        Shown(title: "Caffeine", symbol: "cup.and.saucer", detail: "95 mg a cup"),
+        Shown(title: "Mood", symbol: "face.smiling", detail: "As State of Mind"),
+        Shown(title: "Timed activities", symbol: "figure.run", detail: "As workouts"),
+    ]
+
+    /// Apple Health is on this device: the iPhone, and the iPad since iPadOS 17.
+    static var available: Bool { HKHealthStore.isHealthDataAvailable() }
+
     func requestAndImport(into engine: SyncEngine) async -> String {
         guard HKHealthStore.isHealthDataAvailable() else { return "Health is not available on this device" }
         do { try await store.requestAuthorization(toShare: shareTypes, read: readTypes) } catch { return "Health permission: \(error.localizedDescription)" }
@@ -65,7 +94,7 @@ final class HealthImporter {
     }
 
     /// The regular run on opening the app. It never asks (release rule 2): types iOS was not asked about yet come back
-    /// empty until the person taps Send now in Connections, Apple Health, or the permission screen asks after Health
+    /// empty until the person taps Send now in Settings, Accounts, Apple Health, or the permission screen asks after Health
     /// is switched on.
     func importIfAuthorized(into engine: SyncEngine) async -> String {
         guard HKHealthStore.isHealthDataAvailable() else { return "Health is not available" }

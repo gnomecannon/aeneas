@@ -33,10 +33,12 @@ import EACore
 ///   -EASourcesPage <page>        a page of Settings, Accounts, From this iPhone over the screen shown: reminders
 ///                                (DeviceRemindersView) or calendars (DeviceCalendarsView)
 ///   -EASettingsPage <page>       with -EASection settings, a Settings page opens (SettingsPage): accounts (Settings,
-///                                Accounts), addAccount (Add account), calendar (From this iPhone, Calendars)...
+///                                Accounts), addAccount (Add account), calendar (From this iPhone, Calendars),
+///                                appleHealth (From this iPhone, Apple Health)...
 ///   -EAAccount <address>         with -EASettingsPage accounts, that account's page opens once the accounts load
 ///   -EAAccountsScroll <part>     with -EASettingsPage accounts, the page opens scrolled to device (From this iPhone)
-///                                or work; with -EAAccount too, signin scrolls that account's page to Sign-in
+///                                or work; with -EAAccount too, signin scrolls that account's page to Sign-in; with
+///                                -EASettingsPage appleHealth, writes or hub scrolls the Apple Health page there
 ///   -EABarOpen YES               the bottom bar's second row shows open at launch (PhoneRoot)
 ///   -EABarCount <3|4|5>          the bottom bar shows that many screens across, as choosing it in Theme, Bottom bar
 ///                                does (rows cut to it); -EASettingsPage bottomBar opens that page

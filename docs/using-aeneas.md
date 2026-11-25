@@ -8,7 +8,7 @@ module list) to answer questions about the app, so ask it too: "how do I get my 
 - **The hub** is the computer at home that keeps everything and runs the models. Every app is a window onto it.
 - **The apps**: iPhone, iPad and Mac (one Apple app), Apple Watch (through the iPhone app), Windows, Android, and the
   web app in a browser. They show the same data; what differs is what each device can read from itself (only the
-  Apple apps can read Apple Calendar, Reminders, Contacts and Health).
+  Apple apps can read Apple Calendar, Reminders, Contacts and Apple Health).
 - **Modules**: everything outside the core (Today, Assistant, Capture, Search, Unsorted Info, Tasks, Week, Notes,
   Memory, People, Lists) is a module you switch on or off in Settings, Modules. The setting is the same on every device.
 
@@ -87,9 +87,11 @@ parts.
 - **Accounts.** Each address once, with a letter badge, what it brings in (Mail, Receipts and renewals, Calendars)
   and its kind (iCloud, Google, Other mail). Tap one to open its page. Your hub keeps these in step whether or not any
   device is on.
-- **From this iPhone** (iPad, Mac), on the Apple apps: Calendars, Reminders, Contacts and, on the iPhone, Health. One
-  switch each, and it asks for the permission when you switch it on. Calendars and Reminders open their choices:
-  which calendar your events go to, which calendars are work, which Reminders lists come in and in which space. The
+- **From this iPhone** (iPad, Mac), on the Apple apps: Calendars, Reminders, Contacts and, on the iPhone and iPad,
+  Apple Health (the red heart). One switch each, and it asks for the permission when you switch it on. Calendars and
+  Reminders open their choices: which calendar your events go to, which calendars are work, which Reminders lists
+  come in and in which space. Apple Health opens its page: what Aeneas reads from Apple Health and writes to it, Send
+  now, and how many readings came from it. The
   web, Windows and Android apps show **From your iPhone, iPad and Mac** instead: the same lists and work calendars,
   which you can change there too, and which device mirrors your contacts. The switches themselves are on each device.
 - **Work**: Keep work calendar and tasks. Off erases every work event and task on every device.
@@ -320,12 +322,20 @@ Linking a mailbox:
   Delete, Pin or replies for that account's mail. Reminders are not covered: your iPhone and Mac write them through
   Apple's own Reminders.
 
-## Reminders, Contacts and Health
+## Reminders, Contacts and Apple Health
 
 These are read on the Apple devices, each switched on for that device in Settings, Accounts, From this iPhone:
 Reminders (it turns the Apple Reminders module on, which Settings, Modules can switch off for every device), Contacts,
-and Health, on the iPhone. Each asks for its permission when you switch it on. Health works both ways: readings come
-in, and what you log in Aeneas goes to Health.
+and Apple Health, on the iPhone and iPad. Each asks for its permission when you switch it on.
+
+**Apple Health** works both ways. Switch on Sync with Apple Health in Settings, Accounts, From this iPhone, Apple
+Health (the row with the red heart). Aeneas reads weight, blood pressure, sleep, steps, workouts, caffeine and mood
+(State of Mind) from Apple Health, only the types you allow, and writes what you log in Aeneas (weight, blood
+pressure, caffeine, mood and timed activities, as workouts) to Apple Health. The page also has Send now, how many
+readings came from Apple Health and when it last synced. The Health screen (Library, Body and home, Health) opens with
+Apple Health: whether this iPhone syncs with it, and Apple Health settings, which opens that page. Readings from Apple
+Health are marked with a heart. In sample mode the switch stays off, so no sample data goes into your own Health; it
+works once your hub is set up. The switch is for each device, and the Mac has no Apple Health.
 
 **Which Reminders lists come in** (since 1.0.18) is one choice for every device, made on the iPhone, iPad or Mac
 (Settings, Accounts, From this iPhone, Reminders). Each list has a switch and Personal or Work. A list that is off

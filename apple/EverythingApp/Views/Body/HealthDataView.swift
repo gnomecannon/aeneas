@@ -2,12 +2,37 @@ import SwiftUI
 import Charts
 import EACore
 
-/// Health: everything tracked, typed here or synced with Apple Health. Each measure shows its newest reading; opening
+/// Health: everything tracked, typed here or synced with Apple Health. On the iPhone and iPad it opens with Apple
+/// Health: whether this device syncs with it, and the way to its page. Each measure shows its newest reading; opening
 /// one shows a chart over a chosen range and every entry, newest first.
 struct HealthDataView: View {
     @EnvironmentObject var engine: SyncEngine
 
-    private static let footer = "Readings typed in the app and readings from Apple Health, kept the same both ways (Settings, Accounts). Swipe an entry to delete it. To log something, use Logs."
+    /// Where this device syncs with Apple Health, said where readings from it are missing.
+    static var whereSynced: String {
+        #if os(iOS)
+        "Settings, Accounts, Apple Health"
+        #else
+        "on your iPhone or iPad, in Settings, Accounts, Apple Health"
+        #endif
+    }
+
+    private static var footer: String {
+        #if os(iOS)
+        "Readings typed in the app and readings from Apple Health, kept the same both ways. Swipe an entry to delete it. To log something, use Logs."
+        #else
+        "Readings typed in the app and readings from Apple Health, kept the same both ways by your iPhone or iPad (Settings, Accounts, Apple Health). Swipe an entry to delete it. To log something, use Logs."
+        #endif
+    }
+
+    /// Apple Health first, where this device has it (not the Mac).
+    private var appleHealthHere: Bool {
+        #if os(iOS)
+        HealthImporter.available
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         WideReader { wide in
@@ -19,6 +44,11 @@ struct HealthDataView: View {
 
     private var list: some View {
         List {
+            #if os(iOS)
+            if appleHealthHere {
+                SwiftUI.Section { AppleHealthStatus() }
+            }
+            #endif
             SwiftUI.Section {
                 ForEach(HealthMetric.allCases) { m in
                     PageLink { HealthMetricView(metric: m) } label: { row(m) }
@@ -33,6 +63,11 @@ struct HealthDataView: View {
     /// make 2 rows), in the list's order. A click opens the measure, as a row does.
     private var cards: some View {
         WidePage {
+            #if os(iOS)
+            if appleHealthHere {
+                CardGrid { AppleHealthStatus(card: true) }
+            }
+            #endif
             CardGrid {
                 ForEach(HealthMetric.allCases) { m in
                     PageLink { HealthMetricView(metric: m) } label: { row(m).gridCard() }

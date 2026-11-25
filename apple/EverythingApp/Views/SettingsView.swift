@@ -201,9 +201,9 @@ struct SettingsView: View {
 
 /// The Settings screens that can be opened directly in Debug builds (`-EASettingsPage theme`). `accounts` is Settings,
 /// Accounts (`-EAAccount <address>` then opens that account's page), `addAccount` its Add account, `calendar` From this
-/// iPhone, Calendars.
+/// iPhone, Calendars, `appleHealth` From this iPhone, Apple Health (Settings, Accounts on the Mac, which has none).
 enum SettingsPage: String, Hashable, Identifiable {
-    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, modules, reference, helpers
+    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, appleHealth, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, modules, reference, helpers
     var id: String { rawValue }
 
     /// A page named by a launch argument, once per launch.
@@ -222,6 +222,12 @@ enum SettingsPage: String, Hashable, Identifiable {
         case .calendar: DeviceCalendarsView()
         case .connections: ConnectionsSettingsView()
         case .accounts, .health: AccountsSettingsView()
+        case .appleHealth:
+            #if os(iOS)
+            AppleHealthSettingsView()
+            #else
+            AccountsSettingsView()
+            #endif
         case .addAccount: AddAccountView()
         case .about: AboutSettingsView()
         case .appColors: AppColorsView()

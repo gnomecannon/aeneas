@@ -55,7 +55,7 @@ struct LogsView: View {
                         Text("\(Int(today.1).formatted()) today").font(.title2.weight(.semibold))
                     }
                     latest(.steps, unit: "steps")
-                    Sparkline(points: steps, emptyText: "No steps yet. They come from Apple Health (Settings, Accounts).")
+                    Sparkline(points: steps, emptyText: "No steps yet. They come from Apple Health (\(HealthDataView.whereSynced)).")
                 }
 
                 block("Blood pressure") {
@@ -140,7 +140,7 @@ struct LogsView: View {
                     if let last = engine.logs(type: .sleep).last, let d = last.date("at") {
                         Text("\(LogUnits.valueText(last)), night of \(d.formatted(date: .abbreviated, time: .omitted))").font(.title3)
                     }
-                    Sparkline(points: dailyTotals(.sleep, days: window).map { ($0.0, $0.1 / 60) }, emptyText: "No sleep in the last 30 days. It comes from Apple Health (Settings, Accounts).")
+                    Sparkline(points: dailyTotals(.sleep, days: window).map { ($0.0, $0.1 / 60) }, emptyText: "No sleep in the last 30 days. It comes from Apple Health (\(HealthDataView.whereSynced)).")
                 }
 
                 block("Recent entries") {
