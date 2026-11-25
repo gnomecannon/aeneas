@@ -17,7 +17,7 @@ import { availableTools, cloudSecrets, filingCheck, runTool, toolGuide, toolSpec
 import { Sessions, type StoredMessage, type TouchedItem } from "./sessions.js";
 import { recordImage } from "../gallery.js";
 import { ImageStore } from "./images.js";
-import { HostActions } from "./hosts.js";
+import { AFFIRMATION, HostActions } from "./hosts.js";
 import type { ModuleCheck } from "../modules.js";
 import { contextFloor, estimateTokens, fallbackSummary, fitToolResults, planWindow, REPLY_RESERVE, SUMMARY_SYSTEM, summaryPrompt, TOOL_RESULT_ROOM, trimMiddle } from "./history.js";
 import { knownPatternProblem } from "./rule-guard.js";
@@ -129,6 +129,21 @@ export type ChatEvent =
   | { type: "photos_request"; id: string; count: number; since_days?: number };
 
 const MAX_TOOL_ROUNDS = 8;
+/** A troubleshooting reply looks at more before it answers (its last reply on 2026-11-24 ran out after 8 reads). */
+const TROUBLESHOOT_TOOL_ROUNDS = 12;
+/** Characters of command output carried with one earlier reply (ranDigest), shared by the commands it ran. */
+const RUN_DIGEST_CHARS = 5000;
+
+/**
+ * A reply that asks for a yes or says something waits for one. When nothing is held, asking in words gives the owner
+ * nothing to approve: on 2026-11-24 six such asks (for reads, which run at once) each cost a typed "Approve".
+ */
+export const ASKS_APPROVAL = /\b(?:approve(?: it| this| that| the (?:read|command|step|check|search))?\s*\?|(?:waiting|wait) (?:for|on) (?:your )?(?:approval|yes|go-ahead|ok)|want me to (?:run|try|go ahead|check|read|look)|shall i (?:run|proceed|go ahead|try)|(?:ok|okay) to (?:run|proceed)\s*\?|should i (?:run|proceed|go ahead))/i;
+/**
+ * A reply that says commands ran in it. On 2026-11-24 two replies began "Ran on <machine> as <user>" with no command run,
+ * one with a made-up file listing.
+ */
+export const SAYS_RAN = /(?:^|\n)\W*ran on \w|\bI(?:'ve| have)? (?:just )?ran\b|\bI(?:'ve| have) (?:just )?run (?:it|them|that|those|the)\b|\bwhat ran\b|\bhere'?s what (?:it|they|that|the commands?) (?:showed|returned|printed|found)/i;
 /** Images sent per request; older ones in the window are described as "[image]" only. */
 const MAX_IMAGES_SENT = 3;
 /** No warm-up this soon after the model was last used: its cache most likely still holds the shared start. */
@@ -152,6 +167,38 @@ const CLAIMS_CHANGE = /^\W*(?:done(?=[.!,:\s]|$)|(?:logged|saved|added|deleted|r
  * on a computer with 8 GB and 80 GB). This goes to the model right after the round that held one.
  */
 const HELD_NOTE = "[Check from Aeneas, not typed by {{owner}}] The command that waits for {{owner}}'s yes has not run, so there is no output from it. Answer now: what the commands that did run showed (if their output holds no numbers, say so), then what the waiting command would do and why. Give no number or finding that no command output above shows.";
+
+/**
+ * A backticked span that reads as a command: Verb-Noun, `& path`, words with an option (-x, --name), or a known
+ * program and its subcommand ("kopia repository info" was reported as printed when it never ran, 2026-11-25).
+ */
+const COMMANDISH = /^(?:&\s|[A-Z][a-z]+-[A-Z]\w+\b|[\w.\\/:"$-]+(?:\s+\S+)*?\s--?[A-Za-z]|(?:kopia|restic|borg|rclone|git|docker|podman|systemctl|journalctl|apt|apt-get|dnf|npm|pip|winget|choco|schtasks|reg|net|sc|robocopy|zpool|zfs|tailscale|kubectl|ollama)(?:\.exe)?\s+[a-z])/;
+/** A reply line that says a command ran or how it ended. */
+const RAN_WORDS = /\b(?:done|ran|printed|showed|returned|reported|succeeded|worked|updated|exit(?: code)? -?\d+)\b/i;
+/** The line says it worked. */
+const SUCCESS_WORDS = /\b(?:done|succeeded|worked|updated|exit(?: code)? 0\b)/i;
+const squash = (s: string) => s.replace(/["'`]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+/**
+ * Commands a reply says ran, or ran well, that no command run in this chat bears out. An evaluation on 2026-11-25 had
+ * a reply report `policy set documents --exclude ...` as "(done, exit 0): printed Policy updated" when every kopia
+ * command on that machine had failed for want of its password.
+ */
+export function unbackedRuns(reply: string, ran: { command: string; exit_code: number | null }[]): string[] {
+  const out: string[] = [];
+  for (const line of reply.split("\n")) {
+    if (!RAN_WORDS.test(line)) continue;
+    for (const m of line.matchAll(/`([^`\n]{6,300})`/g)) {
+      const span = m[1].trim();
+      if (!COMMANDISH.test(span)) continue;
+      const want = squash(span);
+      const hits = ran.filter((a) => { const c = squash(a.command); return c.includes(want) || (want.length > 20 && want.includes(c)); });
+      const after = line.slice(m.index! + m[0].length);
+      if (!hits.length || (SUCCESS_WORDS.test(after) && !hits.some((a) => a.exit_code === 0))) out.push(span);
+    }
+  }
+  return [...new Set(out)];
+}
 
 /** A number with a unit, as a reply about a machine gives one: 97.7%, 5.2 GB, 2 cores. */
 const UNIT_NUMBER = /(\d+(?:[.,]\d+)?)\s?(?:%|percent\b|[KMGTP]i?B\b|[KMG]Hz\b|cores?\b|threads?\b|°C|RPM\b)/gi;
@@ -260,7 +307,7 @@ export class Gateway {
   }
 
   /** Stream rounds with tools until the model answers without calling one. */
-  private async toolLoop(backend: Backend, base: AiMessage[], ctx: ToolContext, onToken: (t: string) => void, onEvent: ((e: ChatEvent) => void) | undefined, actions: ToolAction[]): Promise<{ text: string; usage: Usage }> {
+  private async toolLoop(backend: Backend, base: AiMessage[], ctx: ToolContext, onToken: (t: string) => void, onEvent: ((e: ChatEvent) => void) | undefined, actions: ToolAction[], troubleshoot = false): Promise<{ text: string; usage: Usage }> {
     const messages: AiMessage[] = base.map((m) => ({ ...m }));
     const tools = availableTools(this.cfg, undefined, ctx.moduleOn ?? this.moduleOn);
     const specs = toolSpecs(tools);
@@ -274,11 +321,34 @@ export class Gateway {
     // window of earlier turns left TOOL_RESULT_ROOM of this free for them.
     const specTokens = estimateTokens(JSON.stringify(specs));
     const ctxLimit = this.numCtx() - REPLY_RESERVE;
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    // Once each per reply: a reply that says a command ran when none did, and one that asks for a yes nothing waits for.
+    let ranChecked = false;
+    let askChecked = false;
+    let backedChecked = false;
+    const rounds = troubleshoot ? TROUBLESHOOT_TOOL_ROUNDS : MAX_TOOL_ROUNDS;
+    for (let round = 0; round < rounds; round++) {
       if (!backend.cloud) fitToolResults(messages, specTokens, ctxLimit);
       const r = await backend.streamTools!(messages, specs, onToken);
       add(r.usage);
       if (!r.tool_calls?.length) {
+        const ranHere = (ctx.turn?.ran.length ?? 0) > 0 || actions.some((a) => a.tool === "run_command" || a.tool === "approve_command");
+        if (!ranChecked && !ranHere && SAYS_RAN.test(r.text)) {
+          ranChecked = true;
+          messages.push({ role: "assistant", content: r.text }, { role: "user", content: "[Check from Aeneas, not typed by {{owner}}, who sees neither this nor your answer above] Your answer says a command ran, but no command ran in this reply, so nothing came back from it. Run it now with run_command, or write your answer again without saying anything ran and without any output you did not see. Do not mention this check." });
+          continue;
+        }
+        const aboutMachines = troubleshoot || ranHere || held;
+        const unbacked = !backedChecked && aboutMachines && ctx.hosts ? unbackedRuns(r.text, ctx.hosts.ranBetween(ctx.sessionId, "", "9999")) : [];
+        if (unbacked.length) {
+          backedChecked = true;
+          messages.push({ role: "assistant", content: r.text }, { role: "user", content: `[Check from Aeneas, not typed by {{owner}}, who sees neither this nor your answer above] Your answer says ${unbacked.slice(0, 3).map((c) => `\`${c}\``).join(", ")} ran or worked, but no command run in this chat bears that out: it did not run, or it failed. Write your answer again from scratch with only what the output of commands that ran shows, and say plainly what failed and why. Do not mention this check.` });
+          continue;
+        }
+        if (!askChecked && aboutMachines && !held && ctx.hosts && !ctx.hosts.pendingFor(ctx.sessionId) && ASKS_APPROVAL.test(r.text)) {
+          askChecked = true;
+          messages.push({ role: "assistant", content: r.text }, { role: "user", content: "[Check from Aeneas, not typed by {{owner}}, who sees neither this nor your answer above] Your answer asks {{owner}} to approve something, but nothing waits for approval, so they have nothing to approve. A command that only reads runs at once: run it now with run_command and say what it shows. A change must be proposed with run_command, which holds it for their approval. A choice between options is asked plainly, as a question. Write your answer again from scratch. Do not mention this check." });
+          continue;
+        }
         // A reply that says it saved or changed something when no tool call did: once, have it do it or say otherwise.
         // ("Logged. Soldering marked as ended." with no call, so the activity never ended.)
         if (!checked && CLAIMS_CHANGE.test(r.text) && !actions.some((a) => a.ok && a.writes) && !ASKS_RECAP.test(ctx.lastUser)) {
@@ -319,8 +389,9 @@ export class Gateway {
       // Pictures a tool fetched (phone photos) go to the model as a message it can see.
       for (const m of ctx.drainModelImages?.() ?? []) messages.push({ role: "user", content: m.note, images: m.images });
     }
-    // Out of rounds: answer from what was gathered, without offering tools again.
-    messages.push({ role: "user", content: "Answer now from the tool results above. Do not call more tools." });
+    // Out of rounds: answer from what was gathered, without offering tools again. Said plainly, or the model wrote
+    // "Let me try the Kopia CLI directly:" and stopped, with no tools left to do it (2026-11-24).
+    messages.push({ role: "user", content: "[Check from Aeneas, not typed by {{owner}}] This reply has used all its tool calls. Answer now, without calling tools: what the commands above showed, what is still unknown, and the exact next command you would run. Do not say you are running or trying anything now; {{owner}} can tell you to go on." });
     if (!backend.cloud) fitToolResults(messages, 0, ctxLimit);
     const last = await backend.stream(messages, onToken);
     add(last.usage);
@@ -488,7 +559,30 @@ export class Gateway {
   }
 
   /** Model-facing text of one stored turn: approvals carry the command output the model needs. */
-  private turnText(m: StoredMessage): string {
+  /**
+   * The commands the assistant ran while working on an earlier reply, with the head and end of what each printed.
+   * Stored replies kept only their prose, so a script read in one reply was gone by the next and the model guessed the
+   * paths it had named (2026-11-24). `prev` is the turn before (an approved command shows with it already).
+   */
+  private ranDigest(sessionId: string, m: StoredMessage, prev?: StoredMessage): string {
+    if (m.role !== "assistant" || !m.at) return "";
+    const from = prev?.at ?? new Date(Date.parse(m.at) - 15 * 60_000).toISOString();
+    const rows = this.hosts.ranBetween(sessionId, from, m.at).filter((a) => a.id !== prev?.approval?.action_id);
+    if (!rows.length) return "";
+    const each = Math.max(300, Math.min(900, Math.floor(RUN_DIGEST_CHARS / rows.length)));
+    const lines = rows.map((a) => {
+      const out = (a.output ?? "").trim();
+      const cmd = a.command.length > 300 ? `${a.command.slice(0, 300)}...` : a.command;
+      return `- On ${a.host}: \`${cmd}\` (${a.status}, exit ${a.exit_code ?? "none"})${out ? `\n~~~\n${trimMiddle(out, each)}\n~~~` : ", no output"}`;
+    });
+    return `\n\n[Commands you ran for this reply, with the start and end of what each printed]\n${lines.join("\n")}`;
+  }
+
+  private turnText(m: StoredMessage, sessionId?: string, prev?: StoredMessage): string {
+    if (m.role === "assistant" && sessionId) {
+      const ran = this.ranDigest(sessionId, m, prev);
+      if (ran) return `${this.turnText(m)}${ran}`;
+    }
     if (m.role === "user" && m.approval) {
       const a = this.hosts.get(m.approval.action_id);
       // Its head and its end, where an error is.
@@ -497,6 +591,9 @@ export class Gateway {
     }
     if (m.role === "assistant" && m.approval && m.approval.status === "pending") {
       return `${m.content}\n\n[Waiting for {{owner}}'s approval: \`${m.approval.command}\` on ${m.approval.host}.]`;
+    }
+    if (m.role === "assistant" && m.approval && (m.approval.status === "cancelled" || m.approval.status === "expired")) {
+      return `${m.content}\n\n[Not run: {{owner}} did not approve \`${m.approval.command}\` on ${m.approval.host}; ${m.approval.status === "expired" ? "it waited too long and expired" : "they replied with something else instead"}.]`;
     }
     return m.content;
   }
@@ -507,7 +604,7 @@ export class Gateway {
     let summary: string;
     try {
       const literals = this.privateLiterals();
-      const r = await backend.chat([{ role: "system", content: SUMMARY_SYSTEM }, { role: "user", content: summaryPrompt(previous, turns.map((m) => ({ ...m, content: redact(this.turnText(m), literals).text }))) }]);
+      const r = await backend.chat([{ role: "system", content: SUMMARY_SYSTEM }, { role: "user", content: summaryPrompt(previous, turns.map((m, i) => ({ ...m, content: redact(this.turnText(m, sessionId, turns[i - 1]), literals).text }))) }]);
       this.record({ session_id: sessionId, task_type: "summary", backend: backend.name, model: backend.model, redactions: 0, usage: r.usage, ms: Date.now() - t0, ok: true });
       summary = r.text.trim() || fallbackSummary(previous, turns);
     } catch (e) {
@@ -675,6 +772,8 @@ export class Gateway {
     const clientSystem = (req.messages ?? []).filter((m) => m.role === "system").map((m) => m.content);
     let history: StoredMessage[];
     let imageIds: string[] = [];
+    // The waiting command this turn runs: the one the slide approved, or the one a typed yes approves.
+    let approveId = req.approve_action_id;
     if (req.messages?.length) {
       history = req.messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
       // Pictures with a one-off request (a capture's photo when it is filed) go with its last user turn.
@@ -689,8 +788,18 @@ export class Gateway {
       // Attached pictures also go to the gallery's Saved bin, so they can be reused as references.
       for (const id of imageIds) recordImage({ store: this.store, ai: { images: this.images } }, id, "attached", { session_id: req.session_id, title: (req.message ?? "").trim().split("\n")[0].slice(0, 80) || "Attached in a chat" });
       const turn: StoredMessage = { role: "user", content: (req.message ?? "").trim(), at: nowIso(), ...(imageIds.length ? { images: imageIds } : {}) };
-      if (req.approve_action_id) {
-        const a = this.hosts.get(req.approve_action_id);
+      // Typed while a command waits (the apps approve with a slide and have no Cancel): a plain yes runs it the same
+      // way, and anything else sets it aside, so the model knows it did not run and nothing stays waiting for an hour.
+      const waiting = approveId ? null : this.hosts.pendingFor(req.session_id);
+      if (waiting) {
+        if (turn.content && !imageIds.length && AFFIRMATION.test(turn.content)) approveId = waiting.id;
+        else {
+          this.hosts.cancel(waiting.id);
+          for (const m of history) if (m.approval?.action_id === waiting.id) m.approval = { ...m.approval, status: "cancelled" };
+        }
+      }
+      if (approveId) {
+        const a = this.hosts.get(approveId);
         if (!a || a.session_id !== req.session_id) throw new StoreError(404, "no such action in this chat");
         // A change proposed before Machines was switched off does not run after it.
         if (!this.moduleOn("homelab")) throw new StoreError(409, "Machines is switched off in Settings, Modules, so commands on your machines do not run; switch it on there to run this");
@@ -761,7 +870,7 @@ export class Gateway {
       const noteTokens = estimateTokens(turnContext(memory, mode, new Date(), recentItems(history), req.session_id.startsWith("watch-") ? WATCH_NOTE : undefined));
       const budget = Math.max(2000, this.numCtx() - estimateTokens(system) - toolTokens - (summary ? estimateTokens(summary) : 0) - noteTokens - REPLY_RESERVE - (tools ? TOOL_RESULT_ROOM : 0));
       // Counted as sent: an approved turn carries up to 6000 characters of command output (turnText).
-      const plan = planWindow(history.map((m) => ({ ...m, content: this.turnText(m) })), summaryUpto, budget);
+      const plan = planWindow(history.map((m, i) => ({ ...m, content: this.turnText(m, req.session_id, history[i - 1]) })), summaryUpto, budget);
       if (plan.needsSummary) {
         onEvent?.({ type: "status", text: "Condensing earlier messages" });
         summary = await this.summarize(req.session_id, backend, summary, history.slice(summaryUpto, plan.start), plan.start);
@@ -778,7 +887,7 @@ export class Gateway {
       const convo: AiMessage[] = [];
       for (let i = window.length - 1; i >= 0; i--) {
         const m = window[i];
-        const r = redact(this.turnText(m), literals, { emails });
+        const r = redact(this.turnText(m, req.session_id, history[start + i - 1]), literals, { emails });
         redactions += r.count;
         const imgs: string[] = [];
         for (const id of m.images ?? []) {
@@ -829,7 +938,7 @@ export class Gateway {
       const actions: ToolAction[] = [];
       try {
         const result = tools
-          ? await this.toolLoop(backend, messages, ctx, onToken ?? (() => {}), onEvent, actions)
+          ? await this.toolLoop(backend, messages, ctx, onToken ?? (() => {}), onEvent, actions, mode === "troubleshoot")
           : onToken ? await backend.stream(messages, onToken) : await backend.chat(messages);
         const ms = Date.now() - t0;
         const styled = applyStyle(result.text, [...this.filterRules(), ...(SLEEP_ASKED.test(lastUser) ? [] : [UNASKED_BEDTIME])]);
@@ -855,7 +964,7 @@ export class Gateway {
         if (saved.length) reply += `\n\nSaved to Snippets: ${saved.map((s) => String(s.fields.title)).join("; ")}.`;
         // The automatic "tried" line is for steps handed to the owner. Commands the hub ran itself, or one waiting for approval,
         // are not theirs to try; the model records those results with ledger_update.
-        if (ledger && !pending && !actions.some((a) => a.tool === "run_command" || a.tool === "approve_command") && !req.approve_action_id && (/```/.test(reply) || countNumberedSteps(reply) >= 1)) ledger = appendPending(this.store, ledger, reply);
+        if (ledger && !pending && !actions.some((a) => a.tool === "run_command" || a.tool === "approve_command") && !approveId && (/```/.test(reply) || countNumberedSteps(reply) >= 1)) ledger = appendPending(this.store, ledger, reply);
         // The owner says it worked: the ledger closes and the chat is a plain one again (only the web had a Close
         // button). A later failure in it opens a new ledger that starts from what this one ruled out.
         if (ledger && !pending && saysWorked(lastUser)) ledger = this.store.patch(ledger.id, { open: false });

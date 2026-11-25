@@ -199,8 +199,8 @@ export function proposeSensorFix(hub: Hub, name: string, now: Date = new Date())
   const what = state === "stale" ? `has sent no reading for over ${Number(s.fields.stale_minutes ?? 180)} minutes (last: ${value})` : `is ${state}: ${value}${bounds ? ` (it alerts ${bounds})` : ""}`;
   const prompt = [
     `[Sensor alert] ${name}${host ? ` on ${host}` : ""} ${what}.${recent.length ? ` Readings in the last day, newest last: ${recent.join(", ")}.` : ""}`,
-    `Find the cause first, with read-only commands${host ? ` on ${host}` : ""}.`,
-    "Then propose one fix: in two or three sentences say what you found and what the fix changes, and ask to run it as a single host command, which waits for {{owner}} to approve or cancel. Never run anything that changes the host before {{owner}} approves it.",
+    `Find the cause first: run the read-only commands you need${host ? ` on ${host}` : ""} yourself, in this reply. They run at once without asking, so never ask {{owner}} before one.`,
+    "Then propose one fix with run_command: in two or three sentences say what you found and what the fix changes. It waits for {{owner}} to approve it; they approve with one gesture, or reply with something else instead. Never run anything that changes the host before {{owner}} approves it.",
     "If no command can fix it (hardware, a setting somewhere else, or it is fine as it is and the bounds are wrong), say what to do instead and propose no command.",
   ].join(" ");
   hub.ai.sessions.save(sid, "troubleshoot", []);

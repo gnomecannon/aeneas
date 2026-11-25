@@ -9,12 +9,12 @@ export function ctxFor(t: TestHub, sessionId = "s-test", lastUser = ""): ToolCon
 type Step = (msgs: AiMessage[]) => { text?: string; calls?: { name: string; arguments: Record<string, unknown> }[] };
 
 /** A scripted model: each tool round returns the next step; plain chat calls return `chatText`. Records what it was sent. */
-export function scripted(steps: Step[], chatText = "plain"): Backend & { seen: AiMessage[][]; chats: AiMessage[][]; toolsOffered: number } {
+export function scripted(steps: Step[], chatText = "plain"): Backend & { seen: AiMessage[][]; chats: AiMessage[][]; streams: AiMessage[][]; toolsOffered: number } {
   let i = 0;
   const b = {
-    name: "ollama" as const, model: "scripted", seen: [] as AiMessage[][], chats: [] as AiMessage[][], toolsOffered: 0,
+    name: "ollama" as const, model: "scripted", seen: [] as AiMessage[][], chats: [] as AiMessage[][], streams: [] as AiMessage[][], toolsOffered: 0,
     chat: async (msgs: AiMessage[]) => { b.chats.push(msgs.map((m) => ({ ...m }))); return { text: chatText, usage: {} }; },
-    stream: async (_m: AiMessage[], on: (t: string) => void) => { on("plain"); return { text: "plain", usage: {} }; },
+    stream: async (msgs: AiMessage[], on: (t: string) => void) => { b.streams.push(msgs.map((m) => ({ ...m }))); on("plain"); return { text: "plain", usage: {} }; },
     streamTools: async (msgs: AiMessage[], tools: unknown[], on: (t: string) => void) => {
       b.seen.push(msgs.map((m) => ({ ...m }))); b.toolsOffered = tools.length;
       const s = steps[Math.min(i++, steps.length - 1)](msgs);

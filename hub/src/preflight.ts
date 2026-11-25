@@ -26,7 +26,7 @@ export const DESTRUCTIVE: DestructiveRule[] = [
     name: "rm -rf",
     pattern: /\brm\s+(?:[^\n;&|]*\s)?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\b/,
     backup: "Back up: tar the path (`tar czf /root/pre-rm.tgz <path>`) or snapshot the filesystem it lives on.",
-    verify: "Verify: `ls -la <path>` and `pwd`; make sure no variable in the path expands to nothing.",
+    verify: "Verify: `ls -la <path>` and `pwd`; make sure no variable in the path expands to nothing. If <path> is a symlink, `rm <path>` removes just the link, and a trailing slash (`<path>/`) reaches what it points to.",
     rollback: "Rollback: restore from the tar or snapshot. rm has no undo.",
   },
   {
@@ -159,7 +159,8 @@ export const DESTRUCTIVE: DestructiveRule[] = [
     name: "Remove-Item -Recurse",
     pattern: /\bRemove-Item\b[^\n]*\s-r[a-z]*\b|\b(?:rd|rmdir|del|erase)\s+(?:\/[a-z]+\s+)*\/s\b/i,
     backup: "Back up: copy the folder first (`Copy-Item <path> <backup> -Recurse`), or make a restore point or a snapshot.",
-    verify: "Verify: `Get-ChildItem <path> -Recurse | Measure-Object` and the full path; a wildcard or an empty variable reaches more than meant.",
+    // 2026-11-24: a recursive delete was offered for a node_modules that was a junction to another project's packages.
+    verify: "Verify: `Get-Item <path> -Force | Select-Object LinkType, Target` first; a junction or symlink is removed on its own with `cmd /c rmdir <path>` (no /s), and a recursive delete can reach the folder it points to. Then `Get-ChildItem <path> -Recurse | Measure-Object` and the full path; a wildcard or an empty variable reaches more than meant.",
     rollback: "Rollback: restore from the copy. Items removed this way skip the Recycle Bin.",
   },
   {

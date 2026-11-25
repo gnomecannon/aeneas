@@ -270,3 +270,21 @@ test("H11 fix notes reach the model with their Facts and their newest sections",
     assert.match(mem[0].runbook, /problem 7/);
   } finally { t.cleanup(); }
 });
+
+test("windows reads: $env: paths name their variable as PowerShell does; secret variables, lists and wildcards still wait", async () => {
+  const { isReadOnly } = await import("../src/ai/hosts.js");
+  const cases: [string, boolean][] = [
+    [`Get-Content "$env:LOCALAPPDATA\\ProjectBackup\\Logs\\backup.log" -Tail 80`, true],
+    [`Test-Path "$env:LOCALAPPDATA\\Programs\\KopiaUI\\resources\\server\\kopia.exe"`, true],
+    [`Get-ChildItem "$env:APPDATA\\kopia" -Force | Format-List`, true],
+    [`$env:GITHUB_TOKEN`, false],
+    [`Get-Content "$env:LOCALAPPDATA\\$env:GITHUB_TOKEN"`, false],
+    [`Get-ChildItem Env:`, false],
+    [`Get-ChildItem Env:\\`, false],
+    [`Get-ChildItem Env:\\PATH*`, false],
+    [`Get-ChildItem Env:\\GITHUB_TOKEN`, false],
+    [`Write-Output $env:PA?H`, false],
+    [`Get-Content "\${env:GITHUB_TOKEN}"`, false],
+  ];
+  for (const [c, read] of cases) assert.equal(isReadOnly(c, "windows"), read, c);
+});

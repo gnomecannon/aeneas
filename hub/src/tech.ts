@@ -6,6 +6,7 @@ import { StoreError } from "./store.js";
 import { sensorHosts } from "./hostsensors.js";
 import { hostFacts, hostsSummary } from "./memory.js";
 import { monitorOrThrow } from "./monitors.js";
+import { backupWhere, parseBackupTarget } from "./backups.js";
 import { diaryDay } from "./diary.js";
 import { personalize } from "./profile.js";
 import { errCode } from "./logsafe.js";
@@ -128,12 +129,18 @@ export function techThings(hub: Hub): Thing[] {
 }
 
 const TYPE_WORDS: Record<string, string> = { ping: "ping", tcp: "port", http: "web address", tls: "certificate", dns: "name lookup", backup: "backup" };
+
+/** For a backup check: what it reads on the machine (job names, status file, log), so a fix starts there. */
+function backupPlaces(hub: Hub, type: string, target: string): string {
+  if (type !== "backup") return "";
+  try { return backupWhere(parseBackupTarget(target), hub.cfg.backupJobs); } catch { return ""; }
+}
 const at = (iso: unknown) => typeof iso === "string" && iso ? new Date(iso).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }) : "";
 
 /**
  * Propose a fix for a check that is down, like a sensor alert (sensors.ts): the assistant looks into it with read-only
  * commands, on the check's machine when the hub can reach it, else from the hub's own machine, then asks to run one
- * change, which waits in the chat for the owner to approve or cancel. One chat per check and day.
+ * change, which waits in the chat for the owner to approve (or to set aside by replying with something else). One chat per check and day.
  */
 export function proposeMonitorFix(hub: Hub, id: string, now: Date = new Date()): { session_id: string; started: boolean } {
   const m = monitorOrThrow(hub.store, id);
@@ -162,10 +169,11 @@ export function proposeMonitorFix(hub: Hub, id: string, now: Date = new Date()):
     joined ? `It is down with ${String(joined.fields.name)}: its machine stopped answering, so start with the machine.` : "",
     Array.isArray(inc?.fields.also_down) && inc!.fields.also_down.length ? `Also down with it: ${(inc!.fields.also_down as string[]).join(", ")}.` : "",
     inc?.fields.ack_note ? `{{owner}} noted: ${String(inc.fields.ack_note).slice(0, 300)}.` : "",
+    backupPlaces(hub, type, target),
     machine
-      ? `Find the cause first, with read-only commands on ${machine.name}${self && self.name !== machine.name ? ` (and on ${self.name}, the hub's machine, to test the way the check goes)` : ""}.`
-      : `${hostName || "It"} is not one of the machines you can run commands on, so find the cause with read-only commands on ${self?.name ?? "the hub's machine"}, the hub's machine: reach it the way the check does.`,
-    "Then propose one fix: in two or three sentences say what you found and what the fix changes, and ask to run it as a single host command, which waits for {{owner}} to approve or cancel. Never run anything that changes a machine before {{owner}} approves it.",
+      ? `Find the cause first: run the read-only commands you need on ${machine.name}${self && self.name !== machine.name ? ` (and on ${self.name}, the hub's machine, to test the way the check goes)` : ""} yourself, in this reply. They run at once without asking, so never ask {{owner}} before one.`
+      : `${hostName || "It"} is not one of the machines you can run commands on, so find the cause with read-only commands on ${self?.name ?? "the hub's machine"}, the hub's machine, run yourself in this reply: reach it the way the check does.`,
+    "Then propose one fix with run_command: in two or three sentences say what you found and what the fix changes. It waits for {{owner}} to approve it; they approve with one gesture, or reply with something else instead. Never run anything that changes a machine before {{owner}} approves it.",
     "If no command can fix it (the machine is off or unplugged, a setting somewhere else, or the check itself is wrong), say what to do instead and propose no command.",
   ].filter(Boolean);
   hub.ai.sessions.save(sid, "troubleshoot", []);

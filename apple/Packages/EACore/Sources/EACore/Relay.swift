@@ -89,7 +89,7 @@ public enum RelayHandler {
         guard req.method == "POST", req.path == "ai/chat", (200..<300).contains(resp.status), let b = req.bodyData,
               let r = try? JSONDecoder().decode(ChatRequest.self, from: b), let q = r.message, !q.isEmpty,
               let a = try? JSONDecoder().decode(ChatResponse.self, from: resp.bodyData), !a.reply.isEmpty else { return nil }
-        return (q, a.pending_action != nil ? a.reply + "\n\nApprove or decline this on your iPhone." : a.reply, r.session_id)
+        return (q, a.pending_action != nil ? a.reply + "\n\nApprove this on your iPhone." : a.reply, r.session_id)
     }
 
     /// The bytes the phone answers with: the response as is when it fits one message, else a header naming the

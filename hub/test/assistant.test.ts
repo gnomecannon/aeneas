@@ -395,8 +395,10 @@ test("host actions: a held command is never reported as if it ran, and one reply
   const held = "$os=Get-CimInstance Win32_OperatingSystem; \"RAM: $($os.TotalVisibleMemorySize)\"";
   const b = scripted([
     () => ({ calls: [{ name: "run_command", arguments: { host: "laptop", command: "Get-Counter '\\Memory\\Available MBytes'", purpose: "sample memory" } }] }),
+    // A read the hub cannot confirm goes back once (since 2026-11-25); the same command again waits for approval.
     () => ({ calls: [{ name: "run_command", arguments: { host: "laptop", command: held, purpose: "memory totals" } }] }),
-    () => ({ calls: [{ name: "run_command", arguments: { host: "laptop", command: "$d=Get-Volume; $d", purpose: "disk space" } }] }),
+    () => ({ calls: [{ name: "run_command", arguments: { host: "laptop", command: held, purpose: "memory totals" } }] }),
+    () => ({ calls: [{ name: "run_command", arguments: { host: "laptop", command: "Set-Volume -DriveLetter C -NewFileSystemLabel Data", purpose: "label the disk" } }] }),
     // What a model wrote on 2026-11-19 with nothing to go on.
     () => ({ text: "15.97 GB of RAM, 13.4 GB free, and the disk is 97.7% full." }),
     () => ({ text: "The memory sample came back without numbers. I want to run a command that reads the memory totals; it waits for your yes." }),
@@ -409,11 +411,12 @@ test("host actions: a held command is never reported as if it ran, and one reply
     assert.equal(approvals[0].data.action.command, held);
     assert.equal(t.hub.ai.hosts.get(approvals[0].data.action.id)?.status, "pending", "a second proposal did not replace the first");
     assert.deepEqual(ran, ["laptop: Get-Counter '\\Memory\\Available MBytes'"], "only the read ran");
+    assert.match(b.seen[2].at(-1)!.content, /"status":"not_run".*it uses \$\( \) or a backtick/, "handed back once with the reason");
     // The model was told the held command has no output, right after the round that held it.
-    assert.match(b.seen[2].at(-1)!.content, /has not run, so there is no output from it/);
-    assert.match(b.seen[3].at(-1)!.content, /already waits for/, "the second proposal was refused");
+    assert.match(b.seen[3].at(-1)!.content, /has not run, so there is no output from it/);
+    assert.match(b.seen[4].at(-1)!.content, /already waits for/, "the second proposal was refused");
     // The made-up numbers were sent back once; the answer is the one from the output.
-    assert.match(b.seen[4].at(-1)!.content, /15\.97 GB, 13\.4 GB, 97\.7%/);
+    assert.match(b.seen[5].at(-1)!.content, /15\.97 GB, 13\.4 GB, 97\.7%/);
     const done = events.find((e) => e.event === "done")!.data as ChatOutput;
     assert.match(done.reply, /came back without numbers/);
   } finally { setBackendOverride(null); t.cleanup(); }

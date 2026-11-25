@@ -188,7 +188,7 @@ final class RelayTests: XCTestCase {
         XCTAssertEqual(chat?.session, "watch-2026-11-05-ab12cd34")
         let pending = Data(#"{"reply":"This restarts Plex.","model":"m","backend":"ollama","redactions":0,"rules_applied":[],"pending_action":{"id":"a","host":"core","command":"systemctl restart plex"}}"#.utf8)
         XCTAssertEqual(RelayHandler.answeredChat(req, RelayResponse(id: req.id, status: 200, data: pending))?.answer,
-                       "This restarts Plex.\n\nApprove or decline this on your iPhone.")
+                       "This restarts Plex.\n\nApprove this on your iPhone.")
         // A failed chat, another request, or an empty reply is nothing to tell.
         XCTAssertNil(RelayHandler.answeredChat(req, RelayResponse(id: req.id, status: 503, data: Data(#"{"error":"no model"}"#.utf8))))
         XCTAssertNil(RelayHandler.answeredChat(req, RelayResponse(id: req.id, status: 0, data: Data(), error: "timed out")))

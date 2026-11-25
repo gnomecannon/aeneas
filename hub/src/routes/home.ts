@@ -28,7 +28,7 @@ export function homeRoutes() {
 
   r.get("/sensors", (c) => c.json(listSensors(c.get("hub"))));
 
-  /** Tapping an alert: the assistant proposes a fix in a chat, to approve or cancel there. */
+  /** Tapping an alert: the assistant proposes a fix in a chat, to approve there. */
   r.post("/sensors/:name/propose", (c) => c.json(proposeSensorFix(c.get("hub"), c.req.param("name"))));
 
   r.get("/sensors/:name/csv", (c) => {

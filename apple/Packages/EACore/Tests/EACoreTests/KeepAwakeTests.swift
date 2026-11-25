@@ -34,7 +34,7 @@ final class KeepAwakeTests: XCTestCase {
 
     func testAChangeWaitingForApprovalSaysWhereToApprove() {
         let t = ChatTurn.turns(of: session([(.user, "restart plex"), (.assistant, "This restarts Plex.")], pending: true))
-        XCTAssertEqual(t.last?.a, "This restarts Plex.\n\nApprove or decline this on your iPhone.")
+        XCTAssertEqual(t.last?.a, "This restarts Plex.\n\nApprove this on your iPhone.")
     }
 
     func testLocalDayTurnsOverAtLocalMidnight() {
@@ -110,7 +110,7 @@ final class KeepAwakeTests: XCTestCase {
         XCTAssertLessThan(t.calls.count, 50)
         t.responses = [(200, sessionJSON([("user", "restart plex", "2026-11-05T05:00:01Z"), ("assistant", "This restarts Plex.", nil)], working: false, pending: true))]
         let turn = await HubClient(transport: t).lateAnswer(to: "restart plex", session: "s", askedAt: asked, approveOn: "the app")
-        XCTAssertEqual(turn?.a, "This restarts Plex.\n\nApprove or decline this on the app.")
+        XCTAssertEqual(turn?.a, "This restarts Plex.\n\nApprove this on the app.")
     }
 }
 

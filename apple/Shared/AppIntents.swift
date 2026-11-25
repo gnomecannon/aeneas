@@ -97,7 +97,7 @@ enum SiriAsk {
                 // A reply slower than the request's limit, or held up while iOS suspended the app, is still finished
                 // by the hub: past 45 s it is also read from the chat there, whichever comes first.
                 switch try await c.chatOrLate(req, approveOn: "the app") {
-                case .reply(let r): return .init(reply: r.pending_action != nil ? r.reply + "\n\nApprove or decline this in the app." : r.reply)
+                case .reply(let r): return .init(reply: r.pending_action != nil ? r.reply + "\n\nApprove this in the app." : r.reply)
                 case .late(let t): return .init(reply: t.a)
                 }
             } catch {

@@ -3,7 +3,8 @@
  * Run: npx tsx scripts/mock-hub.ts   (listens on 8787, token "dev")
  * Implements: /health, /devices/register, /sync/changes, /sync/push, /live, /entities/:id,
  * /capture, /capture/:id/convert, /reminders/:id/snooze|ack, /reminders/due, /search, /dashboard, /log,
- * /ai/memory, /ai/chat, /ai/chat/stream, /status, /metrics/proof,
+ * /ai/memory, /ai/chat, /ai/chat/stream, /ai/sessions, /ai/sessions/:id ("restart" or "destroy" in a message leaves a host
+ * command waiting for approval), /status, /metrics/proof,
  * /planner/week, /planner/schedule (409 on overlap unless force), /planner/unschedule, /planner/today (with a digest),
  * /watches/:id/renewed, and the `watch` and `plan_rule` kinds (a watch write links its Renew reminder, as the hub does).
  * Module 2: /hosts, /runbooks, /snippets/:id/render, /ai/sessions/:id/close, /ledgers, the `journal` and `snippet` kinds,
@@ -95,6 +96,30 @@ let seq = 0;
 const liveClients = new Set<http.ServerResponse>();
 const STARTED_AT = new Date().toISOString();
 const aiCalls: Array<{ at: string; backend: string; ms: number }> = [];
+/**
+ * Chats kept here as the hub keeps them (GET /ai/sessions, GET and DELETE /ai/sessions/:id), so a host command can wait
+ * for approval across reloads. A message asking to restart or reboot something gets a command to approve; one asking
+ * to destroy, delete or wipe something gets a high risk one with its pre-flight. `approve_action_id` (the card's
+ * slide) or a plain yes runs it; any other reply sets it aside, as the hub does since 2026-11-24.
+ */
+type MockAction = { id: string; host: string; command: string; purpose: string; risk: "medium" | "high"; preflight?: { backup: string; verify: string; rollback: string } };
+type MockChat = { session_id: string; title: string; task_type: string; created_at: string; last_at: string; messages: Array<Record<string, unknown>>; pending_action: MockAction | null };
+const chats = new Map<string, MockChat>();
+const PLAIN_YES = /^\s*(yes|y|yep|yeah|ok|okay|sure|go|go ahead|do it|run it)[\s.!]*$/i;
+function proposeCommand(text: string): MockAction | null {
+  if (/\b(destroy|delete|wipe)\b/i.test(text)) {
+    return {
+      id: randomUUID(), host: "nas01", command: "zfs destroy -r tank/scratch", purpose: "remove the stale scratch dataset", risk: "high",
+      preflight: {
+        backup: "Back up: `zfs snapshot <dataset>@pre-destroy` and send it off the pool.",
+        verify: "Verify: `zfs list -r -t all <dataset>`; check for children, clones and holds.",
+        rollback: "Rollback: receive the sent snapshot back. A destroyed dataset is gone from the pool.",
+      },
+    };
+  }
+  if (/\b(restart|reboot)\b/i.test(text)) return { id: randomUUID(), host: "server", command: "sudo systemctl restart jellyfin", purpose: "restart Jellyfin so it reads the new library path", risk: "medium" };
+  return null;
+}
 const closedTopics = new Map<string, string>(); // session id -> topic, so a second close hits the same runbook section
 const lastSessionClose = new Map<string, string>(); // project id -> ISO of the last session close with that project
 
@@ -1665,13 +1690,60 @@ const server = http.createServer(async (req, res) => {
       const rules = [...entities.values()].filter((e) => live(e) && e.kind === "rule" && e.fields.active !== false);
       return json(res, 200, { facts, rules });
     }
+    if (path === "/ai/sessions" && req.method === "GET") {
+      const list = [...chats.values()].sort((a, b) => b.last_at.localeCompare(a.last_at)).map((c) => ({
+        session_id: c.session_id, title: c.title, task_type: c.task_type, created_at: c.created_at, last_at: c.last_at,
+        message_count: c.messages.length, preview: String(c.messages[c.messages.length - 1]?.content ?? "").slice(0, 80),
+      }));
+      return json(res, 200, { sessions: list.slice(0, Number(url.searchParams.get("limit") ?? 100) || 100) });
+    }
+    if (path === "/ai/sessions" && req.method === "DELETE") {
+      const n = chats.size;
+      chats.clear();
+      return json(res, 200, { ok: true, sessions: n, images: 0 });
+    }
+    const chatAt = /^\/ai\/sessions\/([^/]+)$/.exec(path);
+    if (chatAt && (req.method === "GET" || req.method === "DELETE")) {
+      const sid = decodeURIComponent(chatAt[1]);
+      const c = chats.get(sid);
+      if (!c) return json(res, 404, { error: "no such session" });
+      if (req.method === "DELETE") { chats.delete(sid); return json(res, 200, { ok: true }); }
+      return json(res, 200, { ...c, summary: null, summary_upto: 0, working: null });
+    }
     if (path === "/ai/chat" || path === "/ai/chat/stream") {
       const b = await readBody(req);
-      const last = b.messages?.[b.messages.length - 1]?.content ?? "";
+      // The apps send one `message`; older callers sent the whole `messages` list.
+      const last: string = typeof b.message === "string" ? b.message : b.messages?.[b.messages.length - 1]?.content ?? "";
       let reply = `Mock reply to: ${last}\n\n- backend is a stub\n- nothing was sent anywhere\n\n\`\`\`\necho ok\n\`\`\``;
       let ledger_id: string | undefined;
       let procedure_id: string | undefined;
-      if (b.task_type === "troubleshoot") {
+      let pending_action: MockAction | undefined;
+      let ran = false;
+      const sid = typeof b.session_id === "string" ? b.session_id : "";
+      let chat = sid ? chats.get(sid) : undefined;
+      if (sid && !chat) {
+        chat = { session_id: sid, title: (last || "New chat").slice(0, 60), task_type: b.task_type ?? "auto", created_at: now(), last_at: now(), messages: [], pending_action: null };
+        chats.set(sid, chat);
+      }
+      const waiting = chat?.pending_action ?? null;
+      if (chat && waiting && (b.approve_action_id === waiting.id || (!b.approve_action_id && PLAIN_YES.test(last)))) {
+        // Approved: by the card (approve_action_id) or by a plain yes typed in the chat.
+        chat.pending_action = null;
+        chat.messages.push({ role: "user", content: b.approve_action_id ? "Yes, run it." : last, at: now(), approval: { action_id: waiting.id, host: waiting.host, command: waiting.command, status: "done", exit_code: 0 } });
+        reply = `Ran \`${waiting.command}\` on ${waiting.host}. It finished with exit code 0.`;
+        ran = true;
+      } else if (chat) {
+        // Any other reply sets a waiting command aside.
+        chat.pending_action = null;
+        if (last) chat.messages.push({ role: "user", content: last, at: now() });
+        const proposed = proposeCommand(last);
+        if (proposed) {
+          chat.pending_action = proposed;
+          pending_action = proposed;
+          reply = `I can ${proposed.purpose} on ${proposed.host} with this command. It waits for your approval.`;
+        }
+      }
+      if (b.task_type === "troubleshoot" && !pending_action && !ran) {
         // The hub inserts a Pre-flight block before a destructive command and records a planned journal entry.
         const text = (b.messages ?? []).map((m: { content: string }) => m.content).join("\n");
         const host = detectHost(text, deriveHosts(allLive()).map((h) => h.host)) ?? "nas01";
@@ -1685,9 +1757,16 @@ const server = http.createServer(async (req, res) => {
         patchFields(l, { tried: [...(l.fields.tried as unknown[]), { at: now(), what: last.slice(0, 80), result: "mock" }], ruled_out: [...(l.fields.ruled_out as string[]), "restarting it"] });
         ledger_id = l.id;
       }
-      const out = { reply, model: "mock", backend: "ollama", redactions: /password|token/i.test(last) ? 1 : 0, rules_applied: [], ledger_id, procedure_id };
+      const out = { reply, model: "mock", backend: "ollama", redactions: /password|token/i.test(last) ? 1 : 0, rules_applied: [], ledger_id, procedure_id, ...(pending_action ? { pending_action } : {}) };
       aiCalls.push({ at: now(), backend: "ollama", ms: 40 * reply.split(/\s/).length });
-      if (path === "/ai/chat") return json(res, 200, out);
+      /** The reply goes into the chat when it is done, as the hub stores it. */
+      const keep = () => {
+        if (!chat) return;
+        const a = pending_action;
+        chat.messages.push({ role: "assistant", content: reply, at: now(), model: "mock", backend: "ollama", ...(a ? { approval: { action_id: a.id, host: a.host, command: a.command, status: "pending" } } : {}) });
+        chat.last_at = now();
+      };
+      if (path === "/ai/chat") { keep(); return json(res, 200, out); }
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", ...cors() });
       const words = reply.split(/(?<=\s)/);
       let i = 0;
@@ -1695,6 +1774,8 @@ const server = http.createServer(async (req, res) => {
         if (i < words.length) res.write(`event: token\ndata: ${JSON.stringify({ token: words[i++] })}\n\n`);
         else {
           clearInterval(t);
+          if (pending_action) res.write(`event: approval\ndata: ${JSON.stringify({ type: "approval", action: pending_action })}\n\n`);
+          keep();
           res.write(`event: done\ndata: ${JSON.stringify(out)}\n\n`);
           res.end();
         }

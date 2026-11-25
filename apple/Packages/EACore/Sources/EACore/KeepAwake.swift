@@ -53,7 +53,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
             }
         }
         if s.pending_action != nil, var last = out.popLast() {
-            last.a += "\n\nApprove or decline this on \(approveOn)."
+            last.a += "\n\nApprove this on \(approveOn)."
             out.append(last)
         }
         return out
@@ -81,7 +81,7 @@ public extension HubClient {
                 guard let i = s.messages.indices.first(where: { $0 > u && s.messages[$0].role == .assistant && !s.messages[$0].content.isEmpty })
                 else { return nil }
                 var answer = s.messages[i].content
-                if s.pending_action != nil { answer += "\n\nApprove or decline this on \(approveOn)." }
+                if s.pending_action != nil { answer += "\n\nApprove this on \(approveOn)." }
                 return ChatTurn(id: "\(s.session_id):\(i)", q: q, a: answer, mail: s.messages[i].mail_proposal)
             }
             guard Date() < until, !Task.isCancelled else { return nil }

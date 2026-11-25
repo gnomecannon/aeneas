@@ -24,6 +24,7 @@ import { currentLedger } from "../lib/ledger";
 import { chatsGone } from "../lib/chats";
 import { ASSISTANT_DRAFT_KEY } from "../lib/reference";
 import { useMediaQuery } from "../lib/useMediaQuery";
+import { SlideToRun } from "../components/SlideToRun";
 
 type ChatMeta = { reply: string; model: string; backend: string; redactions: number; rules_applied: string[]; procedure_id?: string; mode?: string; actions?: { tool: string; ok: boolean; writes: boolean }[]; pending_action?: PendingAction; images?: string[] };
 
@@ -164,8 +165,11 @@ function MailProposalCard({ p }: { p: ChatMailProposal }) {
   );
 }
 
-/** A host command waiting for approval, with the pre-flight when it is destructive. */
-function ApprovalCard({ action, busy, onRun, onCancel }: { action: PendingAction; busy: boolean; onRun: () => void; onCancel: () => void }) {
+/**
+ * A host command waiting for approval, with the pre-flight when it is destructive. Sliding the knob up runs it; there
+ * is no Cancel: any other reply typed in the chat skips it (the hub sets the waiting command aside).
+ */
+function ApprovalCard({ action, busy, onRun }: { action: PendingAction; busy: boolean; onRun: () => void | Promise<unknown> }) {
   return (
     <div className={`card col approval${action.risk === "high" ? " danger" : ""}`} role="group" aria-label="Command waiting for approval">
       <div className="small muted">Waiting for your approval{action.host ? ` on ${action.host}` : ""}{action.purpose ? `: ${action.purpose}` : ""}</div>
@@ -177,10 +181,7 @@ function ApprovalCard({ action, busy, onRun, onCancel }: { action: PendingAction
           <div>{action.preflight.rollback}</div>
         </div>
       )}
-      <div className="row">
-        <button className="primary" disabled={busy} onClick={onRun}>Run it</button>
-        <button disabled={busy} onClick={onCancel}>Cancel</button>
-      </div>
+      <SlideToRun onRun={onRun} running={busy} danger={action.risk === "high"} />
     </div>
   );
 }
@@ -641,15 +642,12 @@ export function Assistant({ id }: { id?: string }) {
     const imgs = images;
     setInput("");
     setImages([]);
+    // A command waiting for approval goes with it (run clears `pending` first): a typed reply that is not a plain yes
+    // is how it is skipped, and the hub sets it aside; a yes runs it there. The reply's turn shows whatever waits next.
     await run({ message: text, ...(imgs.length ? { images: imgs } : {}) }, { role: "user", content: text, at: new Date().toISOString() }, spoken);
   };
 
   const approve = (a: PendingAction) => run({ approve_action_id: a.id }, { role: "user", content: "Yes, run it.", at: new Date().toISOString(), approval: { action_id: a.id, host: a.host, command: a.command, status: "running" } });
-  const decline = async (a: PendingAction) => {
-    try { await engine.client?.cancelAction(a.id); } catch (e) { setErr(plainError(e)); }
-    setPending(null);
-    if (session) void load(session.id);
-  };
 
   // A chat can have several ledgers (one closes when it worked, a new one opens if it breaks again): the open one, else
   // the newest. The first by id could be a closed one, and edits to it missed the ledger the hub was using.
@@ -813,7 +811,7 @@ export function Assistant({ id }: { id?: string }) {
             )}
             {busy && <Working status={toolStatus || (partial ? "Writing" : "Thinking")} since={busySince} />}
             {!busy && remote && <Working status={remote.status || (remote.tool ? toolLabel(remote.tool) : "Thinking")} since={Date.parse(remote.since)} />}
-            {pending && !busy && <ApprovalCard action={pending} busy={busy} onRun={() => void approve(pending)} onCancel={() => void decline(pending)} />}
+            {pending && !busy && <ApprovalCard key={pending.id} action={pending} busy={busy} onRun={() => approve(pending)} />}
             {err && <div className="error">{err}</div>}
             {images.length > 0 && (
               <div className="row wrap">

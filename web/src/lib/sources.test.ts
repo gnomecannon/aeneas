@@ -35,7 +35,9 @@ describe("tasks of a Reminders list that is switched off", () => {
   it("stay out of the offline Today and week", async () => {
     keepSources({ lists: [SHOP, TODO] } as never);
     const now = new Date();
-    const soon = new Date(now.getTime() + 30 * 60_000).toISOString();
+    // Noon today: "in 30 minutes" fell on tomorrow when the tests ran after 11:30 PM.
+    const noon = new Date(now); noon.setHours(12, 0, 0, 0);
+    const soon = noon.toISOString();
     await db.entities.bulkPut([
       task("t1", { title: "Oat milk", status: "scheduled", remind_at: soon, apple: { id: "a1", list: "L", list_key: SHOP.key, list_title: "Shopping" } }),
       task("t3", { title: "Call the plumber", status: "scheduled", remind_at: soon, apple: { id: "a3", list: "L", list_key: TODO.key, list_title: "To do" } }),

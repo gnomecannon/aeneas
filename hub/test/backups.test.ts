@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeHub } from "./helpers.js";
-import { backupChecker, backupCommand, backupHours, backupJobNames, backupOutcome, DEFAULT_BACKUP_JOBS, machineOutcome, parseBackupOutput, parseBackupTarget, parseJobOutput, type SshRunner } from "../src/backups.js";
+import { backupChecker, backupCommand, backupWhere, backupHours, backupJobNames, backupOutcome, DEFAULT_BACKUP_JOBS, machineOutcome, parseBackupOutput, parseBackupTarget, parseJobOutput, type SshRunner } from "../src/backups.js";
 import { mergeBackupMonitors, runCheck } from "../src/monitors.js";
 import { loadConfig } from "../src/config.js";
 
@@ -141,7 +141,8 @@ test("backups: a Mac run that ended in errors is down with kopia's summary and t
   assert.equal(r.installed, true);
   const o = backupOutcome("backup", r, 28, NOW);
   assert.equal(o.ok, false);
-  assert.match(o.error!, /^backup at Oct 29, 4:00 AM failed: Found 44 fatal error\(s\) while snapshotting .* \(exit 30\); last good backup Oct 28, 4:07 AM \(33 h ago\)/);
+  // The run's first specific error follows the summary: it names the file or folder.
+  assert.match(o.error!, /^backup at Oct 29, 4:00 AM failed: Found 44 fatal error\(s\) while snapshotting .* \(exit 30\); first error: Error when processing "cache\/app-data\/history_1\.sqlite": unable to get result; last good backup Oct 28, 4:07 AM \(33 h ago\)/);
   assert.equal(o.detail, "last good backup Oct 28, 4:07 AM (33 h ago)");
   assert.deepEqual({ ...o.state, error: undefined }, { job: "backup", state: "failed", max_hours: 28, last_good: "2026-10-28T08:07:35.000Z", last_run: "2026-10-29T08:00:05.000Z", error: undefined });
 
@@ -165,6 +166,37 @@ test("backups: Desk-PC's completed status is up; a failed status names the faili
   const o = backupOutcome("backup", parseJobOutput("windows", "backup", failed), 28, NOW);
   assert.equal(o.ok, false);
   assert.match(o.error!, /^backup at Oct 29, 4:18 AM failed: 1 source failed: D:\\Projects \(exit 1\); last good backup Oct 28, 4:19 AM/);
+});
+
+test("backups: a failed Windows run names the failing source and kopia's first error, not the wrapper's generic words", () => {
+  // A Windows machine, 2026-11-24: the alert said only "Backup incomplete: 1 failed sources ... See backup-status.json and
+  // backup.log", and the assistant spent four replies looking for those files instead of at the folder.
+  const failed = WIN_OK.replace('"state":  "complete"', '"state":  "failed"').replace('"success":  true', '"success":  false')
+    .replace('"success": true, "exitCode": 0', '"success": false, "exitCode": 1').replace("@@task Ready 0", "@@task Ready 1")
+    .replace('"error":  null', '"error":  "Backup incomplete: 1 failed sources; 0 missing required project markers. See backup-status.json and backup.log."')
+    .replace("[2026-10-29T08:18:05Z] Desk-PC backup completed\n", [
+      "[2026-10-29T08:16:36Z] Source starting: D:\\Projects",
+      "Snapshotting robin@desk:D:\\Projects ...",
+      'Error when processing "viewer/node_modules": unknown or unsupported entry type',
+      "Found 1 fatal error(s) while snapshotting robin@desk:D:\\Projects.",
+      "[2026-10-29T08:18:05Z] Desk-PC backup FAILED: Backup incomplete: 1 failed sources; 0 missing required project markers. See backup-status.json and backup.log.",
+      "",
+    ].join("\n"));
+  const o = backupOutcome("backup", parseJobOutput("windows", "backup", failed), 28, NOW);
+  assert.equal(o.ok, false);
+  assert.equal(o.error, 'backup at Oct 29, 4:18 AM failed: 1 source failed: D:\\Projects (exit 1); first error: Error when processing "viewer/node_modules": unknown or unsupported entry type; last good backup Oct 28, 4:19 AM (33 h ago)');
+  // Without the status file, the log's closing line still carries the first error.
+  const logOnly = failed.replace(/@@status[\s\S]*?@@log/, "@@log");
+  assert.match(backupOutcome("backup", parseJobOutput("windows", "backup", logOnly), 28, NOW).error!, /failed: Backup incomplete: 1 failed sources.* \(exit 1\); first error: Error when processing "viewer\/node_modules"/);
+});
+
+test("backups: the assistant is told what each check reads on the machine", () => {
+  const w = backupWhere(parseBackupTarget("windows:robin@desk"));
+  assert.match(w, /scheduled task "Project Backup Snapshot"/);
+  assert.match(w, /%LOCALAPPDATA%\\ProjectBackup\\backup-status\.json/);
+  assert.match(w, /%LOCALAPPDATA%\\ProjectBackup\\Logs\\backup\.log/);
+  assert.match(backupWhere(parseBackupTarget("mac:robin@laptop")), /launchd job "local\.projectbackup\.snapshot".*ProjectBackup\/logs\/backup\.log/);
+  assert.match(backupWhere(parseBackupTarget("linux:root@nas#restore")), /systemd unit "project-backup-restore-test\.service".*journalctl -u/);
 });
 
 test("backups: a Windows run in progress is not a failure; one stopped before it finished is", () => {

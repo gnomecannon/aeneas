@@ -1540,10 +1540,6 @@ export class HubClient {
     return this.req<{ ok: true; sessions: number; images: number }>("DELETE", "/ai/sessions", { confirm: "wipe all chats" });
   }
 
-  cancelAction(id: string) {
-    return this.req<{ id: string; status: string }>("POST", `/ai/actions/${encodeURIComponent(id)}/cancel`, {});
-  }
-
   /** What an item links to, what links to it, and people by name (GET /entities/:id/related). */
   async related(id: string) { return (await this.req<{ items: RelatedItem[] }>("GET", `/entities/${encodeURIComponent(id)}/related`)).items; }
 

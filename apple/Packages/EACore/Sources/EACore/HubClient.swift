@@ -453,7 +453,6 @@ public final class HubClient: Sendable {
     public func deleteAISession(_ id: String) async throws { _ = try await send("DELETE", "ai/sessions/\(id)") }
     /// Erase every chat on the hub (images, command output and ledgers included).
     public func wipeAISessions() async throws { _ = try await send("DELETE", "ai/sessions", body: Data(#"{"confirm":"wipe all chats"}"#.utf8)) }
-    public func cancelAction(_ id: String) async throws { _ = try await send("POST", "ai/actions/\(id)/cancel", body: Data("{}".utf8)) }
     /// Raw bytes of an image stored with a chat.
     public func aiImage(_ id: String) async throws -> Data { try await send("GET", "ai/images/\(id)") }
 

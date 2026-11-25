@@ -22,7 +22,7 @@ import { ensureRunbook, factKey, hostFacts, upsertSection } from "../memory.js";
 import { readMachineInfoFile } from "../machineinfo.js";
 import { detectDestructive } from "../preflight.js";
 import { openLedger } from "./ledger.js";
-import { AFFIRMATION, isReadOnly, type HostActions } from "./hosts.js";
+import { AFFIRMATION, isReadOnly, windowsReadBlocker, type HostActions } from "./hosts.js";
 import { trimMiddle } from "./history.js";
 import { NO_TOR, fetchPage, webPrivate, webSearch } from "./web.js";
 import { cleanTag } from "../note-linker.js";
@@ -68,7 +68,11 @@ export function approvalOf(a: { id: string; host: string; command: string; purpo
  * One turn of a chat, shared by every model tried for it: when the owner's message arrived, the changes proposed in
  * this turn, and the commands approved and run in it (by the Run button or approve_command).
  */
-export interface TurnState { startedAt: string; proposed: Set<string>; ran: string[] }
+/** `returned`: Windows reads handed back once this reply to be written plainly (the same command again waits). */
+export interface TurnState { startedAt: string; proposed: Set<string>; ran: string[]; returned?: Set<string> }
+
+/** How to write a Windows read so it runs at once, for a read handed back (windowsReadBlocker). */
+const READ_PLAINLY = "Write it again as cmdlets joined by pipes and run it now, for example: Get-ScheduledTask -TaskName 'Name' | Get-ScheduledTaskInfo | Format-List; Get-ScheduledTask -TaskName 'Name' | Select-Object -ExpandProperty Actions | Format-List; Get-Content \"$env:LOCALAPPDATA\\Folder\\file.log\" -Tail 80; Get-Item \"C:\\path\" -Force | Select-Object FullName, LinkType, Target | Format-List. Use paths like \"$env:LOCALAPPDATA\\...\" in double quotes instead of Join-Path, separate reads with ; or new lines instead of ( ), and no variables. If it really needs {{owner}}'s approval, send exactly the same command again and it waits for them.";
 
 const fallbackTurns = new WeakMap<object, TurnState>();
 /** The turn a tool call belongs to; a caller that gives none (a test) gets one that starts at its first call. */
@@ -1523,9 +1527,17 @@ export const TOOLS: ToolDef[] = [
         const r = await ctx.hosts.runRead(ctx.sessionId, host, command, purpose);
         return { host: host.name, exit_code: r.exit_code, timed_out: r.timed_out || undefined, output: r.output || "(no output)", ...(unwrapped ? { note: "Ran as the PowerShell inside powershell -Command: Windows hosts run commands in PowerShell already, so leave that out." } : {}) };
       }
+      const turn = turnOf(ctx);
+      // A Windows read the hub cannot confirm only reads goes back once, with the reason and plain forms that run at
+      // once, instead of waiting: a held read ended the reply before anything was looked at (an evaluation on
+      // 2026-11-25 held the first read in every run). Sent again unchanged, it waits for approval as before.
+      const blocker = host.os === "windows" ? windowsReadBlocker(command) : null;
+      if (blocker && !turn.returned?.has(command)) {
+        (turn.returned ??= new Set()).add(command);
+        return { status: "not_run", host: host.name, reason: `Not run and not held: the hub runs a read at once only when it can tell it only reads, and ${blocker}.`, instruction: READ_PLAINLY };
+      }
       // One approval runs one change: a new one proposed in the same reply would have its card come with the result,
       // and an "ok" to that result would approve it unseen. It is proposed in a later reply.
-      const turn = turnOf(ctx);
       if (turn.ran.length) return { error: "a change already ran in this reply: tell {{owner}} its result first; propose the next change in a later reply, after they answer" };
       // One held command per reply: another would replace the card {{owner}} is already shown.
       if (turn.proposed.size) return { error: "a command already waits for {{owner}}'s yes in this reply, and it has not run, so there is no output from it. Nothing else is proposed until they answer. Answer now from the output of the commands that ran." };
@@ -1755,7 +1767,7 @@ export function toolGuide(on: ModuleCheck = () => true, opts: { voiceModel?: boo
     "Memory: when {{owner}} tells you something lasting about themself, their gear, their hosts or their preferences, save it with remember without being asked, then confirm in a few words what you saved; do not start a conversation about it. In troubleshooting, record each result with ledger_update and never suggest anything listed as ruled out." + (on("homelab") ? " When a troubleshooting fix works, or {{owner}} tells you how a host is set up, write it with runbook_note; never for something you only looked up to answer a question. {{owner}} calls these fix notes (on each machine's page under Tech), so say fix notes, not runbook. When {{owner}} says they changed something on a machine themself, write it with journal_entry: it shows in that machine's History." : ""),
     on("web") && has("web_search") && "Facts you do not know: search the web (web_search, then read_web_page on the best result) instead of answering from memory when it is about versions, releases, docs, prices, news, or anything you are unsure of. Name the source. If you still do not know, say so.",
     on("homelab") && has("run_command") && "People {{owner}} helps: their computers are machines too (helping lists them, with the passwords they saved for {{owner}}); when {{owner}} asks about someone's computer or phone, start with helping.",
-    on("homelab") && has("run_command") && "Machines: you can run commands on {{owner}}'s hosts with run_command (list_hosts names them). Check before advising: look at status, logs and config yourself rather than asking them to paste it. Read-only commands run at once. A change waits for their approval: show the exact command and why, then stop. When their next message says yes, call approve_command. Changes go into that machine's History automatically; a command that needs approval but only reads, counts or lists gets lookup=true, so it stays out.",
+    on("homelab") && has("run_command") && "Machines: you can run commands on {{owner}}'s hosts with run_command (list_hosts names them). Check before advising: look at status, logs and config yourself rather than asking them to paste it. Read-only commands run at once: run them yourself, as many as the question needs, and never ask first or describe one as waiting. A change waits for their approval: propose it with run_command, say in a sentence or two what it changes and why, then stop. They approve it in the app with one gesture, and a plain yes typed back runs it too; any other reply sets it aside. Asking for a yes in words without proposing the command gives them nothing to approve. Changes go into that machine's History automatically; a command that needs approval but only reads, counts or lists gets lookup=true, so it stays out.",
     "The hub's own software: when {{owner}} asks about updates or to update the hub (you, the app's server), use update_hub. The apps on their devices (the Windows, Android, iPhone, Mac and Watch apps): update_apps, which also says which version each one runs.",
     "Images {{owner}} sends are attached to their message; read them directly (screenshots, error dialogs, photos of hardware or wiring).",
     on("wiki") && "Project wiki (the repository docs and Confluence spaces {{owner}} mirrored to the hub): for anything about those projects, wiki_search with one to three key words, then wiki_page on the best hits. Answer from the pages and name them.",

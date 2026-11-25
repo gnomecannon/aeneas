@@ -563,9 +563,11 @@ const WIN_SAFE_ENV = /^(PATH|PATHEXT|COMPUTERNAME|USERNAME|USERDOMAIN|USERPROFIL
 
 /** A Windows read that shows the environment (Get-ChildItem Env:, $env:GITHUB_TOKEN) or saved Wi-Fi keys (key=clear). */
 function windowsShowsSecrets(c: string): boolean {
-  for (const m of c.matchAll(/env:\s*([^\s;|&'"`$)}\],]*)/gi)) {
-    const name = m[1].replace(/^[\\/]/, "");
-    if (!name || !WIN_SAFE_ENV.test(name)) return true;
+  // The name ends where PowerShell ends it: "$env:LOCALAPPDATA\ProjectBackup\x.log" names LOCALAPPDATA and a path
+  // under it (read as a variable named "LOCALAPPDATA\ProjectBackup\x.log", every such path waited for approval,
+  // 2026-11-25). A wildcard after the name (Env:\PATH*) reaches other variables, and no name at all lists them all.
+  for (const m of c.matchAll(/env:\s*[\\/]?([A-Za-z0-9_]*)([*?[]?)/gi)) {
+    if (!m[1] || m[2] || !WIN_SAFE_ENV.test(m[1])) return true;
   }
   return /\[\s*(System\.)?Environment\s*\]/i.test(c) || /key\s*=\s*clear/i.test(c);
 }
@@ -1199,6 +1201,32 @@ function segmentReads(seg: string, cwdMoved: boolean): boolean {
 }
 
 /** True when every part of the command only reads. Anything unknown counts as a change. */
+/**
+ * Windows commands and cmdlet verbs that change something, where a command starts (tested on the text outside quotes),
+ * for telling a read the model wrote awkwardly from a change.
+ */
+const WIN_CHANGES = /(?:^|[\s;|&({])(?:(?:Set|Remove|New|Add|Clear|Copy|Move|Rename|Stop|Start|Restart|Suspend|Resume|Enable|Disable|Register|Unregister|Install|Uninstall|Update|Invoke|Export|Import|Send|Reset|Repair|Mount|Dismount|Initialize|Lock|Unlock|Grant|Revoke|Block|Unblock|Protect|Unprotect|Save|Restore|Backup|Out|Tee)-\w|Write-(?!(?:Output|Host|Verbose|Information|Debug|Warning)\b)\w|Format-Volume\b|(?:del|erase|rd|rmdir|md|mkdir|ren|move|copy|xcopy|robocopy|reg|net|schtasks|icacls|takeown|attrib|shutdown|taskkill|bcdedit|diskpart|format|msiexec|winget|choco|kopia|powershell|pwsh|wsl|sc)(?:\.exe)?(?=$|[\s;|&)]))|\.(?:Delete|Kill|Remove|Stop|Start|Set\w*|Write\w*|Create\w*|Move\w*|Copy\w*|Invoke\w*)\s*\(|::\w+\s*\(/i;
+
+/**
+ * Why a Windows command that only looks at things still waits for approval, in words the model can act on, or null when
+ * it reads as a change (or names a secret), so it should wait. On 2026-11-25 an evaluation of a failed backup held
+ * the model's first read in every run, for ( ) around a cmdlet, and the reply ended there without looking at anything.
+ */
+export function windowsReadBlocker(command: string): string | null {
+  const c = command.trim();
+  if (!c || isReadOnly(c, "windows") || WIN_CHANGES.test(unquoted(c)) || touchesSecrets(c) || windowsShowsSecrets(c)) return null;
+  const cw = withoutCalcColumns(c);
+  if (lex(cw).redirect) return null;
+  if (/[`]|\$\(/.test(c)) return "it uses $( ) or a backtick";
+  if (/[(){}]/.test(unquoted(cw.replace(PS_FILTER_BLOCK, " ")))) return "it puts a command in ( ), or uses ForEach-Object or another { } block (only filters such as Where-Object { $_.Name -match 'x' } are fine)";
+  for (const seg of lex(cw).segments) {
+    const w0 = (words(seg.replace(/^&\s*/, ""))[0] ?? "").replace(/\.exe$/i, "");
+    if (/^\$/.test(w0)) return "it sets or uses a variable";
+    if (!PS_READ_VERBS.test(w0) && !WIN_READ_CMDS.has(w0.toLowerCase())) return `\`${w0}\` is not a command the hub knows only reads`;
+  }
+  return "the hub could not tell that it only reads";
+}
+
 export function isReadOnly(command: string, hostOs: HostOs): boolean {
   const c = command.trim();
   if (!c || c.length > 2000) return false;
@@ -1265,6 +1293,26 @@ export interface RunResult { exit_code: number | null; output: string; timed_out
 
 const OUT_HEAD = 2000;
 const OUT_TAIL = 6000;
+
+const XML_ENTITIES: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
+
+/**
+ * PowerShell over ssh writes its error stream as CLIXML: `#< CLIXML` and then `<Objs ...><S S="Error">...</S></Objs>`,
+ * with line breaks as `_x000D__x000A_`. The model read that raw XML for every failed Windows command; this keeps the
+ * messages as PowerShell prints them. A block cut short (no `</Objs>`) is left as it is.
+ */
+export function plainClixml(text: string): string {
+  if (!text.includes("#< CLIXML")) return text;
+  const decode = (s: string) => s
+    .replace(/&(lt|gt|amp|quot|apos);/g, (_m, e: string) => XML_ENTITIES[e])
+    .replace(/&#x([0-9a-f]+);/gi, (_m, h: string) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/_x([0-9a-f]{4})_/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/\r\n?/g, "\n");
+  return text
+    .replace(/#< CLIXML[ \t]*\n?\s*(<Objs\b[\s\S]*?<\/Objs>)/g, (_m, xml: string) =>
+      [...xml.matchAll(/<S S="[A-Za-z]+">([\s\S]*?)<\/S>/g)].map((p) => decode(p[1])).join("").replace(/\s+$/, ""))
+    .replace(/#< CLIXML[ \t]*\n?/g, "");
+}
 
 export function capOutput(text: string): string {
   if (text.length <= OUT_HEAD + OUT_TAIL) return text;
@@ -1374,7 +1422,7 @@ export const spawnRunner: Runner = (host, command, timeoutS) => new Promise((res
     else { try { spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => {}); } catch { /* no taskkill */ } }
     try { child.kill("SIGKILL"); } catch { /* already gone */ }
   };
-  const result = (code: number | null) => ({ exit_code: code, output: capOutput(out.replace(/\r\n/g, "\n")), timed_out: timedOut });
+  const result = (code: number | null) => ({ exit_code: code, output: capOutput(plainClixml(out.replace(/\r\n/g, "\n"))), timed_out: timedOut });
   const timer = setTimeout(() => { timedOut = true; killAll(); grace = setTimeout(() => finish(result(null)), 2000); }, timeoutS * 1000);
   child.on("error", (e) => finish({ exit_code: null, output: `could not start ${file}: ${e.message}`, timed_out: false }));
   child.on("exit", (code) => { clearTimeout(grace); grace = setTimeout(() => finish(result(code)), 500); });
@@ -1399,8 +1447,11 @@ export interface SetupRequest { address: string; user: string; secret: string; n
 export const ACTION_TTL_MS = 60 * 60 * 1000;
 /** How long an approved change may run (an upgrade or a backup takes minutes); reads stop at EA_COMMAND_TIMEOUT_S. */
 export const CHANGE_TIMEOUT_S = 600;
-/** A short reply that approves the pending command. */
-export const AFFIRMATION = /^\s*(y|yes|yep|yeah|yup|ok|okay|sure|do it|go ahead|go for it|run it|approve[d]?|confirm(ed)?|proceed|go|please do|send it|yes please|yes,? (run|do) it)[\s.!]*$/i;
+/**
+ * A short reply that approves the pending command. A thumbs up counts: on 2026-11-24 a 👍 to a proposed step got
+ * nothing done and needed a typed "Approve".
+ */
+export const AFFIRMATION = /^\s*(y|yes|yep|yeah|yup|ok|okay|sure|do it|do that|fix it|go ahead|go for it|go on|run it|run that|approve[d]?|approve it|confirm(ed)?|proceed|continue|go|please do|send it|yes please|yes,? (run|do) it|let'?s do it|sounds good|\u{1F44D}[\u{1F3FB}-\u{1F3FF}]?\uFE0F?|\u2705|\u{1F44C}[\u{1F3FB}-\u{1F3FF}]?\uFE0F?)[\s.!]*$/iu;
 
 export class HostActions {
   runner: Runner = spawnRunner;
@@ -1431,13 +1482,18 @@ export class HostActions {
     return (this.db.prepare("SELECT * FROM ai_actions WHERE id = ?").get(id) as ActionRow | undefined) ?? null;
   }
 
-  /** Changes run for a session that finished without an error, oldest first. */
   /** Journal entries the hub wrote for commands it ran in a chat (the exact command, its outcome and rollback). */
   journalIds(sessionId: string): Set<string> {
     const rows = this.db.prepare("SELECT journal_id FROM ai_actions WHERE session_id = ? AND journal_id IS NOT NULL").all(sessionId) as { journal_id: string }[];
     return new Set(rows.map((r) => r.journal_id));
   }
 
+  /** Commands that ran in a session after `from` (exclusive) up to `to` (inclusive), in the order they ran. */
+  ranBetween(sessionId: string, from: string, to: string): ActionRow[] {
+    return this.db.prepare("SELECT * FROM ai_actions WHERE session_id = ? AND ran_at IS NOT NULL AND ran_at > ? AND ran_at <= ? ORDER BY ran_at").all(sessionId, from, to) as ActionRow[];
+  }
+
+  /** Changes run for a session that finished without an error, oldest first. */
   doneChanges(sessionId: string): ActionRow[] {
     return this.db.prepare("SELECT * FROM ai_actions WHERE session_id = ? AND kind = 'change' AND status = 'done' ORDER BY created_at").all(sessionId) as ActionRow[];
   }
@@ -1498,7 +1554,8 @@ export class HostActions {
     const id = crypto.randomUUID();
     this.insert({ id, session_id: sessionId, host: host.name, command, purpose, rollback: null, kind: "read", status: "running", created_at: nowIso() });
     const raw = await this.runner(host, command, this.cfg.commandTimeoutS, { purpose, kind: "check" });
-    const r = { ...raw, output: redactValues(raw.output, this.hiddenValues()) };
+    // Also here for runners other than ssh (a helper's agent): the model reads PowerShell errors as text.
+    const r = { ...raw, output: redactValues(plainClixml(raw.output), this.hiddenValues()) };
     this.db.prepare("UPDATE ai_actions SET status = ?, ran_at = ?, exit_code = ?, output = ? WHERE id = ?").run(r.exit_code === 0 ? "done" : "failed", nowIso(), r.exit_code, r.output.slice(0, 20_000), id);
     return { ...r, action_id: id };
   }
@@ -1561,7 +1618,7 @@ export class HostActions {
       this.finish(id, journal.id, "failed", null, (e as Error).message);
       throw e;
     }
-    const result = { ...raw, output: redactValues(raw.output, [...filled.values, ...this.hiddenValues()]) };
+    const result = { ...raw, output: redactValues(plainClixml(raw.output), [...filled.values, ...this.hiddenValues()]) };
     // Stopped at the time limit, it may have done part of its work: interrupted, not failed.
     const status = result.timed_out ? "interrupted" : result.exit_code === 0 ? "done" : "failed";
     const done = this.finish(id, journal.id, status, result.exit_code, result.output);

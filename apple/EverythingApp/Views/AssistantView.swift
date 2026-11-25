@@ -358,7 +358,7 @@ struct AssistantView: View {
                         WorkingIndicator(status: w.status ?? w.tool.map(ToolAction.label) ?? "Thinking", since: Self.date(w.since) ?? Date()).id("working")
                     }
                     if let p = pending, !busy {
-                        ApprovalCard(action: p, onRun: { approve(p) }, onCancel: { decline(p) }).id("approval")
+                        ApprovalCard(action: p, onRun: { approve(p) }).id("approval")
                     }
                     if let e = error { Text(e).foregroundStyle(.dangerText).font(.footnote) }
                 }
@@ -524,23 +524,20 @@ struct AssistantView: View {
         images = []
         if store.current == nil { store.newChat() }
         store.appendLocal(AIStoredMessage(role: .user, content: text, at: ISO8601DateFormatter().string(from: Date())))
+        // A reply that is not a plain yes sets a waiting command aside on the hub (a yes runs it), so its card goes
+        // at once, and a later look at the chat on this device does not bring it back before the hub's copy does.
+        pending = nil
+        store.current?.pending_action = nil
         let spoken = voiceTurn
         voiceTurn = false
         run(ChatRequest(session_id: store.current!.session_id, message: text, images: b64.isEmpty ? nil : b64, allow_cloud: allowCloud), spoken: spoken)
     }
 
     private func approve(_ a: PendingAction) {
-        guard let id = sessionId else { return }
+        // The thumb reaches the top a moment before this: a message sent in that moment has set the command aside.
+        guard let id = sessionId, pending?.id == a.id, !busy else { return }
         store.appendLocal(AIStoredMessage(role: .user, content: "Yes, run it.", approval: .init(action_id: a.id, host: a.host, command: a.command, status: "running", exit_code: nil)))
         run(ChatRequest(session_id: id, message: nil, approve_action_id: a.id, allow_cloud: allowCloud))
-    }
-
-    private func decline(_ a: PendingAction) {
-        pending = nil
-        Task {
-            do { try await engine.client?.cancelAction(a.id) } catch { self.error = (error as? HubError)?.errorDescription ?? error.localizedDescription }
-            if let id = sessionId { await store.open(id, client: engine.client) }
-        }
     }
 
     /// The answer to the assistant's photo request: the newest photos on Send, none otherwise.
@@ -817,11 +814,11 @@ struct ChatBubble: View {
     }
 }
 
-/// A host command the assistant wants to run. Nothing runs until Run is tapped (or the owner says yes).
+/// A host command the assistant wants to run. Nothing runs until the thumb is slid up (or the owner answers with a
+/// yes). There is no Cancel: any other reply sets the command aside on the hub.
 struct ApprovalCard: View {
     var action: PendingAction
     var onRun: () -> Void
-    var onCancel: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -832,13 +829,124 @@ struct ApprovalCard: View {
             if let p = action.preflight {
                 VStack(alignment: .leading, spacing: 2) { Text(p.backup); Text(p.verify); Text(p.rollback) }.font(.caption).foregroundStyle(.warnText)
             }
-            HStack {
-                Button("Run it", action: onRun).buttonStyle(.themedProminent)
-                Button("Cancel", role: .cancel, action: onCancel).buttonStyle(.bordered)
-            }
+            // Its own state for each command, so a slide on one never carries over to the next.
+            SlideToRun(danger: action.risk == "high", onRun: onRun)
+                .id(action.id)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(12)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(action.risk == "high" ? StatusStyle.danger : StatusStyle.warn, lineWidth: 1.5))
+    }
+}
+
+/// Approving a command: a thumb slid up a short track. A slide that stops short of the top springs back, so a brush
+/// while scrolling runs nothing. Once it reaches the top the thumb stays there and the words say it is running.
+/// VoiceOver reads it as one control with a Run action (swiping up does it too); on the Mac the up arrow runs it when
+/// it has keyboard focus, never Return.
+struct SlideToRun: View {
+    /// A high risk command: the thumb and its track in the danger color, as the card's border is.
+    var danger = false
+    var onRun: () -> Void
+    @State private var ran = false
+    /// How far the thumb is up its track while a finger or the mouse moves it, 0 to `travel`. Back to 0 with a spring
+    /// when the slide ends short or is taken over (a scroll can cancel it, and then no end is reported).
+    @GestureState(reset: { _, t in t.animation = SlideToRun.springBack }) private var lift: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let trackWidth: CGFloat = 64
+    static let trackHeight: CGFloat = 136
+    static let knob: CGFloat = 52
+    static let inset = (trackWidth - knob) / 2
+    /// How far the thumb moves from the bottom of the track to the top.
+    static let travel = trackHeight - knob - 2 * inset
+    /// Let go above this share of the travel and the command runs.
+    static let runsAt: CGFloat = 0.85
+
+    /// The thumb's way back down: a spring, or none with Reduce Motion. Read from the system, as a gesture's reset
+    /// is set up before the view has its environment.
+    static var springBack: Animation? {
+        #if os(iOS)
+        let calm = UIAccessibility.isReduceMotionEnabled
+        #else
+        let calm = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        #endif
+        return calm ? nil : .spring(response: 0.35, dampingFraction: 0.6)
+    }
+
+    private var shown: CGFloat { ran ? Self.travel : lift }
+    private var fill: AnyShapeStyle { danger ? AnyShapeStyle(StatusStyle.danger) : AnyShapeStyle(.tint) }
+    private var onFill: AnyShapeStyle { danger ? AnyShapeStyle(StatusStyle(tone: .danger, use: .on)) : AnyShapeStyle(.onAccent) }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(ran ? "Running\u{2026}" : "Slide up to run").font(.subheadline.weight(.semibold))
+                // In the text color, not the lighter gray: it is the only way to say no.
+                if !ran { Text("Or type a reply to skip it.").font(.footnote) }
+            }
+            .multilineTextAlignment(.trailing)
+            .fixedSize(horizontal: false, vertical: true)
+            track
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Slide up to run this command")
+        .accessibilityValue(ran ? "Running" : "")
+        .accessibilityHint(ran ? "" : "Or type a reply to skip it.")
+        .accessibilityAction(named: "Run") { run() }
+        .accessibilityAdjustableAction { if $0 == .increment { run() } }
+        #if os(iOS)
+        .sensoryFeedback(.success, trigger: ran) { _, now in now }
+        #endif
+    }
+
+    private var track: some View {
+        ZStack(alignment: .bottom) {
+            Capsule().fill(Color.secondary.opacity(0.15))
+            Capsule().strokeBorder(Color.secondary.opacity(0.35), lineWidth: 1)
+            // The track fills behind the thumb as it rises.
+            Capsule().fill(fill.opacity(0.3))
+                .frame(height: Self.knob + 2 * Self.inset + shown)
+            Image(systemName: "chevron.up")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 12)
+                .opacity(ran ? 0 : 1 - Double(lift / Self.travel))
+            Circle().fill(fill)
+                .frame(width: Self.knob, height: Self.knob)
+                .overlay(Image(systemName: "hand.thumbsup.fill").font(.system(size: 22, weight: .semibold)).foregroundStyle(onFill))
+                .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
+                .padding(.bottom, Self.inset)
+                .offset(y: -shown)
+                .gesture(slide)
+        }
+        .frame(width: Self.trackWidth, height: Self.trackHeight)
+        .allowsHitTesting(!ran)
+        #if os(macOS)
+        // Reached with Tab when the Mac's keyboard navigation is on, as buttons are; the up arrow runs it.
+        .contentShape(.focusEffect, Capsule())
+        .focusable(!ran, interactions: .activate)
+        .onMoveCommand { if $0 == .up { run() } }
+        #endif
+    }
+
+    /// Starts at the first touch, so the conversation does not scroll under a finger that is moving the thumb.
+    private var slide: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($lift) { v, lift, _ in lift = Self.lift(v) }
+            .onEnded { v in if Self.lift(v) >= Self.travel * Self.runsAt { run() } }
+    }
+
+    private static func lift(_ v: DragGesture.Value) -> CGFloat { min(max(-v.translation.height, 0), travel) }
+
+    private func run() {
+        guard !ran else { return }
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { ran = true }
+        // The thumb is seen at the top, with Running, before the card makes way for the command's progress.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            onRun()
+        }
     }
 }
 

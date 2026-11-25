@@ -134,7 +134,9 @@ export const SUMMARY_SYSTEM = [
   "You compress the earlier part of a conversation between {{owner}} and their assistant so the assistant can keep going without it.",
   "Write plain notes, no preamble, under 350 words. Keep: what {{owner}} is trying to do, decisions made, facts they stated,",
   "hosts, paths, commands, versions and error messages that matter, what was tried and failed (never to be suggested again),",
-  "what worked, and what is still open. Drop greetings and repetition. Never invent anything.",
+  "what worked, and what is still open. Keep exact paths and names as command output showed them, and mark a path that",
+  "turned out not to exist as not existing. Never write that a step waits for approval or is pending: the assistant runs",
+  "read-only commands itself, and the hub shows it separately what waits. Drop greetings and repetition. Never invent anything.",
 ].join(" ");
 
 /** The user message for a summary call: the previous summary plus the turns being folded in. */

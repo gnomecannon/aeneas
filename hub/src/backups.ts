@@ -18,7 +18,8 @@ export type BackupOs = "mac" | "windows" | "linux";
 export type BackupJob = "backup" | "verify" | "restore";
 /** `single`: the target named one job (`#verify`), so only that job is read and it has to be there. */
 export interface BackupTarget { os: BackupOs; dest: string; jobs: BackupJob[]; single: boolean }
-export interface BackupEvent { at: number; kind: "start" | "ok" | "fail"; detail?: string }
+/** `cause`: the run's first specific error line from the backup tool (which file or folder), when the log has one. */
+export interface BackupEvent { at: number; kind: "start" | "ok" | "fail"; detail?: string; cause?: string }
 /** One job as read. `installed`: the machine has the job (its launchd job, scheduled task or unit, or a log of it). */
 export interface BackupReport { running: boolean; events: BackupEvent[]; exit?: string; failure?: string; installed?: boolean }
 /**
@@ -126,6 +127,27 @@ export function jobName(os: BackupOs, job: BackupJob, names: BackupJobNames = DE
 }
 
 /**
+ * Where a backup check reads each job, in words for the assistant: the job's name and the files its wrapper writes.
+ * The check reads exactly these, so a fix starts here instead of searching the machine for them (2026-11-24: an
+ * alert chat searched every drive and all of the hub's machine for backup-status.json for four replies).
+ */
+export function backupWhere(t: BackupTarget, names: BackupJobNames = DEFAULT_BACKUP_JOBS): string {
+  const jobs = t.jobs.map((job) => `${WHAT[job]}: ${t.os === "windows" ? "scheduled task" : t.os === "mac" ? "launchd job" : "systemd unit"} "${jobName(t.os, job, names)}"`).join("; ");
+  if (t.os === "windows") {
+    return `The check signs in to ${t.dest} and reads, for each job (${jobs}): the task's state and last result, ` +
+      `%LOCALAPPDATA%\\ProjectBackup\\backup-status.json (the backup's per-source results) and the log ` +
+      `%LOCALAPPDATA%\\ProjectBackup\\Logs\\${LOGS.backup} (${LOGS.verify} for the verification). The task's action names the script it runs; ` +
+      `that script names the backup tool, its config and the sources.`;
+  }
+  if (t.os === "mac") {
+    return `The check signs in to ${t.dest} and reads, for each job (${jobs}): \`launchctl print gui/$(id -u)/<label>\` and the log ` +
+      `"$HOME/Library/Application Support/ProjectBackup/logs/${LOGS.backup}" (${LOGS.verify} for the verification). The job's plist names the script it runs.`;
+  }
+  return `The check signs in to ${t.dest} and reads, for each job (${jobs}): \`systemctl show <unit>\` and \`journalctl -u <unit>\`. ` +
+    "`systemctl cat <unit>` names the script it runs.";
+}
+
+/**
  * The read-only command for every job of the target, in one login: ssh arguments after the destination, and a script
  * on stdin for Windows. Each job's output starts with a line `@@job <job>`.
  */
@@ -179,7 +201,8 @@ const section = (out: string, name: string): string => {
 /** `[2026-10-29T08:18:05Z] Desktop backup completed`: the line format of the Mac and Windows wrappers. */
 function wrapperEvents(log: string, job: BackupJob): BackupEvent[] {
   const word = job === "verify" ? "verification" : "backup";
-  const re = new RegExp(`^\\[([^\\]]+)\\] \\S+ ${word} (starting|completed|failed)\\b(.*)$`);
+  // The Windows wrapper writes "FAILED" in capitals ("Desk backup FAILED: ..."); it closes the run all the same.
+  const re = new RegExp(`^\\[([^\\]]+)\\] \\S+ ${word} (starting|completed|failed|FAILED)\\b(.*)$`);
   const out: BackupEvent[] = [];
   let offloaded = 0;
   for (const raw of log.split(/\r?\n/)) {
@@ -188,7 +211,13 @@ function wrapperEvents(log: string, job: BackupJob): BackupEvent[] {
     if (m) {
       offloaded = 0;
       const at = when(m[1]);
-      if (Number.isFinite(at)) out.push(m[2] === "starting" ? { at, kind: "start" } : { at, kind: m[2] === "completed" ? "ok" : "fail", detail: m[3].trim() || undefined });
+      if (!Number.isFinite(at)) continue;
+      if (m[2] === "starting") { out.push({ at, kind: "start" }); continue; }
+      // The closing line carries the wrapper's own words ("Backup incomplete: 1 failed sources"); the run's first
+      // specific error, which names the file or folder, goes with it.
+      const run = out.at(-1)?.kind === "start" ? out.at(-1) : undefined;
+      const failed = m[2].toLowerCase() === "failed";
+      out.push({ at, kind: failed ? "fail" : "ok", detail: m[3].replace(/^[:\s]+/, "").trim() || undefined, ...(failed && run?.cause ? { cause: run.cause } : {}) });
       continue;
     }
     // For a run that ended without a closing line, keep its clearest error: kopia's "Found N fatal error(s)" summary, else the last error line.
@@ -196,6 +225,7 @@ function wrapperEvents(log: string, job: BackupJob): BackupEvent[] {
     if (last?.kind !== "start") continue;
     // macOS refuses reads of iCloud files that were offloaded and not downloaded with "resource deadlock avoided".
     if (/resource deadlock avoided/.test(line)) offloaded++;
+    if (!last.cause && /^Error when processing /.test(line)) last.cause = line.slice(0, 160);
     if (/^Found \d+ fatal error/.test(line)) last.detail = line;
     else if (/\berror\b|failed/i.test(line) && !last.detail?.startsWith("Found ")) last.detail = line;
   }
@@ -246,9 +276,18 @@ export function parseJobOutput(os: BackupOs, job: BackupJob, out: string, now: D
         } else if (s.state === "failed" || s.success === false) {
           const bad = (s.sources ?? []).filter((x) => !x.success).map((x) => x.path);
           const missing = [...(s.unavailableSources ?? []), ...(s.missingRequiredProjectMarkers ?? [])];
-          failure = s.error || (bad.length ? `${bad.length} source${bad.length === 1 ? "" : "s"} failed: ${bad.slice(0, 3).join(", ")}` : missing.length ? `missing: ${missing.slice(0, 3).join(", ")}` : "failed");
+          // The failing sources by name first: the wrapper's own error only counts them ("1 failed sources ... See
+          // backup-status.json"), which sent an alert chat looking for that file instead of at the source.
+          const parts = [
+            bad.length ? `${bad.length} source${bad.length === 1 ? "" : "s"} failed: ${bad.slice(0, 3).join(", ")}` : "",
+            missing.length ? `missing: ${missing.slice(0, 3).join(", ")}` : "",
+          ].filter(Boolean);
+          failure = parts.length ? parts.join("; ") : s.error || "failed";
           const at = when(s.completedUtc ?? s.startedUtc ?? "");
-          if (Number.isFinite(at)) events.push({ at, kind: "fail", detail: failure });
+          // The log's latest run is this one: its first specific error goes with it.
+          const tail = events.at(-1);
+          const cause = tail && tail.kind !== "ok" ? tail.cause : undefined;
+          if (Number.isFinite(at)) events.push({ at, kind: "fail", detail: failure, ...(cause ? { cause } : {}) });
         }
       } catch { /* a half-written file: the log still counts */ }
     }
@@ -328,7 +367,9 @@ export function backupOutcome(job: BackupJob, r: BackupReport, maxHours: number,
   if (failedAfter) {
     const at = lastFail && (!lastStart || lastFail.at >= lastStart.at) ? lastFail.at : lastStart!.at;
     const why = (lastFail && lastFail.at === at ? lastFail.detail : undefined) ?? r.failure ?? lastStart?.detail ?? (r.exit && r.exit !== "0" ? `exit ${r.exit}` : "did not finish");
-    const error = `${what} at ${fmt(at)} failed: ${why}${r.exit && r.exit !== "0" && !why.includes(`exit ${r.exit}`) ? ` (exit ${r.exit})` : ""}; ${good}`.slice(0, 300);
+    const cause = (lastFail && lastFail.at === at ? lastFail.cause : undefined) ?? (lastStart && lastStart.at <= at ? lastStart.cause : undefined);
+    const first = cause && !why.includes(cause) ? `; first error: ${cause}` : "";
+    const error = `${what} at ${fmt(at)} failed: ${why}${r.exit && r.exit !== "0" && !why.includes(`exit ${r.exit}`) ? ` (exit ${r.exit})` : ""}${first}; ${good}`.slice(0, 300);
     return { ok: false, error, detail: good, state: { ...base, state: "failed", error } };
   }
   if (!fresh) {

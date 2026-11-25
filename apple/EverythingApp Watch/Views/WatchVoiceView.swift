@@ -343,7 +343,7 @@ final class WatchAskModel: ObservableObject {
             switch try await c.chatOrLate(ChatRequest(session_id: session, message: q)) {
             case .reply(let r):
                 var answer = r.reply
-                if r.pending_action != nil { answer += "\n\nApprove or decline this on your iPhone." }
+                if r.pending_action != nil { answer += "\n\nApprove this on your iPhone." }
                 return landed(Turn(q: q, a: answer, mail: r.mail_proposal), speak: speak)
             case .late(let t):
                 return landed(t, speak: speak)

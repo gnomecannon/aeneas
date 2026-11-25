@@ -154,13 +154,26 @@ export function comingDays(now: Date): string {
 }
 
 /**
+ * How a troubleshooting chat works. From an alert chat on 2026-11-24 that took eleven messages: it asked approval for
+ * reads six times, guessed paths a script it had read named, called a folder "a leftover" with no output saying so,
+ * and offered a recursive delete of a junction that pointed at another project's files.
+ */
+export const TROUBLESHOOT_NOTE = [
+  "This is a troubleshooting session. Do the looking yourself: run every read-only check you need with run_command in this reply (reads run at once; never ask before one, and never describe one as waiting), then say what the output showed.",
+  "Start from what the failing thing runs: its task, unit or job, the script that names, and that script's config and log. Use the exact paths earlier output showed (each earlier reply lists the commands it ran and what they printed) instead of guessing.",
+  "State only what output in this chat shows: never say what a file or folder is for, or that a command ran, unless output shows it.",
+  "Before proposing to delete or move a folder, check with a read whether it is a link (junction or symlink) and where it points.",
+  "Ask {{owner}} only for a change, proposed with run_command so it waits for their approval, or for something only they can do; one or two per reply. Say which host and which user each command runs as.",
+].join(" ");
+
+/**
  * What changes every turn: the clock, the troubleshooting ledger and the memory of hosts the chat names. It rides
  * at the top of the owner's newest message, after everything the model server already has cached.
  */
 export function turnContext(mem: Memory, taskType: string, now: Date, items: TouchedItem[] = [], device?: string): string {
   const parts: string[] = [clockLine(now)];
   if (device) parts.push(device);
-  if (taskType === "troubleshoot") parts.push("This is a troubleshooting session. Suggest one or two steps per reply, in order, and say which host and which user each command runs as.");
+  if (taskType === "troubleshoot") parts.push(TROUBLESHOOT_NOTE);
   if (taskType === "plan") parts.push("Produce a plan as an ordered list of concrete steps with the next single action first.");
   // Ids of what this chat already saved, so "move it" or "delete that" uses the real item. Here and not in the
   // assistant's own past turns: written there, the model copied the line into replies instead of calling a tool.
