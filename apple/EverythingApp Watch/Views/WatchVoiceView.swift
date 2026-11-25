@@ -217,6 +217,8 @@ struct WatchConversationView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(t.q).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
                         Text(markdown(t.a)).font(.footnote).fixedSize(horizontal: false, vertical: true)
+                        // A mail the assistant wrote: Send, Cancel and Undo here; changing it is on the iPhone.
+                        if let p = t.mail { WatchMailProposalCard(p: p) }
                         Button { speaker.toggle(t.a, id: t.id) } label: {
                             Label(speaker.speakingId == t.id ? "Stop" : "Read aloud", systemImage: speaker.speakingId == t.id ? "stop.fill" : "speaker.wave.2")
                                 .font(.caption2)
@@ -342,7 +344,7 @@ final class WatchAskModel: ObservableObject {
             case .reply(let r):
                 var answer = r.reply
                 if r.pending_action != nil { answer += "\n\nApprove or decline this on your iPhone." }
-                return landed(Turn(q: q, a: answer), speak: speak)
+                return landed(Turn(q: q, a: answer, mail: r.mail_proposal), speak: speak)
             case .late(let t):
                 return landed(t, speak: speak)
             }

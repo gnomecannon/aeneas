@@ -24,12 +24,22 @@ public struct ReminderItem: Equatable, Sendable {
     public var done: Bool
     public var doneAt: String?
     public var modified: Date?
+    /// It has an alarm with a time (one tied to a place does not count): the alarm Apple's Reminders app alerts with.
+    public var timedAlarm: Bool
+    /// Its due date read on its own, with no alarm (a day alone, or a moment); "" for none. With alarms off it is all
+    /// the item holds of the task's dates (`ReminderDates.readWithoutAlarms`).
+    public var dueAlone: String
 
+    /// `timedAlarm` and `dueAlone` default to what an item written by the app would have: an alarm when it has a
+    /// reminder time, and a due date that is the deadline, else the reminder time.
     public init(externalId: String, localId: String, listId: String, listTitle: String, listKey: String = "", listOn: Bool = true, isWork: Bool = false, title: String,
-                notes: String? = nil, due: String? = nil, remindAt: String? = nil, repeatRule: String? = nil, done: Bool = false, doneAt: String? = nil, modified: Date? = nil) {
+                notes: String? = nil, due: String? = nil, remindAt: String? = nil, repeatRule: String? = nil, done: Bool = false, doneAt: String? = nil, modified: Date? = nil,
+                timedAlarm: Bool? = nil, dueAlone: String? = nil) {
         self.externalId = externalId; self.localId = localId; self.listId = listId; self.listTitle = listTitle; self.listKey = listKey; self.listOn = listOn; self.isWork = isWork
         self.title = title; self.notes = notes; self.due = due; self.remindAt = remindAt; self.repeatRule = repeatRule
         self.done = done; self.doneAt = doneAt; self.modified = modified
+        self.timedAlarm = timedAlarm ?? (remindAt != nil)
+        self.dueAlone = dueAlone ?? due ?? remindAt ?? ""
     }
 }
 
@@ -47,6 +57,9 @@ public struct RemindersPlan: Equatable, Sendable {
         public var localId: String
         /// Field name to new value; "" clears it.
         public var fields: [String: String]
+        /// What happens to the item's alarms with a time: moved with its dates (as always), none (Alert from Apple
+        /// Reminders off; taken off even when no date changes), or one made again at the reminder time (it is on again).
+        public var alarms: ReminderDates.TimedAlarms = .move
     }
     public struct AppleCreate: Equatable, Sendable {
         public var taskId: String
@@ -76,6 +89,10 @@ public enum RemindersMerge {
     /// The key in a sync record for the list both sides last agreed the item is in, by name. Records from before
     /// 2026-11-24 have none.
     public static let listKey = "list"
+    /// The key in a sync record that says the item was last agreed with no alarm with a time, because Alert from Apple
+    /// Reminders was off ("off"): its reminder time is then read from the record and its due date
+    /// (`ReminderDates.readWithoutAlarms`), and the alarm comes back from the task once the switch is on again.
+    public static let alarmsKey = "alarms"
     /// Finished Apple items older than this are not brought in.
     public static let importDoneWithin: TimeInterval = 14 * 86400
 
@@ -152,9 +169,14 @@ public enum RemindersMerge {
     ///   - moveDeletes: whether an item whose task was moved to Work while its list is personal may be deleted. Off
     ///     while this device could not read the sources setting from the hub this run: the hub may have moved a whole
     ///     list's tasks to Work, and a list's space is known only from it.
+    ///   - alarms: whether items carry an alarm at the reminder time (Alert from Apple Reminders, once it takes effect).
+    ///     Off, dates are written with no alarm with a time, and such an alarm on an open item (set in Apple's app, or
+    ///     by an app from before 1.0.19) is taken off, nothing else about the item changing. On again, the alarm comes
+    ///     back from the task's reminder time on the items that were left without one.
     public static func plan(items: [ReminderItem], tasks: [Entity], state: [String: SyncedReminder], presentLists: Set<String>,
                             createsInApple: Bool, workOff: Bool, writableLists: Set<String>? = nil, shows: (Entity) -> Bool = { _ in true },
-                            newTasksList: String? = nil, defaultListOn: Bool = true, moveDeletes: Bool = true, now: Date = Date()) -> RemindersPlan {
+                            newTasksList: String? = nil, defaultListOn: Bool = true, moveDeletes: Bool = true, alarms: Bool = true,
+                            now: Date = Date(), calendar: Calendar = .current) -> RemindersPlan {
         var out = RemindersPlan()
         var byLink: [String: Entity] = [:]
         var byId: [String: Entity] = [:]
@@ -228,7 +250,16 @@ public enum RemindersMerge {
                 byTitle = task != nil
             }
             if let t = task { taken.insert(t.id) }
-            let a = fields(of: item)
+            var a = fields(of: item)
+            // Left with no alarm with a time while Alert from Apple Reminders was off: the reminder time is not on the
+            // item, so it reads from what both sides last agreed and the due date. An alarm on it again (set in Apple's
+            // app, or by another device) is read as always.
+            let noAlarm = prior?.fields[alarmsKey] == "off" && !item.timedAlarm
+            if noAlarm, let rec = prior?.fields {
+                let r = ReminderDates.readWithoutAlarms(dueAlone: due(item.dueAlone), record: rec, calendar: calendar)
+                a["due"] = r.due
+                a["remind_at"] = r.remindAt
+            }
             let link = linkOf(item)
 
             guard let t = task else {
@@ -245,6 +276,11 @@ public enum RemindersMerge {
                 out.taskPatches.append(Patch(id: id, kind: .task, space: item.isWork ? .work : .personal, ts: ts, fields: f, create: true))
                 var rec = a
                 rec[listKey] = item.listTitle
+                if !alarms, item.timedAlarm, !item.done, writableLists?.contains(item.listTitle) ?? true {
+                    // Made in Apple's app with a time: its task takes the time, and Apple's own alert goes.
+                    out.appleWrites.append(.init(localId: item.localId, fields: [:], alarms: ReminderDates.TimedAlarms.none))
+                    rec[alarmsKey] = "off"
+                }
                 out.state[item.externalId] = SyncedReminder(taskId: id, localId: item.localId, fields: rec)
                 continue
             }
@@ -330,10 +366,25 @@ public enum RemindersMerge {
                 patch["apple"] = link
             }
             if !patch.isEmpty { out.taskPatches.append(Patch(id: t.id, kind: .task, ts: ts, fields: patch)) }
-            if !toApple.isEmpty { out.appleWrites.append(.init(localId: item.localId, fields: toApple)) }
             var agreed = a
             for (k, v) in toApple { agreed[k] = v }
             agreed[listKey] = agreedList
+            let datesToApple = toApple["due"] != nil || toApple["remind_at"] != nil || toApple["repeat"] != nil
+            // Not an item of a list that cannot be changed (a subscribed one): its alarms stay as they are.
+            let open = agreed["done"] != "1" && writableLists?.contains(item.listTitle) ?? true
+            if !alarms {
+                // Alert from Apple Reminders off: dates go with no alarm with a time, and an open item's alarm comes off.
+                let takeOff = item.timedAlarm && open
+                if !toApple.isEmpty || takeOff { out.appleWrites.append(.init(localId: item.localId, fields: toApple, alarms: ReminderDates.TimedAlarms.none)) }
+                if takeOff || datesToApple || noAlarm { agreed[alarmsKey] = "off" }
+            } else if noAlarm {
+                // On again: the alarm comes back at the task's reminder time, once, on an open item that has one.
+                let back = open && !(agreed["remind_at"] ?? "").isEmpty
+                if !toApple.isEmpty || back { out.appleWrites.append(.init(localId: item.localId, fields: toApple, alarms: back || datesToApple ? .remake : .move)) }
+                if !back && !datesToApple { agreed[alarmsKey] = "off" }
+            } else if !toApple.isEmpty {
+                out.appleWrites.append(.init(localId: item.localId, fields: toApple))
+            }
             out.state[item.externalId] = SyncedReminder(taskId: t.id, localId: item.localId, fields: agreed)
         }
 
@@ -447,6 +498,45 @@ public enum ReminderDates {
         public var keepsRepeat: Bool
     }
 
+    /// What happens to an item's alarms with a time when its dates are written. Alarms tied to a place always stay.
+    public enum TimedAlarms: Equatable, Sendable {
+        /// They move with the dates, or are made again at the reminder time (as always).
+        case move
+        /// None: Alert from Apple Reminders is off.
+        case none
+        /// One at the reminder time, made again: the switch is on again after the item was left without one.
+        case remake
+    }
+
+    /// The alarms an item keeps under `none` or `remake`: one at `at` for `remake`, then every one tied to a place.
+    public static func alarms(_ timed: TimedAlarms, at: Date?, alarms: [ReminderAlarm]) -> [AlarmWrite] {
+        let places = alarms.indices.filter { alarms[$0].place }.map { AlarmWrite(from: $0, at: nil) }
+        switch timed {
+        case .move: return alarms.indices.map { AlarmWrite(from: $0, at: nil) }
+        case .none: return places
+        case .remake: return (at.map { [AlarmWrite(from: nil, at: $0)] } ?? []) + places
+        }
+    }
+
+    /// The due date, as `RemindersMerge.due` gives it, that an item reads as with no alarm after the app wrote these
+    /// dates on it: the deadline, else the reminder time.
+    static func dueWritten(due: String, remindAt: String, calendar: Calendar) -> String {
+        RemindersMerge.due(read(due: components(due.isEmpty ? remindAt : due, calendar: calendar), alarms: [], calendar: calendar).due)
+    }
+
+    /// What an item left with no alarm with a time stands for, from its due date and the record of what both sides last
+    /// agreed (Alert from Apple Reminders off). An item has no other place for a reminder time: while its due date is
+    /// still the one the app wrote, it reads as the record says. A due date changed in Apple's app moves the deadline,
+    /// or, for a task with only a reminder time, that time (a day with no time becomes the deadline instead); a due date
+    /// taken off takes both off, as Apple's app does with the alarm.
+    public static func readWithoutAlarms(dueAlone: String, record: [String: String], calendar: Calendar = .current) -> (due: String, remindAt: String) {
+        let due = record["due"] ?? "", at = record["remind_at"] ?? ""
+        if dueAlone == dueWritten(due: due, remindAt: at, calendar: calendar) { return (due, at) }
+        if dueAlone.isEmpty { return ("", "") }
+        if due.isEmpty, !at.isEmpty { return TaskDue.isDateOnly(dueAlone) ? (dueAlone, "") : ("", dueAlone) }
+        return (dueAlone, at)
+    }
+
     /// What to write after the task's due date, reminder time or repeat changed in the app.
     /// - Parameters:
     ///   - full: the task's fields, as `RemindersMerge.fields(of:)` gives them.
@@ -457,11 +547,13 @@ public enum ReminderDates {
     /// move as far as the reminder time did, those counted from the due date move with it, and those tied to a place
     /// stay. Only when that would not read back as the task's dates are the alarms made again, as before: one at the
     /// reminder time.
+    /// `timed` other than `move`: the due date as always, and the alarms `alarms(_:at:alarms:)` keeps.
     public static func write(full: [String: String], repeatChanged: Bool, due current: DateComponents?, alarms: [ReminderAlarm],
-                             calendar: Calendar = .current) -> Write {
+                             timed: TimedAlarms = .move, calendar: Calendar = .current) -> Write {
         let deadline = full["due"] ?? ""
         let due = components(deadline.isEmpty ? full["remind_at"] : deadline, calendar: calendar)
         let at = ISO.date(full["remind_at"])
+        guard timed == .move else { return Write(due: due, alarms: Self.alarms(timed, at: at, alarms: alarms), keepsRepeat: !repeatChanged && due != nil) }
         let rebuilt = at.map { [AlarmWrite(from: nil, at: $0)] } ?? []
         guard !repeatChanged else { return Write(due: due, alarms: rebuilt, keepsRepeat: false) }
         let keeps = due != nil

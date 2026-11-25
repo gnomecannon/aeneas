@@ -9,6 +9,7 @@ import { StoreError } from "../store.js";
 import { appReleases, compareVersions, isAppPlatform, releaseRepo, type AppPlatform } from "../appreleases.js";
 import { parseApp, type DeviceSummary } from "../devices.js";
 import { sourcesChanged } from "../sources.js";
+import { alertsChanged } from "../alerts.js";
 
 /**
  * How each device can come up to the hub's version:
@@ -84,8 +85,10 @@ export function appUpdateRoutes() {
     if (!app) throw new StoreError(422, "kind (windows, android, web, ios, ipados, macos or watchos) and version (1.2.3) are required");
     c.get("hub").devices.noteApp(id, app);
     // Said before the device reads anything: an app from before 1.0.18 finds every list's tasks back in its account's
-    // own space, and an update may let a Personal or Work choice take effect (sources.ts).
+    // own space, and an update may let a Personal or Work choice take effect (sources.ts), or Alert from Apple
+    // Reminders off (alerts.ts).
     sourcesChanged(c.get("hub"));
+    alertsChanged(c.get("hub"));
     return c.json({ app, hub_version: VERSION });
   });
 

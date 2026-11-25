@@ -75,14 +75,16 @@ public struct AIStoredMessage: Codable, Sendable, Equatable {
     public var images: [String]?
     public var actions: [ToolAction]?
     public var approval: Approval?
+    /// A mail the assistant wrote for the owner to send (since 2026-11-24): its card goes under this reply.
+    public var mail_proposal: ChatMailProposal?
     public struct Approval: Codable, Sendable, Equatable {
         public var action_id: String; public var host: String; public var command: String; public var status: String?; public var exit_code: Int?
         public init(action_id: String, host: String, command: String, status: String? = nil, exit_code: Int? = nil) {
             self.action_id = action_id; self.host = host; self.command = command; self.status = status; self.exit_code = exit_code
         }
     }
-    public init(role: ChatMessage.Role, content: String, at: String? = nil, images: [String]? = nil, actions: [ToolAction]? = nil, approval: Approval? = nil) {
-        self.role = role; self.content = content; self.at = at; self.images = images; self.actions = actions; self.approval = approval
+    public init(role: ChatMessage.Role, content: String, at: String? = nil, images: [String]? = nil, actions: [ToolAction]? = nil, approval: Approval? = nil, mail_proposal: ChatMailProposal? = nil) {
+        self.role = role; self.content = content; self.at = at; self.images = images; self.actions = actions; self.approval = approval; self.mail_proposal = mail_proposal
     }
 }
 
@@ -158,6 +160,7 @@ public struct ToolAction: Codable, Sendable, Equatable {
         case "calculate": return "Calculating"
         case "checklist_from_template": return "Starting a checklist"
         case "draft_in_my_voice": return "Drafting in your voice"
+        case "propose_mail": return "Writing a mail for you to send"
         case "web_search": return "Searching the web"
         case "read_web_page": return "Reading a page"
         case "list_hosts": return "Listing machines"
@@ -431,6 +434,8 @@ public struct ChatResponse: Codable, Equatable, Sendable {
     public var mode: String?
     public var pending_action: PendingAction?
     public var images: [String]?
+    /// A mail the assistant wrote for the owner to send (since 2026-11-24): its card goes under the reply.
+    public var mail_proposal: ChatMailProposal?
 }
 
 public struct ClassifyResponse: Codable, Sendable {
@@ -613,8 +618,8 @@ public enum LiveEvent: Equatable, Sendable {
     case change(seq: Int, id: String, kind: Kind)
     case notify(NotifyEvent)
     /// A module or a kind of alert was switched on or off on some device: both whole lists as they are now. `alerts`
-    /// is nil from a hub that has no alert switches (before 2026-11-20).
-    case modules([ModuleInfo], alerts: [AlertInfo]?)
+    /// is nil from a hub that has no alert switches (before 2026-11-20), `appleReminders` from one before 1.0.19.
+    case modules([ModuleInfo], alerts: [AlertInfo]?, appleReminders: AppleReminderAlerts? = nil)
     /// The sources setting changed (a choice on some device, a list a device sees, a device updated): the whole setting.
     case sources(SourcesSetting)
     case ping

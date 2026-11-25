@@ -351,10 +351,11 @@ function hubKeptTitles(hub: Hub): Set<string> {
 /** Matched by account kind and name: a device has no way to say which iCloud address a calendar belongs to. */
 const isHubKept = (c: { kind: SourceKind; title: string }, kept: Set<string>) => c.kind === "icloud" && kept.has(plain(c.title));
 
-/** iPhones, iPads and Macs that do not run 1.0.18 or later (or never said which version they run). */
-function waitingDevices(hub: Hub): SourcesView["waiting"] {
+/** iPhones, iPads and Macs that do not run `min` (1.0.18 for this setting) or later, or never said which version they
+ * run. Also what Alert from Apple Reminders waits for (alerts.ts). */
+export function waitingDevices(hub: Hub, min: string = SOURCES_MIN_VERSION): SourcesView["waiting"] {
   return hub.devices.list()
-    .filter((d) => APPLE_PLATFORMS.has(d.platform) && !(d.app && versionAtLeast(d.app.version, SOURCES_MIN_VERSION)))
+    .filter((d) => APPLE_PLATFORMS.has(d.platform) && !(d.app && versionAtLeast(d.app.version, min)))
     .map((d) => ({ id: d.id, name: d.name, platform: d.platform, version: d.app?.version ?? null }))
     .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }

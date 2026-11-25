@@ -28,6 +28,8 @@ import EACore
 ///   -EAMailPlace <place>         with -EASection mail: inbox, snoozed, done or bundle:<id> (MailView.debugLaunch)
 ///   -EAMailOpen <words>          with -EASection mail, the first thread whose subject has the words opens
 ///   -EAMailSelect <n>            with -EASection mail, the first n mail rows are selected
+///   -EAMailFake, -EAMailWrite, -EAMailType, -EAMailProbe  a made-up mailbox, a writing box opened and typed in, and
+///                                what each letter costs (MailProbe)
 ///   -EASourcesPage <page>        a page of Settings, Accounts, From this iPhone over the screen shown: reminders
 ///                                (DeviceRemindersView) or calendars (DeviceCalendarsView)
 ///   -EASettingsPage <page>       with -EASection settings, a Settings page opens (SettingsPage): accounts (Settings,

@@ -788,9 +788,10 @@ describe("mail keys and the focus", () => {
     expect(givesFocusBack(1, el(WRITING_BOX, "button"))).toBe(false);
   });
 
-  it("the writing box is marked in each of its three faces, sends the focus back to its text after any of its buttons, and the keys ask where the focus is", () => {
+  it("the writing box is marked in each of its faces, sends the focus back to its text after any of its buttons, and the keys ask where the focus is", () => {
     const src = fs.readFileSync(path.join(__dirname, "../views/Mail.tsx"), "utf8");
-    expect(src.match(/data-writing=\{key\}/g)).toHaveLength(3);
+    // Writing, the preview and Saved; since 2026-11-24 also Sent, Sending (with Undo) and Not sent.
+    expect(src.match(/data-writing=\{key\}/g)).toHaveLength(6);
     expect(src).toContain(`onClick={(e) => { if (e.target instanceof Element && e.target.closest("button[type='button'], .mailx-attach")) toText(); }}`);
     expect(src).toContain("const a = mailKeyAction(e, keyFocus(e.target));");
     expect(src).toContain("if (b && b === document.activeElement && givesFocusBack(e.detail, b)) b.blur();");
@@ -848,8 +849,9 @@ describe("mail writing is kept", () => {
   it("asks before typed words are thrown away, by Discard or by moving the mail they were written on", () => {
     expect(src).toContain('if (now.current.dirty && !window.confirm("Discard what you wrote? It is not saved to Drafts.")) return;');
     expect(src).toContain('if (written.length && !window.confirm("What you wrote here is not saved to Drafts. Move the mail and discard what you wrote?")) return;');
-    // Only these let typed words go: Save to Drafts, Discard, and the mail they were written on moving away.
-    expect(src.match(/WRITING\.typed\.delete\(/g)).toHaveLength(3);
+    // Only these let typed words go: Save draft, Discard, the mail they were written on moving away, and since
+    // 2026-11-24 the mail sent, or saved as a draft after it was not sent.
+    expect(src.match(/WRITING\.typed\.delete\(/g)).toHaveLength(5);
   });
 
   it("a thread that left the list while a reply was being typed in it is shown where it is now", () => {

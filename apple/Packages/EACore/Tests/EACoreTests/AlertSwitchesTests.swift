@@ -74,7 +74,7 @@ final class AlertSwitchesTests: XCTestCase {
     }
 
     func testLiveModulesEventCarriesTheAlerts() throws {
-        guard case .modules(let m, let a) = HubClient.liveEvent(SSEMessage(event: "modules", data: answer)) else { return XCTFail("not a modules event") }
+        guard case .modules(let m, let a, _) = HubClient.liveEvent(SSEMessage(event: "modules", data: answer)) else { return XCTFail("not a modules event") }
         XCTAssertEqual(m.count, 3)
         XCTAssertEqual(a?.map(\.id), ["reminder", "digest", "activity", "monitor", "disk", "quiz", "later"])
         XCTAssertEqual(a?.isOn(.monitor), false)

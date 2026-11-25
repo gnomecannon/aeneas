@@ -357,17 +357,26 @@ export function checkedText(v: unknown): string {
   return v;
 }
 
-/** A new mail's recipients and subject from a request: 1 to TO_MAX plain addresses, a subject of at most SUBJECT_MAX. */
-export function checkedNew(body: Record<string, unknown>): { to: string[]; subject: string } {
-  const to = Array.isArray(body.to) ? body.to : typeof body.to === "string" ? body.to.split(/[,;\s]+/) : [];
-  const typed = [...new Set(to.filter((x): x is string => typeof x === "string").map((x) => x.trim().toLowerCase()).filter(Boolean))];
-  if (!typed.length || typed.length > TO_MAX) throw new StoreError(422, `to is 1 to ${TO_MAX} addresses`);
+/** Plain addresses as typed (a list, or one string split at commas, semicolons and spaces), each checked, once each. */
+export function typedAddresses(v: unknown, what: string, min: number): string[] {
+  const raw = Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,;\s]+/) : [];
+  const typed = [...new Set(raw.filter((x): x is string => typeof x === "string").map((x) => x.trim().toLowerCase()).filter(Boolean))];
+  if (typed.length < min || typed.length > TO_MAX) throw new StoreError(422, `${what} is ${min} to ${TO_MAX} addresses`);
   const bad = typed.find((x) => !plainAddress(x));
   if (bad) throw new StoreError(422, `"${bad.slice(0, 60)}" is not an email address`);
-  const list = [...new Set(typed.map((x) => plainAddress(x)!))];
+  return [...new Set(typed.map((x) => plainAddress(x)!))];
+}
+
+/**
+ * A new mail's recipients and subject from a request: 1 to TO_MAX plain addresses, and since 2026-11-24 up to TO_MAX
+ * more as Cc (addresses the owner typed, as To's; one already in To is left out), a subject of at most SUBJECT_MAX.
+ */
+export function checkedNew(body: Record<string, unknown>): { to: string[]; cc?: string[]; subject: string } {
+  const list = typedAddresses(body.to, "to", 1);
+  const cc = typedAddresses(body.cc, "cc", 0).filter((x) => !list.includes(x));
   const subject = typeof body.subject === "string" ? oneLine(body.subject) : "";
   if (subject.length > SUBJECT_MAX) throw new StoreError(422, `subject is at most ${SUBJECT_MAX} characters`);
-  return { to: list, subject };
+  return { to: list, ...(cc.length ? { cc } : {}), subject };
 }
 
 /**

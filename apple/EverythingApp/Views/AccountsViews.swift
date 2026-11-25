@@ -481,6 +481,11 @@ struct AccountSettingsView: View {
     @State private var replacing = false
     @State private var newPassword = ""
     @State private var addingPassword = false
+    /// Another mail account's sending server being added or changed, as typed.
+    @State private var editingSending = false
+    @State private var smtpHost = ""
+    @State private var smtpPort = ""
+    @State private var smtpSecurity = "tls"
 
     struct Change: Identifiable { let id = UUID(); var what: String; var inbox: Bool?; var receipts: Bool? }
 
@@ -586,6 +591,8 @@ struct AccountSettingsView: View {
         if a.shows(.calendars, isOn: listed) {
             AccountCalendarsSection(email: a.email, store: store, reload: reload)
         }
+        // iCloud and Gmail show the server the hub names (an older hub names none); another mail account can add one.
+        if a.kind == "imap" || a.smtp != nil { sending(a) }
         signIn(a).id("signin")
         SwiftUI.Section {
             Button("Remove account", role: .destructive) { confirmRemove = true }.disabled(busy)
@@ -602,6 +609,78 @@ struct AccountSettingsView: View {
             }
         }
         .disabled(busy)
+    }
+
+    /// Sending (since 2026-11-24): where the account's mail goes out. iCloud and Gmail send through their own servers,
+    /// shown; another mail account through the one the owner gives here (Add, Change, Remove), which the hub signs in
+    /// to once before it keeps it. A guess from its IMAP server is only the empty field's hint.
+    @ViewBuilder private func sending(_ a: InternetAccount) -> some View {
+        let fixed = a.kind == "icloud" || a.kind == "gmail"
+        SwiftUI.Section {
+            if let x = a.smtp {
+                Text(verbatim: x.line)
+            } else {
+                Text(AccountTexts.Sending.none).font(.footnote).foregroundStyle(.secondary)
+            }
+            if !fixed {
+                if editingSending {
+                    TextField("Sending server", text: $smtpHost, prompt: Text(verbatim: Mail.smtpGuess(a.host ?? "")))
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
+                    Picker("Security", selection: $smtpSecurity) {
+                        Text(AccountTexts.Sending.tls).tag("tls")
+                        Text(AccountTexts.Sending.starttls).tag("starttls")
+                    }
+                    LabeledContent("Port") {
+                        TextField("Port", text: $smtpPort, prompt: Text(verbatim: smtpSecurity == "tls" ? "465" : "587"))
+                            .multilineTextAlignment(.trailing)
+                            .labelsHidden()
+                            #if os(iOS)
+                            .keyboardType(.numberPad)
+                            #endif
+                    }
+                    HStack {
+                        let typed = SendingServer.typed(host: smtpHost, port: smtpPort, security: smtpSecurity)
+                        Button(busy ? "Checking" : "Save") {
+                            act { c in
+                                try await c.setSendingServer(key: a.key, typed)
+                                editingSending = false
+                                return AccountTexts.Sending.saved
+                            }
+                        }
+                        .disabled(busy || typed == nil)
+                        Spacer()
+                        Button("Cancel") { editingSending = false }
+                    }
+                    .buttonStyle(.borderless)
+                } else {
+                    HStack {
+                        Button(a.smtp == nil ? "Add a sending server" : "Change") {
+                            smtpHost = a.smtp?.host ?? ""
+                            smtpPort = a.smtp.map { String($0.port) } ?? ""
+                            smtpSecurity = a.smtp?.security ?? "tls"
+                            editingSending = true
+                        }
+                        if a.smtp != nil {
+                            Spacer()
+                            Button("Remove", role: .destructive) {
+                                act { c in try await c.setSendingServer(key: a.key, nil); return AccountTexts.Sending.removed }
+                            }
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(busy)
+                }
+            }
+        } header: {
+            Text(AccountTexts.Sending.title)
+        } footer: {
+            Text(editingSending ? AccountTexts.Sending.form : a.smtp != nil ? AccountTexts.Sending.note : "")
+        }
+        .themedRow()
     }
 
     /// Sign-in: the app password, when the hub last used it, and Replace; the older Google sign-in offers an app password.
@@ -830,6 +909,10 @@ struct AddAccountView: View {
 
     @State private var form = NewAccount(kind: .icloud, email: "", password: "")
     @State private var port = "993"
+    /// Other mail's sending server, as typed (optional).
+    @State private var smtpHost = ""
+    @State private var smtpPort = ""
+    @State private var smtpSecurity = "tls"
     @State private var busy = false
     @State private var message: String?
 
@@ -898,6 +981,27 @@ struct AddAccountView: View {
                 case .other:
                     Text("Your provider's help pages give its server and port, and where to make an app password. The hub connects with TLS only (most often port 993), and only to servers on the internet, never one on your own network.")
                         .font(.footnote).foregroundStyle(.secondary)
+                    Text(AccountTexts.Sending.optional).font(.footnote)
+                    TextField("Sending server", text: $smtpHost, prompt: Text(verbatim: Mail.smtpGuess(form.host)))
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        #endif
+                    if !smtpHost.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Picker("Security", selection: $smtpSecurity) {
+                            Text(AccountTexts.Sending.tls).tag("tls")
+                            Text(AccountTexts.Sending.starttls).tag("starttls")
+                        }
+                        LabeledContent("Sending port") {
+                            TextField("Sending port", text: $smtpPort, prompt: Text(verbatim: smtpSecurity == "tls" ? "465" : "587"))
+                                .multilineTextAlignment(.trailing)
+                                .labelsHidden()
+                                #if os(iOS)
+                                .keyboardType(.numberPad)
+                                #endif
+                        }
+                    }
                 }
             } header: {
                 Text("Sign in")
@@ -952,6 +1056,7 @@ struct AddAccountView: View {
         guard let client = engine.client else { return }
         var f = form
         f.port = Int(port) ?? 993
+        f.smtp = f.kind == .other ? SendingServer.typed(host: smtpHost, port: smtpPort, security: smtpSecurity) : nil
         busy = true
         message = nil
         Task {

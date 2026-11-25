@@ -21,6 +21,9 @@ struct MailThreadView: View {
     @State private var tools: MailSummary?
 
     var body: some View {
+        #if DEBUG
+        let _ = MailProbe.count("MailThreadView")
+        #endif
         Group {
             if let t = store.thread(id) {
                 ScrollView {

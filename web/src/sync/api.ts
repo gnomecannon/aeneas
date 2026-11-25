@@ -1,4 +1,4 @@
-import type { Entity, Patch } from "@everythingapp/shared";
+import type { AppleReminderAlerts, Entity, Patch } from "@everythingapp/shared";
 import type { Commitment, PlannerDay, PlannerToday, PlannerWeek } from "../lib/planner";
 import type { HostSummary, SessionClose } from "../lib/memory";
 import type { ProjectSummary } from "../lib/creative";
@@ -6,8 +6,9 @@ import type { CheckRow, OpsData } from "../lib/ops";
 import type { Feel, FeelView } from "../feel/prefs";
 import type { Board, DashboardPrefs, MetricInfo, Series, Tile } from "../lib/dashboard";
 import type { WikiHit, WikiIndex, WikiPage } from "../lib/wiki";
-import type { BundleDelivery, CustomBundle, FolderMail, FoldNote, SearchHit, UnsubscribeOptions, MailAttachment, MailBlocked, MailMovedTo, MoveTarget, MailDraft, MailDraftRequest, MailGreeting, MailList, MailNotify, MailMessage, MailMoved, MailRefresh, SnoozeTimes, TriageAnswer } from "../lib/mail";
+import type { BundleDelivery, CustomBundle, FolderMail, FoldNote, SearchHit, UnsubscribeOptions, MailAttachment, MailBlocked, MailMovedTo, MoveTarget, MailDraft, MailDraftRequest, MailSent, OutboxItem, MailGreeting, MailList, MailNotify, MailMessage, MailMoved, MailRefresh, SnoozeTimes, TriageAnswer } from "../lib/mail";
 import { listAsSent } from "../lib/mail";
+import type { ChatMailProposal, MailProposal, MailProposalEdit } from "../lib/mailProposal";
 import { directBase, hubFetch, isDirect } from "./direct";
 import type { JoinRequest } from "./join";
 
@@ -312,6 +313,11 @@ export interface InternetAccount {
   read_only?: boolean;
   /** When the hub removed the older Google sign-in of this address, whose receipts this account carries on (since 2026-11-24). */
   google_removed_at?: string;
+  /**
+   * Where it sends from (since 2026-11-24): iCloud's and Gmail's own, or the one the owner gave for another account;
+   * null when it does not send. Absent on older hubs.
+   */
+  smtp?: SendingServer | null;
   receipts?: Pick<GmailAccount, "listed" | "to_read" | "read" | "failed" | "filed">;
   /**
    * When the hub last used its password (added, or a sign-in for Receipts and renewals, the Mail screen or calendar
@@ -320,7 +326,9 @@ export interface InternetAccount {
   checked_at?: string | null;
 }
 /** Linking another mail account: Gmail (the hub fills in the server) or any IMAP server over TLS. */
-export type ImapLink = { email: string; password: string; user?: string } & ({ preset: "gmail" } | { preset: "imap"; host: string; port?: number });
+export type ImapLink = { email: string; password: string; user?: string } & ({ preset: "gmail" } | { preset: "imap"; host: string; port?: number; smtp?: SendingServer | null });
+/** A sending server: its name, its port, and TLS from the start (`tls`) or STARTTLS. */
+export interface SendingServer { host: string; port: number; security: "tls" | "starttls" }
 
 /** Calendar sync on the hub (Calendar accounts): an iCloud address, its calendars and the one new events go to. */
 export interface CalendarAccount {
@@ -801,6 +809,10 @@ export class HubClient {
    * the last thing it does removes the account, password and all: the answer then has `removed` and the hub's
    * `message`.
    */
+  /** Another mail account's sending server (since 2026-11-24), checked by the hub with one sign-in; null sends from it no more. */
+  setSendingServer(key: string, smtp: { host: string; port?: number; security?: "tls" | "starttls" } | null) {
+    return this.req<{ smtp: SendingServer | null }>("PUT", `/connections/accounts/${encodeURIComponent(key)}/sending`, { smtp });
+  }
   setAccountFeatures(key: string, body: { inbox?: boolean; receipts?: boolean; read_only?: boolean }) {
     return this.req<{ inbox: boolean; receipts: boolean; read_only?: boolean; removed?: boolean; message?: string }>("PUT", `/connections/accounts/${encodeURIComponent(key)}`, body);
   }
@@ -1022,7 +1034,7 @@ export class HubClient {
   }
   /** Which modules are on, one setting for every device (Settings, Modules). */
   modules() {
-    return this.req<{ modules: ModuleInfo[]; alerts?: AlertInfo[] }>("GET", "/modules");
+    return this.req<{ modules: ModuleInfo[]; alerts?: AlertInfo[]; apple_reminder_alerts?: AppleReminderAlerts }>("GET", "/modules");
   }
   /** Switch modules on or off: `{ pet: false }`. */
   setModules(changes: Record<string, boolean>) {
@@ -1030,7 +1042,11 @@ export class HubClient {
   }
   /** Switch kinds of alert on or off for every device: `{ mail: false }`. */
   setAlerts(changes: Record<string, boolean>) {
-    return this.req<{ alerts: AlertInfo[] }>("PUT", "/modules/alerts", changes);
+    return this.req<{ alerts: AlertInfo[]; apple_reminder_alerts?: AppleReminderAlerts }>("PUT", "/modules/alerts", changes);
+  }
+  /** The two switches for tasks also in Apple Reminders, for every device: `{ aeneas: false }` (hubs since 1.0.19). */
+  setAppleReminderAlerts(change: { aeneas?: boolean; apple?: boolean }) {
+    return this.req<{ alerts: AlertInfo[]; apple_reminder_alerts?: AppleReminderAlerts }>("PUT", "/modules/alerts", { apple_reminder_alerts: change });
   }
   /** Change the owner's name, the pet's name (empty: no pet), or both. */
   setProfile(name?: string, pet?: string) {
@@ -1116,9 +1132,41 @@ export class HubClient {
   mailSeen(id: string, seen: boolean) {
     return this.req<{ ok: true; seen: boolean; synced: boolean }>("POST", `/mail/messages/${encodeURIComponent(id)}/seen`, { seen });
   }
-  /** A draft: a preview of what the hub would save, or saved to the mailbox's Drafts folder (never sent). */
+  /** A draft: a preview of what the hub would save (or send), or saved to the mailbox's Drafts folder. */
   mailDraft(body: MailDraftRequest) {
     return this.req<MailDraft>("POST", "/mail/drafts", body);
+  }
+  /** Send (since 2026-11-24): the same mail into the hub's outbox, sent 10 seconds later unless taken back. */
+  mailSend(body: MailDraftRequest) {
+    return this.req<MailSent>("POST", "/mail/send", body);
+  }
+  /** A mail in the outbox: waiting, being sent, sent, or not sent with the hub's words. 404 when it is not there. */
+  mailOutbox(id: string) {
+    return this.req<OutboxItem>("GET", `/mail/outbox/${encodeURIComponent(id)}`);
+  }
+  /** Undo while it waits, or Edit and Discard once it was not sent: it leaves the outbox. 409 once it is on its way. */
+  mailOutboxUndo(id: string) {
+    return this.req<{ undone: true }>("POST", `/mail/outbox/${encodeURIComponent(id)}/undo`, {});
+  }
+  /** Try again: a mail that was not sent waits again, with its Undo. */
+  mailOutboxRetry(id: string) {
+    return this.req<OutboxItem>("POST", `/mail/outbox/${encodeURIComponent(id)}/retry`, {});
+  }
+  /** A mail the assistant wrote: its card. 404 once the hub no longer keeps it (24 hours). */
+  mailProposal(id: string) {
+    return this.req<MailProposal>("GET", `/mail/proposals/${encodeURIComponent(id)}`);
+  }
+  /** The owner's taps on its card: Send, Undo, Try again, Cancel (the assistant's tools reach none of these). */
+  mailProposalAct(id: string, what: "send" | "undo" | "retry" | "cancel") {
+    return this.req<MailProposal>("POST", `/mail/proposals/${encodeURIComponent(id)}/${what}`, {});
+  }
+  /** Edit: the mail for the Mail screen's writing box; the card then leaves it to the box. */
+  mailProposalEdit(id: string) {
+    return this.req<MailProposalEdit>("POST", `/mail/proposals/${encodeURIComponent(id)}/edit`, {});
+  }
+  /** Save draft: a mail that was not sent goes to Drafts as it is. */
+  mailOutboxDraft(id: string) {
+    return this.req<{ saved: true; id?: string }>("POST", `/mail/outbox/${encodeURIComponent(id)}/draft`, {});
   }
   /** A reply's greeting and sign-off, suggested by the hub's local model (or the plain ones), to edit or drop. */
   mailGreeting(id: string) {
@@ -1575,6 +1623,8 @@ export interface AiStoredMessage {
   images?: string[];
   actions?: { tool: string; ok: boolean; writes: boolean }[];
   approval?: { action_id: string; host: string; command: string; status?: string; exit_code?: number | null };
+  /** A mail the assistant wrote for the owner to send (since 2026-11-24): its card goes under this reply. */
+  mail_proposal?: ChatMailProposal;
 }
 export interface AiSession { session_id: string; title: string; task_type: string; created_at: string; last_at: string; messages: AiStoredMessage[]; summary: string | null; summary_upto: number; pending_action: PendingAction | null; working?: AiWorking | null }
 

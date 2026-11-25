@@ -662,7 +662,13 @@ final class AppModel: ObservableObject {
         // Mail is off on a new hub, and a hub from before it has no Mail to answer: it shows only while the hub lists
         // it as on, never while the switches are not known yet. Sample mode has no mail to show (a recording never
         // keeps mail), so it has no Mail screen.
-        if s == .mail { return !config.sampleMode && modules.isOnListed(.mailInbox) }
+        if s == .mail {
+            #if DEBUG
+            // A made-up mailbox to measure the screen with (MailProbe, -EAMailFake): shown in sample mode too.
+            if MailProbe.fakeCount > 0 { return true }
+            #endif
+            return !config.sampleMode && modules.isOnListed(.mailInbox)
+        }
         return s.module.map(isOn) ?? true
     }
 
@@ -681,6 +687,7 @@ final class AppModel: ObservableObject {
         guard let c = engine.client else { return }
         if let r = try? await c.modulesAndAlerts() {
             await engine.applyAlerts(r.alerts)
+            await engine.applyAppleReminderAlerts(r.apple_reminder_alerts)
             applyModules(r.modules)
         }
         await engine.refreshSources()

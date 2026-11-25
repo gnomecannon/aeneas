@@ -3,7 +3,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type ChatMsg, type ChatSession } from "../sync/db";
 import { engine } from "../sync/engine";
-import { readSse, type AiSession, type AiWorking, type PendingAction } from "../sync/api";
+import { HubError, readSse, type AiSession, type AiWorking, type PendingAction } from "../sync/api";
+import { PROPOSAL_BUTTONS, PROPOSAL_TEXTS, proposalFace, proposalMoving, type ChatMailProposal, type MailProposal, type ProposalButton } from "../lib/mailProposal";
+import { openNewMail } from "./Mail";
 import { uuid } from "../sync/edits";
 import { useEntities } from "../sync/hooks";
 import { copyText, patchEntity, refetchAll } from "../sync/memory";
@@ -35,7 +37,7 @@ export const TOOL_LABELS: Record<string, string> = {
   remember: "Remembering", forget: "Forgetting", ledger_update: "Updating the ledger", runbook_note: "Writing fix notes", journal_entry: "Journaling",
   create_item: "Saving", update_item: "Updating", delete_item: "Deleting", procedure: "Updating the procedure", quiz: "Checking the quiz",
   render_snippet: "Filling a snippet", ops_action: "Checking a monitor", sensors: "Reading sensors", project_plan: "Updating the plan", cover_letter: "Drafting a cover letter",
-  calculate: "Calculating", checklist_from_template: "Starting a checklist", draft_in_my_voice: "Drafting in your voice", web_search: "Searching the web",
+  calculate: "Calculating", checklist_from_template: "Starting a checklist", draft_in_my_voice: "Drafting in your voice", propose_mail: "Writing a mail for you to send", web_search: "Searching the web",
   read_web_page: "Reading a page", list_hosts: "Listing machines", run_command: "Running a command", approve_command: "Running the approved command",
   wiki_search: "Searching the wiki", wiki_page: "Reading the wiki", library: "Checking your library", food_chosen: "Noting the pick",
   inbox: "Sorting Unsorted Info", record_done: "Recording it", app_status: "Checking the app", sync_now: "Syncing",
@@ -56,7 +58,7 @@ function fromHub(h: AiSession, prev?: ChatSession): ChatSession {
   return {
     id: h.session_id, title: h.title, task_type: (h.task_type as ChatSession["task_type"]) ?? "auto", allow_cloud: prev?.allow_cloud ?? false,
     created_at: h.created_at, updated_at: h.last_at, on_hub: true,
-    messages: h.messages.map((m) => ({ role: m.role, content: m.content, at: m.at ?? h.last_at, ...(m.images?.length ? { images: m.images } : {}), ...(m.actions?.length ? { actions: m.actions } : {}), ...(m.approval ? { approval: m.approval } : {}) })),
+    messages: h.messages.map((m) => ({ role: m.role, content: m.content, at: m.at ?? h.last_at, ...(m.images?.length ? { images: m.images } : {}), ...(m.actions?.length ? { actions: m.actions } : {}), ...(m.approval ? { approval: m.approval } : {}), ...(m.mail_proposal ? { mail_proposal: m.mail_proposal } : {}) })),
   };
 }
 
@@ -85,6 +87,81 @@ export function HubImage({ id }: { id: string }) {
     return () => { live = false; if (u) URL.revokeObjectURL(u); };
   }, [id]);
   return url ? <a href={url} target="_blank" rel="noreferrer"><img src={url} alt="attached" className="chat-image" /></a> : <span className="chip static">image</span>;
+}
+
+/**
+ * A mail the assistant wrote for the owner to send (since 2026-11-24): From, To and Cc, Subject and the whole text,
+ * then Send, Edit and Cancel. Nothing is sent until Send is tapped; Send puts it in the hub's outbox with its 10
+ * seconds of Undo (the card says Sending, with Undo), Edit opens New mail on the Mail screen filled with it, Cancel
+ * drops it. Once sent, cancelled or opened to edit, the card says so and its buttons go; one the hub no longer keeps
+ * (24 hours) says so too.
+ */
+function MailProposalCard({ p }: { p: ChatMailProposal }) {
+  const [view, setView] = useState<MailProposal | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [looks, setLooks] = useState(0);
+  useEffect(() => {
+    const c = engine.client;
+    if (!c) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const look = async () => {
+      try {
+        const v = await c.mailProposal(p.id);
+        if (!live) return;
+        setView(v);
+        if (proposalMoving(v)) timer = setTimeout(() => void look(), 1000);
+      } catch (e) {
+        if (!live) return;
+        if (e instanceof HubError && e.status === 404) setView(null); else setErr(plainError(e));
+      }
+    };
+    void look();
+    return () => { live = false; clearTimeout(timer); };
+  }, [p.id, looks]);
+  const tap = async (b: ProposalButton) => {
+    const c = engine.client;
+    if (!c) return;
+    setBusy(true);
+    setErr("");
+    try {
+      if (b === "edit") {
+        openNewMail(await c.mailProposalEdit(p.id));
+        go("/mail");
+        return;
+      }
+      setView(await c.mailProposalAct(p.id, b));
+      setLooks((n) => n + 1);
+    } catch (e) { setErr(plainError(e)); } finally { setBusy(false); }
+  };
+  if (view === undefined) return <div className="card col mail-proposal small muted">{err || PROPOSAL_TEXTS.title}</div>;
+  const face = proposalFace(view, p.state);
+  return (
+    <div className="card col mail-proposal" role="group" aria-label={PROPOSAL_TEXTS.title}>
+      <b>{PROPOSAL_TEXTS.title}</b>
+      {face.showMail && view && (
+        <>
+          <dl className="mailx-compose-head">
+            <dt>From</dt><dd>{view.from.name ? `${view.from.name} <${view.from.address}>` : view.from.address}</dd>
+            <dt>To</dt><dd>{view.to.join(", ")}</dd>
+            {!!view.cc.length && <><dt>Cc</dt><dd>{view.cc.join(", ")}</dd></>}
+            {!!view.files.length && <><dt>Files</dt><dd>{view.files.map((f) => f.name).join(", ")}</dd></>}
+            <dt>Subject</dt><dd>{view.subject || "(no subject)"}</dd>
+          </dl>
+          <div className="mailx-compose-text">{view.text}</div>
+        </>
+      )}
+      <div className={face.buttons.length ? "small" : "small muted"} role="status">{face.line}</div>
+      {face.error && <div className="error small">{face.error}</div>}
+      {face.buttons.length > 0 && (
+        <div className="row">
+          {face.buttons.map((b, i) => <button key={b} type="button" className={i === 0 ? "primary small" : "small"} disabled={busy} onClick={() => void tap(b)}>{PROPOSAL_BUTTONS[b]}</button>)}
+        </div>
+      )}
+      {err && <div className="error small" role="alert">{err}</div>}
+    </div>
+  );
 }
 
 /** A host command waiting for approval, with the pre-flight when it is destructive. */
@@ -700,6 +777,7 @@ export function Assistant({ id }: { id?: string }) {
                     {m.approval.status && m.approval.status !== "pending" ? ` (${m.approval.status}${m.approval.exit_code != null ? `, exit ${m.approval.exit_code}` : ""})` : ""}
                   </div>
                 )}
+                {m.role === "assistant" && m.mail_proposal && <MailProposalCard p={m.mail_proposal} />}
                 {m.procedure_id && (
                   <div style={{ marginTop: 8 }}>
                     <button className="small primary" onClick={() => go(`/procedures/${encodeURIComponent(m.procedure_id!)}`)}>

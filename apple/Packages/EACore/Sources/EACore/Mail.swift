@@ -181,10 +181,12 @@ public struct MailMailbox: Codable, Equatable, Hashable, Sendable {
     /// Read only (Settings, Accounts, since 2026-11-24): the hub refuses every change to it, so the screen offers
     /// none. Nil from an older hub.
     public var read_only: Bool?
+    /// It has a sending server (since 2026-11-24): iCloud's, Gmail's, or one the owner gave. Nil from an older hub.
+    public var can_send: Bool?
 
-    public init(email: String, last_refresh: String? = nil, last_error: String? = nil, more: Bool = false, provider: String? = nil, kind: String? = nil, read_only: Bool? = nil) {
+    public init(email: String, last_refresh: String? = nil, last_error: String? = nil, more: Bool = false, provider: String? = nil, kind: String? = nil, read_only: Bool? = nil, can_send: Bool? = nil) {
         self.email = email; self.last_refresh = last_refresh; self.last_error = last_error; self.more = more
-        self.provider = provider; self.kind = kind; self.read_only = read_only
+        self.provider = provider; self.kind = kind; self.read_only = read_only; self.can_send = can_send
     }
 
     public init(from decoder: Decoder) throws {
@@ -196,6 +198,7 @@ public struct MailMailbox: Codable, Equatable, Hashable, Sendable {
         provider = try? c.decodeIfPresent(String.self, forKey: .provider)
         kind = try? c.decodeIfPresent(String.self, forKey: .kind)
         read_only = try? c.decodeIfPresent(Bool.self, forKey: .read_only)
+        can_send = try? c.decodeIfPresent(Bool.self, forKey: .can_send)
     }
 }
 
@@ -304,16 +307,18 @@ public struct MailList: Decodable, Equatable, Sendable {
     public var blocked: [String]
     public var triage: Bool?
     public var triage_state: MailTriageState?
+    /// Mail waiting, being sent or not sent (since 2026-11-24); none from an older hub.
+    public var outbox: [MailOutboxItem]
 
     public init(messages: [MailSummary], mailboxes: [MailMailbox], logos: [String: String] = [:], snooze_times: MailSnoozeTimes = .defaults,
                 bundle_delivery: [String: MailBundleDelivery] = [:], custom_bundles: [MailCustomBundle] = [], mail_notify: MailNotify = .defaults,
-                folders: [MailFolder] = [], blocked: [String] = [], triage: Bool? = nil, triage_state: MailTriageState? = nil) {
+                folders: [MailFolder] = [], blocked: [String] = [], triage: Bool? = nil, triage_state: MailTriageState? = nil, outbox: [MailOutboxItem] = []) {
         self.messages = messages; self.mailboxes = mailboxes; self.logos = logos; self.snooze_times = snooze_times
         self.bundle_delivery = bundle_delivery; self.custom_bundles = custom_bundles; self.mail_notify = mail_notify
-        self.folders = folders; self.blocked = blocked; self.triage = triage; self.triage_state = triage_state
+        self.folders = folders; self.blocked = blocked; self.triage = triage; self.triage_state = triage_state; self.outbox = outbox
     }
 
-    private enum CodingKeys: String, CodingKey { case messages, mailboxes, logos, snooze_times, bundle_delivery, custom_bundles, mail_notify, folders, blocked, triage, triage_state }
+    private enum CodingKeys: String, CodingKey { case messages, mailboxes, logos, snooze_times, bundle_delivery, custom_bundles, mail_notify, folders, blocked, triage, triage_state, outbox }
 
     // The settings came one release at a time (2026-11-19 and 20): a hub without one of them gives its defaults.
     public init(from decoder: Decoder) throws {
@@ -329,6 +334,7 @@ public struct MailList: Decodable, Equatable, Sendable {
         blocked = (try? c.decodeIfPresent([String].self, forKey: .blocked)) ?? []
         triage = try? c.decodeIfPresent(Bool.self, forKey: .triage)
         triage_state = try? c.decodeIfPresent(MailTriageState.self, forKey: .triage_state)
+        outbox = (try? c.decodeIfPresent([MailOutboxItem].self, forKey: .outbox)) ?? []
     }
 }
 

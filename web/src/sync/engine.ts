@@ -1,5 +1,5 @@
 import { plainError } from "../lib/errors";
-import type { Entity, Patch } from "@everythingapp/shared";
+import type { AppleReminderAlerts, Entity, Patch } from "@everythingapp/shared";
 import { db as defaultDb, EADatabase, META, getMeta, setMeta, type OutboxItem, type RejectedEdit } from "./db";
 import { HubClient, HubError, isDeviceKey, readSse, type AlertInfo, type FetchLike, type ModuleInfo, type SourcesView } from "./api";
 import { applyPatchLocal, mergeIncoming, planFlush, rejectedIds } from "./merge";
@@ -69,7 +69,7 @@ export class SyncEngine {
   private listeners = new Set<Listener>();
   private notifyListeners = new Set<(n: NotifyEvent) => void>();
   private moduleListeners = new Set<(m: ModuleInfo[]) => void>();
-  private alertListeners = new Set<(a: AlertInfo[]) => void>();
+  private alertListeners = new Set<(a: AlertInfo[], apple: AppleReminderAlerts | null) => void>();
   private sourcesListeners = new Set<(v: SourcesView) => void>();
   private fetchImpl: FetchLike;
   private platform: () => string;
@@ -115,8 +115,9 @@ export class SyncEngine {
     return () => this.moduleListeners.delete(fn);
   }
 
-  /** Alert switches changed on some device (they come with `event: modules` on /live). */
-  onAlerts(fn: (a: AlertInfo[]) => void): () => void {
+  /** Alert switches changed on some device (they come with `event: modules` on /live), with the switches for tasks
+   * also in Apple Reminders (null from a hub without them). */
+  onAlerts(fn: (a: AlertInfo[], apple: AppleReminderAlerts | null) => void): () => void {
     this.alertListeners.add(fn);
     return () => this.alertListeners.delete(fn);
   }
@@ -623,7 +624,7 @@ export class SyncEngine {
         if (this.moduleListeners.size || this.alertListeners.size) {
           this.client!.modules().then((r) => {
             for (const l of this.moduleListeners) l(r.modules);
-            if (Array.isArray(r.alerts)) for (const l of this.alertListeners) l(r.alerts);
+            if (Array.isArray(r.alerts)) for (const l of this.alertListeners) l(r.alerts, r.apple_reminder_alerts ?? null);
           }).catch(() => undefined);
         }
         // The same for the sources setting (which Reminders lists are on).
@@ -649,9 +650,9 @@ export class SyncEngine {
           if (ev.event === "change") this.schedulePull();
           else if (ev.event === "modules") {
             try {
-              const d = JSON.parse(ev.data) as { modules?: ModuleInfo[]; alerts?: AlertInfo[] };
+              const d = JSON.parse(ev.data) as { modules?: ModuleInfo[]; alerts?: AlertInfo[]; apple_reminder_alerts?: AppleReminderAlerts };
               if (Array.isArray(d.modules)) for (const l of this.moduleListeners) l(d.modules);
-              if (Array.isArray(d.alerts)) for (const l of this.alertListeners) l(d.alerts);
+              if (Array.isArray(d.alerts)) for (const l of this.alertListeners) l(d.alerts, d.apple_reminder_alerts ?? null);
             } catch {
               /* ignore malformed */
             }

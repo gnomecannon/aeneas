@@ -2,6 +2,7 @@ import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMem
 import { openExternal } from "../tauri/bridge";
 import { saveBlob } from "../lib/download";
 import { engine } from "../sync/engine";
+import { HubError, type HubClient } from "../sync/api";
 import { useEntities } from "../sync/hooks";
 import type { Entity } from "@everythingapp/shared";
 import { completeTask, snoozeReminder } from "../sync/actions";
@@ -101,6 +102,13 @@ import {
   viewMessages,
   whenLabel,
   WRITING_BOX,
+  canSend,
+  outboxFace,
+  outboxLine,
+  previewNote,
+  SEND_TEXTS,
+  writeNote,
+  type OutboxItem,
   type Bundle,
   type BundleDelivery,
   type CustomBundle,
@@ -182,14 +190,16 @@ type BoxKind = "one" | "all" | "forward" | "draft" | "new";
  * suggestion arriving later leaves it alone; `suggested`: the hub's suggestions were asked for once. For a kept draft
  * being changed: `ready` once its words are read, `html` when it has formatting from another mail app, `kept` its old
  * attachments still on it (null: not read yet). `dirty`: the owner typed words or attached a file, so Discard asks
- * first.
+ * first. `outbox`: the mail was sent (since 2026-11-24) and is in the hub's outbox under this id: the box shows how
+ * that goes (Sending with Undo, Sent, or Not sent), and keeps what was written until it is sent, so Undo and Edit put
+ * it back as it was.
  */
 interface Typed {
-  to: string; subject: string; text: string; greeting: string | null; signoff: string | null;
+  to: string; cc?: string; subject: string; text: string; greeting: string | null; signoff: string | null;
   touched: { greeting: boolean; signoff: boolean }; suggested: boolean; smart: string[];
   files: File[]; withTheirs: boolean; from: string;
   ready: boolean; html: boolean; kept: MailAttachment[] | null;
-  dirty: boolean;
+  dirty: boolean; outbox?: string | null;
 }
 const NEW_MAIL = "new";
 /** The Mail screen with no mailbox linked, above Add an account (EACore Mail.noMailboxText, kept the same). */
@@ -199,8 +209,8 @@ export const NO_MAILBOX = "No mailbox is linked yet. iCloud, Gmail and other mai
  * (by the mail's id; a new mail under NEW_MAIL), and what each box holds (`reply:<id>`, shared by Reply and Reply all,
  * `forward:<id>`, `draft:<id>`, NEW_MAIL). A box that closes and opens again (Reply all in place of Reply, a thread
  * closed with Esc and opened again, a list that changed under it, New mail pressed twice) shows what was typed; only
- * Save to Drafts, Discard, and moving the mail it was written on (after a question) let it go. Kept while the page is
- * open, on this device only.
+ * Save draft, a mail sent, Discard, and moving the mail it was written on (after a question) let it go. Kept while the
+ * page is open, on this device only.
  *
  * `lost`: a box that went away while the owner was typing in it (the focus was in it, and none of its own buttons
  * closed it): the mail it was under, and when. The screen then shows that mail where it is now (see Mail).
@@ -212,6 +222,20 @@ const hasUnsaved = (id: string) => WRITTEN_TO.some((k) => WRITING.typed.get(`${k
 // A reload or a closed tab: the browser asks first while anything typed (to a mail, or a new mail) is not saved. Set
 // once for as long as the page is open, since what is typed outlives the Mail screen (it is there again on coming back).
 if (typeof window !== "undefined") window.addEventListener("beforeunload", askBeforeLeaving(() => [...WRITING.typed.values()].some((t) => t.dirty)));
+/**
+ * A mail the assistant wrote, opened by its card's Edit (since 2026-11-24): New mail's box filled with it, its pictures
+ * as files, to send or save as a draft from there. Not marked as typed: Discard asks only once the owner changes it.
+ * The Mail screen opens the box when it shows (WRITING.open).
+ */
+export function openNewMail(m: { from: string; to: string[]; cc: string[]; subject: string; text: string; files: { name: string; type: string; data: string }[] }): void {
+  const files = m.files.map((f) => new File([Uint8Array.from(atob(f.data), (ch) => ch.charCodeAt(0))], f.name, { type: f.type }));
+  WRITING.typed.set(NEW_MAIL, {
+    to: m.to.join(", "), cc: m.cc.join(", "), subject: m.subject, text: m.text, greeting: null, signoff: null,
+    touched: { greeting: false, signoff: false }, suggested: true, smart: [], files, withTheirs: false, from: m.from,
+    ready: true, html: false, kept: [], dirty: false,
+  });
+  WRITING.open.set(NEW_MAIL, "new");
+}
 /** A mail that moved away takes what was written to it along. */
 const forgetWriting = (id: string) => { for (const k of WRITTEN_TO) WRITING.typed.delete(`${k}:${id}`); WRITING.open.delete(id); };
 /** The mailbox a new mail went from last time, remembered on this device. */
@@ -672,7 +696,7 @@ export function Mail() {
         )}
         {!chosen.length && (
           <div className="mailx-bar-right">
-            {writableBoxes(boxes).length > 0 && <button type="button" className="mailx-compose-btn" aria-expanded={composing} onClick={() => setNewMail(!composing)} title="Write a new mail, saved to Drafts in your mailbox"><Icon name="pencil" /><span>New mail</span></button>}
+            {writableBoxes(boxes).length > 0 && <button type="button" className="mailx-compose-btn" aria-expanded={composing} onClick={() => setNewMail(!composing)} title={writableBoxes(boxes).some(canSend) ? "Write a new mail, to send or save as a draft" : "Write a new mail, saved to Drafts in your mailbox"}><Icon name="pencil" /><span>New mail</span></button>}
           </div>
         )}
       </div>
@@ -702,6 +726,7 @@ export function Mail() {
         {menu && <div className="mailx-scrim" onClick={() => setMenu(false)} aria-hidden="true" />}
         <div className="mailx-main">
           {actErr && <div className="error mailx-acterr" role="alert">{actErr}</div>}
+          <OutboxNotices items={list.data?.outbox ?? []} composing={composing} />
           {/* Open from before the screen showed, it does not take the focus (on a phone that would raise the keyboard). */}
           {composing && <Composer focus={newMailPressed.current} close={() => setNewMail(false)} />}
           {refreshMsg && <div className={`small mailx-refreshmsg ${refreshMsg.ok ? "ok" : "error"}`} role="status">{refreshMsg.text}</div>}
@@ -838,7 +863,7 @@ function FolderView({ f, mails, loading, err, more, showMore, searching, open, s
   return (
     <div className="mailx-col">
       {f.role === "junk" && <div className="muted small mailx-folder-note">Your mail provider put this mail in Spam. Its pictures are never loaded, and its links may not be safe.</div>}
-      {f.role === "drafts" && <div className="muted small mailx-folder-note">A draft is sent from {mailApp(mailboxOf(boxes, f.email))}. Edit changes it here.</div>}
+      {f.role === "drafts" && <div className="muted small mailx-folder-note">{canSend(mailboxOf(boxes, f.email)) ? "Edit opens a draft here, to send it or save it again." : `A draft is sent from ${mailApp(mailboxOf(boxes, f.email))}. Edit changes it here.`}</div>}
       <div className="mailx-list">
         {mails.map((m) => open === folderRow(m.id)
           ? <FolderCard key={m.id} m={m} f={f} close={() => setOpen(null)} />
@@ -1655,14 +1680,16 @@ const rememberFrom = (email: string) => { try { localStorage.setItem(FROM_KEY, e
 const FORMATTED_DRAFT = "This draft has formatting from another mail app. Saving it here keeps its words only. The old version goes to Trash.";
 
 /**
- * Writing mail, as a draft: a reply to an open mail (the hub sets its recipient, the sender's From; its subject and its
- * thread), a forward, a new mail, or a kept draft being changed. Write, then Preview: the hub answers with the whole
- * mail it would save, shown here as text, and only Save to Drafts saves it, to the mailbox's Drafts folder. The owner
- * sends it from their mail app: nothing is sent here.
+ * Writing mail: a reply to an open mail (the hub sets its recipient, the sender's From; its subject and its thread), a
+ * forward, a new mail, or a kept draft being changed. Write, then Preview: the hub answers with the whole mail, shown
+ * here as text. Then Send (since 2026-11-24, for a mailbox with a sending server that is not Read only): the mail goes
+ * into the hub's outbox, the box says Sending with Undo for 10 seconds, and Undo puts it back here as it was; a mail
+ * the server refuses comes back with the hub's words, Try again, Save draft and Edit. Or Save draft: to the mailbox's
+ * Drafts folder.
  *
  * What is typed is kept by the screen (WRITING), not by this box, so it is here again when the box closes and opens:
  * Reply all pressed after Reply, the thread closed and opened, the list changed under it, New mail pressed twice. Only
- * Save to Drafts and Discard let it go, and Discard asks first when something was typed. The whole box is marked as a
+ * Save draft, a mail sent and Discard let it go, and Discard asks first when something was typed. The whole box is marked as a
  * writing box (`data-writing`), where the list's keys do nothing, and after any of its buttons is pressed the focus
  * goes back to its text, so typing goes on there.
  *
@@ -1700,6 +1727,42 @@ function Composer({ reply, all = false, forward, draft, mailbox, focus = true, c
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const sends = canSend(box);
+  // The mail in the hub's outbox, once sent: asked every second while it waits or is on its way (undefined: not asked yet).
+  const [item, setItem] = useState<OutboxItem | null | undefined>(undefined);
+  const [sentDone, setSentDone] = useState(false);
+  const [looks, setLooks] = useState(0);
+  const outboxId = typed.outbox ?? null;
+  useEffect(() => {
+    const c = engine.client;
+    if (!outboxId || !c) { setItem(undefined); return; }
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const look = async () => {
+      let got: OutboxItem | null;
+      try { got = await c.mailOutbox(outboxId); } catch (e) {
+        // Not there: taken back, or long since sent. Out of reach for a moment: asked again.
+        if (!(e instanceof HubError && e.status === 404)) { if (live) timer = setTimeout(() => void look(), 2000); return; }
+        got = null;
+      }
+      if (!live) return;
+      setItem(got);
+      if (got?.state === "sent") {
+        // Sent: nothing is left to keep, and the box does not open again by itself.
+        WRITING.typed.delete(key);
+        WRITING.open.delete(under ?? NEW_MAIL);
+        if (choosesFrom) rememberFrom(from);
+        setSentDone(true);
+        void act(async () => undefined);
+        return;
+      }
+      // Gone from the outbox (taken back on another device, or long since sent): what was written shows again.
+      if (got === null) { set({ outbox: null }, false); return; }
+      if (got.state === "waiting" || got.state === "sending") timer = setTimeout(() => void look(), 1000);
+    };
+    void look();
+    return () => { live = false; clearTimeout(timer); };
+  }, [outboxId, looks]);
   // A preview is of the mail as it was asked for: when Reply all is pressed after Reply (or Reply after Reply all) it
   // is no longer what would be saved, so the box goes back to the text, to be previewed again.
   useEffect(() => { setPreview(null); }, [all]);
@@ -1708,7 +1771,7 @@ function Composer({ reply, all = false, forward, draft, mailbox, focus = true, c
   const toText = () => textRef.current?.focus();
   // The text takes the focus when the box opens, when Reply all is pressed after Reply (or Reply after Reply all: the
   // box stays, and the button pressed is outside it) and when it comes back from the preview, with the caret after
-  // what is there; the preview's Save to Drafts takes it while the preview shows. The focus is then never left on a
+  // what is there; the preview's Send (or Save draft, for a mailbox that does not send) takes it while the preview shows. The focus is then never left on a
   // button that went away or was switched off while the hub answered, where typing would be the list's keys. A focus
   // that is in one of the box's own fields (To, the subject) stays there.
   const writing = !preview && !saved;
@@ -1798,6 +1861,55 @@ function Composer({ reply, all = false, forward, draft, mailbox, focus = true, c
     } catch (e) { setErr(plainError(e)); }
     setBusy(false);
   };
+  /** Send: the mail into the hub's outbox; the box then shows it Sending, with Undo. */
+  const send = async () => {
+    const c = engine.client;
+    if (!c) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const t = now.current;
+      const files = await Promise.all(t.files.map(async (f) => ({ name: f.name, type: f.type, data: await fileB64(f) })));
+      const r = await c.mailSend(draftRequest(what, { ...t, from: choosesFrom ? from : undefined, kept: t.kept ?? [] }, files, false));
+      setItem({ id: r.id, mailbox: r.from.address, to: r.to, subject: r.subject, state: "waiting", send_at: r.send_at });
+      set({ outbox: r.id }, false);
+      setPreview(null);
+    } catch (e) { setErr(plainError(e)); }
+    setBusy(false);
+  };
+  /** Undo (while it waits) or Edit (once it was not sent): out of the outbox, back to the box as it was. */
+  const takeBack = async () => {
+    const c = engine.client;
+    if (!c || !outboxId) return;
+    setBusy(true);
+    setErr("");
+    try { await c.mailOutboxUndo(outboxId); set({ outbox: null }, false); setItem(undefined); }
+    catch (e) { setErr(plainError(e)); try { setItem(await c.mailOutbox(outboxId)); } catch { /* the next look says */ } }
+    setBusy(false);
+  };
+  const retry = async () => {
+    const c = engine.client;
+    if (!c || !outboxId) return;
+    setBusy(true);
+    setErr("");
+    try { setItem(await c.mailOutboxRetry(outboxId)); setLooks((n) => n + 1); } catch (e) { setErr(plainError(e)); }
+    setBusy(false);
+  };
+  /** Save draft, for a mail that was not sent: the hub puts it in Drafts as it is. */
+  const outboxDraft = async () => {
+    const c = engine.client;
+    if (!c || !outboxId) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await c.mailOutboxDraft(outboxId);
+      WRITING.typed.delete(key);
+      WRITING.open.delete(under ?? NEW_MAIL);
+      setSaved(true);
+      void act(async () => undefined);
+    } catch (e) { setErr(plainError(e)); }
+    setBusy(false);
+  };
   const discard = () => {
     if (now.current.dirty && !window.confirm("Discard what you wrote? It is not saved to Drafts.")) return;
     WRITING.typed.delete(key);
@@ -1805,18 +1917,53 @@ function Composer({ reply, all = false, forward, draft, mailbox, focus = true, c
     close();
   };
   const head = reply ? <>{all ? "Reply all to" : "Reply to"} <b>{personLabel(reply.from)}</b> &lt;{reply.from.address}&gt;{all && " and the others on it"}</> : forward ? <>Forward <b>{forward.subject || "(no subject)"}</b></> : draft ? <b>Edit the draft</b> : <b>New mail</b>;
+  if (sentDone) {
+    return (
+      <div className="mailx-compose mailx-card-pad" role="status" data-writing={key}>
+        <span>{SEND_TEXTS.sent}</span>
+        <button type="button" className="small" autoFocus onClick={() => { closing.current = true; close(); }}>Close</button>
+      </div>
+    );
+  }
+  if (outboxId && item !== null) {
+    const face = outboxFace(item ?? { id: outboxId, mailbox: "", to: [], subject: "", state: "waiting", send_at: "" });
+    if (face.face === "failed") {
+      return (
+        <div className="mailx-compose mailx-card-pad" role="alert" data-writing={key}>
+          <b>{SEND_TEXTS.failed}</b>
+          <span className="error small">{face.text}</span>
+          <div className="mailx-compose-acts">
+            <button type="button" className="primary" disabled={busy} onClick={() => void retry()}>Try again</button>
+            <button type="button" disabled={busy} onClick={() => void outboxDraft()}>Save draft</button>
+            <button type="button" disabled={busy} onClick={() => void takeBack()}>Edit</button>
+            {err && <span className="error small">{err}</span>}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="mailx-compose mailx-card-pad" role="status" data-writing={key}>
+        <div className="mailx-compose-acts">
+          <b>{face.text}</b>
+          {!!item?.to.length && <span className="muted small">To {item.to.join(", ")}</span>}
+          {face.undo && <button type="button" className="small" autoFocus disabled={busy} onClick={() => void takeBack()}>Undo</button>}
+          {err && <span className="error small" role="alert">{err}</span>}
+        </div>
+      </div>
+    );
+  }
   if (saved) {
     return (
       <div className="mailx-compose mailx-card-pad" role="status" data-writing={key}>
-        <span>Saved to Drafts {inProvider(box)}. Open Drafts in {mailApp(box)} to send it.</span>
+        <span>{sends ? `Saved to Drafts ${inProvider(box)}.` : `Saved to Drafts ${inProvider(box)}. Open Drafts in ${mailApp(box)} to send it.`}</span>
         <button type="button" className="small" autoFocus onClick={() => { closing.current = true; if (draft) void act(async () => undefined); close(); }}>Close</button>
       </div>
     );
   }
   if (preview) {
     return (
-      <div className="mailx-compose mailx-card-pad" role="group" aria-label="The mail as it will be saved" data-writing={key}>
-        <div className="muted small">This is the whole mail. Save it to Drafts, then send it from {mailApp(box)}.</div>
+      <div className="mailx-compose mailx-card-pad" role="group" aria-label={sends ? "The mail as it will be sent" : "The mail as it will be saved"} data-writing={key}>
+        <div className="muted small">{previewNote(box)}</div>
         <dl className="mailx-compose-head">
           <dt>From</dt><dd>{preview.from.name ? `${preview.from.name} <${preview.from.address}>` : preview.from.address}</dd>
           <dt>To</dt><dd>{preview.to.join(", ")}</dd>
@@ -1829,7 +1976,8 @@ function Composer({ reply, all = false, forward, draft, mailbox, focus = true, c
         <div className="mailx-compose-text">{preview.text}</div>
         {draft && typed.html && <div className="muted small">{FORMATTED_DRAFT}</div>}
         <div className="mailx-compose-acts">
-          <button ref={saveRef} type="button" className="primary" disabled={busy} onClick={() => void ask(false)}>{busy ? "Saving" : "Save to Drafts"}</button>
+          {sends && <button ref={saveRef} type="button" className="primary" disabled={busy} onClick={() => void send()}>{busy ? "Sending" : "Send"}</button>}
+          <button ref={sends ? undefined : saveRef} type="button" className={sends ? undefined : "primary"} disabled={busy} onClick={() => void ask(false)}>Save draft</button>
           <button type="button" disabled={busy} onClick={() => setPreview(null)}>Edit</button>
           <button type="button" className="link" onClick={discard}>Discard</button>
           {err && <span className="error small" role="alert">{err}</span>}
@@ -1855,6 +2003,8 @@ function Composer({ reply, all = false, forward, draft, mailbox, focus = true, c
       {!reply && (
         <>
           <input value={typed.to} onChange={(e) => set({ to: e.target.value })} placeholder="To: alex@example.com" aria-label="To" autoComplete="off" spellCheck={false} />
+          {/* A new mail's Cc: shown while it holds something (a mail the assistant wrote, opened with Edit). */}
+          {!forward && !draft && !!typed.cc?.trim() && <label className="mailx-from small">Cc <input value={typed.cc} onChange={(e) => set({ cc: e.target.value })} placeholder="Cc" aria-label="Cc" autoComplete="off" spellCheck={false} /></label>}
           {!forward && <input value={typed.subject} onChange={(e) => set({ subject: e.target.value })} placeholder="Subject" aria-label="Subject" maxLength={200} />}
         </>
       )}
@@ -1863,7 +2013,7 @@ function Composer({ reply, all = false, forward, draft, mailbox, focus = true, c
       {draft && !typed.ready && (loadErr
         ? <div className="error small" role="alert">{loadErr} <button type="button" className="small" onClick={() => setLoadTry((n) => n + 1)}>Try again</button></div>
         : <div className="muted small">Reading the draft</div>)}
-      {draft && typed.ready && <div className="muted small">{typed.html ? FORMATTED_DRAFT : "Saving puts this version in Drafts and moves the old one to Trash."}</div>}
+      {draft && typed.ready && <div className="muted small">{typed.html ? FORMATTED_DRAFT : sends ? "Sending it, or saving this version to Drafts, moves the old one to Trash." : "Saving puts this version in Drafts and moves the old one to Trash."}</div>}
       {reply && !!typed.smart.length && (
         <div className="mailx-smart" role="group" aria-label="Suggested replies">
           {typed.smart.map((r) => <button key={r} type="button" className="mailx-smart-one" onClick={() => set({ text: now.current.text.trim() ? `${now.current.text.trimEnd()}\n${r}` : r })}>{r}</button>)}
@@ -1884,10 +2034,39 @@ function Composer({ reply, all = false, forward, draft, mailbox, focus = true, c
         <button type="submit" className="primary" disabled={busy || !typed.ready || (!forward && !typed.text.trim()) || (!reply && !typed.to.trim())}>{busy ? "Checking" : "Preview"}</button>
         <button type="button" className="link" onClick={discard}>Discard</button>
         <label className="mailx-attach" title="Attach files (at most 10, 15 MB in all)"><Icon name="clip" /><span>Attach</span><input type="file" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ""; toText(); }} /></label>
-        <span className="muted small">Saved to Drafts {inProvider(box)}, to send from {mailApp(box)}.</span>
+        <span className="muted small">{writeNote(box)}</span>
         {err && <span className="error small" role="alert">{err}</span>}
       </div>
     </form>
+  );
+}
+
+/**
+ * Mail that was not sent (the hub's outbox, since 2026-11-24), each with the hub's words for why, Try again, Save draft
+ * and Discard (asked first): never lost, whether or not the box it was written in is still open. One that an open box
+ * shows already is left to that box.
+ */
+function OutboxNotices({ items, composing }: { items: OutboxItem[]; composing: boolean }) {
+  const { act } = useContext(Look);
+  const [busy, setBusy] = useState(false);
+  const shownInBox = (id: string) => [...WRITING.typed.entries()].some(([k, t]) => t.outbox === id && (k === NEW_MAIL ? composing : WRITING.open.has(k.slice(k.indexOf(":") + 1))));
+  const failed = items.filter((x) => x.state === "failed" && !shownInBox(x.id));
+  if (!failed.length) return null;
+  const run = async (f: (c: HubClient) => Promise<unknown>) => { setBusy(true); await act(async (c) => { await f(c); }); setBusy(false); };
+  return (
+    <>
+      {failed.map((x) => (
+        <div key={x.id} className="mailx-compose mailx-card-pad" role="alert">
+          <b>{outboxLine(x)}</b>
+          {x.error && <span className="error small">{x.error}</span>}
+          <div className="mailx-compose-acts">
+            <button type="button" className="primary small" disabled={busy} onClick={() => void run((c) => c.mailOutboxRetry(x.id))}>Try again</button>
+            <button type="button" className="small" disabled={busy} onClick={() => void run((c) => c.mailOutboxDraft(x.id))}>Save draft</button>
+            <button type="button" className="link small" disabled={busy} onClick={() => { if (window.confirm(SEND_TEXTS.discard)) void run((c) => c.mailOutboxUndo(x.id)); }}>Discard</button>
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
 

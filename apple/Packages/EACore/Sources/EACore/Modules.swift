@@ -89,25 +89,86 @@ public enum AlertKind: String, CaseIterable, Sendable {
     case reminder, digest, activity, mail, monitor, sensor, disk, quiz
 }
 
+/// Alerts for tasks that are also in Apple Reminders (`apple_reminder_alerts` in `GET /modules`, hubs since 1.0.19), one
+/// setting for every device. Such a task can alert from Aeneas and from Apple's Reminders app (the alarm the iPhone and
+/// Mac write on its item); the owner keeps either or both.
+public struct AppleReminderAlerts: Codable, Equatable, Sendable {
+    /// Alert from Aeneas: off, no Aeneas alert for a task tied to an Apple Reminders item, on any device.
+    public var aeneas: Bool
+    /// Alert from Apple Reminders, as the owner chose it.
+    public var apple: Bool
+    /// Whether this device writes alarms on Apple Reminders items now. False only while `apple` is off and no iPhone,
+    /// iPad or Mac runs an app older than `needs`: such an app reads an item with no alarm as one with no reminder time.
+    public var apple_alarms: Bool
+    /// The iPhones, iPads and Macs `apple` off waits for.
+    public var waiting: [SourcesSetting.Waiting]
+    public var needs: String
+
+    public init(aeneas: Bool = true, apple: Bool = true, apple_alarms: Bool? = nil, waiting: [SourcesSetting.Waiting] = [], needs: String = "1.0.19") {
+        self.aeneas = aeneas; self.apple = apple; self.apple_alarms = apple_alarms ?? (apple || !waiting.isEmpty); self.waiting = waiting; self.needs = needs
+    }
+
+    // Each part is read on its own; one missing counts as on, so a thin answer never turns an alert off.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        aeneas = (try? c.decodeIfPresent(Bool.self, forKey: .aeneas)) ?? true
+        apple = (try? c.decodeIfPresent(Bool.self, forKey: .apple)) ?? true
+        apple_alarms = (try? c.decodeIfPresent(Bool.self, forKey: .apple_alarms)) ?? true
+        waiting = (try? c.decodeIfPresent([SourcesSetting.Waiting].self, forKey: .waiting)) ?? []
+        needs = (try? c.decodeIfPresent(String.self, forKey: .needs)) ?? "1.0.19"
+    }
+
+    /// A task tied to an Apple Reminders item (`apple.id` set). A task made inside a list waits with an empty id and
+    /// is not one yet.
+    public static func inAppleReminders(_ e: Entity) -> Bool {
+        !(e.fields["apple"]?.objectValue?["id"]?.stringValue ?? "").isEmpty
+    }
+
+    /// Whether Aeneas alerts for a task: always, unless it is in Apple Reminders and Alert from Aeneas is off. With no
+    /// setting (a hub from before it), always.
+    public static func aeneasAlerts(for e: Entity, _ setting: AppleReminderAlerts?) -> Bool {
+        setting?.aeneas != false || !inAppleReminders(e)
+    }
+
+    /// The line under Alert from Apple Reminders while it is off but waits for devices to update; nil when nothing waits.
+    public var waitingLine: String? {
+        guard !apple, apple_alarms, !waiting.isEmpty else { return nil }
+        let names = waiting.map { w in w.version.map { "\(w.name) (\($0))" } ?? w.name }.joined(separator: ", ")
+        return "Apple Reminders keeps its alerts until every iPhone, iPad and Mac runs \(needs) or later. Still to update: \(names)."
+    }
+}
+
 /// `GET /modules`, `PUT /modules` and the `modules` event on `/live`.
 public struct ModulesResponse: Codable, Equatable, Sendable {
     public var modules: [ModuleInfo]
     /// The alert switches (since 2026-11-20). Nil from an older hub: every kind is on and Settings lists none.
     public var alerts: [AlertInfo]?
-    public init(modules: [ModuleInfo], alerts: [AlertInfo]? = nil) { self.modules = modules; self.alerts = alerts }
+    /// The switches for tasks also in Apple Reminders (since 1.0.19). Nil from an older hub: both on, none shown.
+    public var apple_reminder_alerts: AppleReminderAlerts?
+    public init(modules: [ModuleInfo], alerts: [AlertInfo]? = nil, apple_reminder_alerts: AppleReminderAlerts? = nil) {
+        self.modules = modules; self.alerts = alerts; self.apple_reminder_alerts = apple_reminder_alerts
+    }
 
     // Alerts that do not read as a list are left out, as from an older hub, instead of losing the module switches.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         modules = try c.decode([ModuleInfo].self, forKey: .modules)
         alerts = try? c.decodeIfPresent([AlertInfo].self, forKey: .alerts)
+        apple_reminder_alerts = try? c.decodeIfPresent(AppleReminderAlerts.self, forKey: .apple_reminder_alerts)
     }
 }
 
-/// `PUT /modules/alerts`: the whole list as it is now.
+/// `PUT /modules/alerts`: the whole list as it is now, and the switches for tasks also in Apple Reminders.
 public struct AlertsResponse: Codable, Equatable, Sendable {
     public var alerts: [AlertInfo]
-    public init(alerts: [AlertInfo]) { self.alerts = alerts }
+    public var apple_reminder_alerts: AppleReminderAlerts?
+    public init(alerts: [AlertInfo], apple_reminder_alerts: AppleReminderAlerts? = nil) { self.alerts = alerts; self.apple_reminder_alerts = apple_reminder_alerts }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        alerts = try c.decode([AlertInfo].self, forKey: .alerts)
+        apple_reminder_alerts = try? c.decodeIfPresent(AppleReminderAlerts.self, forKey: .apple_reminder_alerts)
+    }
 }
 
 /// The module ids this app has screens or parts for. Anything else from the hub is only listed in Settings.
@@ -252,6 +313,16 @@ extension HubClient {
     /// Switch kinds of alert on or off (`{ "<kind>": true | false }`, one or several); answers with the whole list
     /// as it is now. The hub refuses a kind it does not list (422).
     public func setAlerts(_ changes: [String: Bool]) async throws -> [AlertInfo] {
-        try await post("modules/alerts", changes, as: AlertsResponse.self, method: "PUT").alerts
+        try await switchAlerts(changes).alerts
+    }
+
+    /// The same, with the switches for tasks also in Apple Reminders in the answer.
+    public func switchAlerts(_ changes: [String: Bool]) async throws -> AlertsResponse {
+        try await post("modules/alerts", changes, as: AlertsResponse.self, method: "PUT")
+    }
+
+    /// Switch Alert from Aeneas or Alert from Apple Reminders for every device (`["aeneas": false]`); hubs since 1.0.19.
+    public func setAppleReminderAlerts(_ change: [String: Bool]) async throws -> AlertsResponse {
+        try await post("modules/alerts", ["apple_reminder_alerts": change], as: AlertsResponse.self, method: "PUT")
     }
 }

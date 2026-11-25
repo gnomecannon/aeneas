@@ -12,6 +12,7 @@ import { cleanMailHtml, pictureData } from "../mail-html.js";
 import { mailCards } from "../mail-cards.js";
 import { wholeChars } from "../mail-compose.js";
 import type { InboxListing, InboxMail, InboxSource, MailAddress, MoveRef } from "./inbox-source.js";
+import { checkedSmtp, sendingServer, SMTP_PRESETS, smtpCheck, smtpSend, type SmtpLogin, type SmtpSecurity } from "./smtp.js";
 export type { InboxMail, MailAddress, MoveRef } from "./inbox-source.js";
 
 /**
@@ -33,8 +34,11 @@ export type { InboxMail, MailAddress, MoveRef } from "./inbox-source.js";
  * - moveToICloud: Delete, Spam, Not spam and Move to, an IMAP MOVE to Trash, Junk, the Inbox or one of the owner's own
  *   folders that the server lists now;
  * - setSeenICloud and setFlaggedICloud: the `\Seen` flag (read or unread) and the `\Flagged` flag (a pin), no other;
- * - saveDraftICloud: one message appended to the Drafts folder, never sent.
- * Nothing here copies, expunges or deletes a message, and nothing sends mail.
+ * - saveDraftICloud: one message appended to the Drafts folder;
+ * - saveSentICloud (since 2026-11-24): a mail the owner sent from the Mail screen, appended to the Sent folder with
+ *   `\Seen` (never on Gmail, which files sent mail itself).
+ * Nothing here copies, expunges or deletes a message. Sending (since 2026-11-24) is sendICloud: only a mail the owner
+ * pressed Send for, through the account's own sending server (smtp.ts), never anything else.
  *
  * Other mail accounts (since 2026-11-22): the same code reads any mailbox the owner links with a server, a port, a
  * username and an app password (`imap:` accounts, `connections.imap`), Gmail as a preset (imap.gmail.com). The Mail
@@ -287,6 +291,11 @@ export interface ImapAccount extends ICloudAccount {
   receipts_from?: string;
   /** When that Google sign-in was removed, said once on the account's page. */
   google_removed_at?: string;
+  /**
+   * The sending server the owner gave (since 2026-11-24), for an account that is not Gmail: without one the account
+   * saves drafts and does not send. Gmail and iCloud send through their own fixed servers (smtpLogin).
+   */
+  smtp?: { host: string; port: number; security: SmtpSecurity };
 }
 
 /** Whether a mailbox's Inbox shows on the Mail screen. */
@@ -348,6 +357,68 @@ export const isGmail = (a: Partial<ImapAccount>) => a.preset === "gmail" || /(^|
 const loginOf = (a: ICloudAccount & Partial<ImapAccount>): ImapLogin =>
   a.host ? { user: a.user ?? a.email, pass: a.password, host: a.host, port: a.port ?? PORT, name: providerName(a) } : { user: a.email, pass: a.password };
 
+/**
+ * Where a linked mailbox sends from (since 2026-11-24), and who signs in there: iCloud's and Gmail's own servers, or
+ * the one the owner gave for another account; null when it has none (it saves drafts and does not send) or is not
+ * linked. The password is the account's own, the one its IMAP takes.
+ */
+export function smtpLogin(hub: Hub, key: string): SmtpLogin | null {
+  let a: ICloudAccount & Partial<ImapAccount>;
+  try { a = account(hub, key); } catch { return null; }
+  const server = sendingServer(a);
+  if (!server) return null;
+  return { ...server, user: a.host ? a.user ?? a.email : a.email, pass: a.password, name: !a.host ? SMTP_PRESETS.icloud.name : isGmail(a) ? SMTP_PRESETS.gmail.name : server.host };
+}
+
+/**
+ * Send one message the owner wrote (the outbox, mail-outbox.ts): to `to` (every recipient, Bcc included, which is
+ * never in the message itself), signed in to the account's sending server with its own password. Refused for a Read
+ * only account and for one whose password was refused (the hub stopped signing in to it); a sending server's refusal
+ * of the password pauses nothing (the owner pressed Send, and is told). `taken`: as smtpSend's.
+ */
+export async function sendICloud(hub: Hub, key: string, envelope: { from: string; to: string[] }, raw: Buffer, taken: () => void = () => {}): Promise<void> {
+  const a = account(hub, key);
+  refuseIfReadOnly(a);
+  if (a.refused_at) throw new StoreError(409, refusedText(a));
+  const login = smtpLogin(hub, key);
+  if (!login) throw new StoreError(409, noSendingServer(a.email));
+  await smtpSend(login, envelope, raw, publicAddresses, taken);
+}
+
+/** What an account without a sending server says. */
+export const noSendingServer = (email: string) => `${email} has no sending server, so Aeneas cannot send from it. Add one on its page in Settings, Accounts, or save the mail as a draft.`;
+
+/**
+ * The sending server of another mail account (its page, since 2026-11-24): `{ smtp: { host, port, security } }`, or
+ * `{ smtp: null }` to send from it no more. A new one is signed in to once (with the account's own password) before it
+ * is kept. Gmail and iCloud have fixed ones (409).
+ */
+export async function setSendingServer(hub: Hub, key: string, body: Record<string, unknown>): Promise<{ smtp: { host: string; port: number; security: SmtpSecurity } | null }> {
+  const a = account(hub, key);
+  if (!a.host || isGmail(a)) throw new StoreError(409, `${providerName(a)} sends through ${sendingServer(a)!.host}: there is nothing to set.`);
+  if (!("smtp" in body)) throw new StoreError(422, "smtp is the sending server: { host, port, security }, or null");
+  const smtp = checkedSmtp(body.smtp);
+  if (smtp) await checkSendingServer(smtp, a.user ?? a.email, a.password);
+  hub.connections.update((c) => {
+    const x = c.imap?.find((y) => y.email === a.email);
+    if (!x) return;
+    if (smtp) x.smtp = smtp; else delete x.smtp;
+  });
+  return { smtp };
+}
+
+/** One sign-in to a sending server the owner gave, before it is kept; the hub's own words when it fails. */
+async function checkSendingServer(smtp: { host: string; port: number; security: SmtpSecurity }, user: string, pass: string): Promise<void> {
+  try {
+    await smtpCheck({ ...smtp, user, pass, name: smtp.host }, publicAddresses);
+  } catch (e) {
+    const kind = (e as { kind?: string }).kind;
+    if (kind === "password") throw new StoreError(422, `${smtp.host} did not accept this username and password for sending. Check them, or leave the sending server empty to add the account without sending.`);
+    if (e instanceof StoreError && e.status === 422) throw e;
+    throw new StoreError(422, `The hub could not reach ${smtp.host} on port ${smtp.port} with ${smtp.security === "tls" ? "TLS" : "STARTTLS"}. Check the sending server's name, port and security.`);
+  }
+}
+
 /** Whether an account is Read only: the hub writes nothing to it (a Google sign-in can only read, so it always is). */
 export function readOnly(hub: Hub, key: string): boolean {
   if (!key.startsWith(PREFIX) && !isImapKey(key)) return true;
@@ -386,7 +457,7 @@ export function setMailLookup(f: ((host: string) => Promise<{ address: string }[
  * the connection. Each is tried in turn until one takes the connection (withClient): a home whose IPv6 route is
  * broken reaches the server by its IPv4 address instead of timing out on the first one.
  */
-async function publicAddresses(host: string): Promise<string[]> {
+export async function publicAddresses(host: string): Promise<string[]> {
   let found: { address: string }[];
   try { found = await lookupAll(host); } catch { throw new StoreError(422, `The hub could not find the mail server ${host}. Check its name.`); }
   if (!found.length) throw new StoreError(422, `The hub could not find the mail server ${host}. Check its name.`);
@@ -471,8 +542,12 @@ export async function linkImap(hub: Hub, body: Record<string, unknown>, read: (a
   }
   const u = typeof body.user === "string" && body.user.trim() ? body.user.trim() : email;
   if (u.length > 254 || /[\x00-\x1f\x7f]/.test(u)) throw new StoreError(422, "user is the name the server signs in with, most often the address");
+  // Another server's sending server (since 2026-11-24), when the owner gave one: checked as the IMAP server is. Gmail's
+  // is fixed. Absent: an account linked before keeps the one it has.
+  const smtp = preset === "imap" && body.smtp !== undefined ? checkedSmtp(body.smtp) : undefined;
   const acct = { email, preset, host, port, user: u, password } as const;
   await withClient(loginOf({ ...acct, linked_at: "" }), DEADLINES.check, async () => {});
+  if (smtp) await checkSendingServer(smtp, u, password);
   hub.connections.update((c) => {
     const list = (c.imap ??= []);
     const prev = list.find((a) => a.email === email);
@@ -480,8 +555,9 @@ export async function linkImap(hub: Hub, body: Record<string, unknown>, read: (a
       // As for iCloud (linkICloud): the switches stay as the owner set them, and only an account nothing uses is
       // linked for mail again, as a new one is.
       Object.assign(prev, { ...acct, last_error: null, refused_at: null });
+      if (smtp) prev.smtp = smtp; else if (smtp === null || preset === "gmail") delete prev.smtp;
       if (!mailUsed(prev)) { prev.mail = true; delete prev.inbox; }
-    } else list.push({ ...acct, linked_at: nowIso() });
+    } else list.push({ ...acct, ...(smtp ? { smtp } : {}), linked_at: nowIso() });
   });
   // An address that was signed in with Google is this one account from here on: its receipts move to this password.
   await mergeGoogleSignIns(hub);
@@ -1634,6 +1710,40 @@ export async function saveDraftICloud(hub: Hub, accountKey: string, raw: Buffer)
   });
 }
 
+/**
+ * What saveSentICloud may ask of a server, and only it: APPEND one message to a folder, flagged `\Seen` (the owner's
+ * own mail, not new mail). Nothing here opens, changes or deletes a message that is there.
+ */
+export interface ImapSentFiler {
+  append(path: string, content: Buffer, flags: ["\\Seen"]): Promise<{ uid?: number; uidValidity?: bigint } | false>;
+}
+
+/**
+ * File the copy of a mail the owner sent from the Mail screen (since 2026-11-24) in the folder the server marks
+ * `\Sent`, flagged `\Seen`: the message exactly as it was sent (no Bcc in it). Null, and nothing done, for Gmail,
+ * which files what its server sends by itself (a second copy would show twice), and for a mailbox with no Sent folder.
+ * Answers where the copy is (`id`) when the server says (APPENDUID), as for a draft.
+ */
+export async function saveSentICloud(hub: Hub, accountKey: string, raw: Buffer): Promise<{ id: string | null; folder: string } | null> {
+  const email = accountKey;
+  const a = account(hub, accountKey);
+  if (a.host && isGmail(a)) return null;
+  refuseIfReadOnly(a);
+  if (a.refused_at) throw new StoreError(409, refusedText(a));
+  return withClient(loginOf(a), DEADLINES.read, async (c) => {
+    const w = c as unknown as ImapClient & ImapSentFiler;
+    if (typeof w.append !== "function") return null;
+    const sent = (await c.list()).find((f) => f.specialUse === "\\Sent" && !f.flags.has("\\Noselect"));
+    if (!sent) return null;
+    const put = await w.append(sent.path, raw, ["\\Seen"]);
+    if (!put) throw new StoreError(502, `${providerName(a)} did not take the copy for Sent.`);
+    return { id: put.uid && put.uidValidity !== undefined ? messageId(put.uidValidity, put.uid, sent.path) : null, folder: sent.path };
+  }).catch((e) => {
+    if (e instanceof ICloudRefused) saveAccount(hub, email, { last_error: refusedText(a), refused_at: nowIso() });
+    throw e;
+  });
+}
+
 /** Opens the message in Apple Mail (Mac, iPhone, iPad) by its Message-ID; iCloud Mail on the web when it has none. */
 export function icloudLink(ref: MailRef): string {
   const mid = ref.message_id?.trim().replace(/^<|>$/g, "");
@@ -1659,6 +1769,9 @@ export const icloudInbox: InboxSource = {
   setSeen: (hub, account, refs, seen) => setSeenICloud(hub, account, refs, seen),
   setFlagged: (hub, account, refs, flagged) => setFlaggedICloud(hub, account, refs, flagged),
   saveDraft: (hub, account, raw) => saveDraftICloud(hub, account, raw),
+  canSend: (hub, account) => !!smtpLogin(hub, account),
+  send: (hub, account, envelope, raw, taken) => sendICloud(hub, account, envelope, raw, taken),
+  saveSent: (hub, account, raw) => saveSentICloud(hub, account, raw),
   listFolders: (hub, account, since, known) => listFoldersICloud(hub, account, since, known),
   moveTo: (hub, account, refs, dest) => moveToICloud(hub, account, refs, dest),
   attachments: (hub, account, ref) => attachmentsICloud(hub, account, ref),

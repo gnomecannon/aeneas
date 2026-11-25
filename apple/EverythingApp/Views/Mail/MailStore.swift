@@ -43,6 +43,12 @@ final class MailStore: ObservableObject {
     func thread(_ key: String) -> MailThread? { threads.first { $0.key == key } }
 
     func load() async {
+        #if DEBUG
+        if MailProbe.fakeCount > 0 {
+            if list == nil { let l = MailProbe.fakeList(MailProbe.fakeCount); list = l; threads = Mail.threads(l.messages); listStamp += 1 }
+            return
+        }
+        #endif
         guard let c = client else { loadError = HubError.notConfigured.localizedDescription; return }
         do {
             let l = try await c.mailList()
@@ -166,6 +172,9 @@ final class MailStore: ObservableObject {
     /// A message whole, from memory or the hub.
     func message(_ id: String) async throws -> MailMessage {
         if let m = messages[id] { return m }
+        #if DEBUG
+        if MailProbe.fakeCount > 0, let s = threads.lazy.flatMap(\.members).first(where: { $0.id == id }) { return MailProbe.fakeMessage(s) }
+        #endif
         guard let c = client else { throw HubError.notConfigured }
         let m = try await c.mailMessage(id)
         messages[id] = m
@@ -344,10 +353,53 @@ final class MailStore: ObservableObject {
     /// The linked mailboxes, as the hub lists them.
     var boxes: [MailMailbox] { list?.mailboxes ?? [] }
 
-    /// A draft previewed or saved to the mailbox's Drafts folder (never sent).
+    /// A draft previewed (what would be saved or sent) or saved to the mailbox's Drafts folder.
     func draft(_ r: MailDraftRequest) async throws -> MailDraft {
+        #if DEBUG
+        if MailProbe.fakeCount > 0 { return try MailProbe.fakeDraft(r, threads: threads) }
+        #endif
         guard let c = client else { throw HubError.notConfigured }
         return try await c.mailDraft(r)
+    }
+
+    // MARK: Sending (since 2026-11-24): the hub's outbox, 10 seconds of Undo
+
+    /// Mail that was not sent, from the hub's list (each with the hub's words for why).
+    var notSent: [MailOutboxItem] { (list?.outbox ?? []).filter { $0.state == "failed" } }
+
+    /// Send: the mail into the hub's outbox.
+    func send(_ r: MailDraftRequest) async throws -> MailSent {
+        #if DEBUG
+        if MailProbe.fakeCount > 0 { return try MailProbe.fakeSend(r, threads: threads) }
+        #endif
+        guard let c = client else { throw HubError.notConfigured }
+        return try await c.mailSend(r)
+    }
+    /// A mail in the outbox now; nil when it is not there.
+    func outboxItem(_ id: String) async throws -> MailOutboxItem? {
+        #if DEBUG
+        if MailProbe.fakeCount > 0 { return MailProbe.fakeOutbox(id) }
+        #endif
+        guard let c = client else { throw HubError.notConfigured }
+        return try await c.mailOutbox(id)
+    }
+    /// Undo, Edit or Discard: out of the outbox, never sent.
+    func takeBack(_ id: String) async throws {
+        #if DEBUG
+        if MailProbe.fakeCount > 0 { MailProbe.outbox[id] = nil; return }
+        #endif
+        guard let c = client else { throw HubError.notConfigured }
+        try await c.mailOutboxUndo(id)
+    }
+    /// Try again: it waits again, with its Undo.
+    func retrySend(_ id: String) async throws -> MailOutboxItem {
+        guard let c = client else { throw HubError.notConfigured }
+        return try await c.mailOutboxRetry(id)
+    }
+    /// Save draft, for a mail that was not sent: to Drafts as it is.
+    func draftFromOutbox(_ id: String) async throws {
+        guard let c = client else { throw HubError.notConfigured }
+        try await c.mailOutboxDraft(id)
     }
 
     /// A reply's suggested greeting, sign-off and short replies, from the hub.

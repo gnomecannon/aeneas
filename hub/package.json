@@ -1,6 +1,6 @@
 {
   "name": "@everythingapp/hub",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -30,6 +30,7 @@
     "imapflow": "2.10.0",
     "kdbxweb": "^2.1.1",
     "multicast-dns": "7.2.5",
+    "nodemailer": "10.5.0",
     "ssh2": "^1.17.0",
     "tsx": "^4.19.2",
     "zod": "^4.6.7"
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^20.17.10",
+    "smtp-server": "3.21.4",
     "typescript": "^5.7.2"
   },
   "engines": {

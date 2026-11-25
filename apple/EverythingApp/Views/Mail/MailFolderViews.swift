@@ -48,7 +48,6 @@ struct MailFolderRow: View {
 /// without web pictures, which the hub never fetches for a folder's mail).
 struct MailFolderMailView: View {
     @ObservedObject var store: MailStore
-    @ObservedObject private var writing = MailWriting.shared
     var id: String
     var folder: MailFolder
     /// The mail left the folder (moved): the screen goes back to the list.
@@ -66,7 +65,7 @@ struct MailFolderMailView: View {
         _box = State(initialValue: MailWriting.shared.open[id])
     }
 
-    private func setBox(_ k: MailWriting.Box?) { writing.open[id] = k; box = k }
+    private func setBox(_ k: MailWriting.Box?) { MailWriting.shared.open[id] = k; box = k }
 
     var body: some View {
         Group {

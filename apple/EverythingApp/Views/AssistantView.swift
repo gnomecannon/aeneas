@@ -252,6 +252,8 @@ struct AssistantView: View {
         .task {
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "EAChatSample") { store.debugSample() }
+            // -EAMailProposalDemo: a made-up chat whose reply has a mail for you to send (MailProbe).
+            if UserDefaults.standard.bool(forKey: "EAMailProposalDemo") { store.current = MailProbe.demoChat() }
             #endif
             // The hub reads the shared start of every chat into the model's cache while the owner types.
             if let c = engine.client { Task { try? await c.warmAssistant() } }
@@ -795,6 +797,8 @@ struct ChatBubble: View {
                       systemImage: message.role == .user ? "checkmark.shield" : "terminal")
                     .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(3)
             }
+            // A mail the assistant wrote for the owner to send: its card, with Send, Edit and Cancel.
+            if message.role == .assistant, let p = message.mail_proposal { MailProposalCard(p: p).frame(maxWidth: 560, alignment: .leading) }
             if let id = speakId, message.role == .assistant, !message.content.isEmpty {
                 let reading = speaker.speakingId == id
                 Button { speaker.toggle(styled(message.content), id: id) } label: {

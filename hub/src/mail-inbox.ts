@@ -115,6 +115,36 @@ CREATE TABLE IF NOT EXISTS folder_mail (
   PRIMARY KEY (account, id)
 );
 CREATE INDEX IF NOT EXISTS folder_mail_at ON folder_mail(account, folder, at);
+CREATE TABLE IF NOT EXISTS outbox (
+  id TEXT PRIMARY KEY,
+  account TEXT NOT NULL,
+  state TEXT NOT NULL,
+  send_at TEXT NOT NULL,
+  made_at TEXT NOT NULL,
+  message_id TEXT NOT NULL,
+  rcpt TEXT NOT NULL,
+  bcc TEXT,
+  to_list TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  text TEXT NOT NULL,
+  files TEXT,
+  raw TEXT,
+  replaces TEXT,
+  error TEXT,
+  refused TEXT,
+  sent_at TEXT,
+  filed INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS mail_proposals (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  account TEXT NOT NULL,
+  state TEXT NOT NULL,
+  made_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  body TEXT NOT NULL,
+  outbox_id TEXT
+);
 `;
 
 /**
@@ -389,6 +419,9 @@ export function rethread(db: DB, account: string): void {
  */
 export function deleteMailbox(db: DB, account: string): number {
   const n = db.prepare("DELETE FROM inbox WHERE account = ?").run(account).changes + db.prepare("DELETE FROM folder_mail WHERE account = ?").run(account).changes;
+  // Its outbox too: mail waiting to be sent from it is not sent (there is nothing left to send it with).
+  db.prepare("DELETE FROM outbox WHERE account = ?").run(account);
+  db.prepare("DELETE FROM mail_proposals WHERE account = ?").run(account);
   db.prepare("DELETE FROM folders WHERE account = ?").run(account);
   db.prepare("DELETE FROM mailboxes WHERE account = ?").run(account);
   db.prepare("DELETE FROM moved_out WHERE account = ?").run(account);
@@ -399,7 +432,7 @@ export function deleteMailbox(db: DB, account: string): number {
 /** Kept mail of mailboxes the Mail screen no longer shows (`shown`: those it does): gone. Nothing to do, as a rule. */
 export function forgetUnlinked(db: DB, shown: string[]): number {
   const kept = new Set<string>();
-  for (const t of ["inbox", "folder_mail", "folders", "mailboxes", "moved_out"]) for (const r of db.prepare(`SELECT DISTINCT account FROM ${t}`).all() as { account: string }[]) kept.add(r.account);
+  for (const t of ["inbox", "folder_mail", "folders", "mailboxes", "moved_out", "outbox", "mail_proposals"]) for (const r of db.prepare(`SELECT DISTINCT account FROM ${t}`).all() as { account: string }[]) kept.add(r.account);
   let n = 0;
   for (const account of kept) if (!shown.includes(account)) n += deleteMailbox(db, account);
   return n;
@@ -412,6 +445,8 @@ export function deleteAllMail(db: DB): number {
   db.prepare("DELETE FROM mailboxes").run();
   db.prepare("DELETE FROM moved_out").run();
   db.prepare("DELETE FROM logos").run();
+  db.prepare("DELETE FROM outbox").run();
+  db.prepare("DELETE FROM mail_proposals").run();
   db.pragma("wal_checkpoint(TRUNCATE)");
   return n;
 }
@@ -547,7 +582,7 @@ export function listMail(db: DB, ctx: BundleContext = NO_MODULES): MailSummary[]
 // back in the Inbox after it.
 
 const locks = new WeakMap<Hub, Promise<unknown>>();
-function exclusive<T>(hub: Hub, job: () => Promise<T>): Promise<T> {
+export function exclusive<T>(hub: Hub, job: () => Promise<T>): Promise<T> {
   const run = (locks.get(hub) ?? Promise.resolve()).catch(() => {}).then(job);
   locks.set(hub, run.catch(() => {}));
   return run;
@@ -1480,14 +1515,35 @@ export interface DraftResult { saved: boolean; id?: string; from: MailAddress; t
 /** Said when a draft's files are more than a draft may carry. */
 const TOO_BIG = "The files are more than 15 MB together, so nothing was saved. Send big files from your mail app.";
 
+/** A file carried from the mailbox into a mail (a forward's, an edited draft's): read only when the mail is saved or sent. */
+type Carried = { account: string; ref: { id: string; message_id: string | null }; part: string; name: string; type: string; size: number };
+
 /**
- * Write mail as a draft (mail-compose.ts): a reply to a kept mail (`reply_to`, its id), or a new mail (`to`, `subject`,
- * and `from` when several mailboxes are linked). A reply's recipient, subject and thread come from the kept mail, never
- * from the request. With `preview`, the hub says what it would save and saves nothing (the screen shows the whole mail
- * before it is saved); otherwise the draft goes to the mailbox's Drafts folder, after any refresh or move that is
- * running. The owner sends it from their mail app: nothing here sends mail.
+ * A mail written on the Mail screen, checked and put together by composeMail: who it is from and to, its subject,
+ * thread and whole text, the files the owner attached, those to carry from the mailbox, and the draft it replaces.
+ * The same for a preview, a draft and a mail sent (since 2026-11-24), so a mail sent is exactly the draft it would
+ * have been: the same recipients, headers, thread and files.
  */
-export async function saveMailDraft(hub: Hub, body: Record<string, unknown>): Promise<DraftResult> {
+export interface Composed {
+  account: string;
+  source: InboxSource;
+  from: MailAddress;
+  fields: ReturnType<typeof replyFields> & { cc?: string[]; bcc?: string[] };
+  text: string;
+  files: DraftFile[];
+  carried: Carried[];
+  /** An edited draft: the old version, moved to Trash once the new one is saved or sent. `key`: its kept id. */
+  replaces: { key: string; id: string; message_id: string | null } | null;
+  out: DraftResult;
+}
+
+/**
+ * Write mail (mail-compose.ts): a reply to a kept mail (`reply_to`, its id), a forward, an edited draft, or a new mail
+ * (`to`, `subject`, and `from` when several mailboxes are linked). A reply's recipient, subject and thread come from
+ * the kept mail, never from the request. Nothing is saved or sent here: saveMailDraft and the outbox (mail-outbox.ts)
+ * do that with what this answers.
+ */
+export async function composeMail(hub: Hub, body: Record<string, unknown>): Promise<Composed> {
   const db = hub.mailDb;
   // A forward may go without a note of its own (the forwarded mail is its text); anything else needs the owner's words.
   const typed = body.forward !== undefined && (body.text === undefined || body.text === "") ? "" : checkedText(body.text);
@@ -1509,11 +1565,11 @@ export async function saveMailDraft(hub: Hub, body: Record<string, unknown>): Pr
     const m = (db.prepare("SELECT account, from_name, from_address, subject, text, at FROM inbox WHERE key = ?").get(body.forward) as Fwd | undefined)
       ?? (db.prepare("SELECT account, from_name, from_address, subject, text, at, to_list FROM folder_mail WHERE key = ?").get(body.forward) as Fwd | undefined);
     if (!m) throw new StoreError(404, "that message is not kept (it left the Inbox)");
-    const typedTo = checkedNew({ to: body.to });
+    const typedTo = checkedNew({ to: body.to, cc: body.cc });
     let to: MailAddress[] = [];
     try { to = m.to_list ? (JSON.parse(m.to_list) as MailAddress[]) : []; } catch { to = []; }
     account = m.account;
-    fields = { to: typedTo.to, subject: forwardSubject(m.subject) };
+    fields = { to: typedTo.to, ...(typedTo.cc ? { cc: typedTo.cc } : {}), subject: forwardSubject(m.subject) };
     text = [text, forwardQuote({ from: { name: m.from_name, address: m.from_address }, at: m.at, subject: m.subject, to, text: m.text })].filter(Boolean).join("\n\n");
   } else if (body.reply_to !== undefined) {
     if (typeof body.reply_to !== "string") throw new StoreError(422, "reply_to is a mail's id");
@@ -1549,12 +1605,11 @@ export async function saveMailDraft(hub: Hub, body: Record<string, unknown>): Pr
   // Files: the owner's own (checked), a forwarded mail's when asked, and those of a draft being edited; FILES_MAX and
   // FILES_BYTES in all. What is carried from the mailbox is listed first from the message's structure (no file read),
   // so the preview names it too and a mail with too many says so before anything is saved; the bytes are read
-  // (read-only) only when the draft is saved.
+  // (read-only) only when the mail is saved or sent.
   const files: DraftFile[] = checkedFiles(body.files);
-  type Carried = { account: string; ref: { id: string; message_id: string | null }; part: string; name: string; type: string; size: number };
   const carried: Carried[] = [];
   const carry = (account: string, ref: { id: string; message_id: string | null }, list: MailAttachment[], what: string) => {
-    if (files.length + carried.length + list.length > FILES_MAX) throw new StoreError(413, `${what} has ${list.length} attachments, and a draft from Aeneas carries at most ${FILES_MAX} files. Write this one in your mail app.`);
+    if (files.length + carried.length + list.length > FILES_MAX) throw new StoreError(413, `${what} has ${list.length} attachments, and a mail from Aeneas carries at most ${FILES_MAX} files. Write this one in your mail app.`);
     // Named as any file in a draft is (fileName: 120 characters, 240 bytes, its ending kept), in the preview too.
     for (const f of list) carried.push({ account, ref, part: f.part, name: fileName(f.name), type: f.type, size: f.size });
   };
@@ -1567,10 +1622,10 @@ export async function saveMailDraft(hub: Hub, body: Record<string, unknown>): Pr
     if (!r || !now) throw new StoreError(404, "This mail is not in the mailbox any more. Refresh and try again.");
     carry(r.account, { id: r.id, message_id: r.message_id }, now.files, "The mail");
   }
-  // Editing a draft: the old one is moved to Trash once the new one is saved. Its Cc, its Bcc (set in the owner's mail
-  // app: the hub takes none from a request), its thread and its attachments go on; `keep_parts` names the attachments
-  // to keep when the owner took some off (absent: all of them).
-  let replaces: { id: string; message_id: string | null } | null = null;
+  // Editing a draft: the old one is moved to Trash once the new one is saved (or sent). Its Cc, its Bcc (set in the
+  // owner's mail app: the hub takes none from a request), its thread and its attachments go on; `keep_parts` names the
+  // attachments to keep when the owner took some off (absent: all of them).
+  let replaces: Composed["replaces"] = null;
   if (body.replaces !== undefined) {
     if (typeof body.replaces !== "string") throw new StoreError(422, "replaces is a draft's id");
     const keep = body.keep_parts;
@@ -1585,7 +1640,7 @@ export async function saveMailDraft(hub: Hub, body: Record<string, unknown>): Pr
     const bcc = replyAllCc(old.bcc, [...fields.to, ...cc]);
     fields = { ...fields, ...(cc.length ? { cc } : {}), ...(bcc.length ? { bcc } : {}), ...(old.in_reply_to ? { in_reply_to: old.in_reply_to } : {}), ...(old.answers.length ? { references: old.answers.slice(-10) } : {}) };
     carry(d.account, d, old.files.filter((f) => keep === undefined || (keep as string[]).includes(f.part)), "The draft");
-    replaces = d;
+    replaces = { key: body.replaces, id: d.id, message_id: d.message_id };
   }
   // By the sizes the mailbox gives (a little off for some encodings); the bytes are counted again as they are read.
   if (files.reduce((n, f) => n + f.bytes.length, 0) + carried.reduce((n, f) => n + f.size, 0) > FILES_BYTES) throw new StoreError(413, TOO_BIG);
@@ -1594,45 +1649,80 @@ export async function saveMailDraft(hub: Hub, body: Record<string, unknown>): Pr
     ...(fields.in_reply_to ? { in_reply_to: fields.in_reply_to } : {}),
     ...(files.length + carried.length ? { files: [...carried.map((f) => ({ name: f.name, size: f.size })), ...files.map((f) => ({ name: f.name, size: f.bytes.length }))] } : {}),
   };
-  if (body.preview === true) return out;
-  // The carried files' bytes, in front of the ones just added (the order the old draft had them in).
+  return { account, source, from, fields, text, files, carried, replaces, out };
+}
+
+/** Every file a composed mail carries, those read from the mailbox now (read-only) in front of the owner's own. */
+export async function composedFiles(hub: Hub, c: Composed): Promise<DraftFile[]> {
   const read: DraftFile[] = [];
-  let total = files.reduce((n, f) => n + f.bytes.length, 0);
-  for (const f of carried) {
+  let total = c.files.reduce((n, f) => n + f.bytes.length, 0);
+  for (const f of c.carried) {
     const got = await sourceOf(f.account)?.attachment?.(hub, f.account, f.ref, f.part);
-    if (!got) throw new StoreError(409, `"${f.name}" is not in the mailbox any more, so nothing was saved. Take it off and try again.`);
+    if (!got) throw new StoreError(409, `"${f.name}" is not in the mailbox any more, so nothing was saved or sent. Take it off and try again.`);
     total += got.bytes.length;
     if (total > FILES_BYTES) throw new StoreError(413, TOO_BIG);
     read.push({ name: fileName(got.name), type: f.type, bytes: got.bytes });
   }
-  files.unshift(...read);
-  if (files.length) out.files = files.map((f) => ({ name: f.name, size: f.bytes.length }));
-  const { raw, message_id } = buildMessage({ from, text, ...fields, files });
+  return [...read, ...c.files];
+}
+
+/**
+ * A mail the hub just put in one of the mailbox's folders (a draft in Drafts, a sent mail's copy in Sent), shown there
+ * at once where the server said where it put it (as mail moved into a kept folder is): its fields are the hub's own, so
+ * nothing is read back. Where the server did not say, a refresh is started and it shows when that has read the
+ * folder. Answers its id when it is listed now.
+ */
+export function listInFolder(hub: Hub, account: string, put: { id: string | null; folder: string }, role: "drafts" | "sent", m: { message_id: string; from: MailAddress; to: string[]; subject: string; text: string; files: { name: string; type: string; size: number }[] }): string | undefined {
+  const db = hub.mailDb;
+  if (put.id && db.prepare("SELECT 1 FROM folders WHERE account = ? AND path = ? AND role = ?").get(account, put.folder, role)) {
+    const key = mailKey(account, put.id);
+    db.prepare(`INSERT OR IGNORE INTO folder_mail (account, id, key, folder, message_id, at, from_name, from_address, to_list, reply_to, subject, text, automated, html, seen, attachments)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, NULL, 1, ?)`).run(account, put.id, key, put.folder, m.message_id, new Date().toISOString(), m.from.name, m.from.address,
+      JSON.stringify(m.to.map((address) => ({ name: "", address }))), m.subject, m.text,
+      // As the server will list them: the text is part 1, each file a part after it.
+      JSON.stringify(m.files.map((f, i) => ({ part: String(i + 2), name: f.name, type: f.type, size: f.size }))));
+    return key;
+  }
+  void refreshMail(hub).catch((e) => console.error(`[mail-inbox] ${errCode(e)}`));
+  return undefined;
+}
+
+/** An edited draft's old version: to Trash (MOVE, nothing erased), and out of the hub's Drafts at once. */
+export async function trashOldDraft(hub: Hub, account: string, old: { key: string; id: string; message_id: string | null }): Promise<void> {
+  const source = sourceOf(account);
+  if (!source?.moveTo) return;
+  const moved = await exclusive(hub, () => source.moveTo!(hub, account, [{ id: old.id, message_id: old.message_id }], { role: "trash" })).catch((e) => { console.error(`[mail-inbox] ${mailboxLabel(hub, account)}: old draft not moved ${errCode(e)}`); return null; });
+  if (moved?.get(old.id)) hub.mailDb.prepare("DELETE FROM folder_mail WHERE key = ?").run(old.key);
+}
+
+/**
+ * Write mail as a draft (composeMail). With `preview`, the hub says what it would save and saves nothing (the screen
+ * shows the whole mail before it is saved or sent); otherwise the draft goes to the mailbox's Drafts folder, after any
+ * refresh or move that is running.
+ */
+export async function saveMailDraft(hub: Hub, body: Record<string, unknown>): Promise<DraftResult> {
+  const c = await composeMail(hub, body);
+  if (body.preview === true) return c.out;
+  const files = await composedFiles(hub, c);
+  const out = { ...c.out, ...(files.length ? { files: files.map((f) => ({ name: f.name, size: f.bytes.length })) } : {}) };
+  const { raw, message_id } = buildMessage({ from: c.from, text: c.text, ...c.fields, files });
+  const id = await saveDraftRaw(hub, c.account, raw, { message_id, from: c.from, to: c.fields.to, subject: c.fields.subject, text: c.text, files: files.map((f) => ({ name: f.name, type: f.type, size: f.bytes.length })) });
+  if (id) out.id = id;
+  if (c.replaces) await trashOldDraft(hub, c.account, c.replaces);
+  return { ...out, saved: true };
+}
+
+/** A built draft to the mailbox's Drafts folder (after any refresh or move that is running), listed there at once when it can be. */
+export async function saveDraftRaw(hub: Hub, account: string, raw: Buffer, m: Parameters<typeof listInFolder>[4]): Promise<string | undefined> {
+  const source = sourceOf(account);
+  if (!source?.saveDraft) throw new StoreError(409, "this mailbox cannot keep drafts from Aeneas");
   const label = mailboxLabel(hub, account);
-  const put = await exclusive(hub, () => source.saveDraft!(hub, account!, raw)).catch((e) => {
+  const put = await exclusive(hub, () => source.saveDraft!(hub, account, raw)).catch((e) => {
     console.error(`[mail-inbox] ${label}: draft not saved ${errCode(e)}`);
     throw e;
   });
-  console.log(`[mail-inbox] ${label}: 1 draft saved${files.length ? `, ${files.length} files` : ""}`);
-  // The draft shows under Drafts at once, where the server said where it put it (as mail moved into a kept folder
-  // does): its fields are the hub's own, so nothing is read back. Where the server did not say, a refresh is started
-  // and the draft shows when that has read the folder. (An edited draft's old version leaves the list at once, so
-  // without this the draft was nowhere on the screen until the next refresh, up to 15 minutes.)
-  if (put.id && db.prepare("SELECT 1 FROM folders WHERE account = ? AND path = ? AND role = 'drafts'").get(account, put.folder)) {
-    const key = mailKey(account, put.id);
-    db.prepare(`INSERT OR IGNORE INTO folder_mail (account, id, key, folder, message_id, at, from_name, from_address, to_list, reply_to, subject, text, automated, html, seen, attachments)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 0, NULL, 1, ?)`).run(account, put.id, key, put.folder, message_id, new Date().toISOString(), from.name, from.address,
-      JSON.stringify(fields.to.map((address) => ({ name: "", address }))), fields.subject, text,
-      // As the server will list them: the text is part 1, each file a part after it.
-      JSON.stringify(files.map((f, i) => ({ part: String(i + 2), name: f.name, type: f.type, size: f.bytes.length }))));
-    out.id = key;
-  } else void refreshMail(hub).catch((e) => console.error(`[mail-inbox] ${errCode(e)}`));
-  // The old version of an edited draft: to Trash (MOVE, nothing erased), and out of the hub's Drafts at once.
-  if (replaces && source.moveTo) {
-    const moved = await exclusive(hub, () => source.moveTo!(hub, account!, [replaces!], { role: "trash" })).catch((e) => { console.error(`[mail-inbox] ${label}: old draft not moved ${errCode(e)}`); return null; });
-    if (moved?.get(replaces.id)) db.prepare("DELETE FROM folder_mail WHERE key = ?").run(body.replaces as string);
-  }
-  return { ...out, saved: true };
+  console.log(`[mail-inbox] ${label}: 1 draft saved${m.files.length ? `, ${m.files.length} files` : ""}`);
+  return listInFolder(hub, account, put, "drafts", m);
 }
 
 /**
@@ -2007,11 +2097,11 @@ export async function showPictures(hub: Hub, key: string): Promise<MailMessage |
  * is with (`kind`, and `provider` as people say it: the screen says "in Gmail" or "your mail app" by it), and whether
  * it is Read only (`read_only`: the screen offers nothing that would change it).
  */
-export function mailboxStates(hub: Hub): { email: string; last_refresh: string | null; last_error: string | null; more: boolean; kind?: "icloud" | "gmail" | "imap"; provider?: string; read_only: boolean }[] {
+export function mailboxStates(hub: Hub): { email: string; last_refresh: string | null; last_error: string | null; more: boolean; kind?: "icloud" | "gmail" | "imap"; provider?: string; read_only: boolean; can_send: boolean }[] {
   const get = hub.mailDb.prepare("SELECT last_refresh, last_error, more FROM mailboxes WHERE account = ?");
   return INBOX_SOURCES.flatMap((source) => source.accounts(hub).map((account) => {
     const s = get.get(account) as { last_refresh: string | null; last_error: string | null; more: number } | undefined;
-    return { email: account.slice(source.prefix.length), last_refresh: s?.last_refresh ?? null, last_error: s?.last_error ?? null, more: !!s?.more, ...(mailboxProvider(hub, account) ?? {}), read_only: readOnly(hub, account) };
+    return { email: account.slice(source.prefix.length), last_refresh: s?.last_refresh ?? null, last_error: s?.last_error ?? null, more: !!s?.more, ...(mailboxProvider(hub, account) ?? {}), read_only: readOnly(hub, account), can_send: !!source.canSend?.(hub, account) };
   }));
 }
 

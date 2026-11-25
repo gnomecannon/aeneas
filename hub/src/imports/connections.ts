@@ -3,6 +3,7 @@ import path from "node:path";
 import type { AtlassianConn } from "./confluence.js";
 import type { GoogleAccount } from "./gmail.js";
 import type { ICloudAccount, ImapAccount } from "./icloud.js";
+import { sendingServer } from "./smtp.js";
 import type { PasswordManagerConn } from "../secrets.js";
 import type { SecretBox } from "../secretbox.js";
 
@@ -116,12 +117,14 @@ export class ConnectionStore {
        * `read_only` (since 2026-11-24): the hub writes nothing to the account; a Google sign-in can only read, so it
        * always is. One entry per address: a Google sign-in whose address has an app password is merged into that
        * account (icloud.ts mergeGoogleSignIns), which then says when, as `google_removed_at`.
+       * `smtp` (since 2026-11-24): where the account sends from (iCloud's and Gmail's own, or the one the owner gave
+       * for another account), never the password; null when it does not send.
        */
       internet: [
-        ...(c.icloud ?? []).map((a) => ({ key: `icloud:${a.email}`, kind: "icloud" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false, calendars: !!a.calendar }, read_only: a.read_only === true })),
+        ...(c.icloud ?? []).map((a) => ({ key: `icloud:${a.email}`, kind: "icloud" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false, calendars: !!a.calendar }, read_only: a.read_only === true, smtp: sendingServer(a) })),
         ...(c.google ?? []).map((a) => ({ key: a.email, kind: "google" as const, email: a.email, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null, features: { inbox: null, receipts: true, calendars: null }, read_only: true })),
         ...(c.imap ?? []).map((a) => ({ key: `imap:${a.email}`, kind: a.preset === "gmail" ? "gmail" as const : "imap" as const, email: a.email, host: a.host, port: a.port, user: a.user, linked_at: a.linked_at, last_sync: a.last_sync ?? null, last_error: a.last_error ?? null,
-          features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false, calendars: null }, read_only: a.read_only === true, ...(a.google_removed_at ? { google_removed_at: a.google_removed_at } : {}) })),
+          features: { inbox: a.inbox ?? a.mail !== false, receipts: a.mail !== false, calendars: null }, read_only: a.read_only === true, smtp: sendingServer(a), ...(a.google_removed_at ? { google_removed_at: a.google_removed_at } : {}) })),
       ],
       // Other mail accounts (since 2026-11-22): where they are and who signs in, never the password.
       imap: {

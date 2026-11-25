@@ -11,6 +11,7 @@ import {
 import { calcTakeHome } from "../takehome.js";
 import { mealsTax } from "../mealstax.js";
 import { readRetention, setRetention, RETENTION_CHOICES } from "../retention.js";
+import { alertsBody } from "../alerts.js";
 import { steamArt } from "../imports/steam.js";
 import { startUpdate, updateInfo } from "../update.js";
 
@@ -81,18 +82,20 @@ export function adminRoutes() {
   });
 
   // Modules (modules.ts): which parts of the app are on, one setting for every device.
-  r.get("/modules", (c) => c.json({ modules: c.get("hub").modules.list(), alerts: c.get("hub").alerts.list() }));
-  // Each kind of alert, switched on or off on its own (alerts.ts). Under /modules, so the assistant cannot change it.
+  r.get("/modules", (c) => c.json({ modules: c.get("hub").modules.list(), ...alertsBody(c.get("hub")) }));
+  // Each kind of alert, switched on or off on its own, and the two switches for tasks also in Apple Reminders
+  // (alerts.ts). Under /modules, so the assistant cannot change them.
   r.put("/modules/alerts", async (c) => {
     const hub = c.get("hub");
     const body = await readJsonObject<Record<string, unknown>>(c);
-    try { return c.json({ alerts: hub.alerts.set(body) }); } catch (e) { throw new StoreError(422, (e as Error).message); }
+    try { hub.alerts.set(body); } catch (e) { throw new StoreError(422, (e as Error).message); }
+    return c.json(alertsBody(hub));
   });
   r.put("/modules", async (c) => {
     const hub = c.get("hub");
     const body = await readJsonObject<Record<string, unknown>>(c);
     try { hub.modules.set(body); } catch (e) { throw new StoreError(422, (e as Error).message); }
-    return c.json({ modules: hub.modules.list(), alerts: hub.alerts.list() });
+    return c.json({ modules: hub.modules.list(), ...alertsBody(hub) });
   });
 
   r.get("/applications/board", (c) => c.json(applicationBoard(c.get("hub").store)));

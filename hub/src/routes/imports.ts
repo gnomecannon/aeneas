@@ -9,7 +9,7 @@ import { listImports, stopImport, textImport, uploadImport } from "../imports/bu
 import { atlassianReturn, atlassianSignIn, atlassianSpaces, disconnectAtlassian, setAtlassianApp, setAtlassianSpaces, syncConfluence } from "../imports/confluence.js";
 import { applicationsList, filmsLibrary, gamesLibrary } from "../imports/library.js";
 import { checkGoogleApp, disconnectGoogle, googleReturn, googleSignIn, listMail, mailCounts, setGoogleApp } from "../imports/gmail.js";
-import { accountUsed, icloudSource, imapSource, linkICloud, linkImap, setMailboxFeatures, unlinkICloud, unlinkImap } from "../imports/icloud.js";
+import { accountUsed, icloudSource, imapSource, linkICloud, linkImap, setMailboxFeatures, setSendingServer, unlinkICloud, unlinkImap } from "../imports/icloud.js";
 import { guideFor, parseGuideService } from "../guides.js";
 import { hubAddress } from "../setup.js";
 import { mailboxLabel, mailReading, mailSchedule, readMailNow } from "../mail-filer.js";
@@ -131,6 +131,13 @@ export function importRoutes() {
       if (source.accounts(hub).includes(key)) void source.list(hub, key).catch((e) => console.error(`[mail] ${errCode(e)}`));
     }
     return c.json(on);
+  });
+  // Another mail account's sending server (since 2026-11-24): `{ smtp: { host, port, security } }` or `{ smtp: null }`,
+  // signed in to once before it is kept (icloud.ts setSendingServer). Gmail and iCloud send through their own (409).
+  r.put("/connections/accounts/:key/sending", async (c) => {
+    const key = decodeURIComponent(c.req.param("key")).toLowerCase();
+    if (!/^imap:[^\s@]+@[^\s@]+$/.test(key)) throw new StoreError(key.startsWith("icloud:") ? 409 : 404, key.startsWith("icloud:") ? "iCloud Mail sends through smtp.mail.me.com: there is nothing to set." : "that account has no sending server");
+    return c.json(await setSendingServer(c.get("hub"), key, await readJsonObject(c)));
   });
   r.delete("/connections/imap/:email", (c) => {
     const hub = c.get("hub");

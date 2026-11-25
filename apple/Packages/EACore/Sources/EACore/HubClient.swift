@@ -310,7 +310,7 @@ public final class HubClient: Sendable {
             }
             return .unknown(name: msg.event, data: msg.data)
         case "modules":
-            if let m = try? JSONCoding.decode(ModulesResponse.self, from: d) { return .modules(m.modules, alerts: m.alerts) }
+            if let m = try? JSONCoding.decode(ModulesResponse.self, from: d) { return .modules(m.modules, alerts: m.alerts, appleReminders: m.apple_reminder_alerts) }
             return .unknown(name: msg.event, data: msg.data)
         case "sources":
             if let s = try? JSONCoding.decode(SourcesSetting.self, from: d) { return .sources(s) }

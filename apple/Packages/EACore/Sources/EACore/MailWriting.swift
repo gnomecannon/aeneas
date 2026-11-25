@@ -1,9 +1,10 @@
 import Foundation
 
 // Writing mail on the Mail screen, as the web writes it (web/src/lib/mail.ts, CONTRACT.md Mail, POST /mail/drafts): a
-// reply, a reply to all, a forward, a new mail or a kept draft changed, always as a draft in the mailbox's Drafts
-// folder. Nothing is sent from the app: the owner sends it from their mail app. And an open mail's attachments, read
-// from the mailbox only when the mail is opened, a file's bytes only when the owner asks for it.
+// reply, a reply to all, a forward, a new mail or a kept draft changed, previewed whole, then sent (since 2026-11-24,
+// POST /mail/send: the hub's outbox, 10 seconds of Undo, the mailbox's own sending server) or saved as a draft in the
+// mailbox's Drafts folder. And an open mail's attachments, read from the mailbox only when the mail is opened, a
+// file's bytes only when the owner asks for it.
 //
 // What is written is kept in memory only while the app runs (the screen's writing store), never on the device.
 
@@ -35,6 +36,8 @@ public struct MailDraftRequest: Encodable, Equatable, Sendable {
     public var forward: String?
     public var forward_attachments: Bool?
     public var to: String?
+    /// A new mail's Cc (since 2026-11-24): addresses typed, as To's (a mail the assistant wrote may carry some).
+    public var cc: String?
     public var subject: String?
     public var replaces: String?
     public var keep_parts: [String]?
@@ -72,6 +75,35 @@ public struct MailDraft: Decodable, Equatable, Sendable {
         text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? ""
         files = (try? c.decodeIfPresent([File].self, forKey: .files)) ?? []
     }
+}
+
+/// A mail in the hub's outbox (`GET /mail` `outbox`, `GET /mail/outbox/:id`, since 2026-11-24): never its words or
+/// files. `state`: waiting (Undo still takes it back), sending, sent, or failed (`error`: the hub's words; `refused`:
+/// the addresses the server refused).
+public struct MailOutboxItem: Codable, Equatable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var mailbox: String
+    public var to: [String]
+    public var subject: String
+    public var state: String
+    public var send_at: String
+    public var sent_at: String?
+    public var error: String?
+    public var refused: [String]?
+    public init(id: String, mailbox: String = "", to: [String] = [], subject: String = "", state: String = "waiting", send_at: String = "", sent_at: String? = nil, error: String? = nil, refused: [String]? = nil) {
+        self.id = id; self.mailbox = mailbox; self.to = to; self.subject = subject; self.state = state; self.send_at = send_at
+        self.sent_at = sent_at; self.error = error; self.refused = refused
+    }
+}
+
+/// What Send answers (`POST /mail/send`): the mail as it goes, and its place in the outbox.
+public struct MailSent: Decodable, Equatable, Sendable {
+    public var id: String
+    public var send_at: String
+    public var from: MailAddress
+    public var to: [String]
+    public var subject: String
+    public var item: MailOutboxItem { MailOutboxItem(id: id, mailbox: from.address, to: to, subject: subject, state: "waiting", send_at: send_at) }
 }
 
 /// A reply's greeting and sign-off as suggested (`POST /mail/messages/:id/greeting`): by the hub's own model, or the
@@ -124,9 +156,13 @@ extension Mail {
     /// suggestion arriving later leaves them alone; `suggested`: the hub's suggestions were asked for once; `smart`: the
     /// suggested replies. For a kept draft changed: `ready` once its words are read, `html` when it was written with
     /// formatting in another mail app, `kept` its old attachments still on it (nil: not read yet). `dirty`: the owner
-    /// typed words or attached a file, so Discard asks first.
+    /// typed words or attached a file, so Discard asks first. `outbox` (since 2026-11-24): the mail was sent and is in
+    /// the hub's outbox under this id; the box shows how that goes (Sending with Undo, Sent, Not sent) and keeps what was
+    /// written until it is sent, so Undo and Edit put it back as it was.
     public struct Writing: Equatable, Sendable {
         public var to = ""
+        /// A new mail's Cc, shown in the box only while it holds something (a mail the assistant wrote, Edit).
+        public var cc = ""
         public var subject = ""
         public var text = ""
         public var greeting: String? = ""
@@ -142,6 +178,7 @@ extension Mail {
         public var html = false
         public var kept: [MailAttachment]? = []
         public var dirty = false
+        public var outbox: String?
         public init() {}
 
         /// The bytes of every file on the draft: the owner's and a changed draft's kept ones.
@@ -167,6 +204,7 @@ extension Mail {
             r.from = box
         case .fresh:
             r.to = w.to; r.subject = w.subject
+            if !w.cc.trimmingCharacters(in: .whitespaces).isEmpty { r.cc = w.cc }
             if let from, !from.isEmpty { r.from = from }
         }
         if let g = w.greeting, !g.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { r.greeting = g }
@@ -195,6 +233,63 @@ extension Mail {
     /// The mailbox a new mail goes from: the one used last time while it is still linked, else the first.
     public static func fromChoice(_ boxes: [MailMailbox], last: String?) -> String {
         boxes.first { $0.email == last }?.email ?? boxes.first?.email ?? ""
+    }
+
+    // MARK: Sending (since 2026-11-24), the same as the web's (web/src/lib/mail.ts canSend, SEND_TEXTS)
+
+    /// Whether the screen offers Send for a mail from this mailbox: it has a sending server and is not Read only. An
+    /// older hub says neither, and then the screen saves drafts only, as before.
+    public static func canSend(_ box: MailMailbox?) -> Bool { box?.can_send == true && box?.read_only != true }
+
+    /// The words the writing box and its preview say about where the mail goes.
+    public enum SendTexts {
+        /// Under the writing box, for a mailbox that sends.
+        public static let write = "Preview shows the whole mail, then you send it or save it as a draft."
+        /// Above the preview, for a mailbox that sends.
+        public static let preview = "This is the whole mail. Send it, or save it as a draft."
+        /// For another mail account without a sending server.
+        public static let noServer = "To send from here, add a sending server on this account's page in Settings, Accounts."
+        public static let sending = "Sending"
+        public static let sent = "Sent."
+        public static let failed = "Not sent"
+        /// Discarding a mail that was not sent (its notice, or its box).
+        public static let discard = "Discard this mail? It was not sent and is not in Drafts."
+    }
+
+    /// Under the writing box: what pressing on does with the mail.
+    public static func writeNote(_ box: MailMailbox?) -> String {
+        canSend(box) ? SendTexts.write : "Saved to Drafts \(inProvider(box)), to send from \(mailApp(box)).\(box?.kind == "imap" && box?.can_send != true ? " \(SendTexts.noServer)" : "")"
+    }
+    /// Above the preview: what can be done with the whole mail.
+    public static func previewNote(_ box: MailMailbox?) -> String {
+        canSend(box) ? SendTexts.preview : "This is the whole mail. Save it to Drafts, then send it from \(mailApp(box)).\(box?.kind == "imap" && box?.can_send != true ? " \(SendTexts.noServer)" : "")"
+    }
+
+    /// What a writing box shows for its mail in the outbox (the web's outboxFace).
+    public enum OutboxFace: Equatable, Sendable { case sending(undo: Bool), sent, failed(String), gone }
+    public static func outboxFace(_ item: MailOutboxItem?) -> OutboxFace {
+        guard let item else { return .gone }
+        switch item.state {
+        case "waiting": return .sending(undo: true)
+        case "sending": return .sending(undo: false)
+        case "sent": return .sent
+        default: return .failed(item.error ?? "The mail was not sent.")
+        }
+    }
+
+    /// A notice for a mail that was not sent, on the Mail screen: its subject and who it was for.
+    public static func outboxLine(_ item: MailOutboxItem) -> String {
+        let subject = item.subject.trimmingCharacters(in: .whitespaces).isEmpty ? "(no subject)" : item.subject.trimmingCharacters(in: .whitespaces)
+        let more = item.to.count > 3 ? " and \(item.to.count - 3) more" : ""
+        return "Not sent: \(subject), to \(item.to.prefix(3).joined(separator: ", "))\(more)"
+    }
+
+    /// A hint for another mail account's sending server, from its IMAP server's name: `imap.` becomes `smtp.`, else the
+    /// same name. Only a placeholder in an empty field: the hub never connects to a server the owner did not type.
+    public static func smtpGuess(_ imapHost: String) -> String {
+        let h = imapHost.trimmingCharacters(in: .whitespaces).lowercased()
+        if h.isEmpty { return "smtp.example.com" }
+        return h.hasPrefix("imap.") ? "smtp." + h.dropFirst(5) : h
     }
 
     /// Said when the files on a draft are more than the hub takes.

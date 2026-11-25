@@ -14,7 +14,6 @@ struct MailView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
     @StateObject private var store = MailStore()
-    @ObservedObject private var writing = MailWriting.shared
     @State private var place: Mail.Place = .inbox
     /// Add an account, from the screen with no mailbox linked.
     @State private var addingAccount = false
@@ -41,6 +40,8 @@ struct MailView: View {
     /// open the last time the screen showed, and kept until Close once saved (saving lets the screen's keeping go).
     @State private var composingNew = MailWriting.shared.open[Mail.newMailKey] != nil
     @State private var newMailPressed = false
+    /// A mail that was not sent, asked about before it is discarded.
+    @State private var discarding: MailOutboxItem?
     @State private var clock = Date()
     @FocusState private var searchFocused: Bool
     #if os(iOS)
@@ -95,6 +96,9 @@ struct MailView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        let _ = MailProbe.count("MailView")
+        #endif
         Group {
             #if os(macOS)
             HStack(spacing: 0) {
@@ -151,6 +155,9 @@ struct MailView: View {
         }
         #endif
         .overlay(alignment: .bottom) { undoBar }
+        .confirmationDialog(Mail.SendTexts.discard, isPresented: Binding(get: { discarding != nil }, set: { if !$0 { discarding = nil } }), titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { if let x = discarding { Task { await store.act { try await $0.mailOutboxUndo(x.id) } } }; discarding = nil }
+        }
         // Asked here while the list shows (a page open over it on the iPhone and iPad asks on that page).
         .mailMoveQuestion(store, when: opened == nil)
         #if os(iOS)
@@ -192,6 +199,13 @@ struct MailView: View {
         // A bundle whose module was switched off, or the owner's bundle deleted: back to the Inbox.
         .onChange(of: shown.map(\.id)) { _, ids in if case .bundle(let id) = place, !ids.contains(id) { place = .inbox } }
         .onChange(of: selection) { _, s in takeRowTaps(s) }
+        // A mail the assistant wrote, opened with Edit on its card: New mail's box, filled with it.
+        .onReceive(NotificationCenter.default.publisher(for: .mailOpenNewMail)) { _ in
+            #if os(macOS)
+            selection = []
+            #endif
+            composingNew = true
+        }
         #if DEBUG
         .task { await debugLaunch() }
         #endif
@@ -386,9 +400,31 @@ struct MailView: View {
         if let e = store.actionError {
             Text(verbatim: e).font(.footnote).foregroundStyle(.dangerText)
         }
+        // Mail that was not sent (since 2026-11-24): never lost, whether or not the box it was written in is open. One
+        // an open box shows already is left to that box.
+        ForEach(store.notSent.filter { !shownInBox($0.id) }) { x in
+            VStack(alignment: .leading, spacing: 6) {
+                Text(verbatim: Mail.outboxLine(x)).font(.subheadline.weight(.semibold))
+                if let e = x.error { Text(verbatim: e).font(.footnote).foregroundStyle(.dangerText) }
+                HStack(spacing: 10) {
+                    Button("Try again") { Task { await store.act { _ = try await $0.mailOutboxRetry(x.id) } } }.buttonStyle(.borderedProminent)
+                    Button("Save draft") { Task { await store.act { try await $0.mailOutboxDraft(x.id) } } }.buttonStyle(.bordered)
+                    Button("Discard", role: .destructive) { discarding = x }.buttonStyle(.borderless)
+                }
+                .controlSize(.small)
+            }
+            .padding(.vertical, 2)
+        }
         if let n = store.refreshNote {
             Text(verbatim: n.text).font(.footnote).foregroundStyle(n.ok ? AnyShapeStyle(.okText) : AnyShapeStyle(.dangerText))
         }
+    }
+
+    /// Whether an open writing box shows this mail of the outbox already.
+    private func shownInBox(_ id: String) -> Bool {
+        guard let k = MailWriting.shared.key(holding: id) else { return false }
+        if k == Mail.newMailKey { return composingNew }
+        return MailWriting.shared.open[String(k.split(separator: ":", maxSplits: 1).last ?? "")] != nil
     }
 
     /// No mailbox linked: Add an account opens Settings, Accounts' Add account here, so the Mail screen leads straight
@@ -506,7 +542,8 @@ struct MailView: View {
             Text("Your mail provider put this mail in Spam. Its pictures are never loaded, and its links may not be safe.").font(.footnote).foregroundStyle(.secondary)
         }
         if f.role == .drafts {
-            Text("A draft is sent from \(Mail.mailApp(Mail.mailboxOf(store.boxes, f.email))). Edit changes it here.").font(.footnote).foregroundStyle(.secondary)
+            let b = Mail.mailboxOf(store.boxes, f.email)
+            Text(verbatim: Mail.canSend(b) ? "Edit opens a draft here, to send it or save it again." : "A draft is sent from \(Mail.mailApp(b)). Edit changes it here.").font(.footnote).foregroundStyle(.secondary)
         }
         if let all {
             let ms = q.isEmpty ? all : all.filter { Mail.matches($0.summary, q) }
@@ -645,7 +682,7 @@ struct MailView: View {
         newMailPressed = true
         #if os(macOS)
         selection = []
-        writing.open[Mail.newMailKey] = .new
+        MailWriting.shared.open[Mail.newMailKey] = .new
         #endif
         composingNew = true
     }
@@ -888,7 +925,7 @@ struct MailView: View {
             // A draft is saved to a mailbox: none while every mailbox is Read only (or none is linked).
             if !Mail.writableBoxes(store.boxes).isEmpty {
                 Button { newMail() } label: { Label("New mail", systemImage: "square.and.pencil") }
-                    .help("Write a new mail, saved to Drafts in your mailbox")
+                    .help(Mail.writableBoxes(store.boxes).contains(where: Mail.canSend) ? "Write a new mail, to send or save as a draft" : "Write a new mail, saved to Drafts in your mailbox")
             }
             Menu {
                 #if os(iOS)
@@ -1046,7 +1083,7 @@ struct MailView: View {
         } else if composingNew {
             ScrollView {
                 // Open from before the screen showed, it does not take the focus.
-                MailComposer(store: store, target: .fresh, takesFocus: newMailPressed) { writing.open[Mail.newMailKey] = nil; composingNew = false }
+                MailComposer(store: store, target: .fresh, takesFocus: newMailPressed) { MailWriting.shared.open[Mail.newMailKey] = nil; composingNew = false }
                     .padding()
                     .frame(maxWidth: 820, alignment: .leading)
                     .frame(maxWidth: .infinity)
@@ -1061,7 +1098,8 @@ struct MailView: View {
 
     #if DEBUG
     /// `-EAMailPlace bundle:<id>|snoozed|done` opens that place; `-EAMailOpen <words>` opens the first thread whose
-    /// subject has them; `-EAMailSelect <n>` selects the first n threads; `-EAMailBundleOpen YES` opens the first bundle row.
+    /// subject has them; `-EAMailSelect <n>` selects the first n threads; `-EAMailBundleOpen YES` opens the first bundle row;
+    /// `-EAMailWrite new` opens New mail, and `-EAMailWrite reply` a reply under the thread -EAMailOpen opened (MailProbe).
     private func debugLaunch() async {
         let d = UserDefaults.standard
         if let p = d.string(forKey: "EAMailPlace") {
@@ -1069,8 +1107,11 @@ struct MailView: View {
         }
         for _ in 0..<40 where store.list == nil { try? await Task.sleep(for: .milliseconds(250)) }
         if let words = d.string(forKey: "EAMailOpen"), let t = store.threads.first(where: { $0.summary.subject.localizedCaseInsensitiveContains(words) }) {
+            // -EAMailWrite reply: the reply box under it is open when the thread shows.
+            if d.string(forKey: "EAMailWrite") == "reply" { MailWriting.shared.open[t.id] = .one }
             if isMac { selection = [t.key] } else { opened = OpenThread(id: t.key) }
         }
+        if d.string(forKey: "EAMailWrite") == "new" { newMail() }
         let n = d.integer(forKey: "EAMailSelect")
         if n > 0 {
             #if os(iOS)

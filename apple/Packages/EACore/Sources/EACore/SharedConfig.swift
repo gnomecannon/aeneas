@@ -195,6 +195,14 @@ public final class SharedConfig: @unchecked Sendable {
     /// every notification of this device needs, and the kind's own switch on (Settings, Notifications).
     public func notifies(_ kind: String) -> Bool { moduleOn(.notifications) && alertOn(kind) }
     public func notifies(_ kind: AlertKind) -> Bool { notifies(kind.rawValue) }
+    /// The last switches for tasks also in Apple Reminders from the hub (since 1.0.19), kept so this device's planned
+    /// alerts and its Reminders sync obey them with no network, on the Watch too. Nil from an older hub: both on.
+    public var appleReminderAlerts: AppleReminderAlerts? {
+        get { defaults.data(forKey: "alerts.appleReminders").flatMap { try? JSONCoding.decode(AppleReminderAlerts.self, from: $0) } }
+        set { if let v = newValue, let d = try? JSONCoding.data(v) { defaults.set(d, forKey: "alerts.appleReminders") } else { defaults.removeObject(forKey: "alerts.appleReminders") } }
+    }
+    /// Whether this device writes alarms on Apple Reminders items (Alert from Apple Reminders, once it takes effect).
+    public var writesReminderAlarms: Bool { appleReminderAlerts?.apple_alarms ?? true }
     /// Feel changes made while the hub could not be reached, sent before the next fetch.
     public var feelPending: [String: JSONValue] {
         get { defaults.data(forKey: "feel.pending").flatMap { try? JSONCoding.decode([String: JSONValue].self, from: $0) } ?? [:] }

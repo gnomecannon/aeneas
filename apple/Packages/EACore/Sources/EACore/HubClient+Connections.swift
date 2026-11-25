@@ -519,6 +519,9 @@ public struct InternetAccount: Decodable, Equatable, Sendable, Identifiable {
     /// When the hub last used its password (added, or a sign-in for Receipts and renewals, the Mail screen or calendar
     /// sync; since 2026-11-24). `last_error` says when that went wrong. Nil from older hubs.
     public var checked_at: String?
+    /// Where it sends from (since 2026-11-24): iCloud's and Gmail's own, or the one the owner gave for another account;
+    /// nil when it does not send, or from an older hub (`sends` tells them apart).
+    public var smtp: SendingServer?
     public var id: String { key }
 
     public init(key: String, kind: String, email: String, features: Features, read_only: Bool? = nil, host: String? = nil, port: Int? = nil) {
@@ -546,6 +549,25 @@ public struct InternetAccount: Decodable, Equatable, Sendable, Identifiable {
     /// What an account that took over an older Google sign-in of its address says, once (web googleRemovedNote, kept
     /// the same).
     public static func googleRemovedNote(_ day: String) -> String { "The older Google sign-in for this address was removed on \(day). Receipts and renewals carries on with this app password, from where the sign-in stopped." }
+}
+
+/// A sending server (since 2026-11-24): its name, its port, and TLS from the start (`tls`) or STARTTLS (`starttls`).
+public struct SendingServer: Codable, Equatable, Hashable, Sendable {
+    public var host: String
+    public var port: Int
+    public var security: String
+    public init(host: String, port: Int, security: String) { self.host = host; self.port = port; self.security = security }
+
+    /// In words: "smtp.gmail.com, port 465, TLS" (web sendingLine, kept the same).
+    public var line: String { "\(host), port \(port), \(security == "tls" ? "TLS" : "STARTTLS")" }
+
+    /// A sending server as typed: none when the name is empty; the port from the security when it is empty (web typedSmtp).
+    public static func typed(host: String, port: String, security: String) -> SendingServer? {
+        let h = host.trimmingCharacters(in: .whitespaces)
+        guard !h.isEmpty else { return nil }
+        let sec = security == "starttls" ? "starttls" : "tls"
+        return SendingServer(host: h, port: Int(port.trimmingCharacters(in: .whitespaces)) ?? (sec == "tls" ? 465 : 587), security: sec)
+    }
 }
 
 /// What a switch change came to (`PUT /connections/accounts/<key>`); `removed` with the hub's `message` when it turned
@@ -578,9 +600,23 @@ extension HubClient {
         _ = try await post("connections/icloud", B(email: email, password: password), as: JSONValue.self, method: "PUT")
     }
 
-    /// Gmail with an app password (`gmail`: the hub fills in the server), or another IMAP server over TLS.
-    public func linkImap(email: String, password: String, gmail: Bool, host: String? = nil, port: Int? = nil, user: String? = nil) async throws {
-        struct B: Encodable { var email: String; var password: String; var preset: String; var host: String?; var port: Int?; var user: String? }
-        _ = try await post("connections/imap", B(email: email, password: password, preset: gmail ? "gmail" : "imap", host: gmail ? nil : host, port: gmail ? nil : port, user: user), as: JSONValue.self, method: "PUT")
+    /// Gmail with an app password (`gmail`: the hub fills in the server), or another IMAP server over TLS, with its
+    /// sending server when one was typed (`smtp`, since 2026-11-24: checked by the hub with one sign-in).
+    public func linkImap(email: String, password: String, gmail: Bool, host: String? = nil, port: Int? = nil, user: String? = nil, smtp: SendingServer? = nil) async throws {
+        struct B: Encodable { var email: String; var password: String; var preset: String; var host: String?; var port: Int?; var user: String?; var smtp: SendingServer? }
+        _ = try await post("connections/imap", B(email: email, password: password, preset: gmail ? "gmail" : "imap", host: gmail ? nil : host, port: gmail ? nil : port, user: user, smtp: gmail ? nil : smtp), as: JSONValue.self, method: "PUT")
+    }
+
+    /// Another mail account's sending server (since 2026-11-24), checked by the hub with one sign-in; nil sends from it
+    /// no more. Answers the server kept.
+    @discardableResult
+    public func setSendingServer(key: String, _ smtp: SendingServer?) async throws -> SendingServer? {
+        struct B: Encodable {
+            var smtp: SendingServer?
+            func encode(to encoder: Encoder) throws { var c = encoder.container(keyedBy: K.self); try c.encode(smtp, forKey: .smtp) }
+            enum K: String, CodingKey { case smtp }
+        }
+        struct A: Decodable { var smtp: SendingServer? }
+        return try await post("connections/accounts/\(key)/sending", B(smtp: smtp), as: A.self, method: "PUT").smtp
     }
 }

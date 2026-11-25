@@ -88,11 +88,25 @@ extension HubClient {
         try await post("mail/settings/bundles/\(Self.bundlePath(bundle))", d, as: [String: MailBundleDelivery].self, method: "PUT")
     }
 
-    // MARK: Writing: drafts, never sent
+    // MARK: Writing: drafts, and sending (since 2026-11-24)
 
-    /// A draft: with `preview`, what the hub would save; else saved to the mailbox's Drafts folder (never sent: the
-    /// owner sends it from their mail app). Its files go in the body, base64, at most 15 MB of them.
+    /// A draft: with `preview`, what the hub would save (or send); else saved to the mailbox's Drafts folder. Its files
+    /// go in the body, base64, at most 15 MB of them.
     public func mailDraft(_ r: MailDraftRequest) async throws -> MailDraft { try await post("mail/drafts", r, as: MailDraft.self) }
+
+    /// Send: the same mail (without `preview`) into the hub's outbox, sent 10 seconds later unless taken back.
+    public func mailSend(_ r: MailDraftRequest) async throws -> MailSent { try await post("mail/send", r, as: MailSent.self) }
+    /// A mail in the outbox: waiting, being sent, sent, or not sent with the hub's words. Nil when it is not there.
+    public func mailOutbox(_ id: String) async throws -> MailOutboxItem? {
+        do { return try await get(Self.outboxPath(id), as: MailOutboxItem.self) } catch HubError.http(status: 404, _) { return nil }
+    }
+    /// Undo while it waits, or Edit and Discard once it was not sent: it leaves the outbox.
+    public func mailOutboxUndo(_ id: String) async throws { _ = try await post(Self.outboxPath(id, "/undo"), Empty(), as: Ignored.self) }
+    /// Try again: a mail that was not sent waits again, with its Undo.
+    public func mailOutboxRetry(_ id: String) async throws -> MailOutboxItem { try await post(Self.outboxPath(id, "/retry"), Empty(), as: MailOutboxItem.self) }
+    /// Save draft: a mail that was not sent goes to Drafts as it is.
+    public func mailOutboxDraft(_ id: String) async throws { _ = try await post(Self.outboxPath(id, "/draft"), Empty(), as: Ignored.self) }
+    static func outboxPath(_ id: String, _ rest: String = "") -> String { "mail/outbox/\(id.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")\(rest)" }
 
     /// A reply's greeting and sign-off, suggested by the hub's own model (or the plain ones), with up to 3 short replies.
     public func mailGreeting(_ id: String) async throws -> MailGreeting { try await post(Self.mailPath(id, "/greeting"), Empty(), as: MailGreeting.self) }

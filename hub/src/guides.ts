@@ -129,9 +129,11 @@ export function guideFor(hub: Hub, service: GuideService, address: string): Guid
 export function icloudUse(receipts: boolean, inbox: boolean): { does: string; uses: string } {
   const does = [inbox && "brings its Inbox into Mail", receipts && "reads your receipts, renewals and vet mail"].filter(Boolean).join(" and ") || "reads your mail";
   const uses = [
-    "Aeneas never sends mail with it or erases any, never opens your Contacts, and opens your Calendars only if you switch Calendars on for this account.",
+    inbox
+      ? "Aeneas sends mail with it only when you press Send on the Mail screen, never erases any, never opens your Contacts, and opens your Calendars only if you switch Calendars on for this account."
+      : "Aeneas never sends mail with it or erases any, never opens your Contacts, and opens your Calendars only if you switch Calendars on for this account.",
     receipts && "For receipts it only reads: nothing is moved or marked read.",
-    inbox && "On the Mail screen it changes only what you do there: opening a mail marks it read, Pin flags it, Done, Delete, Spam and Move to move it to another folder, and a draft you write is saved to Drafts.",
+    inbox && "On the Mail screen it changes only what you do there: opening a mail marks it read, Pin flags it, Done, Delete, Spam and Move to move it to another folder, a draft you write is saved to Drafts, and a mail you send goes through iCloud's sending server, with its copy put in Sent.",
   ].filter(Boolean).join(" ");
   return { does, uses };
 }

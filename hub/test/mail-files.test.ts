@@ -169,7 +169,7 @@ test("mail files: a forward of a mail with more attachments than a draft carries
     for (const preview of [true, false]) {
       const r = await ask(t, { forward: id, to: "pat@example.com", text: "FYI", forward_attachments: true, preview });
       assert.equal(r.status, 413, preview ? "the preview says so already" : "and nothing is saved with two of them left out");
-      assert.match(((await r.json()) as { error: string }).error, /has 12 attachments, and a draft from Aeneas carries at most 10/);
+      assert.match(((await r.json()) as { error: string }).error, /has 12 attachments, and a mail from Aeneas carries at most 10/);
     }
     assert.equal(seen.appends.length, 0);
     assert.deepEqual(seen.downloads, []);

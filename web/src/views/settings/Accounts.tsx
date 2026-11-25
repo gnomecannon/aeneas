@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { engine } from "../../sync/engine";
-import type { CalendarAccount, CalendarSyncView, Connections as ConnectionsView, GmailAccount, HubClient, InternetAccount, OwnKeyGuide as Guide, SourcesView } from "../../sync/api";
+import type { CalendarAccount, CalendarSyncView, Connections as ConnectionsView, GmailAccount, HubClient, InternetAccount, OwnKeyGuide as Guide, SendingServer, SourcesView } from "../../sync/api";
+import { smtpGuess } from "../../lib/mail";
 import { HubError } from "../../sync/api";
 import { fmtDate, fmtDateTime } from "../../lib/time";
 import { useHubReady } from "../../sync/hooks";
@@ -18,6 +19,34 @@ import { useConnections } from "./Connections";
 
 type Msg = { ok: boolean; text: string } | null;
 type Run = (f: () => Promise<string | void>) => Promise<void>;
+
+/**
+ * Sending (since 2026-11-24): where an account's mail goes out, on its page and in Add account, Other mail. The same
+ * on the iPhone, iPad and Mac (EACore AccountTexts.sending).
+ */
+export const SENDING_TEXTS = {
+  title: "Sending",
+  /** Under the server, for an account that sends. */
+  note: "Mail you send on the Mail screen goes through this server, with this account's app password.",
+  /** Another mail account without one. */
+  none: "None yet: mail written for this account is saved to Drafts, to send from your mail app. Add its sending server to send from the Mail screen.",
+  /** Under the form. */
+  form: "Your provider's help pages give its sending server (SMTP). The hub signs in once to check it, connects with TLS only, and never to a server on your own network.",
+  /** Add account, Other mail. */
+  optional: "Sending server (optional). Without one, mail written for this account is saved to Drafts.",
+  tls: "TLS (most often port 465)",
+  starttls: "STARTTLS (most often port 587)",
+  saved: "The hub signed in to the sending server. Mail written for this account can be sent now.",
+  removed: "Mail written for this account is saved to Drafts from now on.",
+} as const;
+/** A sending server in words: "smtp.gmail.com, port 465, TLS". */
+export const sendingLine = (x: SendingServer) => `${x.host}, port ${x.port}, ${x.security === "tls" ? "TLS" : "STARTTLS"}`;
+/** A sending server as typed: none when the name is empty; the port from the security when it is empty. */
+export function typedSmtp(host: string, port: string, security: "tls" | "starttls"): { host: string; port: number; security: "tls" | "starttls" } | null {
+  const h = host.trim();
+  if (!h) return null;
+  return { host: h, port: Number(port) || (security === "tls" ? 465 : 587), security };
+}
 
 /** Under the list of accounts. */
 export const ACCOUNTS_FOOTER = "Each address once. Your hub keeps these in step, with every device off.";
@@ -96,6 +125,8 @@ export interface NewAccount {
   host?: string;
   port?: number;
   user?: string;
+  /** Another mail account's sending server, when one was typed (since 2026-11-24). */
+  smtp?: { host: string; port: number; security: "tls" | "starttls" } | null;
   want: Record<Feature, boolean>;
 }
 
@@ -124,7 +155,7 @@ export async function addAccount(client: AccountClient, a: NewAccount, on: (m: s
     return key;
   }
   const user = a.user?.trim();
-  await client.linkImap(a.kind === "google" ? { email, password, preset: "gmail" } : { email, password, preset: "imap", host: (a.host ?? "").trim(), port: a.port || 993, ...(user ? { user } : {}) });
+  await client.linkImap(a.kind === "google" ? { email, password, preset: "gmail" } : { email, password, preset: "imap", host: (a.host ?? "").trim(), port: a.port || 993, ...(user ? { user } : {}), ...(a.smtp ? { smtp: a.smtp } : {}) });
   const key = `imap:${email}`;
   if (Object.keys(off).length) await client.setAccountFeatures(key, off);
   return key;
@@ -531,9 +562,72 @@ function AccountPage({ accountKey }: { accountKey: string }) {
           <CalendarChoices a={calendar} busy={busy} run={run} setCal={setCal} />
         </section>
       )}
+      {a.kind !== "google" && a.smtp !== undefined && <Sending a={a} busy={busy} run={run} />}
       <SignIn a={a} busy={busy} run={run} />
       <div><button type="button" className="ghost danger" disabled={busy || !client} onClick={remove}>Remove account</button></div>
     </SubPage>
+  );
+}
+
+/** A sending server's name, port and security, as typed; `hint` is only a placeholder (the hub never connects to a guess). */
+function SendingFields({ host, port, security, hint, set, label }: { host: string; port: string; security: "tls" | "starttls"; hint: string; set: (host: string, port: string, security: "tls" | "starttls") => void; label?: string }) {
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      {label && <div className="small">{label}</div>}
+      <div className="row wrap" style={{ gap: 8 }}>
+        <label className="col small" style={{ gap: 2, flex: "1 1 220px" }}>
+          Sending server
+          <input autoComplete="off" spellCheck={false} value={host} onChange={(e) => set(e.target.value, port, security)} placeholder={hint} />
+        </label>
+        <label className="col small" style={{ gap: 2, width: 90 }}>
+          Port
+          <input inputMode="numeric" value={port} onChange={(e) => set(host, e.target.value.replace(/[^0-9]/g, ""), security)} placeholder={security === "tls" ? "465" : "587"} />
+        </label>
+        <label className="col small" style={{ gap: 2 }}>
+          Security
+          <select value={security} onChange={(e) => set(host, port, e.target.value === "starttls" ? "starttls" : "tls")}>
+            <option value="tls">{SENDING_TEXTS.tls}</option>
+            <option value="starttls">{SENDING_TEXTS.starttls}</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sending: where the account's mail goes out. iCloud and Gmail send through their own servers, shown; another mail
+ * account through the one the owner gives here (Add, Change, Remove), which the hub signs in to once before it keeps it.
+ */
+function Sending({ a, busy, run }: { a: InternetAccount; busy: boolean; run: Run }) {
+  const [open, setOpen] = useState(false);
+  const [host, setHost] = useState(a.smtp?.host ?? "");
+  const [port, setPort] = useState(a.smtp ? String(a.smtp.port) : "");
+  const [security, setSecurity] = useState<"tls" | "starttls">(a.smtp?.security ?? "tls");
+  const client = engine.client;
+  const fixed = a.kind === "icloud" || a.kind === "gmail";
+  const typed = typedSmtp(host, port, security);
+  return (
+    <section className="card col">
+      <h2>{SENDING_TEXTS.title}</h2>
+      {a.smtp ? <div>{sendingLine(a.smtp)}</div> : <div className="muted small">{SENDING_TEXTS.none}</div>}
+      {a.smtp && <div className="muted small">{SENDING_TEXTS.note}</div>}
+      {!fixed && (open ? (
+        <form className="col" onSubmit={(e) => { e.preventDefault(); if (typed) void run(async () => { await client!.setSendingServer(a.key, typed); setOpen(false); return SENDING_TEXTS.saved; }); }}>
+          <SendingFields host={host} port={port} security={security} hint={smtpGuess(a.host ?? "")} set={(h, p, x) => { setHost(h); setPort(p); setSecurity(x); }} />
+          <div className="muted small">{SENDING_TEXTS.form}</div>
+          <div className="row">
+            <button type="submit" className="primary" disabled={busy || !client || !typed}>{busy ? "Checking" : "Save"}</button>
+            <button type="button" className="ghost" onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </form>
+      ) : (
+        <div className="row">
+          <button type="button" disabled={busy || !client} onClick={() => setOpen(true)}>{a.smtp ? "Change" : "Add a sending server"}</button>
+          {a.smtp && <button type="button" className="ghost" disabled={busy || !client} onClick={() => void run(async () => { await client!.setSendingServer(a.key, null); return SENDING_TEXTS.removed; })}>Remove</button>}
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -677,6 +771,9 @@ function AddAccountPage({ kind: startKind, email: startEmail }: { kind: string |
   const [host, setHost] = useState("");
   const [port, setPort] = useState("993");
   const [user, setUser] = useState("");
+  const [smtpHost, setSmtpHost] = useState("");
+  const [smtpPort, setSmtpPort] = useState("");
+  const [smtpSecurity, setSmtpSecurity] = useState<"tls" | "starttls">("tls");
   const [want, setWant] = useState<Record<Feature, boolean>>({ inbox: true, receipts: true, calendars: false });
   const [howTo, setHowTo] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -690,7 +787,7 @@ function AddAccountPage({ kind: startKind, email: startEmail }: { kind: string |
     setBusy(true);
     setMsg(null);
     try {
-      const key = await addAccount(client, { kind, email, password, host, port: Number(port) || 993, user, want: wanted }, known, setModules);
+      const key = await addAccount(client, { kind, email, password, host, port: Number(port) || 993, user, smtp: kind === "imap" ? typedSmtp(smtpHost, smtpPort, smtpSecurity) : null, want: wanted }, known, setModules);
       setPassword("");
       location.hash = `#/settings/accounts/${encodeURIComponent(key)}`;
     } catch (e) {
@@ -747,6 +844,7 @@ function AddAccountPage({ kind: startKind, email: startEmail }: { kind: string |
             </>
           )}
           {kind === "imap" && <div className="muted small">Your provider's help pages give its server and port, and where to make an app password. The hub connects with TLS only (most often port 993), and only to servers on the internet, never one on your own network.</div>}
+          {kind === "imap" && <SendingFields host={smtpHost} port={smtpPort} security={smtpSecurity} hint={smtpGuess(host)} set={(h, p, x) => { setSmtpHost(h); setSmtpPort(p); setSmtpSecurity(x); }} label={SENDING_TEXTS.optional} />}
         </section>
         <section className="card col">
           <h2>What it brings in</h2>

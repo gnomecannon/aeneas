@@ -74,7 +74,15 @@ export interface ChatOutput {
   images?: string[];
   /** Image ids a tool made for this reply (generate_image), also stored on the assistant turn. */
   reply_images?: string[];
+  /** A mail the assistant wrote for the owner to send (propose_mail): its card goes under this reply. */
+  mail_proposal?: { id: string };
 }
+
+/** A mail kept for the owner to send, as propose_mail answers it. */
+export type MailProposal = { id: string; from: string; to: string[]; cc: string[]; subject: string; files: { name: string; size: number }[]; expires_at: string };
+
+/** Said under a reply that proposed a mail when the reply itself did not say it plainly. */
+export const MAIL_NOT_SENT = "Nothing is sent until you tap Send on the mail below.";
 
 export interface ToolAction { tool: string; ok: boolean; writes: boolean; items?: TouchedItem[] }
 
@@ -114,6 +122,8 @@ export function touchedItems(tool: string, text: string): TouchedItem[] {
 export type ChatEvent =
   | { type: "tool"; tool: string; ok: boolean; writes: boolean }
   | { type: "approval"; action: PendingApproval }
+  /** A mail for the owner to send: its card (GET /mail/proposals/:id) goes under this reply. */
+  | { type: "mail_proposal"; id: string }
   | { type: "status"; text: string }
   /** The assistant wants recent photos from the iPhone that is streaming this chat; it answers on POST /ai/photos/:id. */
   | { type: "photos_request"; id: string; count: number; since_days?: number };
@@ -194,6 +204,8 @@ export interface ClassifyResult {
 export class Gateway {
   private backends: BackendSet;
   private api: ApiCall | null = null;
+  /** Keeps a mail the assistant wrote for the owner to send (mail-proposals.ts proposeMail), set by createApp. */
+  private mailProposer: ((input: Record<string, unknown>, turn: { sessionId: string; ownerText: string; photoIds: string[] }) => MailProposal) | null = null;
   readonly sessions: Sessions;
   readonly images: ImageStore;
   readonly hosts: HostActions;
@@ -232,6 +244,8 @@ export class Gateway {
 
   /** Give the assistant its tools: an in-process caller of the hub's own API (set by createApp). */
   setApi(api: ApiCall): void { this.api = api; }
+  /** Let propose_mail keep a proposal on the hub (never send it: the owner's Send on its card does). */
+  setMailProposer(f: (input: Record<string, unknown>, turn: { sessionId: string; ownerText: string; photoIds: string[] }) => MailProposal): void { this.mailProposer = f; }
 
   /** The context the hub plans every request for and asks Ollama for: EA_OLLAMA_NUM_CTX, raised to the floor. */
   numCtx(): number { return Math.max(this.cfg.ollamaNumCtx, this.ctxNeeded); }
@@ -720,6 +734,8 @@ export class Gateway {
     let summary = req.messages?.length ? null : stored?.summary ?? null;
     let summaryUpto = req.messages?.length ? 0 : stored?.summary_upto ?? 0;
     let pending: PendingApproval | undefined;
+    // A mail the assistant wrote this turn for the owner to send: shown as a card under the reply, sent only from there.
+    let proposal: string | undefined;
     // Images a tool made this turn (generate_image): shown under the reply on every device.
     const replyImages: string[] = [];
     const modelImages: { note: string; images: string[] }[] = [];
@@ -794,6 +810,20 @@ export class Gateway {
         ...(req.device?.photos && onEvent ? { askDevicePhotos: (count: number, sinceDays?: number) => this.askPhotos(count, sinceDays, onEvent) } : {}),
         userImages: imageIds,
         onStatus: (text) => onEvent?.({ type: "status", text }),
+        // Only a chat with the owner proposes a mail (never a capture being filed), checked against what they wrote.
+        ...(this.mailProposer && !req.filing && !req.messages?.length ? {
+          proposeMail: (input: Record<string, unknown>) => {
+            if (proposal) throw new StoreError(409, "One mail per reply: this reply already has one for {{owner}} to send.");
+            const r = this.mailProposer!(input, {
+              sessionId: req.session_id,
+              ownerText: history.filter((m) => m.role === "user").map((m) => m.content).join("\n"),
+              photoIds: history.filter((m) => m.role === "user").flatMap((m) => m.images ?? []),
+            });
+            proposal = r.id;
+            onEvent?.({ type: "mail_proposal", id: r.id });
+            return r;
+          },
+        } : {}),
       };
       const t0 = Date.now();
       const actions: ToolAction[] = [];
@@ -815,6 +845,11 @@ export class Gateway {
           applied.push(`preflight:${pf.match.rule.name}`);
         }
         let reply = pf.text;
+        // A mail proposed in this reply: the reply says plainly that nothing is sent until the owner taps Send, and a
+        // reply that says otherwise is set right (the model is told so; this is in case it did not listen).
+        if (proposal && (!/(nothing|not)\b[^.]{0,20}\bsent|until you tap send/i.test(reply) || /\b(i('ve| have)?|i just|has been|was|it's been)\s+sent\b/i.test(reply))) {
+          reply = `${reply.trimEnd()}\n\n${MAIL_NOT_SENT}`;
+        }
         // Module 2: once the owner says it worked, the commands that fixed it go to Snippets on their own.
         const saved = !pending && this.moduleOn("homelab") && saysWorked(lastUser) ? this.harvest(req.session_id, topic, history) : [];
         if (saved.length) reply += `\n\nSaved to Snippets: ${saved.map((s) => String(s.fields.title)).join("; ")}.`;
@@ -827,7 +862,7 @@ export class Gateway {
         if (mode !== "classify") {
           // Cancel tapped while this reply still streamed: the action says so, and the chat must too.
           const pendingStatus = pending ? (this.hosts.get(pending.id)?.status ?? "pending") : undefined;
-          const answer: StoredMessage = { role: "assistant", content: reply, at: nowIso(), ...(replyImages.length ? { images: [...replyImages] } : {}), ...(actions.length ? { actions } : {}), ...(pending ? { approval: { action_id: pending.id, host: pending.host, command: pending.command, status: pendingStatus } } : {}) };
+          const answer: StoredMessage = { role: "assistant", content: reply, at: nowIso(), ...(replyImages.length ? { images: [...replyImages] } : {}), ...(actions.length ? { actions } : {}), ...(pending ? { approval: { action_id: pending.id, host: pending.host, command: pending.command, status: pendingStatus } } : {}), ...(proposal ? { mail_proposal: { id: proposal } } : {}) };
           this.sessions.save(req.session_id, mode, [...kept(history), answer], req.messages?.length ? {} : { startedAt });
         }
         // Module 5: a reply with three or more numbered steps is offered as a procedure (rules only, never a second model call).
@@ -843,6 +878,7 @@ export class Gateway {
           ...(ledger ? { ledger_id: ledger.id } : {}), ...(procedureId ? { procedure_id: procedureId } : {}), ...(actions.length ? { actions } : {}),
           ...(pending ? { pending_action: pending } : {}), ...(imageIds.length ? { images: imageIds } : {}),
           ...(replyImages.length ? { reply_images: [...replyImages] } : {}),
+          ...(proposal ? { mail_proposal: { id: proposal } } : {}),
         };
       } catch (e) {
         lastErr = e as Error;

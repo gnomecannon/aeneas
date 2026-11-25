@@ -16,6 +16,12 @@ const NO_READ = [
   "/hubs",
   // The Mail screen's mail (since 2026-11-17): a mail could otherwise steer the model into reading other mail.
   "/mail",
+  // Sending (since 2026-11-24): only the owner, pressing Send on the Mail screen, ever sends. Named on their own as
+  // well, so they stay closed whatever becomes of the line above: a mail must never steer the model into sending one.
+  "/mail/send",
+  "/mail/outbox",
+  // A mail the assistant wrote waits for the owner's tap on its card: the assistant can never send it itself.
+  "/mail/proposals",
 ];
 
 /** Paths a tool may change: syncing a linked account now. Every other write under these prefixes is the owner's. */

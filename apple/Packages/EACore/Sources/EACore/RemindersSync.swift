@@ -48,6 +48,7 @@ public final class RemindersSync: ObservableObject {
     #endif
 
     private var sourcesObserver: NSObjectProtocol?
+    private var alarmsObserver: NSObjectProtocol?
     /// The list choices the last run went by, so a change made on another device starts a run here.
     private var listPrint = RemindersSync.print(SharedConfig.shared.sources)
 
@@ -62,6 +63,10 @@ public final class RemindersSync: ObservableObject {
                 // A list switched on starts syncing, one switched off stops, and new tasks go where they now should.
                 self.scheduleRun(after: 1)
             }
+        }
+        // Alert from Apple Reminders switched (Settings, Notifications, on any device): alarms come off or come back.
+        alarmsObserver = NotificationCenter.default.addObserver(forName: SyncEngine.reminderAlarmsDidChange, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.scheduleRun(after: 1) }
         }
     }
 
@@ -287,10 +292,12 @@ public final class RemindersSync: ObservableObject {
         // New tasks go to the list chosen for them when this device has it and it is on, else the default list.
         let newTasks = setting?.new_tasks.flatMap { key in writableLists.first { choices[$0.calendarIdentifier]?.key == key && synced($0) } }
         let defaultOn = store.defaultCalendarForNewReminders().map(synced) ?? false
+        // Alert from Apple Reminders (Settings, Notifications), once every iPhone, iPad and Mac can read items without one.
+        let alarms = engine.config.writesReminderAlarms
         let plan = RemindersMerge.plan(items: items, tasks: tasks, state: state, presentLists: Set(lists.map(\.calendarIdentifier)),
                                        createsInApple: createsInApple, workOff: workOff,
                                        writableLists: Set(writableLists.map(\.title)), shows: { shows.shows($0) },
-                                       newTasksList: newTasks?.title, defaultListOn: defaultOn, moveDeletes: fresh, now: now)
+                                       newTasksList: newTasks?.title, defaultListOn: defaultOn, moveDeletes: fresh, alarms: alarms, now: now)
         var newState = plan.state
 
         for p in plan.taskPatches { _ = await engine.apply(p) }
@@ -300,7 +307,7 @@ public final class RemindersSync: ObservableObject {
             guard let r = byLocal[w.localId] else { continue }
             let taskId = newState.first { $0.value.localId == w.localId }?.value.taskId
             let full = taskId.flatMap { engine.get($0) }.map { RemindersMerge.fields(of: $0) } ?? [:]
-            Self.write(w.fields, full: full, to: r)
+            guard Self.write(w.fields, full: full, alarms: w.alarms, to: r) else { continue }
             try store.save(r, commit: false)
         }
         for id in plan.appleDeletes {
@@ -324,7 +331,7 @@ public final class RemindersSync: ObservableObject {
             guard let l = list(named: c.listTitle, work: c.isWork), synced(l) else { continue }
             let r = EKReminder(eventStore: store)
             r.calendar = l
-            Self.write(c.fields, full: c.fields, to: r)
+            Self.write(c.fields, full: c.fields, alarms: alarms ? .move : .none, to: r)
             try store.save(r, commit: false)
             created.append((r, c.taskId, c.fields))
         }
@@ -339,6 +346,7 @@ public final class RemindersSync: ObservableObject {
             _ = await engine.apply(Patch(id: taskId, kind: .task, ts: ISO.now(), fields: ["apple": link]))
             var agreed = fields
             agreed[RemindersMerge.listKey] = r.calendar.title
+            if !alarms { agreed[RemindersMerge.alarmsKey] = "off" }
             newState[ext] = SyncedReminder(taskId: taskId, localId: r.calendarItemIdentifier, fields: agreed)
         }
         saveState(newState)
@@ -397,12 +405,14 @@ public final class RemindersSync: ObservableObject {
 
     private static func item(_ r: EKReminder, listKey: String, listOn: Bool, isWork: Bool) -> ReminderItem {
         // A due date with no time reads as the day alone, the same in every time zone (ReminderDates).
-        let dates = ReminderDates.read(due: r.dueDateComponents, alarms: (r.alarms ?? []).map(alarm))
+        let alarms = (r.alarms ?? []).map(alarm)
+        let dates = ReminderDates.read(due: r.dueDateComponents, alarms: alarms)
         return ReminderItem(externalId: r.calendarItemExternalIdentifier ?? r.calendarItemIdentifier, localId: r.calendarItemIdentifier,
                             listId: r.calendar.calendarIdentifier, listTitle: r.calendar.title, listKey: listKey, listOn: listOn, isWork: isWork,
                             title: r.title ?? "", notes: r.notes, due: dates.due, remindAt: dates.remindAt,
                             repeatRule: r.recurrenceRules?.first.flatMap(repeatString), done: r.isCompleted,
-                            doneAt: r.completionDate.map { ISO.string($0) }, modified: r.lastModifiedDate)
+                            doneAt: r.completionDate.map { ISO.string($0) }, modified: r.lastModifiedDate,
+                            timedAlarm: alarms.contains { !$0.place }, dueAlone: ReminderDates.read(due: r.dueDateComponents, alarms: []).due ?? "")
     }
 
     private static func alarm(_ a: EKAlarm) -> ReminderAlarm {
@@ -412,15 +422,17 @@ public final class RemindersSync: ObservableObject {
     /// Writes changed fields onto an Apple item. Dates are written from the task's full state (`full`), since
     /// Apple keeps a timed reminder's time in both the due date and the alarm. When only the dates moved, Apple's
     /// repeat rule and alarms stay and move with them (ReminderDates.write); the rule is made again from the app's
-    /// repeat only when the repeat itself changed.
-    private static func write(_ changed: [String: String], full: [String: String], to r: EKReminder) {
-        if let t = changed["title"] { r.title = t.isEmpty ? "Untitled" : t }
-        if let n = changed["notes"] { r.notes = n.isEmpty ? nil : n }
-        if changed["due"] != nil || changed["remind_at"] != nil || changed["repeat"] != nil {
-            let current = r.alarms ?? []
-            let w = ReminderDates.write(full: full, repeatChanged: changed["repeat"] != nil, due: r.dueDateComponents, alarms: current.map(alarm))
-            r.dueDateComponents = w.due
-            r.alarms = w.alarms.compactMap { a -> EKAlarm? in
+    /// repeat only when the repeat itself changed. `alarms` other than `move` (Alert from Apple Reminders): the alarms
+    /// with a time go, or one comes back at the reminder time, even when no date changed; the due date then stays as
+    /// it is. False when nothing about the item changed, so there is nothing to save.
+    @discardableResult
+    private static func write(_ changed: [String: String], full: [String: String], alarms mode: ReminderDates.TimedAlarms, to r: EKReminder) -> Bool {
+        var wrote = false
+        if let t = changed["title"] { r.title = t.isEmpty ? "Untitled" : t; wrote = true }
+        if let n = changed["notes"] { r.notes = n.isEmpty ? nil : n; wrote = true }
+        let current = r.alarms ?? []
+        func eventKit(_ writes: [ReminderDates.AlarmWrite]) -> [EKAlarm] {
+            writes.compactMap { a -> EKAlarm? in
                 guard let i = a.from, i < current.count else { return a.at.map { EKAlarm(absoluteDate: $0) } }
                 guard let at = a.at else { return current[i] }
                 // A copy keeps the sound and anything else set on it; only its time moves.
@@ -428,12 +440,26 @@ public final class RemindersSync: ObservableObject {
                 moved.absoluteDate = at
                 return moved
             }
+        }
+        if changed["due"] != nil || changed["remind_at"] != nil || changed["repeat"] != nil {
+            let w = ReminderDates.write(full: full, repeatChanged: changed["repeat"] != nil, due: r.dueDateComponents, alarms: current.map(alarm), timed: mode)
+            r.dueDateComponents = w.due
+            r.alarms = eventKit(w.alarms)
             if !w.keepsRepeat {
                 let rule = (full["repeat"]).flatMap { $0.isEmpty ? nil : recurrence($0) }
                 r.recurrenceRules = (rule != nil && w.due != nil) ? [rule!] : nil
             }
+            wrote = true
+        } else if mode != .move {
+            // Only the alarms: taken off (nothing to do when none has a time), or one put back.
+            let mapped = current.map(alarm)
+            if mode == .remake || mapped.contains(where: { !$0.place }) {
+                r.alarms = eventKit(ReminderDates.alarms(mode, at: ISO.date(full["remind_at"]), alarms: mapped))
+                wrote = true
+            }
         }
-        if let d = changed["done"] { r.isCompleted = d == "1" }
+        if let d = changed["done"] { r.isCompleted = d == "1"; wrote = true }
+        return wrote
     }
 
     private static let weekdays: [(EKWeekday, String)] = [(.sunday, "sun"), (.monday, "mon"), (.tuesday, "tue"), (.wednesday, "wed"), (.thursday, "thu"), (.friday, "fri"), (.saturday, "sat")]

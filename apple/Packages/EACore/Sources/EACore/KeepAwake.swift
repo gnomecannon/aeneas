@@ -33,7 +33,9 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
     public var id: String
     public var q: String
     public var a: String
-    public init(id: String = UUID().uuidString, q: String, a: String) { self.id = id; self.q = q; self.a = a }
+    /// A mail the assistant wrote in this answer, for the owner to send from its card (since 2026-11-24).
+    public var mail: ChatMailProposal?
+    public init(id: String = UUID().uuidString, q: String, a: String, mail: ChatMailProposal? = nil) { self.id = id; self.q = q; self.a = a; self.mail = mail }
 
     /// The turns of a chat stored on the hub: each question with the answer that followed it. A question still
     /// waiting for its answer is left out, and a change waiting for approval is pointed at `approveOn`.
@@ -45,7 +47,7 @@ public struct ChatTurn: Codable, Identifiable, Equatable, Sendable {
             case .user: question = m.content
             case .assistant:
                 guard let q = question, !m.content.isEmpty else { continue }
-                out.append(ChatTurn(id: "\(s.session_id):\(i)", q: q, a: m.content))
+                out.append(ChatTurn(id: "\(s.session_id):\(i)", q: q, a: m.content, mail: m.mail_proposal))
                 question = nil
             case .system: continue
             }
@@ -80,7 +82,7 @@ public extension HubClient {
                 else { return nil }
                 var answer = s.messages[i].content
                 if s.pending_action != nil { answer += "\n\nApprove or decline this on \(approveOn)." }
-                return ChatTurn(id: "\(s.session_id):\(i)", q: q, a: answer)
+                return ChatTurn(id: "\(s.session_id):\(i)", q: q, a: answer, mail: s.messages[i].mail_proposal)
             }
             guard Date() < until, !Task.isCancelled else { return nil }
             try? await Task.sleep(nanoseconds: UInt64(every * 1_000_000_000))

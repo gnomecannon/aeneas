@@ -7,7 +7,7 @@ import { notify } from "../tauri/bridge";
 import { go } from "../lib/router";
 import { fmtDateTime } from "../lib/time";
 import { useEscape } from "../lib/keys";
-import { useAlerts } from "../lib/alerts";
+import { tasksAlertingHere, useAlerts } from "../lib/alerts";
 
 /**
  * Tasks whose reminder time has passed, every 30 s from the local copy: a banner, and a Windows notification under Tauri.
@@ -17,9 +17,11 @@ import { useAlerts } from "../lib/alerts";
 export function ReminderBanner({ quiet = false }: { quiet?: boolean } = {}) {
   const reminders = useEntities("task", hasReminder);
   // Reminders switched off in Settings, Notifications: no banner and no notification here either (this banner is
-  // made from the local copy, so the hub holding the alert back does not reach it).
+  // made from the local copy, so the hub holding the alert back does not reach it). The same for a task in Apple
+  // Reminders while Alert from Aeneas is off.
   const alerts = useAlerts();
   const wanted = alerts.on("reminder");
+  const apple = alerts.apple;
   const [due, setDue] = useState<DueReminder[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const notified = useRef(new Set<string>());
@@ -27,7 +29,7 @@ export function ReminderBanner({ quiet = false }: { quiet?: boolean } = {}) {
 
   useEffect(() => {
     const tick = () => {
-      const d = wanted ? dueReminders(reminders) : [];
+      const d = wanted ? dueReminders(tasksAlertingHere(reminders, apple)) : [];
       setDue(d);
       for (const r of d) {
         if (!notified.current.has(r.key)) {
@@ -39,7 +41,7 @@ export function ReminderBanner({ quiet = false }: { quiet?: boolean } = {}) {
     tick();
     const id = setInterval(tick, 30_000);
     return () => clearInterval(id);
-  }, [reminders, wanted]);
+  }, [reminders, wanted, apple]);
 
   const visible = due.filter((d) => !dismissed.has(d.key));
   const firstKey = visible[0]?.key;

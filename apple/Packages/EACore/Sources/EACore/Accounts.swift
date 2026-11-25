@@ -18,6 +18,24 @@ public enum AccountTexts {
     /// Add account, iCloud: beside the link to account.apple.com.
     public static let icloudHowTo = "At account.apple.com, open Sign-In and Security, then App-Specific Passwords, and make one named Aeneas. It needs two-factor authentication on your Apple Account."
 
+    /// Sending (since 2026-11-24): where an account's mail goes out, on its page and in Add account, Other mail (web
+    /// SENDING_TEXTS, kept the same).
+    public enum Sending {
+        public static let title = "Sending"
+        /// Under the server, for an account that sends.
+        public static let note = "Mail you send on the Mail screen goes through this server, with this account's app password."
+        /// Another mail account without one.
+        public static let none = "None yet: mail written for this account is saved to Drafts, to send from your mail app. Add its sending server to send from the Mail screen."
+        /// Under the form.
+        public static let form = "Your provider's help pages give its sending server (SMTP). The hub signs in once to check it, connects with TLS only, and never to a server on your own network."
+        /// Add account, Other mail.
+        public static let optional = "Sending server (optional). Without one, mail written for this account is saved to Drafts."
+        public static let tls = "TLS (most often port 465)"
+        public static let starttls = "STARTTLS (most often port 587)"
+        public static let saved = "The hub signed in to the sending server. Mail written for this account can be sent now."
+        public static let removed = "Mail written for this account is saved to Drafts from now on."
+    }
+
     /// Under "From this iPhone" (iPad, Mac): what its switches are.
     public static func devicesFooter(_ device: String) -> String {
         "What this \(device)'s own accounts hold (iCloud, Google, Exchange). One switch each, and it asks for the permission."
@@ -75,11 +93,13 @@ public struct NewAccount: Sendable, Equatable {
     public var host: String = ""
     public var port: Int = 993
     public var user: String = ""
+    /// Another mail account's sending server, when one was typed (since 2026-11-24).
+    public var smtp: SendingServer?
     /// What it brings in; Calendars counts for iCloud only.
     public var want: Set<AccountFeature> = [.inbox, .receipts]
 
-    public init(kind: Kind, email: String, password: String, host: String = "", port: Int = 993, user: String = "", want: Set<AccountFeature> = [.inbox, .receipts]) {
-        self.kind = kind; self.email = email; self.password = password; self.host = host; self.port = port; self.user = user; self.want = want
+    public init(kind: Kind, email: String, password: String, host: String = "", port: Int = 993, user: String = "", smtp: SendingServer? = nil, want: Set<AccountFeature> = [.inbox, .receipts]) {
+        self.kind = kind; self.email = email; self.password = password; self.host = host; self.port = port; self.user = user; self.smtp = smtp; self.want = want
     }
 
     /// The switches that apply to this kind of account.
@@ -117,7 +137,7 @@ extension HubClient {
             return key
         case .google, .other:
             let user = a.user.trimmingCharacters(in: .whitespaces)
-            try await linkImap(email: email, password: password, gmail: a.kind == .google, host: a.host.trimmingCharacters(in: .whitespaces), port: a.port, user: user.isEmpty ? nil : user)
+            try await linkImap(email: email, password: password, gmail: a.kind == .google, host: a.host.trimmingCharacters(in: .whitespaces), port: a.port, user: user.isEmpty ? nil : user, smtp: a.kind == .other ? a.smtp : nil)
             let key = "imap:\(email)"
             if inbox != nil || receipts != nil { _ = try await setAccountFeatures(key: key, inbox: inbox, receipts: receipts) }
             return key

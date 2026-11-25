@@ -22,7 +22,7 @@ import { NavRow, SubPage, Toggle, errorText } from "./settings/common";
 import { ImportPage } from "./settings/Import";
 import { ModulesPage, modulesSummary } from "./settings/Modules";
 import { useModules } from "../lib/modules";
-import { setAlerts, shownAlerts, useAlerts } from "../lib/alerts";
+import { appleAlarmsWaiting, setAlerts, setAppleReminderAlerts, shownAlerts, useAlerts } from "../lib/alerts";
 import { ConnectionsPage, connectionsSummary, useConnections } from "./settings/Connections";
 import { AccountsSettings, accountsSummary } from "./settings/Accounts";
 import { DevicesList, PairDevice } from "./settings/Devices";
@@ -365,6 +365,16 @@ function Notifications() {
     setErr("");
     try { await setAlerts({ [id]: on }); } catch (e) { setErr(errorText(e)); } finally { setBusy(null); }
   };
+  // Tasks also in Apple Reminders alert from Aeneas and from Apple's Reminders app; each can be off. Shown while the
+  // Apple Reminders sync is on and the hub has the switches (1.0.19 and later).
+  const apple = alerts.apple;
+  const [appleErr, setAppleErr] = useState("");
+  const flipApple = async (which: "aeneas" | "apple", on: boolean) => {
+    setBusy(`apple:${which}`);
+    setAppleErr("");
+    try { await setAppleReminderAlerts({ [which]: on }); } catch (e) { setAppleErr(errorText(e)); } finally { setBusy(null); }
+  };
+  const appleWaits = appleAlarmsWaiting(apple);
   return (
     <SubPage path="/settings/notifications">
       <div className="card col">
@@ -391,6 +401,21 @@ function Notifications() {
           {isWindowsApp ? "They show as banners in the app and as Windows notifications." : "In a browser they show as banners at the top of the app while it is open."} When each reminder fires and how hard it is to snooze are set on the reminder itself.
         </div>
       </div>
+      {apple && modules.on("apple_reminders") && (
+        <div className="card col">
+          <h2>Reminders also in Apple Reminders</h2>
+          <Toggle checked={apple.aeneas} disabled={busy === "apple:aeneas"} onChange={(v) => void flipApple("aeneas", v)} label="Alert from Aeneas" note="Aeneas alerts you at the reminder time, on every device." />
+          <Toggle
+            checked={apple.apple}
+            disabled={busy === "apple:apple"}
+            onChange={(v) => void flipApple("apple", v)}
+            label="Alert from Apple Reminders"
+            note={<>Apple Reminders alerts you too. Off, the items keep their date and time but have no alert.{appleWaits && <div className="warn">{appleWaits}</div>}</>}
+          />
+          {appleErr && <div className="error" role="alert">{appleErr}</div>}
+          <div className="muted small">The system&apos;s own switch for Apple Reminders is in iOS Settings, Notifications, Reminders (System Settings on a Mac).</div>
+        </div>
+      )}
       {isTauri && (
         <div className="card col">
           <h2>{isAndroid ? "Android notifications" : "Windows notifications"}</h2>

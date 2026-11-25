@@ -330,7 +330,9 @@ The hub sends new-mail alerts to devices. The client only offers the settings:
 
 ## 10. Writing mail (next PR)
 
-Drafts only. Nothing is sent from Aeneas: a draft goes to iCloud's Drafts, and the owner sends it from Apple Mail.
+Drafts only at first: a draft went to iCloud's Drafts, and the owner sent it from Apple Mail. Since 2026-11-24 the Mail
+screen sends too: Send, with 10 seconds of Undo, through the mailbox's own sending server, and Save draft stays as the
+second button (CONTRACT.md, Mail, Sending).
 
 - **Which mail a reply answers** **(next PR)**: Reply, Reply all and Forward sit under each message, and the writing box
   opens right under the one chosen, headed "Replying to Alex · Tue, Nov 24, 9:12 AM" (or "Forwarding …") with that

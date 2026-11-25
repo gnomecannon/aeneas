@@ -485,6 +485,7 @@ struct NotificationSettingsView: View {
             }
             .themedRow()
             if !alerts.isEmpty { AlertSwitchesSection(alerts: alerts) }
+            if let apple = engine.appleReminderAlerts, model.isOn(.appleReminders) { AppleReminderAlertsSection(setting: apple) }
         }
         .formStyle(.grouped)
         .themedScreen()
@@ -507,6 +508,7 @@ struct NotificationSettingsView: View {
             let r = try await c.modulesAndAlerts()
             model.applyModules(r.modules)
             await engine.applyAlerts(r.alerts)
+            await engine.applyAppleReminderAlerts(r.apple_reminder_alerts)
             loadError = nil
         } catch {
             loadError = "Could not load the alert switches: \((error as? HubError)?.errorDescription ?? error.localizedDescription)"

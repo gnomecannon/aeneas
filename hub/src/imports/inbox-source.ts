@@ -13,8 +13,9 @@ import type { MailCard } from "../mail-cards.js";
  * mail) and, when the owner opens or downloads one, an attachment. It changes the mailbox only in these ways, each
  * after checking the message is still the one the hub kept: moving a kept message between the Inbox and the archive
  * (Done, Undo), or to Trash, Junk, the Inbox or one of the owner's own folders (never erasing one); marking one read or
- * unread; flagging or unflagging one (a pin); and adding a draft the owner wrote to its Drafts folder. It never sends
- * mail.
+ * unread; flagging or unflagging one (a pin); adding a draft the owner wrote to its Drafts folder; and, since
+ * 2026-11-24, adding the copy of a mail the owner sent to its Sent folder. It sends only a mail the owner wrote and
+ * pressed Send for on the Mail screen (the outbox, mail-outbox.ts), through the account's own sending server.
  */
 
 export interface MailAddress { name: string; address: string }
@@ -94,6 +95,15 @@ export interface InboxSource {
   attachment?(hub: Hub, account: string, ref: MoveRef, part: string): Promise<{ name: string; bytes: Buffer } | null>;
   /** Save a draft (an RFC 5322 message, mail-compose.ts) to the mailbox's Drafts folder; it throws when not saved. Never sends. */
   saveDraft?(hub: Hub, account: string, raw: Buffer): Promise<{ /** Where the draft is now, when the server says. */ id: string | null; folder: string }>;
+  /** Whether the account has a sending server (since 2026-11-24): iCloud's, Gmail's, or one the owner gave. */
+  canSend?(hub: Hub, account: string): boolean;
+  /**
+   * Send a message the owner wrote (mail-compose.ts built it) to every address in `envelope.to`, which may hold a Bcc
+   * that is not in the message; it throws when not sent. `taken` runs the moment the server has the message.
+   */
+  send?(hub: Hub, account: string, envelope: { from: string; to: string[] }, raw: Buffer, taken: () => void): Promise<void>;
+  /** File the copy of a sent mail in the Sent folder (`\Seen`); null when the mailbox files it itself (Gmail) or has no Sent. */
+  saveSent?(hub: Hub, account: string, raw: Buffer): Promise<{ id: string | null; folder: string } | null>;
   /** Delete (to Trash), Spam (to Junk), Not spam and Move to: each message's new id, or null when it was not moved (MOVE only). */
   moveTo?(hub: Hub, account: string, refs: MoveRef[], dest: import("./icloud.js").MoveDest): Promise<Map<string, string | null>>;
   /** The mailbox's other folders (Drafts, Sent, Junk, Trash, its own), read-only like the Inbox: see FolderListing. */

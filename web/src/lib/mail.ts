@@ -301,7 +301,7 @@ export function frameLink(href: string | null): string | null {
  * and, always, which of that draft's attachments stay (`keep_parts`, each one's `part`; an empty list keeps none). The
  * hub carries the old draft's Cc and Bcc over by itself.
  */
-export type MailDraftRequest = ({ reply_to: string; reply_all?: boolean } | { forward: string; to: string; forward_attachments?: boolean } | { to: string; subject: string; replaces?: string; keep_parts?: string[]; from?: string }) & { text: string; greeting?: string; signoff?: string; preview?: boolean; files?: DraftFileIn[] };
+export type MailDraftRequest = ({ reply_to: string; reply_all?: boolean } | { forward: string; to: string; forward_attachments?: boolean } | { to: string; cc?: string; subject: string; replaces?: string; keep_parts?: string[]; from?: string }) & { text: string; greeting?: string; signoff?: string; preview?: boolean; files?: DraftFileIn[] };
 /** A file attached to a draft, as sent to the hub (base64). */
 export interface DraftFileIn { name: string; type: string; data: string }
 /** At most this many files, and this many bytes of them together (the hub's limits). */
@@ -316,7 +316,7 @@ export interface MailDraft { saved: boolean; from: MailAddress; to: string[]; cc
 /** What a writing box is for: a reply (to the sender, or to all), a forward, a kept draft being changed, or a new mail. */
 export type DraftFor = { reply: string; all: boolean } | { forward: string } | { draft: string; from: string } | { fresh: true };
 /** What a writing box holds that goes into the draft. `kept`: a changed draft's old attachments that stay on it. */
-export interface DraftFields { to: string; subject: string; text: string; greeting: string | null; signoff: string | null; from?: string; withTheirs: boolean; kept: { part: string }[] }
+export interface DraftFields { to: string; /** A new mail's Cc (since 2026-11-24; a mail the assistant wrote may carry one). */ cc?: string; subject: string; text: string; greeting: string | null; signoff: string | null; from?: string; withTheirs: boolean; kept: { part: string }[] }
 
 /**
  * What the hub is asked for a writing box (POST /mail/drafts). A greeting or sign-off left empty or dropped is not
@@ -326,7 +326,7 @@ export function draftRequest(what: DraftFor, f: DraftFields, files: DraftFileIn[
   const head = "reply" in what ? { reply_to: what.reply, ...(what.all ? { reply_all: true } : {}) }
     : "forward" in what ? { forward: what.forward, to: f.to, ...(f.withTheirs ? { forward_attachments: true } : {}) }
     : "draft" in what ? { to: f.to, subject: f.subject, replaces: what.draft, keep_parts: f.kept.map((a) => a.part), from: what.from }
-    : { to: f.to, subject: f.subject, ...(f.from ? { from: f.from } : {}) };
+    : { to: f.to, ...(f.cc?.trim() ? { cc: f.cc } : {}), subject: f.subject, ...(f.from ? { from: f.from } : {}) };
   return { ...head, text: f.text, ...(f.greeting?.trim() ? { greeting: f.greeting } : {}), ...(f.signoff?.trim() ? { signoff: f.signoff } : {}), ...(files.length ? { files } : {}), ...(preview ? { preview: true } : {}) };
 }
 /**
@@ -409,7 +409,7 @@ export function frameClick(e: { type: string; button: number; target: unknown })
  * `provider`: who keeps it, as the screen says it ("iCloud", "Gmail", or the server's name); `kind`: how it is linked.
  * An older hub leaves both out.
  */
-export interface MailMailbox { email: string; last_refresh: string | null; last_error: string | null; more: boolean; provider?: string; kind?: "icloud" | "gmail" | "imap"; read_only?: boolean }
+export interface MailMailbox { email: string; last_refresh: string | null; last_error: string | null; more: boolean; provider?: string; kind?: "icloud" | "gmail" | "imap"; read_only?: boolean; /** It has a sending server (since 2026-11-24): iCloud's, Gmail's, or one the owner gave. Absent on older hubs. */ can_send?: boolean }
 
 /**
  * The browser's own "Leave this page?" question while something typed is not saved: a handler for `beforeunload`.
@@ -457,6 +457,65 @@ export const writableBoxes = <B extends Pick<MailMailbox, "read_only">>(boxes: B
 export const inProvider = (box: Pick<MailMailbox, "provider"> | undefined) => (box?.provider?.trim() ? `in ${box.provider.trim()}` : "in your mailbox");
 /** The app a mailbox's drafts are sent from, in words: Apple Mail for an iCloud mailbox, else "your mail app". */
 export const mailApp = (box: Pick<MailMailbox, "kind"> | undefined) => (box?.kind === "icloud" ? "Apple Mail" : "your mail app");
+// ---------------------------------------------------------------------------------------------------------------------
+// Sending (since 2026-11-24): Send, with 10 seconds of Undo, through the mailbox's own sending server
+
+/** A mail in the hub's outbox (GET /mail `outbox`, GET /mail/outbox/:id): never its words or files. */
+export interface OutboxItem { id: string; mailbox: string; to: string[]; subject: string; state: "waiting" | "sending" | "sent" | "failed"; send_at: string; sent_at?: string; error?: string; refused?: string[] }
+/** What Send answers: the mail as it goes (as its preview showed it), and its place in the outbox. */
+export type MailSent = Omit<MailDraft, "saved" | "bcc"> & { id: string; send_at: string; state: "waiting" };
+
+/**
+ * Whether the screen offers Send for a mail from this mailbox: it has a sending server and is not Read only. An older
+ * hub says neither, and then the screen saves drafts only, as before.
+ */
+export const canSend = (box: Pick<MailMailbox, "can_send" | "read_only"> | undefined) => box?.can_send === true && !box.read_only;
+
+/** The words the writing box and its preview say about where the mail goes, the same on every device (EACore `Mail.sendTexts`). */
+export const SEND_TEXTS = {
+  /** Under the writing box, for a mailbox that sends. */
+  write: "Preview shows the whole mail, then you send it or save it as a draft.",
+  /** Above the preview, for a mailbox that sends. */
+  preview: "This is the whole mail. Send it, or save it as a draft.",
+  /** For another mail account without a sending server. */
+  noServer: "To send from here, add a sending server on this account's page in Settings, Accounts.",
+  sending: "Sending",
+  sent: "Sent.",
+  failed: "Not sent",
+  /** Discarding a mail that was not sent (its notice, or its box). */
+  discard: "Discard this mail? It was not sent and is not in Drafts.",
+} as const;
+/** Under the writing box: what pressing on does with the mail. */
+export const writeNote = (box: MailMailbox | undefined) => (canSend(box) ? SEND_TEXTS.write : `Saved to Drafts ${inProvider(box)}, to send from ${mailApp(box)}.${box?.kind === "imap" && !box.can_send ? ` ${SEND_TEXTS.noServer}` : ""}`);
+/** Above the preview: what can be done with the whole mail. */
+export const previewNote = (box: MailMailbox | undefined) => (canSend(box) ? SEND_TEXTS.preview : `This is the whole mail. Save it to Drafts, then send it from ${mailApp(box)}.${box?.kind === "imap" && !box.can_send ? ` ${SEND_TEXTS.noServer}` : ""}`);
+
+/**
+ * What a writing box shows for its mail in the outbox: `sending` while it waits (with Undo) or is on its way (without:
+ * too late to take back), `sent`, or `failed` with the hub's words and Try again, Save draft and Edit. `gone`: not in
+ * the outbox (taken back elsewhere, or sent a day ago): the box shows what was written again.
+ */
+export function outboxFace(item: OutboxItem | null): { face: "sending" | "sent" | "failed" | "gone"; undo: boolean; text: string } {
+  if (!item) return { face: "gone", undo: false, text: "" };
+  if (item.state === "waiting") return { face: "sending", undo: true, text: SEND_TEXTS.sending };
+  if (item.state === "sending") return { face: "sending", undo: false, text: SEND_TEXTS.sending };
+  if (item.state === "sent") return { face: "sent", undo: false, text: SEND_TEXTS.sent };
+  return { face: "failed", undo: false, text: item.error ?? "The mail was not sent." };
+}
+
+/** A notice for a mail that was not sent, on the Mail screen: its subject and who it was for. */
+export const outboxLine = (item: Pick<OutboxItem, "subject" | "to">) => `Not sent: ${item.subject.trim() || "(no subject)"}, to ${item.to.slice(0, 3).join(", ")}${item.to.length > 3 ? ` and ${item.to.length - 3} more` : ""}`;
+
+/**
+ * A hint for another mail account's sending server, from its IMAP server's name: `imap.` becomes `smtp.`, else the
+ * same name. Only a placeholder in an empty field: the hub never connects to a server the owner did not type.
+ */
+export function smtpGuess(imapHost: string): string {
+  const h = imapHost.trim().toLowerCase();
+  if (!h) return "smtp.example.com";
+  return /^imap\./.test(h) ? `smtp.${h.slice(5)}` : h;
+}
+
 /** The mailbox a new mail goes from: the one used last time while it is still linked, else the first. */
 export function fromChoice(boxes: Pick<MailMailbox, "email">[], last: string | null | undefined): string {
   return boxes.find((b) => b.email === last)?.email ?? boxes[0]?.email ?? "";
@@ -489,7 +548,7 @@ export interface MailMovedTo extends MailMoved { to: Record<string, string> }
  * `triage`: whether the hub's model sorts new mail (the switch); `triage_state`: how that stands now. An older hub
  * sends neither.
  */
-export interface MailList { messages: MailSummary[]; mailboxes: MailMailbox[]; logos?: Record<string, string>; snooze_times?: SnoozeTimes; bundle_delivery?: Record<string, BundleDelivery>; custom_bundles?: CustomBundle[]; mail_notify?: MailNotify; folders?: MailFolder[]; blocked?: string[]; triage?: boolean; triage_state?: TriageState }
+export interface MailList { messages: MailSummary[]; mailboxes: MailMailbox[]; logos?: Record<string, string>; snooze_times?: SnoozeTimes; bundle_delivery?: Record<string, BundleDelivery>; custom_bundles?: CustomBundle[]; mail_notify?: MailNotify; folders?: MailFolder[]; blocked?: string[]; triage?: boolean; triage_state?: TriageState; /** Mail waiting, being sent or not sent (since 2026-11-24). */ outbox?: OutboxItem[] }
 
 /**
  * Sorting new mail with the hub's model (Needs you). `waiting`: Inbox mail not sorted yet; `running`: a run is going;

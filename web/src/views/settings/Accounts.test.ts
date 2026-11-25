@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { HubClient, type InternetAccount } from "../../sync/api";
-import { ACCOUNTS_FOOTER, ADD_FOOTER, addAccount, broughtIn, DEVICES_NOTE, FEATURE_NOTES, GOOGLE_HOWTO, ICLOUD_HOWTO, KIND_SHORT, modulesToSwitchOn, replacePassword, type NewAccount } from "./Accounts";
+import { ACCOUNTS_FOOTER, ADD_FOOTER, addAccount, broughtIn, DEVICES_NOTE, FEATURE_NOTES, GOOGLE_HOWTO, ICLOUD_HOWTO, KIND_SHORT, modulesToSwitchOn, replacePassword, SENDING_TEXTS, sendingLine, typedSmtp, type NewAccount } from "./Accounts";
 
 /** A hub that records each call and answers what calendar sync answers (or an empty object). */
 function hub() {
@@ -102,5 +102,27 @@ describe("Settings, Accounts: the page", () => {
       expect(text).not.toMatch(/[\u2013\u2014!]/);
     }
     expect(read("Accounts.tsx")).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+
+describe("accounts: the sending server (since 2026-11-24)", () => {
+  it("is shown in words, and typed with the port from the security when none is given", () => {
+    expect(sendingLine({ host: "smtp.gmail.com", port: 465, security: "tls" })).toBe("smtp.gmail.com, port 465, TLS");
+    expect(sendingLine({ host: "smtp.mail.me.com", port: 587, security: "starttls" })).toBe("smtp.mail.me.com, port 587, STARTTLS");
+    expect(typedSmtp(" smtp.fastmail.com ", "", "tls")).toEqual({ host: "smtp.fastmail.com", port: 465, security: "tls" });
+    expect(typedSmtp("smtp.fastmail.com", "", "starttls")).toEqual({ host: "smtp.fastmail.com", port: 587, security: "starttls" });
+    expect(typedSmtp("", "465", "tls")).toBeNull();
+    for (const t of Object.values(SENDING_TEXTS)) expect(t).not.toMatch(/[\u2013\u2014]/);
+  });
+  it("Add account, Other mail, sends it with the account when one was typed, and none otherwise", async () => {
+    const calls: unknown[] = [];
+    const client = { linkImap: async (l: unknown) => { calls.push(l); return { accounts: [] }; }, linkICloud: async () => undefined, linkCalendars: async () => ({}), setAccountFeatures: async () => ({ inbox: true, receipts: true }) } as unknown as Parameters<typeof addAccount>[0];
+    const want = { inbox: true, receipts: true, calendars: false };
+    await addAccount(client, { kind: "imap", email: "robin@mail.example", password: "pw", host: "imap.mail.example", port: 993, smtp: typedSmtp("smtp.mail.example", "", "starttls"), want }, () => true, async () => undefined);
+    await addAccount(client, { kind: "imap", email: "robin@mail.example", password: "pw", host: "imap.mail.example", port: 993, smtp: typedSmtp("", "", "tls"), want }, () => true, async () => undefined);
+    expect(calls).toEqual([
+      { email: "robin@mail.example", password: "pw", preset: "imap", host: "imap.mail.example", port: 993, smtp: { host: "smtp.mail.example", port: 587, security: "starttls" } },
+      { email: "robin@mail.example", password: "pw", preset: "imap", host: "imap.mail.example", port: 993 },
+    ]);
   });
 });

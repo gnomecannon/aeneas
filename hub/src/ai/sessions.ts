@@ -21,6 +21,8 @@ export interface StoredMessage {
   actions?: SessionAction[];
   /** Set on a user turn that approved a host command, and on an assistant turn that proposed one. */
   approval?: { action_id: string; host: string; command: string; status?: string; exit_code?: number | null };
+  /** Set on an assistant turn that proposed a mail for the owner to send (propose_mail), with how it ended once it did. */
+  mail_proposal?: { id: string; state?: "sent" | "cancelled" | "edited" };
 }
 
 export interface Session {

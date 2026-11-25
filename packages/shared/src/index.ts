@@ -175,6 +175,33 @@ export function taskShown(fields: Record<string, unknown>, lists: SourceList[] |
   return taskFilter(lists)(fields);
 }
 
+/**
+ * Alerts for tasks that are also in Apple Reminders (GET /modules, `apple_reminder_alerts`, since 1.0.19), one setting
+ * for every device. `aeneas`: Aeneas alerts for them (the Apple apps' planned alerts, the hub's announcement, the web
+ * and Windows banner). `apple`: the owner's choice for Apple Reminders' own alert, the item's alarm. `apple_alarms`:
+ * whether updated devices write alarms now; false only while `apple` is off and no iPhone, iPad or Mac in `waiting`
+ * still runs an app older than `needs` (such an app reads an item with no alarm as one with no reminder time).
+ */
+export interface AppleReminderAlerts {
+  aeneas: boolean;
+  apple: boolean;
+  apple_alarms: boolean;
+  waiting: Array<{ id: string; name: string; platform: string; version: string | null }>;
+  needs: string;
+}
+
+/** A task tied to an Apple Reminders item (`apple.id` set). A task made inside a list waits with an empty id and is not. */
+export function inAppleReminders(fields: Record<string, unknown>): boolean {
+  const a = fields.apple as { id?: unknown } | null | undefined;
+  return !!a && typeof a === "object" && typeof a.id === "string" && a.id !== "";
+}
+
+/** Whether Aeneas alerts for a task: always, unless it is in Apple Reminders and Alert from Aeneas is off. None known
+ * (a hub from before the setting): always. */
+export function aeneasAlerts(fields: Record<string, unknown>, setting: { aeneas: boolean } | null | undefined): boolean {
+  return !setting || setting.aeneas || !inAppleReminders(fields);
+}
+
 /** Older kind. The hub turns every reminder into a task on start; nothing new is written with it. */
 export const ReminderFields = z.object({
   title: z.string(),

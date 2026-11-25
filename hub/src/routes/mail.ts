@@ -5,11 +5,13 @@ import { blockedSenders, blockSender, clearFoldNotes, foldNotes, saveFoldNote, s
 import { readJsonObject } from "../http.js";
 import { addCustomBundle, bundleContext, customBundles, deleteCustomBundle, updateCustomBundle } from "../mail-bundles.js";
 import { rfc2231 } from "../mail-compose.js";
+import { draftFromOutbox, outboxItem, outboxList, retrySend, sendMail, takeBack } from "../mail-outbox.js";
+import { cancelProposal, editProposal, proposalView, retryProposal, sendProposal, undoProposal } from "../mail-proposals.js";
 
 /**
  * The Mail screen (module `mail_inbox`, CONTRACT.md Mail): each linked mailbox's Inbox, sorted into bundles, and its
- * other folders. The whole `/mail` prefix is closed to the assistant's tools (ai/api-guard.ts): mail is the owner's
- * to read.
+ * other folders, and since 2026-11-24 sending (mail-outbox.ts). The whole `/mail` prefix is closed to the assistant's
+ * tools (ai/api-guard.ts): mail is the owner's to read, and only the owner sends.
  */
 /** How long a Pin's answer waits for the mailbox to take the flag. */
 const PIN_WAIT_MS = 4000;
@@ -24,7 +26,7 @@ export function mailRoutes() {
   r.get("/mail", (c) => {
     const hub = c.get("hub");
     wakeSnoozed(hub);
-    return c.json({ messages: listMail(hub.mailDb, bundleContext(hub)), logos: mailLogos(hub.mailDb), mailboxes: mailboxStates(hub), snooze_times: snoozeTimes(hub.mailDb), bundle_delivery: bundleDelivery(hub.mailDb), custom_bundles: customBundles(hub.mailDb), mail_notify: mailNotify(hub.mailDb), folders: mailFolders(hub.mailDb), blocked: blockedSenders(hub.mailDb), triage: triageOn(hub.mailDb), triage_state: triageState(hub) });
+    return c.json({ messages: listMail(hub.mailDb, bundleContext(hub)), logos: mailLogos(hub.mailDb), mailboxes: mailboxStates(hub), snooze_times: snoozeTimes(hub.mailDb), bundle_delivery: bundleDelivery(hub.mailDb), custom_bundles: customBundles(hub.mailDb), mail_notify: mailNotify(hub.mailDb), folders: mailFolders(hub.mailDb), blocked: blockedSenders(hub.mailDb), triage: triageOn(hub.mailDb), triage_state: triageState(hub), outbox: outboxList(hub) });
   });
 
   // The owner's snooze times (what "Tomorrow" and the rest mean).
@@ -100,9 +102,32 @@ export function mailRoutes() {
     return c.json({ ok: true, seen: body.seen, synced: r2.synced });
   });
 
-  // A draft (a reply or a new mail): with preview, what would be saved; else saved to the mailbox's Drafts folder.
-  // Nothing is sent: the owner sends it from their mail app.
+  // A draft (a reply or a new mail): with preview, what would be saved (or sent); else saved to the mailbox's Drafts folder.
   r.post("/mail/drafts", async (c) => c.json(await saveMailDraft(c.get("hub"), await readJsonObject(c))));
+  // Send (since 2026-11-24): the same mail into the outbox, sent 10 seconds later unless taken back (Undo). Only the
+  // owner's screen sends: the assistant's tools cannot reach any of `/mail`.
+  r.post("/mail/send", async (c) => c.json(await sendMail(c.get("hub"), await readJsonObject(c))));
+  r.get("/mail/outbox/:id", (c) => {
+    const item = outboxItem(c.get("hub"), c.req.param("id"));
+    if (!item) throw new StoreError(404, "This mail is not in the outbox any more.");
+    return c.json(item);
+  });
+  // Undo while it waits; Edit or Discard once it was not sent: it leaves the outbox, back to the writing box.
+  r.post("/mail/outbox/:id/undo", (c) => c.json(takeBack(c.get("hub"), c.req.param("id"))));
+  r.post("/mail/outbox/:id/retry", (c) => c.json(retrySend(c.get("hub"), c.req.param("id"))));
+  r.post("/mail/outbox/:id/draft", async (c) => c.json(await draftFromOutbox(c.get("hub"), c.req.param("id"))));
+  // A mail the assistant wrote (since 2026-11-24, mail-proposals.ts): its card, and the owner's Send, Undo, Try again,
+  // Edit and Cancel. The assistant's tools reach none of these (ai/api-guard.ts): only the owner's tap sends.
+  r.get("/mail/proposals/:id", (c) => {
+    const v = proposalView(c.get("hub"), c.req.param("id"));
+    if (!v) throw new StoreError(404, "This mail is not kept any more: after 24 hours it is gone. Nothing was sent.");
+    return c.json(v);
+  });
+  r.post("/mail/proposals/:id/send", async (c) => c.json(await sendProposal(c.get("hub"), c.req.param("id"))));
+  r.post("/mail/proposals/:id/undo", (c) => c.json(undoProposal(c.get("hub"), c.req.param("id"))));
+  r.post("/mail/proposals/:id/retry", (c) => c.json(retryProposal(c.get("hub"), c.req.param("id"))));
+  r.post("/mail/proposals/:id/edit", (c) => c.json(editProposal(c.get("hub"), c.req.param("id"))));
+  r.post("/mail/proposals/:id/cancel", (c) => c.json(cancelProposal(c.get("hub"), c.req.param("id"))));
   // A reply's greeting and sign-off, suggested by the local model (or the plain ones), for the owner to edit or drop.
   r.post("/mail/messages/:id/greeting", async (c) => c.json(await suggestGreeting(c.get("hub"), c.req.param("id"))));
 

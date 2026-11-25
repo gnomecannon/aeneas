@@ -228,8 +228,9 @@ those modules are on. A person's mail stands on its own.
 - **Read and unread** are the same here and in your mailbox, both ways: mail you read in your mail app shows as read
   here, and opening a mail here (or Mark unread) changes it there.
 - **What the hub changes in your mailbox**, and nothing else: read marks, flags (pins), moves (Done to Archive,
-  Delete to Trash, Spam to Junk, Move to one of your folders, and back) and drafts saved to Drafts. It never erases a
-  mail (emptying Trash is your mail app's) and it never sends one.
+  Delete to Trash, Spam to Junk, Move to one of your folders, and back), drafts saved to Drafts, and the copy of a
+  mail you send put in Sent. It never erases a mail (emptying Trash is your mail app's), and it sends one only when
+  you press Send.
 - **Threads.** A back-and-forth is one row that opens with its messages stacked, your own replies among them (the hub
   reads your Sent folder, read-only). Earlier messages quoted inside a reply are folded behind "•••". Pin and Snooze
   act on the whole thread.
@@ -242,16 +243,24 @@ those modules are on. A person's mail stands on its own.
 - **Keys.** Arrow keys and single letters work on the Mail screen; the Keyboard keys button lists them. They act on
   the mail you see, and not while you are writing.
 
-These are in the web, Windows and Android apps (the Apple apps have the Inbox, the bundles, Pin, Done, Snooze and
-read marks):
+These are in every app, the web, Windows and Android apps and the iPhone, iPad and Mac apps alike:
 
 - **Delete, Spam and Move to.** Delete moves a mail to Trash, Spam to Junk, and Move to into one of your own folders.
   Undo puts it back as it was: snoozed again, or done again.
 - **Folders.** Drafts, Sent, Spam, Trash and your own folders show under the Inbox, each with its newest 500 mails of
   the last 90 days.
-- **Writing.** Reply, Reply all, Forward and New mail save a draft in your mailbox's Drafts folder, and you send it
-  from your mail app: Aeneas sends no mail. You see the whole mail before it is saved. A draft can carry up to 10
-  files, 15 MB together; an edited draft keeps the files and the Bcc it had. What you typed and have not saved stays
+- **Writing and sending.** Reply, Reply all, Forward and New mail show you the whole mail first (Preview), then Send
+  sends it, or Save draft puts it in your mailbox's Drafts folder. A mail can carry up to 10 files, 15 MB together;
+  an edited draft keeps the files and the Bcc it had.
+- **Cc**: a new mail shows a Cc line when it has one (a mail the assistant wrote and you opened with Edit).
+- **Send** gives you 10 seconds: the box says Sending, with Undo, which puts the mail back in the box as it was. Then
+  your hub sends it through your mailbox's own sending server with the same app password (Gmail's, iCloud's, or the
+  one you give for another mail account on its page in Settings, Accounts), and puts its copy in Sent (Gmail does that
+  itself). If the hub restarts in those 10 seconds, it sends the mail once when it is back. A Bcc is sent but is not in
+  the copy. A refused password, a refused address or a server that does not answer leaves the mail in the box, says
+  what went wrong, and offers Try again and Save draft; if any address is refused, nobody gets the mail. A mailbox set
+  to Read only, or another mail account with no sending server, saves drafts and does not send. Only you send: the
+  assistant cannot, though it can write a mail for you to send with one tap (The assistant, below). What you typed and have not saved stays
   while the page is open, and in a browser the page asks before you reload or close it. When you start a reply, the
   model on your hub (never a cloud one) may suggest a greeting, a sign-off and up to three short replies, which you
   edit or drop.
@@ -339,6 +348,21 @@ once for every device: the hub holds back a kind you switched off, so no phone, 
 stops the alert only; the feature it belongs to goes on working (Mail still shows your mail, a sensor still records).
 A kind is listed while the module it belongs to is on.
 
+**Reminders also in Apple Reminders** (since 1.0.19) can alert twice: from Aeneas, and from Apple's Reminders app,
+which alerts with the alarm your iPhone and Mac put on the item. While the Apple Reminders sync is on, Settings,
+Notifications has a switch for each, once for every device:
+
+- **Alert from Aeneas**: off, no phone, computer or Watch alerts from Aeneas for a task that is in Apple Reminders.
+  Other tasks alert as before, and Done and Snooze still work on the task.
+- **Alert from Apple Reminders**: off, your iPhone and Mac take the alarm off those items and add none. Each item keeps
+  its date and time, so it still shows when it is due, and the reminder time stays in Aeneas. An alarm you set in
+  Apple's Reminders app comes off at the next sync, and its new time goes to the task. It waits until every iPhone,
+  iPad and Mac runs 1.0.19 or later, and the switch says which ones are still to update. Switch it on again and each
+  item gets its alarm back at the task's reminder time.
+
+Apple's own switch for all of Apple Reminders' notifications is in iOS Settings, Notifications, Reminders (System
+Settings on a Mac).
+
 ## Capture
 
 Capture takes a thought, task or note by voice or text, from the Capture screen, the Watch, or the Mac menu bar.
@@ -384,6 +408,17 @@ app helps it reconnect.
 The assistant runs on your hub's own model. It reads and changes your data with tools (adding tasks, reminders,
 notes, events), and it says what it changed. Switch modules off and their tools go with them. Ask it about the app
 itself too: it answers from these docs.
+
+- **It writes mail; you send it.** Ask it to email someone ("email Alex that Saturday works, and copy Sam") and it
+  writes the mail and shows it under its reply as a card: From, To and Cc, Subject and the whole text, then Send,
+  Edit and Cancel. Nothing is sent until you tap Send: the assistant cannot send mail itself, and it says so. Send
+  gives you the same 10 seconds of Undo as the Mail screen. Edit opens New mail on the Mail screen filled with it, to
+  change it and send it or save it as a draft from there. Cancel drops it. A card you leave alone is gone after 24
+  hours, and says so. On the Watch the card has Send and Cancel; change a mail on the iPhone.
+- **Who it writes to.** Only addresses you give it in that chat, or that are in People. It never writes to an
+  address it read on a web page, in a mail or in a document, unless you typed it yourself. It can attach the pictures
+  you attached in the chat. It needs Mail on and a mailbox that can send (not Read only, and with a sending server);
+  otherwise it says which is missing.
 
 ## Tech: your machines, checks and sensors
 

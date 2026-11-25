@@ -27,6 +27,8 @@ export interface ChatMsg {
   images?: string[];
   /** A host command proposed (assistant turn) or approved (user turn). */
   approval?: { action_id: string; host: string; command: string; status?: string; exit_code?: number | null };
+  /** A mail the assistant wrote for the owner to send (since 2026-11-24): its card goes under this reply. */
+  mail_proposal?: { id: string; state?: "sent" | "cancelled" | "edited" };
   at: string;
 }
 

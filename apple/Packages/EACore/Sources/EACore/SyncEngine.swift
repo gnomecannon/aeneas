@@ -27,6 +27,9 @@ public final class SyncEngine: ObservableObject {
     /// The alert switches from the hub (Settings, Notifications), in its order, starting from the app group's copy.
     /// Empty from a hub that has none (before 2026-11-20): every kind is then on and Settings lists no switches.
     @Published public private(set) var alerts: [AlertInfo] = []
+    /// The switches for tasks also in Apple Reminders (Settings, Notifications), from the app group's copy until the hub
+    /// answers. Nil from a hub before 1.0.19: both on, and Settings shows no section for them.
+    @Published public private(set) var appleReminderAlerts: AppleReminderAlerts?
     /// Which Apple Reminders lists, calendars and Contacts come in (SyncEngine+Sources.swift), from the app group's copy
     /// until the hub answers. Nil from a hub before 1.0.18, or before it first answered: every list then syncs.
     @Published public internal(set) var sources: SourcesSetting?
@@ -106,6 +109,7 @@ public final class SyncEngine: ObservableObject {
         }
         deviceRemoved = platform != .watch && config.deviceRemoved
         alerts = config.alerts ?? []
+        appleReminderAlerts = config.appleReminderAlerts
         sources = config.sources
         routes.onChange = { [weak self] r in Task { @MainActor in self?.routeChanged(r) } }
         routes.onFound = { [weak self] address, moves in Task { @MainActor in self?.homeFound(address, movesAddress: moves) } }
@@ -981,8 +985,9 @@ public final class SyncEngine: ObservableObject {
                             await self.sync()
                         case .notify(let n):
                             self.handleNotify(n)
-                        case .modules(let list, let alerts):
+                        case .modules(let list, let alerts, let appleReminders):
                             await self.applyAlerts(alerts)
+                            await self.applyAppleReminderAlerts(appleReminders)
                             self.onModules?(list)
                         case .sources(let s):
                             self.adoptSources(s)
@@ -1016,7 +1021,8 @@ public final class SyncEngine: ObservableObject {
         }
     }
 
-    private func handleNotify(_ n: NotifyEvent) {
+    /// One `notify` event from `/live`, handed to the app by kind. Internal for tests.
+    func handleNotify(_ n: NotifyEvent) {
         switch n.kind {
         case "activity":
             let logId = n.log_id ?? n.id ?? ""
@@ -1031,7 +1037,11 @@ public final class SyncEngine: ObservableObject {
         case "digest":
             onDigest?(n.title)
         case "reminder":
-            if let id = n.id { onNotify?(id, n.title, n.friction ?? .none, ISO.date(n.at)) }
+            // The hub holds back a task in Apple Reminders while Alert from Aeneas is off; one already on its way when
+            // the switch was flipped is held back here.
+            if let id = n.id, entities[id].map({ AppleReminderAlerts.aeneasAlerts(for: $0, config.appleReminderAlerts) }) ?? true {
+                onNotify?(id, n.title, n.friction ?? .none, ISO.date(n.at))
+            }
         default:
             onAlert?(n)
         }
@@ -1203,14 +1213,23 @@ public final class SyncEngine: ObservableObject {
     /// The first notification grant on the iPhone and the Watch used to replan from the old `reminder` kind, which
     /// nothing writes any more, and so took every task reminder off until the next sync.
     public func notificationPlan(now: Date = Date()) -> [PlannedNotification] {
-        ReminderPlanner.plan(reminders: reminders, now: now)
+        ReminderPlanner.plan(reminders: remindersAlertingHere, now: now)
+    }
+
+    /// The reminders this device plans alerts for: every one, except a task tied to an Apple Reminders item while
+    /// Alert from Aeneas is off (Settings, Notifications). Apple's Reminders app alerts for that one, if its own switch
+    /// is on; Done and Snooze from Aeneas still work on the task.
+    public var remindersAlertingHere: [Entity] {
+        let setting = config.appleReminderAlerts
+        guard setting?.aeneas == false else { return reminders }
+        return reminders.filter { AppleReminderAlerts.aeneasAlerts(for: $0, setting) }
     }
 
     /// Replace the pending reminder notifications with `notificationPlan`.
     /// With Reminder alerts off (Settings, Modules) or Reminders off (Settings, Notifications) nothing is scheduled
     /// and what was planned is taken off. The check-in planned for a running activity obeys its switch the same way.
     public func replanNotifications() async {
-        let list = config.notifies(.reminder) ? reminders : []
+        let list = config.notifies(.reminder) ? remindersAlertingHere : []
         if let onReplan { onReplan(list); return }
         #if canImport(UserNotifications)
         await ReminderScheduler.shared.replan(reminders: list)
@@ -1239,13 +1258,41 @@ public final class SyncEngine: ObservableObject {
     /// Switch kinds of alert on or off for every device; the hub answers with the whole list.
     public func setAlerts(_ changes: [String: Bool]) async throws {
         guard let c = client else { throw HubError.notConfigured }
-        await applyAlerts(try await c.setAlerts(changes))
+        let r = try await c.switchAlerts(changes)
+        await applyAlerts(r.alerts)
+        await applyAppleReminderAlerts(r.apple_reminder_alerts)
+    }
+
+    /// Posted (object: the engine) when this device should start or stop writing alarms on Apple Reminders items.
+    public static let reminderAlarmsDidChange = Notification.Name("ea.reminderAlarmsDidChange")
+
+    /// The switches for tasks also in Apple Reminders as the hub has them now (`GET /modules`, `PUT /modules/alerts`, or
+    /// a `modules` event on `/live`); nil from a hub before 1.0.19. Kept in the app group. Alert from Aeneas changed:
+    /// the planned alerts follow. Whether alarms are written changed: the Reminders sync runs.
+    public func applyAppleReminderAlerts(_ setting: AppleReminderAlerts?) async {
+        let before = config.appleReminderAlerts
+        if setting != appleReminderAlerts { appleReminderAlerts = setting }
+        config.appleReminderAlerts = setting
+        if (before?.apple_alarms ?? true) != (setting?.apple_alarms ?? true) {
+            NotificationCenter.default.post(name: Self.reminderAlarmsDidChange, object: self)
+        }
+        if schedulesNotifications, (before?.aeneas ?? true) != (setting?.aeneas ?? true) { await replanNotifications() }
+    }
+
+    /// Switch Alert from Aeneas or Alert from Apple Reminders for every device (`["aeneas": false]`).
+    public func setAppleReminderAlerts(_ change: [String: Bool]) async throws {
+        guard let c = client else { throw HubError.notConfigured }
+        let r = try await c.setAppleReminderAlerts(change)
+        await applyAlerts(r.alerts)
+        await applyAppleReminderAlerts(r.apple_reminder_alerts)
     }
 
     /// The switches belonged to a hub this device left (another hub, removed, the sample ended).
     private func forgetAlerts() {
         config.alerts = nil
         if !alerts.isEmpty { alerts = [] }
+        config.appleReminderAlerts = nil
+        if appleReminderAlerts != nil { appleReminderAlerts = nil }
     }
 
     /// Tests: stands in for the notification center, given the reminders a replan plans from.

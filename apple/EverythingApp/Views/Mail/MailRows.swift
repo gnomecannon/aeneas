@@ -16,6 +16,9 @@ struct MailThreadRow: View {
     var shown: [Mail.Bundle]
 
     var body: some View {
+        #if DEBUG
+        let _ = MailProbe.count("MailThreadRow")
+        #endif
         let s = thread.summary
         let unread = thread.isUnread
         HStack(alignment: .top, spacing: 10) {

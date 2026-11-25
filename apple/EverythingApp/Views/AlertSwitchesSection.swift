@@ -53,3 +53,62 @@ struct AlertSwitchesSection: View {
         }
     }
 }
+
+/// Settings, Notifications: tasks that are also in Apple Reminders alert from Aeneas and from Apple's Reminders app
+/// (the alarm on the item). Each is switched once for every device. Shown while the Apple Reminders sync is on and the
+/// hub has the switches (1.0.19 and later).
+struct AppleReminderAlertsSection: View {
+    @EnvironmentObject var engine: SyncEngine
+    let setting: AppleReminderAlerts
+    /// Switches flipped here that the hub has not answered yet.
+    @State private var pending: [String: Bool] = [:]
+    @State private var refused: (id: String, text: String)?
+
+    var body: some View {
+        SwiftUI.Section {
+            row("aeneas", title: "Alert from Aeneas", line: "Aeneas alerts you at the reminder time, on every device.", on: setting.aeneas)
+            row("apple", title: "Alert from Apple Reminders", line: "Apple Reminders alerts you too. Off, the items keep their date and time but have no alert.", on: setting.apple)
+            if let waits = setting.waitingLine {
+                Text(waits).font(.caption).foregroundStyle(.warnText)
+            }
+        } header: {
+            Text("Reminders also in Apple Reminders")
+        } footer: {
+            Text(Self.systemSwitch)
+        }
+        .themedRow()
+    }
+
+    /// Where Apple Reminders' own notifications are switched on this kind of device.
+    static var systemSwitch: String {
+        #if os(macOS)
+        "The system's own switch for Apple Reminders is in System Settings, Notifications, Reminders."
+        #else
+        "The system's own switch for Apple Reminders is in iOS Settings, Notifications, Reminders."
+        #endif
+    }
+
+    @ViewBuilder private func row(_ id: String, title: String, line: String, on: Bool) -> some View {
+        Toggle(isOn: Binding(get: { pending[id] ?? on }, set: { flip(id, $0) })) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                Text(line).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .toggleStyle(.switch)
+        .disabled(pending[id] != nil)
+        if let refused, refused.id == id {
+            Text(refused.text).font(.caption).foregroundStyle(.warnText)
+        }
+    }
+
+    private func flip(_ id: String, _ on: Bool) {
+        pending[id] = on
+        refused = nil
+        Task {
+            do { try await engine.setAppleReminderAlerts([id: on]) }
+            catch { refused = (id, "Could not save: \((error as? HubError)?.errorDescription ?? error.localizedDescription)") }
+            pending[id] = nil
+        }
+    }
+}

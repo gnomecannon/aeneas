@@ -87,7 +87,7 @@ final class ModulesTests: XCTestCase {
         var lines = SSELineBuffer(), parser = SSEParser(), msgs: [SSEMessage] = []
         for b in Array("event: modules\ndata: \(data)\n\n".utf8) { if let l = lines.append(b), let m = parser.feed(line: l) { msgs.append(m) } }
         XCTAssertEqual(msgs.count, 1)
-        guard case .modules(let m, let alerts) = HubClient.liveEvent(msgs[0]) else { return XCTFail("not a modules event") }
+        guard case .modules(let m, let alerts, _) = HubClient.liveEvent(msgs[0]) else { return XCTFail("not a modules event") }
         XCTAssertEqual(m.map(\.id), ["pet", "garden"])
         XCTAssertFalse(m.isOn(.pet))
         XCTAssertNil(alerts, "a hub from before the alert switches sends none")
