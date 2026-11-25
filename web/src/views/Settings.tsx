@@ -16,6 +16,7 @@ import { fmtDateTime } from "../lib/time";
 import { useFeel } from "../feel/store";
 import { AppColors, AppThemeEditor, CalendarColors, ThemeHome, themeSummaries } from "./settings/Theme";
 import { BottomBarPage } from "./settings/BottomBar";
+import { TodayPartsPage } from "./settings/TodayParts";
 import { PaletteEditor, TapEffects } from "./settings/TapEffects";
 import { NoteSounds } from "./settings/NoteSounds";
 import { NavRow, SubPage, Toggle, errorText } from "./settings/common";
@@ -64,6 +65,7 @@ export function Settings({ parts, params }: { parts: string[]; params: URLSearch
     if (b === "sounds") return <NoteSounds />;
     if (b === "calendars") return <CalendarColors />;
     if (b === "bar") return <BottomBarPage />;
+    if (b === "today") return <TodayPartsPage />;
     return <ThemeHome />;
   }
   if (a === "connection") return <Connection />;

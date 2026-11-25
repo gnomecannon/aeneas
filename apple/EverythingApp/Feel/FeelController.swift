@@ -143,17 +143,23 @@ final class FeelController: ObservableObject {
         }
         var left = config.feelPending
         for (k, v) in sent where left[k] == v { left.removeValue(forKey: k) }
-        // A hub from before the bottom bar answers without `bar`: it did not keep it. The choice stays on this device
-        // and goes out again with the next refresh, so it reaches the hub once that is updated.
+        // A hub from before the bottom bar (or Today's setting) answers without `bar` (or `today`): it did not keep it.
+        // The choice stays on this device and goes out again with the next refresh, so it reaches the hub once that is
+        // updated.
         var answer = fresh
-        var keptBar = false
+        var kept = 0
         if fresh.bar == nil, left["bar"] == nil, let v = sent["bar"], let b = try? JSONCoding.typed(BarSetting.self, from: v) {
             left["bar"] = v
             answer.bar = b
-            keptBar = true
+            kept += 1
+        }
+        if fresh.today == nil, left["today"] == nil, let v = sent["today"], let t = try? JSONCoding.typed(TodaySetting.self, from: v) {
+            left["today"] = v
+            answer.today = t
+            kept += 1
         }
         config.feelPending = left
-        if left.isEmpty || (keptBar && left.count == 1) { adopt(answer) }
+        if left.count == kept { adopt(answer) }
     }
 
     private func adopt(_ f: FeelSettings) {
@@ -169,6 +175,15 @@ final class FeelController: ObservableObject {
     func setBar(_ bar: BarSetting) {
         guard bar.isValid, let v = try? JSONCoding.value(bar) else { return }
         change(["bar": v])
+    }
+
+    // MARK: Today
+
+    /// What Today shows and in what order (Theme, Today): drawn at once on this device and sent to the hub, which hands
+    /// it to every device. A setting that breaks a rule is never sent.
+    func setToday(_ today: TodaySetting) {
+        guard today.isValid, let v = try? JSONCoding.value(today) else { return }
+        change(["today": v])
     }
 
     // MARK: calendar colors

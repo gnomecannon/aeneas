@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_TODAY, todayCards } from "@everythingapp/shared";
+import { todayColumns } from "../lib/todayBoard";
 
 const src = fs.readFileSync(path.join(__dirname, "Today.tsx"), "utf8");
 
@@ -16,8 +18,8 @@ describe("Today says each thing once", () => {
     expect(src).not.toContain("DayRibbon");
     expect(src).toContain("<Timeline ");
     expect(src).toContain("onSchedule={(start, hours) => setSlot({ start, hours })} onUnschedule={unschedule}");
-    // On a phone the cards are one column and the Schedule comes right after Needs you.
-    expect(fs.readFileSync(path.join(__dirname, "../lib/todayBoard.ts"), "utf8")).toContain('return [["needs", "schedule", "todo", "sofar", "coming"]];');
+    // On a phone the cards are one column and, by default, the Schedule comes right after Needs you.
+    expect(todayColumns(390, todayCards(DEFAULT_TODAY))).toEqual([["tech", "needs", "schedule", "todo", "sofar", "coming"]]);
   });
   it("says Tech once, as one folded line above Needs you: no Tech pill at the top and no Tech rows in Needs you", () => {
     // Folded whenever Today opens: plain screen state, never saved.
@@ -27,9 +29,11 @@ describe("Today says each thing once", () => {
     expect(src).toMatch(/<button type="button" className="tech-line" aria-expanded=\{open\}/);
     expect(src).not.toContain("className={`today-tech");
     expect(src).not.toContain("Tech: {light.label}");
-    // At the top of the Needs you slot, so the columns stay as they were.
-    expect(src.indexOf("<TechCard ")).toBeGreaterThan(src.indexOf("needs: ("));
-    expect(src.indexOf("<TechCard ")).toBeLessThan(src.indexOf('aria-label="Needs you"'));
+    // A card of its own that takes no slot: at the top of the card after it (Needs you by default), so the columns
+    // stay as they were (lib/todayBoard.ts todaySlots).
+    expect(src).toContain("tech: light && (");
+    expect(src.indexOf("<TechCard ")).toBeLessThan(src.indexOf("needs: ("));
+    expect(todayColumns(1688, todayCards(DEFAULT_TODAY))[0]).toEqual(["tech", "needs"]);
     expect(src).not.toMatch(/needsYou\(\{[^}]*looks/);
     expect(src).not.toContain('case "tech"');
   });

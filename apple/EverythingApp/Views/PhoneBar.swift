@@ -43,7 +43,16 @@ struct BarReselect: Equatable {
 
 private struct BarReselectKey: EnvironmentKey { static let defaultValue = BarReselect() }
 
+private struct BarRoomKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
+
 extension EnvironmentValues {
+    /// The room the bottom bar takes at the bottom of the screens in its tabs, in points. 0 where there is no bar
+    /// (the iPad and Mac) and while the keyboard is up.
+    var barRoom: CGFloat {
+        get { self[BarRoomKey.self] }
+        set { self[BarRoomKey.self] = newValue }
+    }
+
     /// The bottom bar as the phone layout draws it now. Nil where there is no bar: the iPad and Mac with their sidebar.
     var phoneBar: BarLayout? {
         get { self[PhoneBarKey.self] }
@@ -111,16 +120,19 @@ private struct BarBadge: View {
 
 #if os(iOS)
 
-/// The bar itself, drawn as the system's tab bar is from iOS 26 on: a capsule floating over the bottom of the screen,
-/// and the second row in a capsule of its own above it. A press and drag up anywhere on the bar pulls the second row
-/// out of the first: the bar grows upward with the finger, the row comes out from behind the first one and parts from
-/// it once it is all out. It stays open once it would come to rest more than half out, and folds on a drag down, a tap
-/// outside the bar (PhoneRoot) or a choice. The grabber in the first capsule's top edge is a button that does the same
-/// without a drag, in the accent color while a screen of the second row is the one showing.
+/// The bar itself, drawn as the system's tab bar is from iOS 26 on: one glass panel floating over the bottom of the
+/// screen, a capsule with the first row while it is folded. A press and drag up anywhere on the bar stretches the panel
+/// upward like a liquid: the middle of its top edge bulges up first, then the whole top rises with the finger, and the
+/// second row fades in inside it above the first. Open, it is one taller rounded panel holding both rows, with no gap or
+/// seam between them. Pulled further, the glass keeps stretching with growing resistance and springs back with a small
+/// bounce when let go. It stays open once it would come to rest more than half open, and folds on a drag down, a tap
+/// outside the bar (PhoneRoot) or a choice, shrinking back down the same way. The grabber in the panel's top edge is a
+/// button that does the same without a drag, in the accent color while a screen of the second row is the one showing.
+/// With Reduce Motion the panel does not stretch: the second row fades in and out.
 ///
-/// From iOS 26 the two capsules are Liquid Glass in one container, so they merge and part as the row moves and react
-/// to a touch. The screen showing sits in a capsule of its own that slides to the one chosen. Before iOS 26 the same
-/// shapes are drawn in the bar material, or in the theme's card color when a theme is chosen.
+/// From iOS 26 the panel is Liquid Glass that reacts to a touch, and the screen showing sits in a glass capsule of its
+/// own that slides to the one chosen. Before iOS 26 the same shape is drawn in the bar material, or in the theme's card
+/// color when a theme is chosen.
 struct PhoneBar: View {
     var layout: BarLayout
     /// The screen that is showing.
@@ -134,13 +146,20 @@ struct PhoneBar: View {
 
     @Environment(\.eaTheme) private var theme
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var space
-    /// How far the finger has moved up since it pressed the bar; back to 0 when it lifts.
-    @GestureState(resetTransaction: Transaction(animation: PhoneBar.settle)) private var pull: CGFloat = 0
-    /// The second capsule's own height, measured once it is laid out.
+    /// How far the finger has moved up since it pressed the bar; back to 0 when it lifts, with the panel's spring.
+    @GestureState(resetTransaction: Transaction(animation: PhoneBar.liquid)) private var pull: CGFloat = 0
+    /// The second row's own height, measured once it is laid out: how far the panel rises to open.
     @State private var moreHeight: CGFloat = PhoneBar.capsuleHeight(BarSize.of(count: 5))
+    /// With Reduce Motion: whether the panel is drawn open, and how far the second row has faded in. Folding, the
+    /// row fades out before the panel goes back to its folded size.
+    @State private var calmOpen = false
+    @State private var calmShown: CGFloat = 0
 
     static let settle = Animation.snappy(duration: 0.25)
+    /// The panel growing and shrinking: a spring with a small bounce, as the system's glass menus open and close.
+    static let liquid = Animation.spring(duration: 0.45, bounce: 0.3)
     /// The system's five-tab bar on iOS 26, as drawn on an iPhone: the capsule 21 points in from the screen's sides,
     /// the screens 8 points in from the capsule's ends, 6 points under its top and 7 over its bottom (62 points tall in
     /// all).
@@ -148,10 +167,13 @@ struct PhoneBar: View {
     static let padH: CGFloat = 8
     static let padTop: CGFloat = 6
     static let padBottom: CGFloat = 7
-    /// The band at the top of the first capsule the grabber sits in, while there is a second row.
+    /// The band at the top of the panel the grabber sits in, while there is a second row.
     static let strip: CGFloat = 8
-    /// Between the two capsules while the second row is out.
-    static let gap: CGFloat = 8
+
+    #if DEBUG
+    /// `-EABarReveal <points>` (DebugHooks): the panel held as if pulled up that far, so each stage can be photographed.
+    private static let heldPull: CGFloat? = UserDefaults.standard.string(forKey: "EABarReveal").flatMap(Double.init).map { CGFloat($0) }
+    #endif
 
     /// A capsule's height at the standard text size.
     static func capsuleHeight(_ size: BarSize) -> CGFloat { CGFloat(size.rowHeight) + padTop + padBottom }
@@ -167,31 +189,60 @@ struct PhoneBar: View {
         let size = BarSize.of(count: layout.count)
         let first = layout.first.compactMap(Section.init(rawValue:))
         let second = layout.second.compactMap(Section.init(rawValue:))
-        let hasMore = !second.isEmpty
-        // How far the second capsule travels: from inside the first to its own place above it.
-        let travel = moreHeight + Self.gap
-        let reveal = hasMore ? min(travel, max(0, (open ? travel : 0) + pull)) : 0
+        let rise = second.isEmpty ? 0 : Self.rise(pulled: pulled, full: moreHeight)
 
         container {
-            VStack(spacing: 0) {
-                // The second capsule's place. It is above the bar's own height (the padding below takes it back), so
-                // the screens do not move as the row comes out.
-                Color.clear.frame(height: hasMore ? travel : 0)
-                ZStack(alignment: .top) {
-                    if hasMore { secondCapsule(second, size: size, reveal: reveal) }
-                    firstCapsule(first, size: size, hasMore: hasMore, lit: second.contains(current))
-                }
-            }
+            panel(first: first, second: second, size: size, rise: rise)
         }
-        .padding(.top, hasMore ? -travel : 0)
+        // What the panel has risen is above the bar's own height, so the screens do not move as it opens.
+        .padding(.top, -rise)
         .modifier(BarInk())
-        .highPriorityGesture(drag(travel: travel), including: hasMore ? .all : .subviews)
+        .highPriorityGesture(drag(full: moreHeight), including: second.isEmpty ? .subviews : .all)
         // The capsule behind the screen showing slides to the one chosen.
         .animation(Self.settle, value: current)
         .frame(maxWidth: 560)
         .padding(.horizontal, Self.side)
         .padding(.bottom, floatingBottom)
         .frame(maxWidth: .infinity)
+        .onAppear { calmOpen = open; calmShown = open ? 1 : 0 }
+        .onChange(of: open) { _, now in
+            guard reduceMotion else { calmOpen = now; calmShown = now ? 1 : 0; return }
+            if now {
+                calmOpen = true
+                withAnimation(.easeInOut(duration: 0.2)) { calmShown = 1 }
+            } else {
+                withAnimation(.easeInOut(duration: 0.2)) { calmShown = 0 } completion: { if !open { calmOpen = false } }
+            }
+        }
+    }
+
+    /// How far up the panel is pulled, in points: open or folded, and the finger's pull. With Reduce Motion it does
+    /// not follow the finger.
+    private var pulled: CGFloat {
+        #if DEBUG
+        if let held = Self.heldPull { return held }
+        #endif
+        if reduceMotion { return calmOpen ? moreHeight : 0 }
+        return (open ? moreHeight : 0) + pull
+    }
+
+    /// How far the panel rises for a pull of `pulled` points. Up to the second row's height it follows the finger; past
+    /// it the glass stretches on with growing resistance, as a list does past its end, and a pull down squeezes the
+    /// folded capsule a little.
+    static func rise(pulled: CGFloat, full: CGFloat) -> CGFloat {
+        if pulled > full { return full + resist(pulled - full, limit: full / 2) }
+        if pulled < 0 { return -resist(-pulled, limit: 6) }
+        return pulled
+    }
+
+    private static func resist(_ x: CGFloat, limit: CGFloat) -> CGFloat {
+        limit * (1 - 1 / (x * 0.55 / max(limit, 1) + 1))
+    }
+
+    /// 0 to 1 along `t` from 0 to 1, slow at both ends.
+    static func ease(_ t: CGFloat) -> CGFloat {
+        let x = min(max(t, 0), 1)
+        return x * x * (3 - 2 * x)
     }
 
     /// Where the bar's bottom edge sits: 21 points above the screen's, as the system's does, which on an iPhone with a
@@ -201,64 +252,73 @@ struct PhoneBar: View {
         return bottomInset > 0 ? 0 : 8
     }
 
-    /// From iOS 26 the capsules are glass shapes of one container, which merge where they meet.
+    /// From iOS 26 the panel and the capsule of the screen showing are glass of one container.
     @ViewBuilder private func container<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         if #available(iOS 26.0, *) {
-            GlassEffectContainer(spacing: Self.gap) { content() }
+            GlassEffectContainer { content() }
         } else {
             content()
         }
     }
 
-    /// The first row and, while there is a second one, the grabber above it.
-    private func firstCapsule(_ screens: [Section], size: BarSize, hasMore: Bool, lit: Bool) -> some View {
-        row(screens, size: size)
-            .accessibilityElement(children: .contain)
-            .accessibilityAddTraits(.isTabBar)
-            .accessibilityActions {
-                if hasMore {
-                    Button(open ? BarText.hideMore : BarText.showMore) { toggle() }
+    /// The one panel: the grabber's band, the second row and the first, as tall as the folded bar and what it has
+    /// risen. The rest of the second row is above the panel's top edge, out of sight; it comes in with the glass, not
+    /// before it: from a third of the way up it fades in, grows to its size and sharpens.
+    private func panel(first: [Section], second: [Section], size: BarSize, rise: CGFloat) -> some View {
+        let hasMore = !second.isEmpty
+        let full = moreHeight
+        let shape = LiquidPanel(rise: rise, full: full)
+        let shown = reduceMotion ? calmShown : (full > 0 ? Self.ease((rise / full - 0.3) / 0.6) : 0)
+        return VStack(spacing: 0) {
+            if hasMore {
+                row(second, size: size, marks: rise > 0.5)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(BarText.more)
+                    .accessibilityAddTraits(.isTabBar)
+                    .accessibilityHidden(!open)
+                    .allowsHitTesting(open)
+                    .padding(.horizontal, Self.padH)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if $0 > 0 { moreHeight = $0 } }
+                    .opacity(shown)
+                    .scaleEffect(reduceMotion ? 1 : 0.92 + 0.08 * shown, anchor: .bottom)
+                    .blur(radius: 5 * (1 - shown))
+            }
+            row(first, size: size, marks: true)
+                .accessibilityElement(children: .contain)
+                .accessibilityAddTraits(.isTabBar)
+                .accessibilityActions {
+                    if hasMore {
+                        Button(open ? BarText.hideMore : BarText.showMore) { toggle() }
+                    }
                 }
-            }
-            .padding(.top, hasMore ? Self.strip : 0)
-            .padding(.horizontal, Self.padH)
-            .overlay(alignment: .top) {
-                if hasMore { grabber(lit: lit) }
-            }
-            .modifier(BarCapsule(id: "first", space: space))
+                .padding(.horizontal, Self.padH)
+        }
+        .padding(.top, hasMore ? Self.strip : 0)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.top, hasMore ? rise - full : 0)
+        .clipShape(shape)
+        .contentShape(shape)
+        // Inside the glass's content, or the glass draws over it.
+        .overlay(alignment: .top) {
+            if hasMore { grabber(lit: second.contains(current)) }
+        }
+        .modifier(BarGlass(shape: shape))
     }
 
-    /// The second row. Folded, it lies inside the first capsule; it rises with what is revealed, and only the part
-    /// above the first capsule shows its screens.
-    private func secondCapsule(_ screens: [Section], size: BarSize, reveal: CGFloat) -> some View {
-        let out = min(moreHeight, reveal)
-        return row(screens, size: size)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel(BarText.more)
-            .accessibilityAddTraits(.isTabBar)
-            .accessibilityHidden(!open)
-            .padding(.horizontal, Self.padH)
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if $0 > 0 { moreHeight = $0 } }
-            .mask(alignment: .top) { Rectangle().frame(height: out) }
-            .modifier(BarCapsule(id: "second", space: space, grows: true, shows: out < moreHeight ? out : nil))
-            .offset(y: -reveal)
-            .allowsHitTesting(open)
-    }
-
-    private func row(_ screens: [Section], size: BarSize) -> some View {
+    /// A row of screens. `marks`: whether the capsule of the screen showing may be drawn in it (the second row's only
+    /// while it is out).
+    private func row(_ screens: [Section], size: BarSize, marks: Bool) -> some View {
         HStack(spacing: 0) {
             ForEach(screens) { s in
                 let selected = s == current
                 let count = s == .library ? badge : 0
                 Button { pick(s) } label: {
-                    // The screen's place reaches the capsule's top and bottom edges, so a press anywhere on the bar
-                    // lands on a screen.
+                    // The screen's place reaches the panel's edges, so a press anywhere on the bar lands on a screen.
                     BarItemLabel(title: s.title, symbol: s.symbol, size: size, badge: count)
                         .padding(.top, Self.padTop)
                         .padding(.bottom, Self.padBottom)
                         .background {
-                            if selected { bubble }
+                            if selected, marks { bubble }
                         }
                         .contentShape(Rectangle())
                 }
@@ -294,10 +354,10 @@ struct PhoneBar: View {
         }
     }
 
-    /// The grabber: a short pill in the first capsule's top band, centered over the bar. Its box reaches up past the
-    /// capsule's edge (into the gap while the second row is out) and down to the screens' places, never over them.
+    /// The grabber: a short pill in the panel's top band, centered over the bar, rising with the top edge. Its box
+    /// reaches up past the panel's edge and down to the screens' places, never over them.
     private func grabber(lit: Bool) -> some View {
-        let reach: CGFloat = open ? Self.gap : 14
+        let reach: CGFloat = 14
         return Button { toggle() } label: {
             Capsule()
                 .fill(lit ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary.opacity(0.7)))
@@ -312,56 +372,91 @@ struct PhoneBar: View {
         .accessibilityValue(open ? BarText.opened : BarText.closed)
     }
 
-    private func drag(travel: CGFloat) -> some Gesture {
+    private func drag(full: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 10, coordinateSpace: .global)
             .updating($pull) { value, pull, _ in pull = -value.translation.height }
             .onEnded { value in
-                // Where the row would come to rest: past half way it stays open. A slow drag rests where it is let
+                // Where the panel would come to rest: past half way it stays open. A slow drag rests where it is let
                 // go; a flick carries on, so a short quick one opens or folds it too.
-                let rest = (open ? travel : 0) - value.predictedEndTranslation.height
-                withAnimation(Self.settle) { open = rest > travel / 2 }
+                let rest = (open ? full : 0) - value.predictedEndTranslation.height
+                set(open: rest > full / 2)
             }
     }
 
-    private func toggle() {
-        withAnimation(Self.settle) { open.toggle() }
-    }
+    private func toggle() { set(open: !open) }
 
     private func pick(_ s: Section) {
-        if open { withAnimation(Self.settle) { open = false } }
+        if open { set(open: false) }
         choose(s)
+    }
+
+    /// Opens or folds the panel with its spring; with Reduce Motion at once, and the second row fades.
+    private func set(open now: Bool) {
+        withAnimation(reduceMotion ? nil : Self.liquid) { open = now }
     }
 }
 
-/// One of the bar's capsules. From iOS 26 it is glass that reacts to a touch, with an id so the two capsules morph
-/// into each other; the second one `grows` out of the first when the second row first gets a screen. Before iOS 26 it
-/// is the bar material (the theme's card color under a theme) with a soft shadow, and while the second capsule comes
-/// out from behind the first only the part that `shows` above it is drawn.
-private struct BarCapsule: ViewModifier {
-    var id: String
-    var space: Namespace.ID
-    var grows = false
-    /// How much of the capsule shows, from its top; nil when all of it does.
-    var shows: CGFloat?
+/// The panel's outline: a capsule as tall as the folded bar, grown upward by `rise`, its round ends kept as it grows.
+/// While it grows the top bulges first: the middle of the top edge leads and the corners trail it, so the glass looks
+/// drawn up like a liquid; it flattens as the panel opens and bulges again while it is pulled past open. Below 0 the
+/// folded capsule is squeezed a little. The rise is animated, so the bulge also shows when a tap opens or folds it.
+struct LiquidPanel: Shape {
+    var rise: CGFloat
+    /// The second row's height: how far the panel rises to open.
+    var full: CGFloat
+
+    var animatableData: CGFloat {
+        get { rise }
+        set { rise = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        let r = max(0, min(w, h, h - rise) / 2)
+        let lag = min(Self.lag(rise: rise, full: full), max(0, h - 2 * r))
+        let x0 = rect.minX, y0 = rect.minY
+        var p = Path()
+        p.move(to: CGPoint(x: x0, y: y0 + h - r))
+        p.addLine(to: CGPoint(x: x0, y: y0 + lag + r))
+        p.addArc(center: CGPoint(x: x0 + r, y: y0 + lag + r), radius: r, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        // The top edge, a dome from corner to corner whose middle is the top of the frame.
+        let span = w - 2 * r
+        p.addCurve(to: CGPoint(x: x0 + w - r, y: y0 + lag),
+                   control1: CGPoint(x: x0 + r + span * 0.3, y: y0 - lag / 3),
+                   control2: CGPoint(x: x0 + r + span * 0.7, y: y0 - lag / 3))
+        p.addArc(center: CGPoint(x: x0 + w - r, y: y0 + lag + r), radius: r, startAngle: .degrees(270), endAngle: .degrees(360), clockwise: false)
+        p.addLine(to: CGPoint(x: x0 + w, y: y0 + h - r))
+        p.addArc(center: CGPoint(x: x0 + w - r, y: y0 + h - r), radius: r, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        p.addLine(to: CGPoint(x: x0 + r, y: y0 + h))
+        p.addArc(center: CGPoint(x: x0 + r, y: y0 + h - r), radius: r, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        p.closeSubpath()
+        return p
+    }
+
+    /// How far the top corners trail the middle of the top edge, in points: as far as the panel has risen at first,
+    /// none from 70 percent open, and half of what it is pulled past open.
+    static func lag(rise: CGFloat, full: CGFloat) -> CGFloat {
+        guard rise > 0, full > 0 else { return 0 }
+        if rise > full { return (rise - full) / 2 }
+        return rise * (1 - PhoneBar.ease(rise / full / 0.7))
+    }
+}
+
+/// The panel's glass. From iOS 26 Liquid Glass that reacts to a touch. Before, the bar material (the theme's card
+/// color under a theme) with a hairline edge and a soft shadow.
+private struct BarGlass: ViewModifier {
+    var shape: LiquidPanel
     @Environment(\.eaTheme) private var theme
 
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            let glass = content
-                .glassEffect(.regular.interactive(), in: .capsule)
-                .glassEffectID(id, in: space)
-            if grows { glass.glassEffectTransition(.matchedGeometry) } else { glass }
+            content.glassEffect(.regular.interactive(), in: shape)
         } else {
-            let drawn = content.background {
-                Capsule()
+            content.background {
+                shape
                     .fill(theme.map { AnyShapeStyle($0.surface) } ?? AnyShapeStyle(.bar))
-                    .overlay { Capsule().strokeBorder((theme?.text ?? .primary).opacity(0.1), lineWidth: 0.5) }
+                    .overlay { shape.stroke((theme?.text ?? .primary).opacity(0.1), lineWidth: 0.5) }
                     .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
-            }
-            if let shows {
-                drawn.mask(alignment: .top) { Rectangle().frame(height: shows) }
-            } else {
-                drawn
             }
         }
     }
@@ -390,11 +485,18 @@ private struct BarItemStyle: ButtonStyle {
 /// The tab view has five fixed tabs, slots that hold the bar's screens used most recently (`BarSlots`): the system
 /// puts the tabs past the fifth under a "More" list of its own, and the bar can hold ten screens. The system's own
 /// bar is hidden; `PhoneBar` is drawn in its place, over the room the screens leave free at the bottom.
+///
+/// That room is kept by UIKit, not SwiftUI (`BarRoom`). The tab view is a UIKit tab bar controller and each tab's
+/// stack a UIKit navigation controller, and both take their safe area from the window, not from SwiftUI: room set
+/// with safeAreaInset, safeAreaBar or safeAreaPadding on the tab view, or on a tab around its stack, never reaches
+/// the screens, so the end of every long screen stayed under the bar. Room added to the tab bar controller's own
+/// safe area reaches every screen of every tab, pushed pages too, and no sheet.
 struct PhoneRoot: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
     @ObservedObject private var feel = FeelController.shared
     @ObservedObject private var keyboard = KeyboardWatcher.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var slots = BarSlots()
     @State private var barOpen = PhoneRoot.opensAtLaunch
     @State private var bottomInset: CGFloat = 0
@@ -418,6 +520,9 @@ struct PhoneRoot: View {
         // that selects it, and kept below.
         let shown = slots.showing(current.rawValue, among: layout.tabs)
         let showsBar = !keyboard.visible
+        // The room the screens leave free for the bar as it is folded. The second row, when out, covers the screen
+        // as a sheet would.
+        let room = showsBar ? barHeight : 0
 
         // Nothing but the app selects a tab (the system's bar is hidden), so what the tab view says back is not taken.
         TabView(selection: Binding(get: { shown.index(of: current.rawValue) ?? 0 }, set: { _ in })) {
@@ -433,14 +538,14 @@ struct PhoneRoot: View {
                         }
                     }
                     .toolbarVisibility(.hidden, for: .tabBar)
+                    .background { BarRoom(height: room) }
                 }
             }
         }
         .environment(\.phoneBar, layout)
         .environment(\.barReselect, reselect)
+        .environment(\.barRoom, room)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { _ in bottomInset = PhoneBar.homeIndicatorInset() }
-        // The room the screens leave free for the bar as it is folded.
-        .bottomRoom(showsBar ? barHeight : 0)
         // Over the screen and under the bar while the second row is out: a touch there folds it.
         .overlay {
             if barOpen, !layout.second.isEmpty, showsBar {
@@ -502,20 +607,140 @@ struct PhoneRoot: View {
     }
 
     private func fold() {
-        if barOpen { withAnimation(PhoneBar.settle) { barOpen = false } }
+        if barOpen { withAnimation(reduceMotion ? nil : PhoneBar.liquid) { barOpen = false } }
+    }
+}
+
+/// The bar's room at the bottom of the screens, added to the safe area of the tab bar controller the tab view is,
+/// so UIKit hands it to every tab, every navigation stack in it and every page pushed on one, as it hands down the
+/// system's own tab bar. Each tab carries one, behind its content; they all set the same room.
+private struct BarRoom: UIViewControllerRepresentable {
+    var height: CGFloat
+
+    func makeUIViewController(context: Context) -> Holder { Holder() }
+
+    func updateUIViewController(_ holder: Holder, context: Context) {
+        holder.height = height
+        holder.apply()
+    }
+
+    final class Holder: UIViewController {
+        var height: CGFloat = 0
+
+        override func loadView() {
+            view = UIView()
+            view.isHidden = true
+            view.isUserInteractionEnabled = false
+        }
+
+        override func didMove(toParent parent: UIViewController?) {
+            super.didMove(toParent: parent)
+            apply()
+        }
+
+        func apply() {
+            guard let tabs = tabBarController, tabs.additionalSafeAreaInsets.bottom != height else { return }
+            tabs.additionalSafeAreaInsets.bottom = height
+        }
     }
 }
 
 extension View {
-    /// Room at the bottom of the screens for the bar, which PhoneRoot draws over them. From iOS 26 the room is a bar
-    /// of the system's kind, so a screen scrolled under it fades at its edge as it does under the system's tab bar.
-    @ViewBuilder fileprivate func bottomRoom(_ height: CGFloat) -> some View {
-        let room = Color.clear.frame(height: height).allowsHitTesting(false).accessibilityHidden(true)
-        if #available(iOS 26.0, *) {
-            safeAreaBar(edge: .bottom, spacing: 0) { room }
-        } else {
-            safeAreaInset(edge: .bottom, spacing: 0) { room }
+    /// From iOS 26, a screen in one of the bar's tabs fades and blurs where it scrolls under the bar, as one does
+    /// under the system's tab bar. `ThemedColors` puts this on every screen and page, so it reaches pages at any
+    /// depth; it does nothing where there is no bar, while the keyboard is up, or in a sheet.
+    func barEdge() -> some View { modifier(BarEdgeSpot()) }
+}
+
+/// The spot under the bar, from the screen's bottom edge (the top of the bar's room) to the bottom of the display.
+private struct BarEdgeSpot: ViewModifier {
+    @Environment(\.barRoom) private var room
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .bottom) {
+            if #available(iOS 26.0, *), room > 0 {
+                let height = room + PhoneBar.homeIndicatorInset()
+                BarEdgeShape()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height)
+                    // Hung from the screen's bottom edge, which is the top of the room, down to the display's.
+                    .padding(.bottom, -height)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
         }
+    }
+}
+
+/// The scroll edge effect needs UIKit: a view over the scroll view's edge, holding the shapes that edge lies under,
+/// with an interaction that names the scroll view. The bar is drawn in another view controller than the screen, so
+/// this view stands in for it, on the screen's own page: a glass panel too faint to see, the size of the room.
+@available(iOS 26.0, *)
+private struct BarEdgeShape: UIViewRepresentable {
+    func makeUIView(context: Context) -> BarEdgeView { BarEdgeView() }
+    func updateUIView(_ view: BarEdgeView, context: Context) { view.find() }
+}
+
+@available(iOS 26.0, *)
+private final class BarEdgeView: UIView {
+    private let glass = UIVisualEffectView(effect: UIGlassEffect())
+    private let edge = UIScrollEdgeElementContainerInteraction()
+
+    init() {
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
+        glass.alpha = 0.02
+        glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(glass)
+        edge.edge = .bottom
+        addInteraction(edge)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        find()
+        // A screen that shows its list only once it has loaded: look again a little later.
+        Task { @MainActor [weak self] in
+            for wait in [0.3, 1.0, 3.0] {
+                try? await Task.sleep(for: .seconds(wait))
+                self?.find()
+            }
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        glass.frame = bounds
+        find()
+    }
+
+    /// The page this view is on, its scroll view, and whether the page is in one of the bar's tabs. A sheet opened
+    /// from a tab takes the tab's room setting along but is not in the tab bar controller: nothing there.
+    func find() {
+        let page = sequence(first: self as UIResponder, next: \.next).first { $0 is UIViewController } as? UIViewController
+        guard let page, page.tabBarController != nil else {
+            glass.isHidden = true
+            edge.scrollView = nil
+            return
+        }
+        glass.isHidden = false
+        let scroll = page.contentScrollView(for: .bottom) ?? page.contentScrollView(for: .top) ?? Self.largest(in: page.view)
+        if edge.scrollView !== scroll { edge.scrollView = scroll }
+    }
+
+    /// The page's tallest scroll view, when it names none itself.
+    private static func largest(in view: UIView) -> UIScrollView? {
+        var best: UIScrollView?
+        func walk(_ v: UIView) {
+            if let s = v as? UIScrollView, !s.isHidden, s.bounds.height > (best?.bounds.height ?? view.bounds.height / 2) { best = s }
+            v.subviews.forEach(walk)
+        }
+        walk(view)
+        return best
     }
 }
 

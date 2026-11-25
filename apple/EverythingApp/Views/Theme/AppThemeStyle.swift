@@ -188,14 +188,23 @@ struct ThemedScreen: ViewModifier {
 }
 
 /// The theme's colors on one screen or page: its text color, its background behind lists, forms and scroll views,
-/// and on the iPhone and iPad the same background in the title bar.
+/// and on the iPhone and iPad the same background in the title bar. Every screen and page has this, so on the iPhone
+/// it also gives each one the soft edge where it scrolls under the bottom bar (`barEdge()`).
 struct ThemedColors: ViewModifier {
     @Environment(\.eaTheme) private var theme
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        colors(content).barEdge()
+        #else
+        colors(content)
+        #endif
+    }
 
     /// Classic leaves the screen exactly as it was: any foreground style set here would also override the gray
     /// SwiftUI gives section footers and secondary text. Switching between Classic and a theme rebuilds the screen's
     /// own state (scroll position); switching between themes does not.
-    @ViewBuilder func body(content: Content) -> some View {
+    @ViewBuilder private func colors(_ content: Content) -> some View {
         if let theme {
             content
                 .foregroundStyle(theme.text)

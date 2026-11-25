@@ -39,9 +39,9 @@ struct TodayView: View {
         }
         .task(id: today != nil) {
             #if DEBUG
-            // `-EAScrollTo timeline` (DebugHooks): that card at the top, for screenshots: needs, timeline (the
+            // `-EAScrollTo timeline` (DebugHooks): that card at the top, for screenshots: tech, needs, timeline (the
             // Schedule), todo, sofar or coming.
-            guard today != nil, let card = UserDefaults.standard.string(forKey: "EAScrollTo"), ["needs", "timeline", "todo", "sofar", "coming"].contains(card) else { return }
+            guard today != nil, let card = UserDefaults.standard.string(forKey: "EAScrollTo"), ["tech", "needs", "timeline", "todo", "sofar", "coming"].contains(card) else { return }
             try? await Task.sleep(nanoseconds: 800_000_000)
             proxy.scrollTo(card, anchor: .top)
             #endif

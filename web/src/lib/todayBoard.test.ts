@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Entity } from "@everythingapp/shared";
+import { DEFAULT_TODAY, todayCards, type Entity } from "@everythingapp/shared";
 import { takesTime, timeline, wholeDay, type RuleType, type TimelineItem } from "./planner";
-import { cameDue, daysUntil, durationWords, freeLine, needsYou, nowLine, openTasks, soFar, todayColumns, todayNumbers, tomorrowLines } from "./todayBoard";
+import { cameDue, daysUntil, durationWords, freeLine, needsYou, nowLine, openTasks, soFar, todayColumnCount, todayColumns, todayNumbers, todaySlots, tomorrowLines } from "./todayBoard";
 
 let n = 0;
 function e(kind: string, fields: Record<string, unknown>, over: Partial<Entity> = {}): Entity {
@@ -196,12 +196,68 @@ describe("coming up", () => {
 });
 
 describe("todayColumns", () => {
-  it("is one column on a phone and up to five across a wide window, every section in exactly one place", () => {
-    expect(todayColumns(358)).toEqual([["needs", "schedule", "todo", "sofar", "coming"]]);
-    expect(todayColumns(792).length).toBe(2);
-    expect(todayColumns(1048)).toEqual([["needs", "todo"], ["schedule"], ["sofar", "coming"]]);
-    expect(todayColumns(1688)).toEqual([["needs"], ["schedule"], ["todo"], ["sofar", "coming"]]);
-    expect(todayColumns(2328).length).toBe(5);
-    for (const w of [0, 358, 700, 1048, 1688, 2328, 3600]) expect(todayColumns(w).flat().sort()).toEqual(["coming", "needs", "schedule", "sofar", "todo"]);
+  const usual = todayCards(DEFAULT_TODAY);
+  const noTech = usual.filter((c) => c !== "tech");
+
+  it("is one column on a phone and up to five across a wide window, every card in exactly one place", () => {
+    expect(todayColumns(358, noTech)).toEqual([["needs", "schedule", "todo", "sofar", "coming"]]);
+    expect(todayColumns(792, noTech)).toEqual([["needs", "todo", "coming"], ["schedule", "sofar"]]);
+    expect(todayColumns(1048, noTech)).toEqual([["needs", "todo"], ["schedule"], ["sofar", "coming"]]);
+    expect(todayColumns(1688, noTech)).toEqual([["needs"], ["schedule"], ["todo"], ["sofar", "coming"]]);
+    expect(todayColumns(2328, noTech)).toEqual([["needs"], ["schedule"], ["todo"], ["sofar"], ["coming"]]);
+    for (const w of [0, 358, 700, 1048, 1688, 2328, 3600]) {
+      expect(todayColumns(w, noTech).flat().sort()).toEqual(["coming", "needs", "schedule", "sofar", "todo"]);
+      expect(todayColumns(w, usual).flat().sort()).toEqual(["coming", "needs", "schedule", "sofar", "tech", "todo"]);
+    }
+  });
+
+  it("draws the default as Today always was, Tech at the top of the Needs you slot", () => {
+    expect(todayColumnCount(679)).toBe(1);
+    expect(todayColumnCount(680)).toBe(2);
+    expect(todayColumnCount(1040)).toBe(3);
+    expect(todayColumnCount(1500)).toBe(4);
+    expect(todayColumnCount(2100)).toBe(5);
+    expect(todayColumns(358, usual)).toEqual([["tech", "needs", "schedule", "todo", "sofar", "coming"]]);
+    expect(todayColumns(792, usual)).toEqual([["tech", "needs", "todo", "coming"], ["schedule", "sofar"]]);
+    expect(todayColumns(1048, usual)).toEqual([["tech", "needs", "todo"], ["schedule"], ["sofar", "coming"]]);
+    expect(todayColumns(1688, usual)).toEqual([["tech", "needs"], ["schedule"], ["todo"], ["sofar", "coming"]]);
+    expect(todayColumns(2328, usual)).toEqual([["tech", "needs"], ["schedule"], ["todo"], ["sofar"], ["coming"]]);
+  });
+
+  it("fills the columns in a custom order", () => {
+    const cards = todayCards({ order: ["now", "coming", "todo", "schedule", "needs", "tech", "sofar"], hidden: [] });
+    expect(cards).toEqual(["coming", "todo", "schedule", "needs", "tech", "sofar"]);
+    expect(todayColumns(358, cards)).toEqual([["coming", "todo", "schedule", "needs", "tech", "sofar"]]);
+    expect(todayColumns(792, cards)).toEqual([["coming", "schedule", "tech", "sofar"], ["todo", "needs"]]);
+    expect(todayColumns(1048, cards)).toEqual([["coming", "schedule"], ["todo"], ["needs", "tech", "sofar"]]);
+    expect(todayColumns(1688, cards)).toEqual([["coming"], ["todo"], ["schedule"], ["needs", "tech", "sofar"]]);
+    expect(todayColumns(2328, cards)).toEqual([["coming"], ["todo"], ["schedule"], ["needs"], ["tech", "sofar"]]);
+  });
+
+  it("leaves hidden cards out and gives each slot a column of its own while there are no more slots than columns", () => {
+    // Two hidden, and Tech last: it sits under the Schedule, so three slots.
+    const cards = todayCards({ order: ["now", "coming", "todo", "schedule", "needs", "tech", "sofar"], hidden: ["sofar", "needs"] });
+    expect(cards).toEqual(["coming", "todo", "schedule", "tech"]);
+    expect(todayColumns(358, cards)).toEqual([["coming", "todo", "schedule", "tech"]]);
+    expect(todayColumns(792, cards)).toEqual([["coming", "schedule", "tech"], ["todo"]]);
+    expect(todayColumns(1048, cards)).toEqual([["coming"], ["todo"], ["schedule", "tech"]]);
+    expect(todayColumns(1688, cards)).toEqual([["coming"], ["todo"], ["schedule", "tech"]]);
+    expect(todayColumns(2328, cards)).toEqual([["coming"], ["todo"], ["schedule", "tech"]]);
+    // Two cards: never more than two columns, however wide.
+    expect(todayColumns(2328, ["schedule", "todo"])).toEqual([["schedule"], ["todo"]]);
+    expect(todayColumns(358, [])).toEqual([]);
+  });
+
+  it("sits Tech with the card after it, else with the card before it, else alone", () => {
+    expect(todaySlots(["tech", "needs", "schedule"])).toEqual([["tech", "needs"], ["schedule"]]);
+    // Needs you hidden: Tech sits at the top of the next card.
+    expect(todaySlots(["tech", "schedule", "todo"])).toEqual([["tech", "schedule"], ["todo"]]);
+    expect(todaySlots(["schedule", "todo", "tech"])).toEqual([["schedule"], ["todo", "tech"]]);
+    expect(todaySlots(["tech"])).toEqual([["tech"]]);
+    expect(todayColumns(2328, ["tech"])).toEqual([["tech"]]);
+    // Tech never takes a column: hidden or shown, the other cards keep theirs.
+    const without = todayColumns(1048, noTech);
+    const withTech = todayColumns(1048, usual);
+    expect(withTech.map((c) => c.filter((x) => x !== "tech"))).toEqual(without);
   });
 });

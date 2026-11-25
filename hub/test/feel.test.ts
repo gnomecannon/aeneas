@@ -190,3 +190,72 @@ test("bottom bar: a file from before it, or with a bar that breaks a rule, reads
     assert.equal(store.get().bar.first.length, 5);
   } finally { t.cleanup(); }
 });
+
+test("today: the default, a change kept beside the rest of the setting, and what is refused", async () => {
+  const t = makeHub();
+  try {
+    const put = (json: unknown) => t.api("/prefs/feel", { method: "PUT", json });
+    const usual = { order: ["now", "tech", "needs", "schedule", "todo", "sofar", "coming"], hidden: [] };
+    const first = await (await t.api("/prefs/feel")).json() as Record<string, any>;
+    assert.deepEqual(first.today, usual, "a hub that was never told has Today as it always was");
+
+    // A new order with two parts hidden, a part only a newer app knows, and nothing but the two fields kept.
+    const today = { order: ["now", "coming", "todo", "schedule", "weather", "needs", "tech", "sofar"], hidden: ["sofar", "needs"] };
+    const set = await (await put({ today: { ...today, extra: true } })).json() as Record<string, any>;
+    assert.deepEqual(set.today, today);
+    assert.equal(set.scale, "major_pentatonic", "the rest of the setting is as it was");
+    // An app from before this setting changes another field and never names it: it stays.
+    const later = await (await put({ key: "D" })).json() as Record<string, any>;
+    assert.deepEqual(later.today, today);
+    assert.deepEqual(((await (await t.api("/prefs/feel")).json()) as Record<string, any>).today, today, "kept in the file");
+    // Parts left out of the order go in their default places when drawn: the hub keeps the lists as sent.
+    const short = { order: ["coming"], hidden: [] };
+    assert.deepEqual(((await (await put({ today: short })).json()) as Record<string, any>).today, short);
+
+    for (const bad of [
+      null,
+      "coming first",
+      [],
+      { order: ["now"] },
+      { hidden: [] },
+      { order: "now", hidden: [] },
+      { order: ["now", "now"], hidden: [] },
+      { order: [], hidden: ["tech", "tech"] },
+      { order: ["two words"], hidden: [] },
+      { order: [7], hidden: [] },
+      { order: Array.from({ length: 41 }, (_, i) => `p${i}`), hidden: [] },
+    ]) {
+      const r = await put({ today: bad });
+      assert.equal(r.status, 422, JSON.stringify(bad));
+      assert.match(((await r.json()) as { error: string }).error, /^today: order and hidden are lists/);
+    }
+    // Refused whole: the good field beside a bad Today is not taken either.
+    assert.equal((await put({ key: "E", today: { order: ["now", "now"], hidden: [] } })).status, 422);
+    const after = await (await t.api("/prefs/feel")).json() as Record<string, any>;
+    assert.equal(after.key, "D");
+    assert.deepEqual(after.today, short);
+  } finally { t.cleanup(); }
+});
+
+test("today: a file from before it, or with a Today that breaks a rule, reads with the default and keeps the rest", () => {
+  const t = makeHub();
+  try {
+    const usual = { order: ["now", "tech", "needs", "schedule", "todo", "sofar", "coming"], hidden: [] };
+    const file = path.join(t.dir, "feel-today.json");
+    const store = new FeelStore(file);
+    store.set({ key: "A", synth: "bell", bar: { count: 4, first: ["today", "library"], second: [] } });
+    const { today: _today, ...older } = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify(older));
+    assert.deepEqual(store.get().today, usual);
+    assert.equal(store.get().key, "A");
+    for (const broken of [{ order: ["now", "now"], hidden: [] }, { order: [], hidden: "tech" }, "default"]) {
+      fs.writeFileSync(file, JSON.stringify({ ...older, today: broken }));
+      assert.deepEqual(store.get().today, usual);
+      assert.equal(store.get().synth, "bell", "a bad Today does not cost the rest of the setting");
+      assert.equal(store.get().bar.count, 4);
+    }
+    // The default handed out is a copy: changing it changes no other answer.
+    store.get().today.order.pop();
+    assert.equal(store.get().today.order.length, 7);
+  } finally { t.cleanup(); }
+});

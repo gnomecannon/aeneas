@@ -7,7 +7,8 @@ import Foundation
 /// only, numbered), what is on now and what is left (the schedule), what is done (today so far), then what is coming
 /// and needs nothing from you. An automatic record (a charge on autopay) is never an action, and Today does not list
 /// it at all: it pays itself (gnomecannon/aeneas#14); Renewals shows it. What needs a look in Tech is Tech's own card
-/// above Needs you (`Tech.light`), never a row of Needs you.
+/// above Needs you (`Tech.light`), never a row of Needs you. That is the default order: Theme, Today changes it and
+/// hides parts (`TodaySetting`), and `columns(width:cards:)` fills the columns in the order chosen.
 public enum TodayBoard {
     /// How a time of day is written ("3:00 PM"): the device's own short style on screen, a fixed one in tests.
     public typealias Clock = @Sendable (Date) -> String
@@ -431,16 +432,60 @@ public enum TodayBoard {
 
     // MARK: columns
 
-    public enum Section: String, CaseIterable, Sendable { case needs, schedule, todo, sofar, coming }
+    /// The cards grouped into the slots the columns are filled with, in their order: each card has a slot of its own,
+    /// but Tech, one short line, sits at the top of the card after it (Needs you, by default), or at the bottom of the
+    /// card before it when no card follows; alone, it has its own.
+    public static func slots(_ cards: [TodayPart]) -> [[TodayPart]] {
+        var slots: [[TodayPart]] = []
+        var tech = false
+        for c in cards {
+            if c == .tech {
+                tech = true
+            } else {
+                slots.append(tech ? [.tech, c] : [c])
+                tech = false
+            }
+        }
+        if tech {
+            if slots.isEmpty { slots.append([.tech]) } else { slots[slots.count - 1].append(.tech) }
+        }
+        return slots
+    }
 
-    /// Which sections go in which column at a width (of the screen's own area, in points): one column on a phone, up
-    /// to five across a wide window. Each section keeps its column at a given width whatever it holds, so nothing
-    /// moves when a list grows: a status board is read by position.
-    public static func columns(width: Double) -> [[Section]] {
-        if width >= 2100 { return [[.needs], [.schedule], [.todo], [.sofar], [.coming]] }
-        if width >= 1500 { return [[.needs], [.schedule], [.todo], [.sofar, .coming]] }
-        if width >= 1040 { return [[.needs, .todo], [.schedule], [.sofar, .coming]] }
-        if width >= 680 { return [[.needs, .todo, .coming], [.schedule, .sofar]] }
-        return [[.needs, .schedule, .todo, .sofar, .coming]]
+    /// How many columns a width has room for (of the screen's own area, in points): one on a phone, up to five.
+    public static func columnCount(width: Double) -> Int {
+        if width >= 2100 { return 5 }
+        if width >= 1500 { return 4 }
+        if width >= 1040 { return 3 }
+        if width >= 680 { return 2 }
+        return 1
+    }
+
+    /// The column of each slot, by how many columns there are, when there are more slots than columns: the first slot
+    /// goes in the first place's column, and so on. In the default order these are the columns Today has always had:
+    /// on three, Needs you and To do share the first and Today so far and Coming up the last; on two, the cards take
+    /// turns.
+    static let places: [Int: [Int]] = [
+        1: [0, 0, 0, 0, 0],
+        2: [0, 1, 0, 1, 0],
+        3: [0, 1, 0, 2, 2],
+        4: [0, 1, 2, 3, 3],
+        5: [0, 1, 2, 3, 4],
+    ]
+
+    /// Which cards go in which column at a width: the cards drawn (in the setting's order, without the hidden ones and
+    /// without Tech while it has nothing to show) fill the columns in their order. With no more slots than columns,
+    /// each has a column of its own. Each card keeps its column at a given width whatever it holds, so nothing moves
+    /// when a list grows: a status board is read by position. The same rules as `todayColumns` in
+    /// web/src/lib/todayBoard.ts.
+    public static func columns(width: Double, cards: [TodayPart]) -> [[TodayPart]] {
+        let slots = slots(cards.filter { $0 != TodayPart.top })
+        let count = min(columnCount(width: width), slots.count)
+        var columns = Array(repeating: [TodayPart](), count: count)
+        for (i, slot) in slots.enumerated() {
+            let place = places[count].flatMap { $0.indices.contains(i) ? $0[i] : nil } ?? count - 1
+            columns[slots.count <= count ? i : place] += slot
+        }
+        return columns
     }
 }

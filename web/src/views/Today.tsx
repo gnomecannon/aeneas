@@ -1,6 +1,6 @@
 import { plainError } from "../lib/errors";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { datePhrase, datesSoon, peopleInPlans, plansToday } from "@everythingapp/shared";
+import { datePhrase, datesSoon, peopleInPlans, plansToday, todayCards, todayShowsTop } from "@everythingapp/shared";
 import { useHubPoll } from "../sync/useHubPoll";
 import { usePoll } from "../lib/usePoll";
 import { localToday, scheduleTask, unscheduleTask, conflictMessage, renewWatch } from "../sync/planner";
@@ -22,6 +22,8 @@ import type { OpsData } from "../lib/ops";
 import type { SensorRow } from "../sync/api";
 import { AckControl, ProposeFix } from "./Ops";
 import { useLocalDate } from "../lib/useLocalDate";
+import { useFeel } from "../feel/store";
+import { TODAY_TEXT } from "./settings/TodayParts";
 
 /** How many rows a card shows before it links to the rest. */
 const TODO_SHOWN = 6;
@@ -60,7 +62,9 @@ function useWidth<T extends HTMLElement>(): [RefObject<T>, number] {
  * The day as a status board, in the order its owner asked every report to take: at the top what is on now and how
  * long it has left; then Tech's light as one folded line and what needs you (actions only, numbered, each with its
  * button), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
- * that needs nothing from you. One column on a phone, up to five across a wide window (lib/todayBoard.ts).
+ * that needs nothing from you. One column on a phone, up to five across a wide window (lib/todayBoard.ts). That is the
+ * default: Theme, Today (`today` in the feel setting, one for every device) hides parts and puts the cards in another
+ * order, which fills the columns; Edit Today at the bottom opens it.
  *
  * The day is drawn once, as the Schedule card's list: a strip of it across the top said the same again
  * (gnomecannon/aeneas#15). Capturing is the Capture screen's, one press away on every screen; a box for it here said
@@ -71,6 +75,7 @@ function useWidth<T extends HTMLElement>(): [RefObject<T>, number] {
 export function Today() {
   const poll = useHubPoll<PlannerToday>((c) => c.plannerToday(), localToday, []);
   const { on } = useModules();
+  const setting = useFeel().today;
   const t = poll.data;
   const now = useNow();
   // What today holds is worked out again when the day changes with the screen open, not only when the items do:
@@ -208,33 +213,31 @@ export function Today() {
   };
 
   const sections: Record<TodaySection, ReactNode> = {
-    // Tech sits at the top of the Needs you slot, as one line until pressed.
+    // Tech is one line until pressed, at the top of the card after it (lib/todayBoard.ts `todaySlots`).
+    tech: light && (
+      <TechCard light={light} looks={looks} watched={watched} open={techOpen} onToggle={() => setTechOpen((o) => !o)} onChanged={async () => { await ops.reload(); }} />
+    ),
     needs: (
-      <>
-        {light && (
-          <TechCard light={light} looks={looks} watched={watched} open={techOpen} onToggle={() => setTechOpen((o) => !o)} onChanged={async () => { await ops.reload(); }} />
+      <section className={`card tcard needs${needs.length ? " has" : ""}`} aria-label="Needs you">
+        <h2>Needs you {needs.length > 0 && <span className="count" aria-label={`${needs.length} waiting`}>{needs.length}</span>}</h2>
+        {needs.length === 0 ? (
+          <p className="today-clear"><span className="dot up" aria-hidden="true" /> Nothing needs you right now.</p>
+        ) : (
+          <ol className="need-list">
+            {needs.map((n, i) => (
+              <li key={n.key} className={`need ${n.kind}${(n.kind === "renewal" && n.overdue) || (n.kind === "followup" && n.late) ? " late" : ""}`}>
+                <span className="num" aria-hidden="true">{i + 1}</span>
+                <div className="need-body">
+                  <div className="need-title">{n.title}</div>
+                  {n.detail && <div className="need-detail">{n.detail}</div>}
+                  <div className="need-actions">{needActions(n)}</div>
+                  {rowErr?.key === n.key && <div className="error" role="alert">{rowErr.text}</div>}
+                </div>
+              </li>
+            ))}
+          </ol>
         )}
-        <section className={`card tcard needs${needs.length ? " has" : ""}`} aria-label="Needs you">
-          <h2>Needs you {needs.length > 0 && <span className="count" aria-label={`${needs.length} waiting`}>{needs.length}</span>}</h2>
-          {needs.length === 0 ? (
-            <p className="today-clear"><span className="dot up" aria-hidden="true" /> Nothing needs you right now.</p>
-          ) : (
-            <ol className="need-list">
-              {needs.map((n, i) => (
-                <li key={n.key} className={`need ${n.kind}${(n.kind === "renewal" && n.overdue) || (n.kind === "followup" && n.late) ? " late" : ""}`}>
-                  <span className="num" aria-hidden="true">{i + 1}</span>
-                  <div className="need-body">
-                    <div className="need-title">{n.title}</div>
-                    {n.detail && <div className="need-detail">{n.detail}</div>}
-                    <div className="need-actions">{needActions(n)}</div>
-                    {rowErr?.key === n.key && <div className="error" role="alert">{rowErr.text}</div>}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      </>
+      </section>
     ),
     schedule: (
       <section className="card tcard schedule" aria-label="Schedule">
@@ -347,7 +350,9 @@ export function Today() {
   };
 
   const [wrap, width] = useWidth<HTMLDivElement>();
-  const columns = todayColumns(width);
+  // The cards the setting shows, in its order; Tech only while it has something to show.
+  const cards = todayCards(setting).filter((c) => c !== "tech" || !!light);
+  const columns = todayColumns(width, cards);
   const dateWords = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
   return (
@@ -365,7 +370,7 @@ export function Today() {
         </div>
       </header>
       {!t && poll.error && <div className={poll.unavailable ? "muted small" : "error"}>{poll.unavailable ? "The planner is not available on this hub." : poll.error}</div>}
-      {t && (
+      {t && todayShowsTop(setting) && (
         <>
           <p className="today-now" role="status">
             {line.kind === "during" ? (
@@ -379,13 +384,20 @@ export function Today() {
           {free && <p className="today-free">{free}</p>}
         </>
       )}
-      <div className="today-cols" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}>
-        {columns.map((col, i) => (
-          <div key={i} className="today-col">
-            {col.map((s) => <Fragment key={s}>{sections[s]}</Fragment>)}
+      {cards.length === 0 ? (
+        <p className="today-none muted">{TODAY_TEXT.none} <a href="#/settings/theme/today">{TODAY_TEXT.edit}</a></p>
+      ) : (
+        <>
+          <div className="today-cols" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}>
+            {columns.map((col, i) => (
+              <div key={i} className="today-col">
+                {col.map((s) => <Fragment key={s}>{sections[s]}</Fragment>)}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+          <a className="small today-edit" href="#/settings/theme/today">{TODAY_TEXT.edit}</a>
+        </>
+      )}
     </div>
   );
 }

@@ -29,7 +29,7 @@ pairing code made on a paired device.
 
 ## Today
 
-Today is the day as a status board, the same on every device. From the top:
+Today is the day as a status board, the same on every device. From the top, as it comes:
 
 - **The line at the top** says what is on now and how long it has left ("Dentist cleaning until 4:00 PM, 46 min
   left"), else what is next and how long until it, else that nothing else is scheduled. Under it is the free time
@@ -52,6 +52,17 @@ Today is the day as a status board, the same on every device. From the top:
 
 The cards are in one column on a phone and in up to five across a wide window. On iPhone, iPad and Mac, swiping left
 or right shows another day's plan.
+
+**Edit Today**, a small link at the bottom of Today (or Settings, Theme, Today), chooses what Today shows and in what
+order, the same on every device:
+
+- Each part has a switch. The line at the top always stays at the top; it can only be shown or hidden.
+- Drag a card by its handle to move it. In the Windows and Android apps and the browser there are also Move up and
+  Move down buttons for the keyboard; on iPhone, iPad and Mac, VoiceOver has Move up and Move down actions.
+- On a wide window the cards fill the columns in your order. Tech is a short line, so it sits at the top of the card
+  after it, or under the card before it when it is last. It still shows only when it has something to watch.
+- With every card hidden, Today says so, with Edit Today to bring them back. Reset puts every part back, in the order
+  above.
 
 ## Now
 

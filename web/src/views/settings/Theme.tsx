@@ -7,6 +7,7 @@ import { newId, paletteName, type AppTheme, type Appearance, type FeelView } fro
 import { SCALE_NAMES, SYNTH_NAMES, THEME_NAMES } from "../../feel/theory";
 import { NavRow, Segmented, SubPage } from "./common";
 import { barSummary } from "./BottomBar";
+import { todaySummary } from "./TodayParts";
 
 /** One line for each part of the theme, shared by the Settings and Theme menus. */
 export function themeSummaries(f: FeelView): { colors: string; taps: string; sounds: string } {
@@ -31,6 +32,7 @@ export function ThemeHome() {
         <NavRow href="/settings/theme/sounds" title="Note sounds" summary={s.sounds} />
         <NavRow href="/settings/theme/calendars" title="Calendar colors" summary={calendarsSummary(f)} />
         <NavRow href="/settings/theme/bar" title="Bottom bar" summary={barSummary(f.bar)} />
+        <NavRow href="/settings/theme/today" title="Today" summary={todaySummary(f.today)} />
       </nav>
     </SubPage>
   );

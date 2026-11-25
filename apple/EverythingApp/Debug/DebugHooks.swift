@@ -40,10 +40,15 @@ import EACore
 ///                                or work; with -EAAccount too, signin scrolls that account's page to Sign-in; with
 ///                                -EASettingsPage appleHealth, writes or hub scrolls the Apple Health page there
 ///   -EABarOpen YES               the bottom bar's second row shows open at launch (PhoneRoot)
+///   -EABarReveal <points>        the bottom bar's panel held as if pulled up that far (0 folded, the second row's
+///                                height open, more for a pull past open), to photograph each stage (PhoneBar)
 ///   -EABarCount <3|4|5>          the bottom bar shows that many screens across, as choosing it in Theme, Bottom bar
 ///                                does (rows cut to it); -EASettingsPage bottomBar opens that page
 ///   -EABarReset YES              the bottom bar goes back to its default first, as Reset in Theme, Bottom bar does (a
 ///                                count cut by -EABarCount stays cut otherwise)
+///   -EATodayOrder <ids>          Today's order, ids comma separated (now,coming,todo...), or default for the default
+///                                (TodayDebug); -EATodayHidden <ids> the parts hidden. -EASettingsPage today opens the
+///                                editor, Theme, Today
 @MainActor
 enum DebugHooks {
     /// The machine page `-EAMachine` asked for opens once, not again each time the Overview shows.
@@ -97,6 +102,7 @@ enum DebugHooks {
         if d.bool(forKey: "EABarReset"), feel.settings.shownBar != .standard { feel.setBar(.standard) }
         let n = d.integer(forKey: "EABarCount")
         if BarSetting.counts.contains(n), feel.settings.shownBar.count != n { feel.setBar(feel.settings.shownBar.withLibrary.withCount(n)) }
+        TodayDebug.apply()
     }
 
     /// A spoken capture as if it had come from the Watch: `-EAWatchCaptureFile <name>` takes that file from this app's

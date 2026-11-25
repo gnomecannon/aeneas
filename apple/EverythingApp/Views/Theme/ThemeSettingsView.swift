@@ -1,8 +1,8 @@
 import SwiftUI
 import EACore
 
-/// Settings, then Theme: the app's colors, the shapes a tap throws, the note it plays, the calendars' colors and the
-/// phone's bottom bar.
+/// Settings, then Theme: the app's colors, the shapes a tap throws, the note it plays, the calendars' colors, the
+/// phone's bottom bar, and what Today shows.
 struct ThemeSettingsView: View {
     @ObservedObject private var feel = FeelController.shared
     @State private var debugPage: SettingsPage?
@@ -27,6 +27,9 @@ struct ThemeSettingsView: View {
         }
         SettingsAreaLink(card: card) { BottomBarSettingsView() } label: {
             SettingsRow(title: "Bottom bar", symbol: "dock.rectangle", summary: BarText.summary(s.shownBar))
+        }
+        SettingsAreaLink(card: card) { TodayPartsSettingsView() } label: {
+            SettingsRow(title: "Today", symbol: "sun.max", summary: TodayText.summary(s.shownToday))
         }
     }
 

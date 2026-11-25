@@ -238,14 +238,67 @@ final class TodayBoardTests: XCTestCase {
     }
 
     func testColumnsAreOneOnAPhoneAndUpToFiveAcrossAWideWindow() {
+        let usual = TodaySetting.standard.cards
+        let noTech = usual.filter { $0 != .tech }
         for (width, count) in [(390.0, 1), (679.0, 1), (680.0, 2), (1039.0, 2), (1040.0, 3), (1499.0, 3), (1500.0, 4), (2099.0, 4), (2100.0, 5), (3000.0, 5)] {
-            let cols = TodayBoard.columns(width: width)
+            XCTAssertEqual(TodayBoard.columnCount(width: width), count, "at \(width)")
+            let cols = TodayBoard.columns(width: width, cards: noTech)
             XCTAssertEqual(cols.count, count, "at \(width)")
-            // Every section in exactly one place.
-            XCTAssertEqual(cols.flatMap { $0 }.sorted { $0.rawValue < $1.rawValue }, TodayBoard.Section.allCases.sorted { $0.rawValue < $1.rawValue }, "at \(width)")
+            // Every card in exactly one place.
+            XCTAssertEqual(cols.flatMap { $0 }.sorted { $0.rawValue < $1.rawValue }, noTech.sorted { $0.rawValue < $1.rawValue }, "at \(width)")
+            XCTAssertEqual(TodayBoard.columns(width: width, cards: usual).flatMap { $0 }.sorted { $0.rawValue < $1.rawValue }, usual.sorted { $0.rawValue < $1.rawValue }, "at \(width)")
         }
-        XCTAssertEqual(TodayBoard.columns(width: 390), [[.needs, .schedule, .todo, .sofar, .coming]])
-        XCTAssertEqual(TodayBoard.columns(width: 1100).first, [.needs, .todo])
+        XCTAssertEqual(TodayBoard.columns(width: 390, cards: noTech), [[.needs, .schedule, .todo, .sofar, .coming]])
+        XCTAssertEqual(TodayBoard.columns(width: 1100, cards: noTech).first, [.needs, .todo])
+    }
+
+    /// The same cases as todayColumns in web/src/lib/todayBoard.test.ts.
+    func testTheDefaultIsDrawnAsTodayAlwaysWasWithTechAtTheTopOfNeedsYou() {
+        let usual = TodaySetting.standard.cards
+        XCTAssertEqual(TodayBoard.columns(width: 358, cards: usual), [[.tech, .needs, .schedule, .todo, .sofar, .coming]])
+        XCTAssertEqual(TodayBoard.columns(width: 792, cards: usual), [[.tech, .needs, .todo, .coming], [.schedule, .sofar]])
+        XCTAssertEqual(TodayBoard.columns(width: 1048, cards: usual), [[.tech, .needs, .todo], [.schedule], [.sofar, .coming]])
+        XCTAssertEqual(TodayBoard.columns(width: 1688, cards: usual), [[.tech, .needs], [.schedule], [.todo], [.sofar, .coming]])
+        XCTAssertEqual(TodayBoard.columns(width: 2328, cards: usual), [[.tech, .needs], [.schedule], [.todo], [.sofar], [.coming]])
+    }
+
+    func testColumnsAreFilledInACustomOrder() {
+        let cards = TodaySetting(order: ["now", "coming", "todo", "schedule", "needs", "tech", "sofar"], hidden: []).cards
+        XCTAssertEqual(cards, [.coming, .todo, .schedule, .needs, .tech, .sofar])
+        XCTAssertEqual(TodayBoard.columns(width: 358, cards: cards), [[.coming, .todo, .schedule, .needs, .tech, .sofar]])
+        XCTAssertEqual(TodayBoard.columns(width: 792, cards: cards), [[.coming, .schedule, .tech, .sofar], [.todo, .needs]])
+        XCTAssertEqual(TodayBoard.columns(width: 1048, cards: cards), [[.coming, .schedule], [.todo], [.needs, .tech, .sofar]])
+        XCTAssertEqual(TodayBoard.columns(width: 1688, cards: cards), [[.coming], [.todo], [.schedule], [.needs, .tech, .sofar]])
+        XCTAssertEqual(TodayBoard.columns(width: 2328, cards: cards), [[.coming], [.todo], [.schedule], [.needs], [.tech, .sofar]])
+    }
+
+    func testHiddenCardsAreLeftOutAndEachSlotHasAColumnWhileThereIsRoom() {
+        // Two hidden, and Tech last: it sits under the Schedule, so three slots.
+        let cards = TodaySetting(order: ["now", "coming", "todo", "schedule", "needs", "tech", "sofar"], hidden: ["sofar", "needs"]).cards
+        XCTAssertEqual(cards, [.coming, .todo, .schedule, .tech])
+        XCTAssertEqual(TodayBoard.columns(width: 358, cards: cards), [[.coming, .todo, .schedule, .tech]])
+        XCTAssertEqual(TodayBoard.columns(width: 792, cards: cards), [[.coming, .schedule, .tech], [.todo]])
+        XCTAssertEqual(TodayBoard.columns(width: 1048, cards: cards), [[.coming], [.todo], [.schedule, .tech]])
+        XCTAssertEqual(TodayBoard.columns(width: 1688, cards: cards), [[.coming], [.todo], [.schedule, .tech]])
+        XCTAssertEqual(TodayBoard.columns(width: 2328, cards: cards), [[.coming], [.todo], [.schedule, .tech]])
+        // Two cards: never more than two columns, however wide.
+        XCTAssertEqual(TodayBoard.columns(width: 2328, cards: [.schedule, .todo]), [[.schedule], [.todo]])
+        XCTAssertEqual(TodayBoard.columns(width: 358, cards: []), [])
+        // The line at the top is never a card.
+        XCTAssertEqual(TodayBoard.columns(width: 358, cards: [.now, .needs]), [[.needs]])
+    }
+
+    func testTechSitsWithTheCardAfterItElseTheOneBeforeElseAlone() {
+        XCTAssertEqual(TodayBoard.slots([.tech, .needs, .schedule]), [[.tech, .needs], [.schedule]])
+        // Needs you hidden: Tech sits at the top of the next card.
+        XCTAssertEqual(TodayBoard.slots([.tech, .schedule, .todo]), [[.tech, .schedule], [.todo]])
+        XCTAssertEqual(TodayBoard.slots([.schedule, .todo, .tech]), [[.schedule], [.todo, .tech]])
+        XCTAssertEqual(TodayBoard.slots([.tech]), [[.tech]])
+        XCTAssertEqual(TodayBoard.columns(width: 2328, cards: [.tech]), [[.tech]])
+        // Tech never takes a column: hidden or shown, the other cards keep theirs.
+        let usual = TodaySetting.standard.cards
+        XCTAssertEqual(TodayBoard.columns(width: 1048, cards: usual).map { $0.filter { $0 != .tech } },
+                       TodayBoard.columns(width: 1048, cards: usual.filter { $0 != .tech }))
     }
 
     func testSpansAreMadeFromThePlanAndLeaveOutWhatHasNoTime() {

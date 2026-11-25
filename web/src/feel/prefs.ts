@@ -1,4 +1,4 @@
-import { defaultBar, readBar, type Bar, type CalendarColor } from "@everythingapp/shared";
+import { defaultBar, defaultToday, readBar, readToday, type Bar, type CalendarColor, type TodaySetting } from "@everythingapp/shared";
 import { KEYS, SCALES, SHAPES, SYNTHS, THEMES, type Key, type Scale, type ShapeName, type Synth, type Theme } from "./theory";
 
 /** A saved tap palette, chosen as `custom:<id>`. */
@@ -58,6 +58,8 @@ export interface Feel {
   calendars: CalendarColor[];
   /** The phone layout's bottom bar (Theme, Bottom bar): how many screens across and which, in two rows. */
   bar: Bar;
+  /** What Today shows and in what order (Theme, Today): the parts in the order chosen and the ones hidden. */
+  today: TodaySetting;
 }
 
 export interface FeelView extends Feel {
@@ -114,6 +116,7 @@ export const DEFAULT_FEEL: FeelView = {
   calendars: [],
   appearance: "system",
   bar: defaultBar(),
+  today: defaultToday(),
   effective: { key: "C", scale: "major_pentatonic", from: null },
 };
 
@@ -211,6 +214,9 @@ export function cleanPatch(raw: unknown): Partial<Feel> {
   // A bar that breaks a rule is left out, so the one already here (or the default) stands.
   const bar = readBar(r.bar);
   if (bar) out.bar = bar;
+  // The same for Today's setting.
+  const today = readToday(r.today);
+  if (today) out.today = today;
   return out;
 }
 

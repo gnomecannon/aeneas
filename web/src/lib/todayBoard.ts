@@ -6,9 +6,10 @@
  * only, numbered), what is on now and what is left (the schedule), what is done (today so far), then what is coming
  * and needs nothing from you. An automatic record (a charge on autopay) is never an action, and Today does not list
  * it at all: it pays itself (gnomecannon/aeneas#14); Renewals shows it. What needs a look in Tech is Tech's own card
- * above Needs you (lib/tech.ts `techLight`), never a row of Needs you.
+ * above Needs you (lib/tech.ts `techLight`), never a row of Needs you. That is the default order: Theme, Today changes
+ * it and hides parts (`today` in the feel setting), and `todayColumns` fills the columns in the order chosen.
  */
-import type { Entity } from "@everythingapp/shared";
+import type { Entity, TodayCard } from "@everythingapp/shared";
 import type { TimelineItem } from "./planner";
 import { localDate, takesTime, wholeDay } from "./planner";
 import type { DueReminder } from "./reminders";
@@ -294,17 +295,66 @@ function localMidnight(iso: string): number {
 
 // ---------- columns ----------
 
-export type TodaySection = "needs" | "schedule" | "todo" | "sofar" | "coming";
+/** A card of Today, by its id in the setting (`today` in the feel setting, packages/shared `today.ts`). */
+export type TodaySection = TodayCard;
 
 /**
- * Which sections go in which column at a width (of the screen's own area, in CSS pixels): one column on a phone, up
- * to five across a wide window. Each section keeps its column at a given width whatever it holds, so nothing moves
- * when a list grows: a status board is read by position.
+ * The cards grouped into the slots the columns are filled with, in their order: each card has a slot of its own, but
+ * Tech, one short line, sits at the top of the card after it (Needs you, by default), or at the bottom of the card
+ * before it when no card follows; alone, it has its own.
  */
-export function todayColumns(width: number): TodaySection[][] {
-  if (width >= 2100) return [["needs"], ["schedule"], ["todo"], ["sofar"], ["coming"]];
-  if (width >= 1500) return [["needs"], ["schedule"], ["todo"], ["sofar", "coming"]];
-  if (width >= 1040) return [["needs", "todo"], ["schedule"], ["sofar", "coming"]];
-  if (width >= 680) return [["needs", "todo", "coming"], ["schedule", "sofar"]];
-  return [["needs", "schedule", "todo", "sofar", "coming"]];
+export function todaySlots(cards: readonly TodaySection[]): TodaySection[][] {
+  const slots: TodaySection[][] = [];
+  let tech = false;
+  for (const c of cards) {
+    if (c === "tech") tech = true;
+    else {
+      slots.push(tech ? ["tech", c] : [c]);
+      tech = false;
+    }
+  }
+  if (tech) {
+    if (slots.length) slots[slots.length - 1].push("tech");
+    else slots.push(["tech"]);
+  }
+  return slots;
+}
+
+/** How many columns a width has room for (of the screen's own area, in CSS pixels): one on a phone, up to five. */
+export function todayColumnCount(width: number): number {
+  if (width >= 2100) return 5;
+  if (width >= 1500) return 4;
+  if (width >= 1040) return 3;
+  if (width >= 680) return 2;
+  return 1;
+}
+
+/**
+ * The column of each slot, by how many columns there are, when there are more slots than columns: the first slot goes
+ * in the first place's column, and so on. In the default order these are the columns Today has always had: on three,
+ * Needs you and To do share the first and Today so far and Coming up the last; on two, the cards take turns.
+ */
+const PLACES: Record<number, number[]> = {
+  1: [0, 0, 0, 0, 0],
+  2: [0, 1, 0, 1, 0],
+  3: [0, 1, 0, 2, 2],
+  4: [0, 1, 2, 3, 3],
+  5: [0, 1, 2, 3, 4],
+};
+
+/**
+ * Which cards go in which column at a width: the cards drawn (in the setting's order, without the hidden ones and
+ * without Tech while it has nothing to show) fill the columns in their order. With no more slots than columns, each has
+ * a column of its own. Each card keeps its column at a given width whatever it holds, so nothing moves when a list
+ * grows: a status board is read by position.
+ */
+export function todayColumns(width: number, cards: readonly TodaySection[]): TodaySection[][] {
+  const slots = todaySlots(cards);
+  const count = Math.min(todayColumnCount(width), slots.length);
+  const columns: TodaySection[][] = Array.from({ length: count }, () => []);
+  slots.forEach((slot, i) => {
+    const col = slots.length <= count ? i : (PLACES[count][i] ?? count - 1);
+    columns[col].push(...slot);
+  });
+  return columns;
 }

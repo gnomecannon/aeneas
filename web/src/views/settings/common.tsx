@@ -9,6 +9,7 @@ export const SETTINGS_TITLES: Record<string, string> = {
   "/settings/theme/taps": "Tap effects",
   "/settings/theme/sounds": "Note sounds",
   "/settings/theme/bar": "Bottom bar",
+  "/settings/theme/today": "Today",
   "/settings/connection": "Connection",
   "/settings/accounts": "Accounts",
   "/settings/accounts/add": "Add account",

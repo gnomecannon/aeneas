@@ -541,6 +541,9 @@ table.proof .narrow { display: none; }
 .today .count.quiet { background: transparent; color: var(--muted); padding: 0; font-weight: 400; text-transform: none; }
 .today .more { display: inline-block; margin-top: 8px; }
 .today-clear { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text-2); }
+/* Every card hidden (Theme, Today): one line that says so, and the way back. */
+.today-none { margin: 10px 0 0; }
+.today-edit { display: inline-block; margin-top: 14px; }
 /* Something is waiting: the card says so with the accent on its edge. */
 .today .needs.has { border-left: 3px solid var(--accent); }
 
@@ -1164,6 +1167,20 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 .bar-chooser h2 { margin: 0; }
 .bar-chooser h2:focus { outline: none; }
 .bar-choice { width: 100%; align-items: center; text-align: left; min-height: 44px; }
+/* Theme, Today (views/settings/TodayParts.tsx): a part a row, its switch, a handle to drag it by, Move up and down. */
+.today-parts { list-style: none; margin: 0; padding: 0; }
+.today-part { align-items: center; }
+.today-part .grip { padding: 6px 4px; font-size: 18px; line-height: 1; touch-action: none; }
+.today-part.dragging { opacity: 0.85; border-color: var(--accent); }
+.today-parts.dragging { user-select: none; cursor: grabbing; }
+.today-part-label { display: flex; align-items: flex-start; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+.today-part-label input { width: 18px; height: 18px; flex: none; margin: 2px 0 0; accent-color: var(--accent); }
+.today-part .body { display: flex; flex-direction: column; gap: 2px; }
+.today-part .meta { font-size: 13px; }
+.today-part.off .t { color: var(--muted); }
+.today-part .moves { display: flex; gap: 2px; flex: none; }
+.today-part .moves button { min-height: 30px; min-width: 30px; padding: 0 6px; font-size: 11px; line-height: 1; }
+@media (pointer: coarse) { .today-part .moves button { min-height: 44px; min-width: 44px; } }
 .bar-choice .screen-icon { width: 22px; height: 22px; color: var(--link); }
 .bar-choice .meta { flex: none; }
 .bar-choice.on { border-color: var(--accent); }

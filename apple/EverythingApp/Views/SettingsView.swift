@@ -203,7 +203,7 @@ struct SettingsView: View {
 /// Accounts (`-EAAccount <address>` then opens that account's page), `addAccount` its Add account, `calendar` From this
 /// iPhone, Calendars, `appleHealth` From this iPhone, Apple Health (Settings, Accounts on the Mac, which has none).
 enum SettingsPage: String, Hashable, Identifiable {
-    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, appleHealth, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, modules, reference, helpers
+    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, appleHealth, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, today, modules, reference, helpers
     var id: String { rawValue }
 
     /// A page named by a launch argument, once per launch.
@@ -235,6 +235,7 @@ enum SettingsPage: String, Hashable, Identifiable {
         case .noteSounds: NoteSoundsView()
         case .calendarColors: CalendarColorsView()
         case .bottomBar: BottomBarSettingsView()
+        case .today: TodayPartsSettingsView()
         case .modules: ModulesSettingsView()
         case .reference: ReferenceSettingsView()
         case .helpers: HelpersSettingsView()

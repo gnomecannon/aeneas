@@ -25,6 +25,8 @@ import EACore
 ///                              from -EAWindowSize); prints the window number
 ///   -EAAppTheme <id>           use that app theme (classic, midnight, paper, ...); -EAAppearance light or dark for Classic
 ///   -EAThemeEditor YES         with -EASection settings -EASettingsPage appColors, the theme editor opens on the theme in use
+///   -EATodayOrder <ids>        Today's order, ids comma separated (now,coming,todo...), or default for the default
+///                              (TodayDebug); -EATodayHidden <ids> the parts hidden
 ///   -EAOpenItem <id>           an item's sheet opens, as a link to it does
 ///   -EAPrintWindows YES        prints the number of every window of the app (sheets too) once the screen has loaded
 ///   -EASettingsWindow <page>   a Settings page (theme, appColors, calendarColors, accounts, addAccount...) in a window
@@ -74,6 +76,7 @@ enum DebugHooksMac {
         if let t = d.string(forKey: "EAAppTheme"), !t.isEmpty { theme["app_theme"] = .string(t) }
         if let a = d.string(forKey: "EAAppearance"), ["system", "light", "dark"].contains(a) { theme["appearance"] = .string(a) }
         if !theme.isEmpty { FeelController.shared.change(theme) }
+        TodayDebug.apply()
         if let id = d.string(forKey: "EAOpenItem"), !id.isEmpty {
             Task { try? await Task.sleep(for: .seconds(1.5)); model.open(itemId: id) }
         }

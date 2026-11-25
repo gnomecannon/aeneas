@@ -5,7 +5,9 @@ import EACore
 /// it has left; then Tech's light as one folded line and what needs you (actions only, numbered, each with its
 /// buttons), the schedule (what is left), things to do, today so far (what is done and was said), and what is coming
 /// that needs nothing from you. One column on an iPhone, up to five across a wide window. The rules are EACore's
-/// `TodayBoard` and `Tech`, the same as the web app's.
+/// `TodayBoard` and `Tech`, the same as the web app's. That is the default: Theme, Today (`today` in the feel setting,
+/// one for every device) hides parts and puts the cards in another order, which fills the columns; Edit Today at the
+/// bottom opens it.
 ///
 /// The day is drawn once, as the Schedule card's list: a strip of it across the top said the same again
 /// (gnomecannon/aeneas#15). Capturing is the Capture tab's, one press away on every screen; a box for it here said
@@ -17,6 +19,8 @@ struct TodayBoardView: View {
     @EnvironmentObject var engine: SyncEngine
     /// Tech's board, for what needs a look: the same list and light as the Overview's, so the two never disagree.
     @ObservedObject private var feed = OpsBoardFeed.shared
+    /// What Today shows and in what order (Theme, Today).
+    @ObservedObject private var feel = FeelController.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var today: PlannerToday
@@ -29,9 +33,14 @@ struct TodayBoardView: View {
     /// Tech's card is folded each time Today opens: the screen's own state, never saved.
     @State private var techOpen = false
 
+    private var setting: TodaySetting { feel.settings.shownToday }
+
+    /// The cards the setting shows, in its order; Tech only while it has something to show.
+    private var cards: [TodayPart] { setting.cards.filter { $0 != .tech || showsTech } }
+
     /// How wide one column of cards is at the width the screen has now.
     private var columnWidth: CGFloat {
-        let n = CGFloat(TodayBoard.columns(width: Double(width)).count)
+        let n = CGFloat(max(1, TodayBoard.columns(width: Double(width), cards: cards).count))
         return (width - 16 * (n - 1)) / n
     }
 
@@ -65,36 +74,49 @@ struct TodayBoardView: View {
     private func board(now: Date) -> some View {
         let events = engine.localDay(now).events
         let spans = TodayBoard.spans(blocks: today.blocks, commitments: today.commitments, events: events, reminders: today.reminders_due, freeSlots: today.free_slots)
+        let columns = TodayBoard.columns(width: Double(width), cards: cards)
         VStack(alignment: .leading, spacing: 16) {
-            head(spans, now: now)
-            HStack(alignment: .top, spacing: 16) {
-                ForEach(Array(TodayBoard.columns(width: Double(width)).enumerated()), id: \.offset) { _, column in
-                    VStack(alignment: .leading, spacing: 16) {
-                        ForEach(column, id: \.self) { section($0, events: events, spans: spans, now: now) }
+            if setting.showsTop { head(spans, now: now) }
+            if columns.isEmpty {
+                // Every card hidden: said in one line, with the way back.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(TodayText.none).foregroundStyle(.secondary)
+                    editLink
+                }
+            } else {
+                HStack(alignment: .top, spacing: 16) {
+                    ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
+                        VStack(alignment: .leading, spacing: 16) {
+                            ForEach(column, id: \.self) { section($0, events: events, spans: spans, now: now) }
+                        }
+                        // As tall as its cards: offered the tallest column's height, the Schedule's rows grew to fill it.
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
-                    // As tall as its cards: offered the tallest column's height, the Schedule's rows grew to fill it.
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
             }
             if !fromHub {
                 Text("Planned on this device. The hub's plan replaces it when it is reachable.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            if !columns.isEmpty { editLink.font(.subheadline) }
         }
     }
 
+    /// Theme, Today, opened over Today.
+    private var editLink: some View {
+        PageLink { TodayPartsSettingsView() } label: { Text(TodayText.edit) }
+            .buttonStyle(.borderless)
+    }
+
     @ViewBuilder
-    private func section(_ s: TodayBoard.Section, events: [Entity], spans: [TodayBoard.Span], now: Date) -> some View {
+    private func section(_ s: TodayPart, events: [Entity], spans: [TodayBoard.Span], now: Date) -> some View {
         switch s {
         // Each card has a name the screen can be scrolled to (`-EAScrollTo`, TodayView).
-        case .needs:
-            // Tech sits at the top of the Needs you slot, as one line until pressed.
-            VStack(alignment: .leading, spacing: 16) {
-                if showsTech { techCard }
-                needsCard(now: now)
-            }
-            .id("needs")
+        case .now: EmptyView()
+        // Tech is one line until pressed, at the top of the card after it (`TodayBoard.slots`).
+        case .tech: techCard.id("tech")
+        case .needs: needsCard(now: now).id("needs")
         case .schedule: scheduleCard(events: events, spans: spans, now: now).id("timeline")
         case .todo: todoCard().id("todo")
         case .sofar: soFarCard(now: now).id("sofar")

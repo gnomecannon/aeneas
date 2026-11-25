@@ -35,6 +35,9 @@ public struct FeelSettings: Codable, Equatable, Sendable {
     /// The phone layout's bottom bar (Theme, Bottom bar; `Bar.swift`). Nil when the hub named none (a hub from before
     /// it) or named one that breaks a rule: `shownBar` is then the default.
     public var bar: BarSetting?
+    /// What Today shows and in what order (Theme, Today; `TodayParts.swift`). Nil when the hub named none (a hub from
+    /// before it) or named one that breaks a rule: `shownToday` is then the default.
+    public var today: TodaySetting?
     /// The key and scale actually played: the setting, or the newest music idea's when following music.
     public var effective: Effective?
     public var options: Options?
@@ -86,18 +89,18 @@ public struct FeelSettings: Codable, Equatable, Sendable {
                 shape_size: Double, density: Double, sound: Bool, volume: Double, key: String, scale: String,
                 synth: String, octave: Int, follow_music: Bool, hold: Bool, drag_bend: Bool, app_theme: String,
                 app_themes: [AppTheme], appearance: String, calendars: [CalendarColorEntry] = [], bar: BarSetting? = nil,
-                effective: Effective?, options: Options?) {
+                today: TodaySetting? = nil, effective: Effective?, options: Options?) {
         self.motion = motion; self.theme = theme; self.palettes = palettes; self.shapes = shapes; self.images = images
         self.shape_size = shape_size; self.density = density
         self.sound = sound; self.volume = volume; self.key = key; self.scale = scale; self.synth = synth
         self.octave = octave; self.follow_music = follow_music; self.hold = hold; self.drag_bend = drag_bend
         self.app_theme = app_theme; self.app_themes = app_themes; self.appearance = appearance
-        self.calendars = calendars; self.bar = bar; self.effective = effective; self.options = options
+        self.calendars = calendars; self.bar = bar; self.today = today; self.effective = effective; self.options = options
     }
 
     enum CodingKeys: String, CodingKey {
         case motion, theme, palettes, shapes, images, shape_size, density, sound, volume, key, scale, synth, octave
-        case follow_music, hold, drag_bend, app_theme, app_themes, appearance, calendars, bar, effective, options
+        case follow_music, hold, drag_bend, app_theme, app_themes, appearance, calendars, bar, today, effective, options
     }
 
     private struct AnyKey: CodingKey {
@@ -138,6 +141,8 @@ public struct FeelSettings: Codable, Equatable, Sendable {
         calendars = list(.calendars, CalendarColorEntry.self) ?? d.calendars
         // Absent, or breaking a rule (BarSetting does not decode then): none, and the default bar is drawn.
         bar = try? c.decode(BarSetting.self, forKey: .bar)
+        // The same for Today's setting.
+        today = try? c.decode(TodaySetting.self, forKey: .today)
         effective = try? c.decode(Effective.self, forKey: .effective)
         options = try? c.decode(Options.self, forKey: .options)
         if theme == "custom" {
@@ -190,6 +195,8 @@ public struct FeelSettings: Codable, Equatable, Sendable {
     public var enabledImages: [FeelImage] { images.filter(\.enabled) }
     /// The bottom bar to draw and edit: the setting's, or the default while there is none.
     public var shownBar: BarSetting { bar ?? .standard }
+    /// What Today shows and in what order: the setting's, or the default while there is none.
+    public var shownToday: TodaySetting { today ?? .standard }
 }
 
 /// Decodes an element or nothing, so one broken item does not lose the rest of a list.
