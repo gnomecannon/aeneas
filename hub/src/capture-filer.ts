@@ -13,6 +13,7 @@ import { noteFolders } from "./note-linker.js";
 import { moduleOfKind, type ModuleCheck } from "./modules.js";
 import { personalize } from "./profile.js";
 import { errCode } from "./logsafe.js";
+import { isoLocal, tonightSpan } from "./ai/prompt.js";
 
 /**
  * Save and sort, for everything the rules cannot place: the assistant reads the capture and files it with its own
@@ -74,6 +75,7 @@ export function filingPrompt(text: string, at: Date, hint?: string, events: stri
   // the model resolves relative days itself badly (it put "yesterday" on the day it was written).
   const d0 = captureDay(at);
   const near = (n: number) => { const d = new Date(`${d0}T12:00:00`); d.setDate(d.getDate() + n); return `${d.toLocaleDateString("en-US", { weekday: "long" })} ${diaryDay(d)}`; };
+  const tonight = tonightSpan(at);
   return [
     `${T("[Capture to file] {{owner}} wrote this quick note to self on")} ${when}: "${text.trim()}"`,
     `Their day then was ${near(0)} (before 4 AM still counts as the day before), so yesterday was ${near(-1)}, the day before ${near(-2)}, tomorrow ${near(1)}.`,
@@ -83,6 +85,8 @@ export function filingPrompt(text: string, at: Date, hint?: string, events: stri
     heardOnWatch?.trim() ? `${T("{{owner}} said it aloud and two devices wrote it down: the note above is the phone's hearing, and the watch heard")} "${heardOnWatch.trim()}". ${T("Where the two differ, file what {{owner}} most likely said; never file both.")}` : "",
     T("It is already saved in that day's diary; never edit the diary. File it where it belongs, with your tools, without asking anything and without chatting:"),
     T("a plan with a day or part of a day becomes a calendar event (follow the Plans rule; name who is involved); a time given, even a bare hour (\"Saturday at 7\"), makes it a timed event starting then (a bare hour is PM unless it reads as morning), never all day;"),
+    // Worked out from when the note was written, not when it is filed: a capture filed late keeps its own evening.
+    T(`a plan for tonight or this evening with no hour is a timed event from ${tonight.start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} to midnight (start ${isoLocal(tonight.start)}, end ${isoLocal(tonight.end)}), titled with what and who and no \"Tonight\";`),
     T("something {{owner}} already did with a day or with people (went somewhere, saw someone, an outing, a show, a meal out) becomes an all-day calendar event on the day it happened (Halloween, last night, yesterday; otherwise that diary day), its title the whole outing in a few words (what they did, with whom, and what came after: \"Apple picking with Jamie and Devon, then Thai food and 2 movies\"), since an event has no notes;"),
     T("a lasting fact about {{owner}}, a pet, a place or a preference goes to memory with remember (only what the note says, never guesses);"),
     T("something about another person goes to them: look them up with people, then remember with person= (category like or dislike for what they like or dislike) for likes, dislikes, habits and history, or save_person for contact details (address, phone, email, birthday, anniversary or another date);"),

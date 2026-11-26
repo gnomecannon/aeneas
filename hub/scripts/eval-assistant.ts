@@ -20,7 +20,8 @@ import { runSeeds } from "../src/seed.js";
 import { diaryDay } from "../src/diary.js";
 import { at, ymd, seedWorld } from "./sample-world.js";
 import type { ChatOutput } from "../src/ai/index.js";
-import { weekendStart } from "../src/ai/prompt.js";
+import { tonightSpan, weekendStart } from "../src/ai/prompt.js";
+import { fileCapture } from "../src/capture-filer.js";
 import { backupOutcome, parseJobOutput } from "../src/backups.js";
 import { proposeMonitorFix } from "../src/tech.js";
 import type { Host, RunResult } from "../src/ai/hosts.js";
@@ -51,6 +52,8 @@ interface Case {
   machine?: (command: string) => { exit_code: number; output: string };
   /** Starts the chat the way the app does (an alert's Propose fix) and returns the monitor id; `say` follows in it. */
   alert?: (w: World) => string;
+  /** A quick capture filed in the background the way a capture from a device is; `say` is then left empty. */
+  capture?: string;
   /** Returns a failure reason or null. `turns` holds every reply, `made` everything created or changed. */
   check: (x: World & { turns: Turn[]; reply: string; tools: string[]; made: Entity[] }) => string | null;
 }
@@ -186,6 +189,10 @@ const CASES: Case[] = [
       const e = ev[0];
       return !e.fields.all_day && diaryDay(new Date(String(e.fields.start))) === ymd(fri) && hm(e.fields.start) === "19:00" ? null : `dinner at ${String(e.fields.start)}${e.fields.all_day ? " all day" : ""}`;
     } },
+  // A plan for tonight with no hour holds the evening, from the next hour (6 PM at the earliest) to midnight: it was an
+  // all-day "Tonight: ..." event, listed apart from the evening's hours.
+  { id: "plan-tonight", say: "going to dinner at Luigi's with Jamie tonight", check: ({ made }) => tonightCheck(made, /luigi/i) },
+  { id: "capture-tonight", say: "", capture: "Going to Casa Blanca with Jamie tonight to meet up with friends.", check: ({ made }) => tonightCheck(made, /casa blanca/i) },
   { id: "weight-trend", say: "how's my weight trending this month?",
     check: ({ reply }) => first(has(reply, /196\.4/, /down|lost|dropp|decreas/i), lacks(reply, /gain(ed)? weight|went up/i)) },
   { id: "sleep-last-night", say: "how much did I sleep last night?",
@@ -424,6 +431,16 @@ function freshHub(machine?: Case["machine"]): World & { dir: string } {
   return { hub, dir, ids: seedWorld(hub) };
 }
 
+/** One timed event over tonight's window, titled without "Tonight". Before 4 AM tonight is the coming evening. */
+function tonightCheck(made: Entity[], name: RegExp): string | null {
+  const ev = made.filter((e) => e.kind === "event" && !e.deleted_at && name.test(title(e)));
+  if (ev.length !== 1) return `${ev.length} events (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
+  const e = ev[0];
+  const want = tonightSpan(new Date());
+  const ok = !e.fields.all_day && new Date(String(e.fields.start)).getTime() === want.start.getTime() && new Date(String(e.fields.end)).getTime() === want.end.getTime() && !/^tonight/i.test(title(e));
+  return ok ? null : `"${title(e)}" ${String(e.fields.start)} to ${String(e.fields.end)}${e.fields.all_day ? " all day" : ""}`;
+}
+
 async function main() {
   const only = process.argv.slice(2);
   const cases = only.length ? CASES.filter((c) => only.includes(c.id)) : CASES;
@@ -446,7 +463,13 @@ async function main() {
       const pending = w.hub.ai.hosts.pendingFor(session);
       turns.push({ said: "(alert)", out: { reply: last?.role === "assistant" ? last.content : "", ...(pending ? { pending_action: { id: pending.id, host: pending.host, command: pending.command, purpose: pending.purpose } } : {}) } as unknown as ChatOutput, tools: [] });
     }
-    for (const said of Array.isArray(c.say) ? c.say : [c.say]) {
+    if (c.capture) {
+      const cap = w.hub.store.create("capture", { text: c.capture, source: "iphone", sort: true });
+      try { await fileCapture(w.hub, cap.id); } catch (e) { err = (e as Error).message; }
+      const filed = w.hub.store.get(cap.id);
+      turns.push({ said: c.capture, out: { reply: String(filed?.fields.filed ?? "") } as unknown as ChatOutput, tools: [] });
+    }
+    for (const said of c.capture ? [] : Array.isArray(c.say) ? c.say : [c.say]) {
       try {
         const out = await w.hub.ai.chat({ session_id: session, message: said, task_type: "auto" });
         turns.push({ said, out, tools: (out.actions ?? []).map((a) => a.tool) });

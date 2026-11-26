@@ -109,7 +109,34 @@ export function clockLine(now: Date): string {
   const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, "0");
   const local = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}${sign}${pad(off / 60)}:${pad(off % 60)}`;
   const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
-  return `Today is ${weekday} ${local.slice(0, 10)}. Current local time: ${local} (${Intl.DateTimeFormat().resolvedOptions().timeZone}). ${lateNight(now)}${pastDays(now)} ${comingDays(now)} ${weekendLine(now)}`;
+  return `Today is ${weekday} ${local.slice(0, 10)}. Current local time: ${local} (${Intl.DateTimeFormat().resolvedOptions().timeZone}). ${lateNight(now)}${pastDays(now)} ${comingDays(now)} ${weekendLine(now)} ${tonightLine(now)}`;
+}
+
+/** A local time as ISO 8601 with its offset, to the minute ("2026-11-25T18:00:00-05:00"). */
+export function isoLocal(d: Date): string {
+  const off = -d.getTimezoneOffset();
+  const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00${off >= 0 ? "+" : "-"}${pad(off / 60)}:${pad(off % 60)}`;
+}
+
+/**
+ * The hours a plan for "tonight" or "this evening" with no hour holds (the owner's rule, 2026-11-25): from the next full
+ * hour after it was said, 6 PM at the earliest, until midnight. Said after 11 PM, the last hour. Before 4 AM "tonight"
+ * is the coming evening, as the late-night line says. It was an all-day event, listed apart from the evening's hours.
+ */
+export function tonightSpan(now: Date): { start: Date; end: Date } {
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), now.getHours() + 1);
+  const six = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18);
+  const last = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23);
+  const start = next < six ? six : next > last ? last : next;
+  return { start, end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1) };
+}
+
+/** The window of `tonightSpan`, worded for the model with the exact times to pass. */
+export function tonightLine(now: Date): string {
+  const { start, end } = tonightSpan(now);
+  const clock = start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `A plan for tonight or this evening with no hour given runs from ${clock} to midnight: start ${isoLocal(start)}, end ${isoLocal(end)}.`;
 }
 
 /**
