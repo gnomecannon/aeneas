@@ -95,6 +95,7 @@ export function recordReading(hub: Hub, name: string, body: { value?: unknown; a
 }
 
 /** Readings of one sensor since `since`, oldest first, straight from SQL. */
+/** A sensor's readings since a time, oldest first. Keep the WHERE as it is: the index reading_sensor_at (db.ts) matches it. */
 export function readingsSince(hub: Hub, name: string, since: Date): Point[] {
   const rows = hub.db.prepare(
     "SELECT json_extract(fields, '$.at') AS at, json_extract(fields, '$.value') AS value FROM entities WHERE kind = 'reading' AND deleted_at IS NULL AND json_extract(fields, '$.sensor') = ? AND json_extract(fields, '$.at') >= ? ORDER BY at ASC",

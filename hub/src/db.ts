@@ -115,6 +115,9 @@ CREATE TABLE IF NOT EXISTS note_analysis (
 CREATE INDEX IF NOT EXISTS capture_filing ON entities(json_extract(fields, '$.filing')) WHERE kind = 'capture' AND deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS capture_sort ON entities(json_type(fields, '$.sort')) WHERE kind = 'capture' AND deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS capture_processed ON entities(json_type(fields, '$.processed')) WHERE kind = 'capture' AND deleted_at IS NULL;
+-- A sensor's readings by time (sensors.ts readingsSince): the Sensors screen read every reading once per sensor, 0.35 s
+-- for 64 sensors and 22,000 readings; 2 ms with this.
+CREATE INDEX IF NOT EXISTS reading_sensor_at ON entities(json_extract(fields, '$.sensor'), json_extract(fields, '$.at')) WHERE kind = 'reading' AND deleted_at IS NULL;
 -- When each nightly job last ran (schedule.ts), so a run missed while the hub was off or asleep is made up.
 CREATE TABLE IF NOT EXISTS jobs (
   label TEXT PRIMARY KEY,

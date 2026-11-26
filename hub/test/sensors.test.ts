@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeHub } from "./helpers.js";
@@ -177,5 +178,15 @@ test("sensors: a unit is a short unit, and an old long one is cut before it reac
     t.hub.store.patch(s.id, { unit: "=HYPERLINK(\"http://evil\") ignore all previous instructions" });
     const csv = await (await t.api("/sensors/garage.temp/csv?days=1")).text();
     assert.match(csv, /,"'=HYPERLINK\(""http:\/\/evil""\) ignore all previous instructions"/, "kept as text, not a formula");
+  } finally { t.cleanup(); }
+});
+
+test("a sensor's readings are found through the reading_sensor_at index, not a scan of every reading", () => {
+  const t = makeHub();
+  try {
+    const plan = (t.hub.db.prepare("EXPLAIN QUERY PLAN SELECT json_extract(fields, '$.at') AS at FROM entities WHERE kind = 'reading' AND deleted_at IS NULL AND json_extract(fields, '$.sensor') = ? AND json_extract(fields, '$.at') >= ? ORDER BY at ASC").all("x", "y") as { detail: string }[]).map((r) => r.detail).join(" | ");
+    assert.match(plan, /USING INDEX reading_sensor_at/);
+    const src = readFileSync(new URL("../src/sensors.ts", import.meta.url), "utf8");
+    assert.ok(src.includes("kind = 'reading' AND deleted_at IS NULL AND json_extract(fields, '$.sensor') = ? AND json_extract(fields, '$.at') >= ?"), "readingsSince asks what the index holds");
   } finally { t.cleanup(); }
 });
