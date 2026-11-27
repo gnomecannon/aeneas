@@ -154,7 +154,8 @@ test("the filer is told the owner's folders and where ideas go", () => {
   assert.match(p, /an idea for something to make .* becomes a note with save_note/);
   assert.match(p, /tags idea plus its form/);
   assert.match(p, /with the music_idea tool, given the line as said/);
-  assert.match(p, /a film \{\{owner\}\} wants to watch becomes a task to add it on Letterboxd/);
+  assert.match(p, /a film \(a movie, not a TV show\) \{\{owner\}\} wants to watch becomes a task to add it on Letterboxd/);
+  assert.match(p, /a TV show or series \{\{owner\}\} wants to watch becomes a task titled "Watch <show>"/);
   assert.doesNotMatch(p, /watchlist true/, "nothing here adds to the watchlist (gnomecannon/aeneas#16)");
   assert.match(p, /\{\{owner\}\}'s note folders: Writing\/Sketches; Programming\/App Ideas\./, "the owner is named when it is sent");
 });
