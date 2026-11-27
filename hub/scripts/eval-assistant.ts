@@ -193,6 +193,13 @@ const CASES: Case[] = [
   // all-day "Tonight: ..." event, listed apart from the evening's hours.
   { id: "plan-tonight", say: "going to dinner at Luigi's with Jamie tonight", check: ({ made }) => tonightCheck(made, /luigi/i) },
   { id: "capture-tonight", say: "", capture: "Going to Casa Blanca with Jamie tonight to meet up with friends.", check: ({ made }) => tonightCheck(made, /casa blanca/i) },
+  // Letterboxd lists films only: a TV show is a task to watch it, never a film or a Letterboxd task.
+  { id: "capture-tv-show", say: "", capture: "Remember to watch the TV show Severed Signal on maybe Hulu?",
+    check: ({ made }) => {
+      const t = made.find((e) => e.kind === "task" && /severed signal/i.test(title(e)));
+      if (made.some((e) => e.kind === "film") || made.some((e) => /letterboxd/i.test(title(e)))) return `made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ")}`;
+      return t && /watch/i.test(title(t)) ? null : `no watch task (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
+    } },
   { id: "weight-trend", say: "how's my weight trending this month?",
     check: ({ reply }) => first(has(reply, /196\.4/, /down|lost|dropp|decreas/i), lacks(reply, /gain(ed)? weight|went up/i)) },
   { id: "sleep-last-night", say: "how much did I sleep last night?",

@@ -102,7 +102,9 @@ export function filingPrompt(text: string, at: Date, hint?: string, events: stri
     on("music") && T("a riff, chord progression, lyric or song idea goes to Song ideas with the music_idea tool, given the line as said, so its key, tempo and tuning are read;"),
     // The watchlist lives on Letterboxd and nothing here can add to it (gnomecannon/aeneas#16): the film becomes the
     // one step only the owner can take.
-    on("films") && T("a film {{owner}} wants to watch becomes a task to add it on Letterboxd (create_task titled \"Add <film> to the Letterboxd watchlist\"), since the film watchlist lives on Letterboxd and cannot be added to here."),
+    // Letterboxd lists films only: "the TV show Devs on maybe Hulu" went on the film watchlist.
+    T("a TV show or series {{owner}} wants to watch becomes a task titled \"Watch <show>\", with where to watch it when the note says (\"Watch Devs (Hulu?)\"), never a film or a Letterboxd task;"),
+    on("films") && T("a film (a movie, not a TV show) {{owner}} wants to watch becomes a task to add it on Letterboxd (create_task titled \"Add <film> to the Letterboxd watchlist\"), since the film watchlist lives on Letterboxd and cannot be added to here."),
     folders.length ? `${T("{{owner}}'s note folders:")} ${folders.join("; ")}.` : "",
     events.length ? `Already on the calendar around then: ${events.join("; ")}. When the note is about one of these (the same plan or outing), change only that event's title with update_item (the whole outing and who came; keep its times) and add no other event for it.` : "",
     tasks.length ? `Open tasks like it: ${tasks.join("; ")}. When the note is about one of these, add no other task: leave it, or change that one (a due date, a list) with update_task or update_item.` : "",
