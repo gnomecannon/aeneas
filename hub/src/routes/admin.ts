@@ -3,9 +3,10 @@ import { Hono } from "hono";
 import type { Hub } from "../hub.js";
 import { readJsonObject } from "../http.js";
 import { StoreError } from "../store.js";
+import { matchList } from "../ai/lists.js";
 import { autoModel, hubAddress, pairingLinks, pullState, removeAi, saveAi, setupDetect, setupView, setupViewChecked, startPull } from "../setup.js";
 import {
-  calcPayoff, calcSplit, calcUnit, instantiateChecklist, markPlayed, pickGame, renewalTotals, subscriptions,
+  addToChecklist, calcPayoff, calcSplit, calcUnit, instantiateChecklist, markPlayed, pickGame, renewalTotals, subscriptions,
   toggleChecklistItem,
 } from "../admin.js";
 import { calcTakeHome } from "../takehome.js";
@@ -26,6 +27,10 @@ export function adminRoutes() {
   const r = new Hono<{ Variables: { hub: Hub } }>();
 
   r.post("/checklists/:id/instantiate", async (c) => c.json(instantiateChecklist(c.get("hub").store, c.req.param("id"), await optionalBody(c)), 201));
+  r.post("/checklists/add", async (c) => {
+    const hub = c.get("hub");
+    return c.json(addToChecklist(hub.store, await readJsonObject(c), (name, names) => matchList(name, names, hub.profile.get().name)));
+  });
   r.post("/checklists/:id/toggle", async (c) => c.json(toggleChecklistItem(c.get("hub").store, c.req.param("id"), await readJsonObject(c))));
 
   // First-run setup (setup.ts): the machine's graphics card and model servers, choosing the model (local or cloud),

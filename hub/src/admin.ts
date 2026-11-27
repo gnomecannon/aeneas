@@ -52,6 +52,37 @@ export function toggleChecklistItem(store: Store, id: string, body: { index?: un
   return store.patch(id, { items: next });
 }
 
+/**
+ * Entries added to one of the owner's lists (Lists, kind checklist) by its name, the list made when there is none: the
+ * assistant had no way to add one entry, only to write a whole list again ("keep a list of the jobs I apply to", a
+ * show to watch). An entry already on the list (same words, any case) is not added again. A template is never written
+ * to, and an archived list counts as none.
+ */
+export function addToChecklist(store: Store, body: { list?: unknown; items?: unknown }, matchName: (name: string, names: string[]) => string | null): Entity & { added: string[] } {
+  const name = typeof body.list === "string" ? body.list.trim() : "";
+  if (!name) throw new StoreError(422, "list: the list's name");
+  const asked = (Array.isArray(body.items) ? body.items : [body.items])
+    .map((it) => (typeof it === "string" ? { text: it } : it && typeof it === "object" ? it as { text?: unknown; note?: unknown } : {}))
+    .map((it) => ({ text: typeof it.text === "string" ? it.text.trim() : "", note: typeof it.note === "string" && it.note.trim() ? it.note.trim() : undefined }))
+    .filter((it) => it.text);
+  if (!asked.length) throw new StoreError(422, "items: at least one entry, as words");
+  const lists = store.list({ kind: "checklist", space: "personal", limit: 10000 }).filter((c) => !c.deleted_at && c.fields.template !== true && c.fields.archived !== true);
+  const hit = matchName(name, lists.map((c) => String(c.fields.title ?? "")));
+  const found = hit === null ? undefined : lists.find((c) => String(c.fields.title ?? "") === hit);
+  const list = found ?? store.create("checklist", { title: name.charAt(0).toUpperCase() + name.slice(1), kind: "generic", items: [], template: false, tags: [] });
+  const items = [...itemsOf(list)];
+  const have = new Set(items.map((it) => it.text.trim().toLowerCase()));
+  const added: string[] = [];
+  for (const it of asked) {
+    if (have.has(it.text.toLowerCase())) continue;
+    have.add(it.text.toLowerCase());
+    items.push({ text: it.text, ...(it.note ? { note: it.note } : {}) });
+    added.push(it.text);
+  }
+  const saved = added.length ? store.patch(list.id, { items }) : list;
+  return { ...saved, added };
+}
+
 // ---------- games ----------
 
 export interface GamePick { pick: Entity | null; why: string; runner_up: Entity | null; considered: number }

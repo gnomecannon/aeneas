@@ -193,12 +193,21 @@ const CASES: Case[] = [
   // all-day "Tonight: ..." event, listed apart from the evening's hours.
   { id: "plan-tonight", say: "going to dinner at Luigi's with Jamie tonight", check: ({ made }) => tonightCheck(made, /luigi/i) },
   { id: "capture-tonight", say: "", capture: "Going to Casa Blanca with Jamie tonight to meet up with friends.", check: ({ made }) => tonightCheck(made, /casa blanca/i) },
-  // Letterboxd lists films only: a TV show is a task to watch it, never a film or a Letterboxd task.
+  // A show to watch is kept on the To watch list for reference, never a task, a film or a Letterboxd task.
   { id: "capture-tv-show", say: "", capture: "Remember to watch the TV show Severed Signal on maybe Hulu?",
     check: ({ made }) => {
-      const t = made.find((e) => e.kind === "task" && /severed signal/i.test(title(e)));
-      if (made.some((e) => e.kind === "film") || made.some((e) => /letterboxd/i.test(title(e)))) return `made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ")}`;
-      return t && /watch/i.test(title(t)) ? null : `no watch task (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
+      if (made.some((e) => e.kind === "task" || e.kind === "film")) return `made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ")}`;
+      const l = made.find((e) => e.kind === "checklist" && /to watch/i.test(title(e)));
+      const items = (l?.fields.items as { text: string }[] | undefined) ?? [];
+      return items.some((i) => /severed signal/i.test(i.text)) ? null : `no To watch entry (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
+    } },
+  // Job search left Aeneas for a list kept by the assistant (1.0.26): one entry added, the list made the first time.
+  { id: "keep-a-list", say: ["keep a list of the jobs I apply to. I applied to Northwind for a QA analyst role today", "add Contoso, support engineer, applied yesterday"],
+    check: ({ hub }) => {
+      const lists = hub.store.list({ kind: "checklist" }).filter((c) => !c.deleted_at && /job/i.test(title(c)));
+      if (lists.length !== 1) return `${lists.length} job lists: ${lists.map(title).join(" | ")}`;
+      const items = ((lists[0].fields.items as { text: string }[] | undefined) ?? []).map((i) => i.text).join(" | ");
+      return /northwind/i.test(items) && /contoso/i.test(items) ? null : `entries: ${items}`;
     } },
   { id: "weight-trend", say: "how's my weight trending this month?",
     check: ({ reply }) => first(has(reply, /196\.4/, /down|lost|dropp|decreas/i), lacks(reply, /gain(ed)? weight|went up/i)) },

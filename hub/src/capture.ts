@@ -98,7 +98,7 @@ export function completeFields(kind: ConvertKind, text: string, fields: Record<s
 export const KIND_LABEL: Record<string, string> = {
   event: "Calendar", fact: "Memory", task: "Tasks", log: "Logs", food_option: "Food", note: "Notes", watch: "Renewals",
   pet_event: "Pet", journal: "Change journal", game: "Games", film: "Films", project: "Projects", inventory: "Inventory",
-  person: "Contacts",
+  person: "Contacts", checklist: "Lists", music_idea: "Song ideas",
 };
 /** What a filed item is, in a few words: logs and pet events have no title ("weight 116.4 lb", "walk 40 minutes"). */
 export function filedTitle(e: Entity): string {

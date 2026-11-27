@@ -1022,6 +1022,12 @@ export const TOOLS: ToolDef[] = [
     run: async (api, a) => call(api, "POST", "/entities", { kind: "pet_event", fields: { pet: await petName(api), type: normalize(a.type, PET_TYPES), at: pastTime(a.at) ?? new Date().toISOString(), ...(str(a.note) ? { note: str(a.note) } : {}), ...(num(a.cost) !== undefined ? { cost: num(a.cost) } : {}), ...(str(a.next_due) ? { next_due: str(a.next_due) } : {}) } }),
   },
   {
+    name: "add_to_list", writes: true,
+    description: "Add entries to one of {{owner}}'s lists in Lists by the list's name (\"To watch\", \"Jobs applied to\", \"Books to read\"); the list is made when there is none. For things to keep for reference, not to do, and not for shopping (shopping goes on a Reminders list with create_task list=). An entry already on the list is not added twice.",
+    parameters: { type: "object", properties: { list: { type: "string", description: "the list's name" }, items: { type: "array", items: { type: "string" }, description: "each entry in a few words (\"Devs (Hulu?)\")" } }, required: ["list", "items"] },
+    run: (api, a) => call(api, "POST", "/checklists/add", { list: str(a.list), items: Array.isArray(a.items) ? a.items : [a.items] }),
+  },
+  {
     name: "toggle_checklist_item", writes: true,
     description: "Tick or untick one item on a checklist by its 0-based index. Read the checklist first with get_item.",
     parameters: { type: "object", properties: { id: { type: "string" }, index: { type: "number" } }, required: ["id", "index"] },
