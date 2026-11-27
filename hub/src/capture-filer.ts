@@ -14,6 +14,7 @@ import { moduleOfKind, type ModuleCheck } from "./modules.js";
 import { personalize } from "./profile.js";
 import { errCode } from "./logsafe.js";
 import { isoLocal, tonightSpan } from "./ai/prompt.js";
+import { WATCH_LATER } from "./ai/tools.js";
 
 /**
  * Save and sort, for everything the rules cannot place: the assistant reads the capture and files it with its own
@@ -100,12 +101,9 @@ export function filingPrompt(text: string, at: Date, hint?: string, events: stri
     on("food") && T("a restaurant or meal place goes on the food list (create_item kind=food_option) when it clearly fits, and its notes always name who recommended it or who {{owner}} went with (\"Rafael recommended it\");"),
     T("an idea for something to make (a story, film, book, sketch or skit, game, app, invention, business) becomes a note with save_note: a title of 2 to 8 words naming what happens or what it is (\"The lighthouse that knocks back\"), never the whole sentence and never its kind (idea, story, skit), the whole capture as its body, tags idea plus its form (story, film, book, sketch, game, app, invention, business), in the one of {{owner}}'s note folders whose subject it clearly has (a comedy skit in a comedy sketches folder), the broader folder above it when its genre is not clear (Writing, not a guessed Writing/Horror), never Inbox when one fits;"),
     on("music") && T("a riff, chord progression, lyric or song idea goes to Song ideas with the music_idea tool, given the line as said, so its key, tempo and tuning are read;"),
-    // The watchlist lives on Letterboxd and nothing here can add to it (gnomecannon/aeneas#16): the film becomes the
-    // one step only the owner can take.
-    // Letterboxd lists films only: "the TV show Devs on maybe Hulu" went on the film watchlist.
-    // Not a task (the owner, 2026-11-26): something to watch is kept for reference, for the assistant to recall.
-    T("a TV show or series {{owner}} wants to watch goes on the \"To watch\" list with add_to_list, with where to watch it when the note says (\"Devs (Hulu?)\"), never a task, a film or a Letterboxd task;"),
-    on("films") && T("a film (a movie, not a TV show) {{owner}} wants to watch becomes a task to add it on Letterboxd (create_task titled \"Add <film> to the Letterboxd watchlist\"), since the film watchlist lives on Letterboxd and cannot be added to here."),
+    // Kept for reference, not a task (the owner, 2026-11-26): "the TV show Devs on maybe Hulu" became a film on the
+    // watchlist, then a task. The film watchlist lives on Letterboxd and nothing here can add to it (gnomecannon/aeneas#16).
+    T(WATCH_LATER + ";"),
     folders.length ? `${T("{{owner}}'s note folders:")} ${folders.join("; ")}.` : "",
     events.length ? `Already on the calendar around then: ${events.join("; ")}. When the note is about one of these (the same plan or outing), change only that event's title with update_item (the whole outing and who came; keep its times) and add no other event for it.` : "",
     tasks.length ? `Open tasks like it: ${tasks.join("; ")}. When the note is about one of these, add no other task: leave it, or change that one (a due date, a list) with update_task or update_item.` : "",

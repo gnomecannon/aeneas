@@ -172,7 +172,7 @@ test("letterboxd: the diary feed brings films, and the next read adds new watche
   }
 });
 
-test("letterboxd: the assistant cannot put a film on the watchlist, and says to add it on Letterboxd", async () => {
+test("letterboxd: the assistant cannot put a film on the watchlist, and puts it on the To watch list instead", async () => {
   const t = makeHub();
   try {
     const api = async (method: string, p: string, body?: unknown) => { const r = await t.api(p, { method, json: body }); return { status: r.status, data: await r.json() }; };
@@ -181,7 +181,7 @@ test("letterboxd: the assistant cannot put a film on the watchlist, and says to 
     for (const fields of [{ title: "Heat", watchlist: true }, { title: "Heat", watched: false }]) {
       const out = await runTool(api, { name: "create_item", arguments: { kind: "film", fields } }, ctx, tools);
       assert.equal(out.ok, false);
-      assert.match(out.text, /add the film on Letterboxd/);
+      assert.match(out.text, /To watch list with add_to_list/);
     }
     assert.equal(t.hub.store.list({ kind: "film" }).length, 0);
     assert.match(NO_WATCHLIST, /cannot add to it/);

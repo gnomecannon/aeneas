@@ -201,6 +201,19 @@ const CASES: Case[] = [
       const items = (l?.fields.items as { text: string }[] | undefined) ?? [];
       return items.some((i) => /severed signal/i.test(i.text)) ? null : `no To watch entry (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
     } },
+  // A film too: the To watch list, never a task or a film on the watchlist.
+  { id: "capture-film", say: "", capture: "Want to watch Arrival sometime, Robin says it's great",
+    check: ({ made }) => watchListCheck(made, /arrival/i) },
+  { id: "chat-film", say: "I want to watch Arrival at some point", check: ({ made }) => watchListCheck(made, /arrival/i) },
+  // Asked for as a reminder, with a day and time: then it is a task, not a list entry.
+  { id: "capture-watch-reminder", say: "", capture: "Remind me to watch the Lighthouse Keepers finale Friday at 8pm",
+    check: ({ made }) => {
+      const t = made.find((e) => e.kind === "task" && /lighthouse keepers/i.test(title(e)));
+      if (!t) return `no task (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
+      const fri = [1, 2, 3, 4, 5, 6, 7].find((n) => at(n).getDay() === 5)!;
+      const when = String(t.fields.remind_at ?? "");
+      return diaryDay(new Date(when)) === ymd(fri) && hm(when) === "20:00" ? null : `reminder ${when}`;
+    } },
   // Job search left Aeneas for a list kept by the assistant (1.0.26): one entry added, the list made the first time.
   { id: "keep-a-list", say: ["keep a list of the jobs I apply to. I applied to Northwind for a QA analyst role today", "add Contoso, support engineer, applied yesterday"],
     check: ({ hub }) => {
@@ -445,6 +458,14 @@ function freshHub(machine?: Case["machine"]): World & { dir: string } {
   // Nothing runs anywhere: every command gets the case's canned answer.
   if (machine) hub.ai.hosts.runner = async (_h: Host, command: string): Promise<RunResult> => ({ ...machine(command), timed_out: false, ms: 5 });
   return { hub, dir, ids: seedWorld(hub) };
+}
+
+/** One entry on the To watch list, and no task or film made for it. */
+function watchListCheck(made: Entity[], name: RegExp): string | null {
+  if (made.some((e) => e.kind === "task" || e.kind === "film")) return `made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ")}`;
+  const l = made.find((e) => e.kind === "checklist" && /to watch/i.test(title(e)));
+  const items = (l?.fields.items as { text: string }[] | undefined) ?? [];
+  return items.some((i) => name.test(i.text)) ? null : `no To watch entry (made ${made.map((e) => `${e.kind} ${title(e)}`).join(", ") || "nothing"})`;
 }
 
 /** One timed event over tonight's window, titled without "Tonight". Before 4 AM tonight is the coming evening. */

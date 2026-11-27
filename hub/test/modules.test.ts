@@ -111,7 +111,7 @@ test("the filer is not told about modules that are off", () => {
   assert.match(all, /food list/);
   const off = filingPrompt("Luigi's was great, Rafael recommended it", new Date(), undefined, [], [], [], undefined, (m) => m !== "food" && m !== "music");
   assert.doesNotMatch(off, /food list|music_idea/);
-  assert.match(off, /Letterboxd watchlist/);
+  assert.match(off, /To watch/);
 });
 
 test("Today and the digest leave renewals out while that module is off", async () => {
