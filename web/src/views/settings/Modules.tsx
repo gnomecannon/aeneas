@@ -3,6 +3,8 @@ import type { ModuleInfo, ModulePermission } from "../../sync/api";
 import { doneWithFirstSteps, justSwitchedOn, setModules, useModules } from "../../lib/modules";
 import { SubPage, Toggle, errorText } from "./common";
 import { MachinesStart } from "./MachinesSetup";
+import { moduleSetup } from "../../lib/moduleSetup";
+import { go } from "../../lib/router";
 
 /** The groups in the order they show: device features, then the Library areas in the Library's order. */
 const ORDER = ["On your devices", "Plan", "Notes", "People", "Media", "Body and home", "Life admin", "Making", "Tech"];
@@ -21,15 +23,32 @@ function joinWords(words: string[]): string {
   return words.length <= 1 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
 }
 
-/** What a module reads, what devices ask for, and when it needs the person's own key. */
+/** What a module reads, what devices ask for, and when it needs the person's own key (with the way to its setup). */
 function ModuleDetails({ m }: { m: ModuleInfo }) {
   const asks = (m.permissions ?? []).map((p) => PERMISSION_NAMES[p] ?? p);
+  const where = moduleSetup(m.id);
   return (
     <>
       {m.reads && <div>Reads: {m.reads}</div>}
       {asks.length > 0 && <div>Your Apple devices ask for {joinWords(asks)} once, after setup, and only while this is on.</div>}
-      {m.setup && <div><strong>Advanced setup:</strong> {m.setup.needs}, about {m.setup.minutes} minutes. The rest works without it.</div>}
+      {m.setup && <div><strong>Advanced setup:</strong> {m.setup.needs}, about {m.setup.minutes} minutes. The rest works without it.{where && m.on && <> <a href={`#${where.href}`}>{where.label}</a></>}</div>}
     </>
+  );
+}
+
+/**
+ * Under a module just switched on that needs an account, a link or a download: where to set it up, so the switch does
+ * not only turn on an empty screen. Later hides it; it does not come back for that module until the app opens again.
+ */
+function SetUpNow({ id }: { id: string }) {
+  const where = moduleSetup(id);
+  if (!where) return null;
+  return (
+    <div className="row wrap small module-setup-now" role="status">
+      <span className="grow">{where.what}</span>
+      <button type="button" className="primary small" onClick={() => { doneWithFirstSteps(id); go(where.href); }}>Set it up now</button>
+      <button type="button" className="ghost small" onClick={() => doneWithFirstSteps(id)}>Later</button>
+    </div>
   );
 }
 
@@ -140,6 +159,7 @@ export function ModulePicker() {
               <div key={m.id} className={sub ? "module-sub" : undefined}>
                 <ModuleToggle m={m} busy={busy === m.id} onFlip={(v) => void flip(m.id, v)} />
                 {m.on && m.id === "homelab" && justSwitchedOn(m.id) && <MachinesStart onDone={() => doneWithFirstSteps(m.id)} />}
+                {m.on && justSwitchedOn(m.id) && <SetUpNow id={m.id} />}
               </div>
             ))}
           </details>

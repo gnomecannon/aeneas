@@ -87,7 +87,13 @@ struct WikiView: View {
         }
         .overlay {
             if !searching, let index, index.sources.isEmpty {
-                EmptyState(text: "No wiki yet. Repo docs arrive from the project feed; Confluence links in Settings, Connections.")
+                VStack(spacing: 14) {
+                    Text("No wiki yet. Repo docs arrive from the project feed, or link Confluence.")
+                        .font(.title2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    ModuleSetupLink(title: "Link Confluence", place: .connections)
+                        .buttonStyle(.bordered)
+                }
+                .padding()
             } else if index == nil, problem == nil, !searching {
                 ProgressView()
             }

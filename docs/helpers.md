@@ -20,7 +20,7 @@ Each person's hub can be reached with a QR code from anywhere, with nothing else
 - **They are here with you.** Show them the large QR code. They install Aeneas, open the phone's Camera, point it at
   the square and tap the Aeneas link.
 - **They live somewhere else.** Copy a message for them (a text or an email): it says, in three steps, to install
-  Aeneas, copy the whole message, and open Aeneas and tap I have an invitation. The app finds the invitation in the
+  Aeneas, copy the whole message, and open Aeneas and tap Paste the invitation. The app finds the invitation in the
   message and connects. Or print the page: they scan the square on paper with the phone's camera.
 
 An invitation works once, for 3 days. Someone who uses Tailscale can use the hub's Tailscale address instead, once the

@@ -241,6 +241,44 @@ struct ThemedRow: ViewModifier {
     }
 }
 
+#if os(macOS)
+/// Mac: the chosen row of a content list (`List(selection:)`) under a theme. A themed row's background covers the
+/// Mac's own selection band, so the chosen row looked like every other (Reference, under Midnight). It is drawn here
+/// over the theme's surface: the theme's accent, lighter so the row's words and badges keep their colors, and a quiet
+/// band in a window that is not the active one, as the Mac's own is. Classic keeps the system's band.
+struct ChosenRow: ViewModifier {
+    @Environment(\.eaTheme) private var theme
+    @Environment(\.appearsActive) private var active
+    var chosen: Bool
+
+    func body(content: Content) -> some View {
+        if let theme, chosen {
+            content.listRowBackground(
+                ZStack {
+                    theme.surface
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(active ? AnyShapeStyle(theme.accent.opacity(0.28)) : AnyShapeStyle(theme.text.opacity(0.12)))
+                        .padding(.horizontal, 6)
+                }
+            )
+        } else {
+            content
+        }
+    }
+}
+#endif
+
+extension View {
+    /// The chosen row of a content list in the theme's colors (Mac); nothing elsewhere.
+    @ViewBuilder func chosenRow(_ chosen: Bool) -> some View {
+        #if os(macOS)
+        modifier(ChosenRow(chosen: chosen))
+        #else
+        self
+        #endif
+    }
+}
+
 /// On iOS 26 a plain list draws its section headers with no background of their own: a header pinned at the top lay
 /// over the row scrolling under it, the two sets of words drawn into each other (Tasks, under its bar of lists). The
 /// header now draws the screen's background itself, so the rows pass under it. A header takes no

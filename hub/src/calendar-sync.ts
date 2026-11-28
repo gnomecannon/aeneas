@@ -37,6 +37,8 @@ export interface CalendarConf {
   target: string | null;
   last_sync?: string;
   last_error?: string | null;
+  /** The first failed sync since the last good one (since 2026-11-27): hours of failures need the owner, one does not. */
+  failing_since?: string | null;
   /** The addresses iCloud knows the account by (calendar-user-address-set), for Invitations. */
   addresses?: string[];
 }
@@ -296,24 +298,30 @@ export async function syncAccount(hub: Hub, email: string, now: Date = new Date(
     try { takeCalDavInvites(hub, { account: email, chosen, objects: read, readAt, now }); }
     catch (e) { console.error(`[invitations] ${errCode(e)}`); }
 
-    saveConf(hub, email, { last_sync: nowIso(), last_error: null });
+    saveConf(hub, email, { last_sync: nowIso(), last_error: null, failing_since: null });
     return out;
   } catch (e) {
     if (e instanceof DavRefused) {
       hub.connections.update((c) => { const a = c.icloud?.find((x) => x.email === email); if (a) { a.refused_at = nowIso(); a.last_error = REFUSED; } });
-      saveConf(hub, email, { last_error: REFUSED });
+      saveConf(hub, email, { last_error: REFUSED }, true);
       hub.modules.notify();
       return { ...out, error: REFUSED };
     }
     const msg = e instanceof StoreError ? e.message : "Calendar sync stopped on an error; the hub tries again later.";
     if (!(e instanceof StoreError)) console.error(`[calendars] ${errCode(e)}`);
-    saveConf(hub, email, { last_error: msg });
+    saveConf(hub, email, { last_error: msg }, true);
     return { ...out, error: msg };
   }
 }
 
-function saveConf(hub: Hub, email: string, fields: Partial<CalendarConf>) {
-  hub.connections.update((c) => { const a = c.icloud?.find((x) => x.email === email); if (a?.calendar) Object.assign(a.calendar, fields); });
+/** `failed`: a sync that ended on an error, which starts `failing_since` unless an earlier failure did. */
+function saveConf(hub: Hub, email: string, fields: Partial<CalendarConf>, failed = false) {
+  hub.connections.update((c) => {
+    const a = c.icloud?.find((x) => x.email === email);
+    if (!a?.calendar) return;
+    Object.assign(a.calendar, fields);
+    if (failed) a.calendar.failing_since ??= nowIso();
+  });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

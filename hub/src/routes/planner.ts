@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Hub } from "../hub.js";
 import { readJsonObject } from "../http.js";
 import { parseLocalDate, parseMinHours, scheduleTask, todayView, unscheduleTask, weekModel } from "../planner.js";
+import { connectionProblems } from "../connection-problems.js";
 import { linkedReminder, renewWatch } from "../watches.js";
 import { StoreError } from "../store.js";
 import { calendarFeed } from "../calendar.js";
@@ -21,7 +22,8 @@ export function plannerRoutes() {
     const hub = c.get("hub");
     const raw = c.req.query("start");
     const start = raw ? parseLocalDate(raw) : undefined;
-    return c.json(weekModel(hub, start, parseMinHours(c.req.query("min_hours"))));
+    // A calendar that stopped syncing is said on Week, which apps fetch anyway (connection-problems.ts).
+    return c.json({ ...weekModel(hub, start, parseMinHours(c.req.query("min_hours"))), connection_problems: connectionProblems(hub) });
   });
 
   r.post("/planner/schedule", async (c) => {
@@ -38,7 +40,9 @@ export function plannerRoutes() {
     return c.json(hub.store.get(task.id) ?? task);
   });
 
-  r.get("/planner/today", (c) => c.json(todayView(c.get("hub"), new Date(), parseMinHours(c.req.query("min_hours")))));
+  // Today's Needs you lists a connection that broke: the plan is fetched every minute while Today shows, so no device
+  // asks for the problems on its own.
+  r.get("/planner/today", (c) => c.json({ ...todayView(c.get("hub"), new Date(), parseMinHours(c.req.query("min_hours"))), connection_problems: connectionProblems(c.get("hub")) }));
 
   r.post("/watches/:id/renewed", (c) => {
     const hub = c.get("hub");

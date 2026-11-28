@@ -20,10 +20,25 @@ export interface SyncState {
   seq: number;
   /** How the Windows or Android app reaches its hub right now (Settings, Connection); null in a browser. */
   route: RouteName | null;
+  /**
+   * Why only pairing again lets this device sync (PairAgainBanner): the hub refused its key without saying it was
+   * removed (`key`), or its address leads to another hub (`other_hub`). Unset otherwise.
+   */
+  pairing?: PairingProblem;
+  /** When the hub last answered a whole sync (ms), kept across starts; unset before the first. */
+  syncedAt?: number;
 }
+
+export type PairingProblem = "key" | "other_hub";
 
 /** Said when the hub's address now answers with another hub's id: nothing is synced with it. */
 export const OTHER_HUB = "This address now leads to another hub, so nothing is synced. Pair this device again with a code from your own hub.";
+
+/**
+ * Said for a 401 that is no removal: `unknown_key` from a hub that lost its keys file, or a plain 401 from an older
+ * one. The key, the copy and the edits waiting to send stay; pairing again with the same hub sends them.
+ */
+export const KEY_REFUSED = "This device needs to be paired again. The hub does not know its key.";
 
 /** The hub's answer to GET /link/routes, kept for the next start. */
 export interface KeptRoutes extends HubRoutes { at: string }
@@ -48,6 +63,10 @@ export interface NotifyEvent {
   error?: string;
   /** `monitor` down: the open incident, which the banner can acknowledge. */
   incident_id?: string;
+  /** `connection`: where the fix is and the words on its button (lib/connectionProblems.ts). */
+  fix?: "account" | "connections";
+  account?: string;
+  button?: string;
 }
 
 type Listener = (s: SyncState) => void;
@@ -166,7 +185,7 @@ export class SyncEngine {
     this.otherHub = false;
     await this.refreshOutboxCount();
     const seq = (await getMeta<number>(META.seq, this.db)) ?? 0;
-    this.set({ seq });
+    this.set({ seq, syncedAt: (await getMeta<number>(META.syncedAt, this.db)) ?? undefined });
     if (!(await this.configure())) return;
     this.set({ status: "syncing" });
     if (typeof window !== "undefined") {
@@ -273,7 +292,7 @@ export class SyncEngine {
       this.otherHub = true;
       this.liveAbort?.abort();
       this.liveAbort = null;
-      this.set({ status: "offline", live: false, lastError: OTHER_HUB });
+      this.set({ status: "offline", live: false, lastError: OTHER_HUB, pairing: "other_hub" });
       return false;
     }
     if (routes) {
@@ -340,7 +359,7 @@ export class SyncEngine {
     try { if (typeof caches !== "undefined") for (const k of await caches.keys()) await caches.delete(k); } catch { /* no cache storage here */ }
     this.stop();
     this.client = null;
-    this.set({ status: "setup", lastError: why });
+    this.set({ status: "setup", lastError: why, pairing: undefined, syncedAt: undefined });
   }
 
   /** Register, flush, pull. Safe to call often. */
@@ -360,14 +379,19 @@ export class SyncEngine {
       }
       await this.pull();
       if (pushError) throw pushError;
-      this.set({ status: (await this.db.outbox.count()) === 0 ? "synced" : "syncing", lastError: undefined });
+      const syncedAt = Date.now();
+      await setMeta(META.syncedAt, syncedAt, this.db);
+      this.set({ status: (await this.db.outbox.count()) === 0 ? "synced" : "syncing", lastError: undefined, pairing: undefined, syncedAt });
     } catch (e) {
       // The next connect asks the hub again which ways reach it.
       this.routesFresh = false;
-      const d = e instanceof HubError && e.status === 401 ? (e.detail as { device_removed?: boolean; unknown_key?: boolean } | undefined) : undefined;
+      const refused = e instanceof HubError && e.status === 401;
+      const d = refused ? (e.detail as { device_removed?: boolean; unknown_key?: boolean } | undefined) : undefined;
       if (d?.device_removed) { await this.forgetRemovedDevice(); return; }
-      // The hub does not know this key at all (its keys file was lost or restored): keep the key, in case it comes back.
-      if (d?.unknown_key) { this.set({ status: "offline", lastError: "The hub does not know this device's key. If the hub was restored or moved, pair this device again in Settings, Connection." }); return; }
+      // The hub does not know this key at all (its keys file was lost or restored; an older hub says only 401): keep
+      // the key, in case it comes back, and offer Pair again, which Retry alone never fixed.
+      if (refused) { this.set({ status: "offline", lastError: KEY_REFUSED, pairing: "key" }); return; }
+      // A refusal or another hub seen before stays the reason (Pair again stays offered) until a sync works.
       this.set({ status: "offline", lastError: plainError(e) });
     }
   }

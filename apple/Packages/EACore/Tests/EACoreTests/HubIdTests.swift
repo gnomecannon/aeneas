@@ -227,6 +227,8 @@ final class HubIdTests: XCTestCase {
         XCTAssertFalse(net.calls.contains { $0.path.hasPrefix("sync/") || $0.path.hasPrefix("devices") }, "\(net.calls.map(\.path))")
         XCTAssertEqual(engine.lastError, SyncEngine.otherHubMessage)
         XCTAssertEqual(engine.status, .offline)
+        XCTAssertEqual(engine.pairingProblem, .otherHub, "the banner offers Pair again")
+        XCTAssertTrue(engine.offersPairAgain)
         XCTAssertEqual(engine.outboxCount, 1)
         XCTAssertEqual(c.hubId, id, "the id it was paired with stays")
         XCTAssertNil(c.linkRoutes, "another hub's routes are not kept")
@@ -235,6 +237,7 @@ final class HubIdTests: XCTestCase {
         await engine.sync()
         XCTAssertTrue(hub.pushed.contains { $0.id == "cap-a" })
         XCTAssertNil(engine.lastError)
+        XCTAssertNil(engine.pairingProblem)
         engine.stop()
     }
 

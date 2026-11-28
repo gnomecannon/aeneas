@@ -2,7 +2,8 @@ import { Suspense, useEffect, type ReactNode } from "react";
 import type { Route } from "./lib/router";
 import { ScreenStart, Shell, screenOf } from "./components/Shell";
 import { ReminderBanner } from "./components/ReminderBanner";
-import { ActivityBanner, DigestToast, DiskBanner, AppUpdateBanner, MailToast, MonitorBanner, QuizToast, SensorBanner } from "./components/NotifyBanners";
+import { PairAgainBanner } from "./components/PairAgainBanner";
+import { ActivityBanner, ConnectionBanner, DigestToast, DiskBanner, AppUpdateBanner, MailToast, MonitorBanner, QuizToast, SensorBanner } from "./components/NotifyBanners";
 import { UpdateToast } from "./components/UpdateToast";
 import { JoinedToast } from "./components/JoinedToast";
 import { IfModule, ModuleGate } from "./components/ModuleGate";
@@ -20,10 +21,12 @@ export function MainWindow({ route, view }: { route: Route; view: ReactNode }) {
   return (
     <Shell route={route}>
       <div className="banners">
+        <PairAgainBanner />
         <HelperOfferBanner path={route.path} />
         <ReminderBanner quiet={route.path === "/today"} />
         <ActivityBanner />
         <DiskBanner />
+        <ConnectionBanner />
         <AppUpdateBanner />
         <IfModule id="sensors"><SensorBanner /></IfModule>
         <IfModule id="homelab"><MonitorBanner /></IfModule>

@@ -13,6 +13,7 @@ import { META } from "../sync/db";
 import type { AppUpdateAsk } from "../sync/api";
 import { useEscape } from "../lib/keys";
 import { go } from "../lib/router";
+import { fixPath } from "../lib/connectionProblems";
 
 interface ActivityCheck {
   title: string;
@@ -146,6 +147,45 @@ export function DiskBanner() {
         <strong>{n.title}</strong>
       </div>
       <button className="small" onClick={() => setN(null)} aria-label="Dismiss the disk alert">
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A connection broke (`notify` of kind `connection`, once when it happens: a mailbox's password refused, an ended
+ * sign-in, Steam's key refused): what broke, and one button to the page with the fix. Every hub sends it, whatever
+ * modules are on; the hub lists only connections of modules that are on.
+ */
+export function ConnectionBanner() {
+  const [n, setN] = useState<NotifyEvent | null>(null);
+  useEffect(
+    () =>
+      engine.onNotify((ev: NotifyEvent) => {
+        if (ev.kind !== "connection") return;
+        setN(ev);
+        void notify(ev.name || "Connections", ev.title, fixPath({ fix: ev.fix ?? "connections", account: ev.account }));
+      }),
+    [],
+  );
+  useEscape(useCallback(() => setN(null), []));
+  if (!n) return null;
+  return (
+    <div className="banner sensor" role="status">
+      <div className="grow">
+        <strong>{n.title}</strong>
+      </div>
+      <button
+        className="small primary"
+        onClick={() => {
+          setN(null);
+          go(fixPath({ fix: n.fix ?? "connections", account: n.account }));
+        }}
+      >
+        {n.button || "Open"}
+      </button>
+      <button className="small" onClick={() => setN(null)} aria-label="Dismiss the connection alert">
         Dismiss
       </button>
     </div>

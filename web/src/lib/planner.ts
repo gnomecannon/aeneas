@@ -4,6 +4,7 @@
  * grouping and the digest text. No DOM. Shared by the Today and Week views, the offline fallback
  * and scripts/mock-hub.ts, so the mock plans the same way the views expect.
  */
+import type { ConnectionProblem } from "./connectionProblems";
 import type { Entity } from "@everythingapp/shared";
 import { taskAlertAt } from "@everythingapp/shared";
 import { fmtDate, fmtTime, fromLocalInput, HOUR, toLocalInput } from "./time";
@@ -46,6 +47,8 @@ export interface PlannerDay {
 export interface PlannerWeek {
   start: string;
   days: PlannerDay[];
+  /** Connections that broke after setup; Week shows the calendar ones (since 2026-11-27, absent from an older hub and from the local copy). */
+  connection_problems?: ConnectionProblem[];
 }
 export interface PlannerToday {
   date: string;
@@ -61,6 +64,8 @@ export interface PlannerToday {
   captures_unprocessed: number;
   free_slots: FreeSlot[];
   digest: string;
+  /** Connections that broke after setup, one Needs you row each (since 2026-11-27, absent from an older hub and from the local copy). */
+  connection_problems?: ConnectionProblem[];
 }
 export interface Conflict extends Span {
   kind: "block" | "event" | "commitment" | "blackout";

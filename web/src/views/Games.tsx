@@ -10,6 +10,11 @@ import { relative } from "../lib/time";
 import { useEscape } from "../lib/keys";
 import { useOwnerName } from "../lib/profile";
 import { CsvButton } from "../components/CsvButton";
+import { go } from "../lib/router";
+import { MODULE_SETUP } from "../lib/moduleSetup";
+
+/** Settings, Connections, opened at Steam. */
+const STEAM_SETUP = MODULE_SETUP.games.href;
 
 const HOURS = [2, 4, 6];
 // `owned` starts with the owner's own name (filled in where the form opens).
@@ -232,7 +237,7 @@ export function Games({ q = "" }: { q?: string }) {
     <div className="games food">
       <span className="title-row"><h1 style={{ margin: 0 }}>Games</h1><CsvButton kind="game" /></span>
       <div className="muted small">
-        {fromSteam.length ? `${all.length} games, ${fromSteam.length} from Steam with ${steamHours} hours played.` : <>{all.length} games. Link Steam in <a href="#/settings/connections">Settings, Connections</a> to bring in your library and playtime.</>}
+        {fromSteam.length ? `${all.length} games, ${fromSteam.length} from Steam with ${steamHours} hours played.` : <>{all.length} games. Linking Steam brings in your library and playtime. <button type="button" className="small" onClick={() => go(STEAM_SETUP)}>Link Steam</button></>}
       </div>
       <div className="row" style={{ margin: "8px 0", flexWrap: "wrap" }}>
         <div className="chips" role="group" aria-label="Sort">

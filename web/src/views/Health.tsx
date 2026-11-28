@@ -7,7 +7,37 @@ import { fmtDelta, mergeMeds } from "../lib/body";
 import { fmtDateTime, relative } from "../lib/time";
 import { WEEKDAYS, type Weekday } from "../lib/planner";
 import { useEntities } from "../sync/hooks";
+import { createEntity } from "../sync/edits";
 import type { Entity } from "@everythingapp/shared";
+
+/**
+ * No medications listed: type the ones taken and each becomes a chip to tick off. They are kept as the owner's fact
+ * `health:medications` (CONTRACT, Health summary), which the hub reads for `meds_expected`; the summary reloads once the
+ * new fact has synced.
+ */
+function AddMedications() {
+  const [text, setText] = useState("");
+  const [err, setErr] = useState("");
+  const save = async () => {
+    const value = text.trim();
+    if (!value) return;
+    setErr("");
+    try {
+      await createEntity("fact", { category: "health", key: "health:medications", value, source: "user", confidence: 1, private: true });
+      setText("");
+    } catch (e) { setErr(plainError(e)); }
+  };
+  return (
+    <div className="col">
+      <div className="muted small">No medications listed. Type the ones you take, separated by commas, and each shows here to tick off when you take it.</div>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+        <input className="grow" value={text} onChange={(e) => setText(e.target.value)} placeholder="Vitamin D, metformin" aria-label="Medications you take" />
+        <button type="submit" className="small" disabled={!text.trim()}>Save</button>
+      </form>
+      {err && <div className="error small">{err}</div>}
+    </div>
+  );
+}
 
 /** Body summary from GET /health/summary. Logs stays the one-tap input; this is the read side plus meds chips and the injection day. */
 export function Health() {
@@ -118,7 +148,7 @@ export function Health() {
           <div className="cols" style={{ marginTop: 12 }}>
             <div className="card">
               <h3>Meds today</h3>
-              {!meds.length && <div className="muted small">No meds expected. Add a fact health:medications on the hub.</div>}
+              {!meds.length && <AddMedications />}
               <div className="chips" role="group" aria-label="Meds today">
                 {meds.map((m) => (
                   <button key={m.name} type="button" className={`chip ${m.taken ? "on" : ""}`} aria-pressed={m.taken} disabled={busy === m.name} onClick={() => void logMed(m.name)} title={m.taken ? "taken, tap to log again" : "tap to log taken"}>

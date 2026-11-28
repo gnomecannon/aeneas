@@ -115,7 +115,7 @@ struct EverythingAppApp: App {
 enum MainWindow {
     static let id = "main"
     /// Aeneas Help in the Help menu: the guide on GitHub.
-    static let helpURL = URL(string: "https://github.com/gnomecannon/aeneas#readme")!
+    static let helpURL = SetupView.hubGuideURL
 
     /// Fronts the main window, or opens it again if it was closed, on `section` when one is given.
     @MainActor static func open(_ openWindow: OpenWindowAction, section: Section? = nil) {

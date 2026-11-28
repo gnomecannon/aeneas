@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { makeHub, fileMode } from "./helpers.js";
-import { probe, recommendModel, detectGpus, pullState, readAiSettings, type PullState } from "../src/setup.js";
+import { probe, recommendModel, detectGpus, pullState, readAiSettings, PULL_INTERRUPTED, type PullState } from "../src/setup.js";
+import { NO_MODEL } from "../src/ai/index.js";
 
 function fakeProbe(answers: Record<string, unknown>, gpu: string | null) {
   const orig = { ...probe };
@@ -211,6 +212,45 @@ test("setup: the one click keeps the Ollama in use when it answers, and a downlo
     release();
     assert.equal((await pullDone()).status, "success");
   } finally { release(); Object.assign(probe, orig); t.cleanup(); }
+});
+
+test("setup: a download the hub was in the middle of when it restarted is reported as stopped, and fetching it again finishes it", async () => {
+  const t = makeHub();
+  const o = fakeOllama("http://127.0.0.1:11434", [], null);
+  try {
+    // What a hub that stopped mid-download left behind (the in-memory state belongs to another hub, as after a restart).
+    fs.writeFileSync(path.join(t.dir, "model-pull.json"), JSON.stringify({ model: "qwen3:8b", status: "downloading", completed: 400, total: 1000, done: false, error: null }));
+    const before = ((await (await t.api("/setup/ollama/pull")).json()) as { pull: PullState }).pull;
+    assert.deepEqual([before.model, before.done, before.interrupted, before.error, before.completed, before.total], ["qwen3:8b", true, true, PULL_INTERRUPTED, 400, 1000]);
+    // Fetching it again (Resume download) runs to the end and keeps the finished state for the next start.
+    t.hub.cfg.ollamaUrl = "http://127.0.0.1:11434";
+    assert.equal((await t.api("/setup/ollama/pull", { method: "POST", json: { model: "qwen3:8b" } })).status, 200);
+    const done = await pullDone();
+    assert.deepEqual([done.status, done.error, done.interrupted], ["success", null, undefined]);
+    const kept = JSON.parse(fs.readFileSync(path.join(t.dir, "model-pull.json"), "utf8")) as PullState;
+    assert.deepEqual([kept.model, kept.done, kept.status], ["qwen3:8b", true, "success"]);
+    const after = ((await (await t.api("/setup/ollama/pull")).json()) as { pull: PullState }).pull;
+    assert.deepEqual([after.done, after.error], [true, null]);
+    // A damaged file is no download at all.
+    const other = makeHub();
+    try {
+      fs.writeFileSync(path.join(other.dir, "model-pull.json"), "{not json");
+      assert.equal(((await (await other.api("/setup/ollama/pull")).json()) as { pull: PullState | null }).pull, null);
+    } finally { other.cleanup(); }
+  } finally { o.restore(); t.cleanup(); }
+});
+
+test("setup: with no model chosen, a chat says so in plain words and health says no model is set", async () => {
+  const t = makeHub({ aiFake: false, ollamaUrl: "", ollamaFallbackUrl: "", openaiUrl: "", anthropicApiKey: "", adapterUrl: "" });
+  try {
+    const h = (await (await t.api("/health")).json()) as { ai: { model_set: boolean } };
+    assert.equal(h.ai.model_set, false);
+    const r = await t.api("/ai/chat", { method: "POST", json: { session_id: "no-model", message: "hello" } });
+    assert.equal(r.status, 503);
+    const j = (await r.json()) as { error: string; no_model?: boolean };
+    assert.deepEqual([j.error, j.no_model], [NO_MODEL, true]);
+    assert.ok(!/backend|task type|[\u2013\u2014]/.test(j.error), "no jargon and no dashes");
+  } finally { t.cleanup(); }
 });
 
 test("setup: a pairing link carries the hub's address, a one-time code and the device's name, never the token", async () => {

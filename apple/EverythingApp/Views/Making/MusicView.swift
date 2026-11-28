@@ -324,7 +324,8 @@ private struct HumSongRows: View {
                     .accessibilityLabel("Tempo for Hum Song, found by the hub when empty")
             }
         }
-        if mine, let e = hum.error ?? recorder.error { MakingErrorLine(text: e) }
+        if mine, recorder.micRefused { PermissionOffNote(permission: .microphone) }
+        else if mine, let e = hum.error ?? recorder.error { MakingErrorLine(text: e) }
         if !recorder.recording, !hum.sending {
             ForEach(hum.unsent.filter { projectId == nil || $0.projectId == projectId }) { take in
                 HStack {

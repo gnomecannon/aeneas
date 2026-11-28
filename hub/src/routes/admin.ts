@@ -42,7 +42,7 @@ export function adminRoutes() {
   r.post("/setup/ollama/pull", async (c) => c.json(startPull(c.get("hub"), String((await readJsonObject<{ model?: string }>(c)).model ?? "").trim())));
   // The single confirmation: find this machine's Ollama, use it with the model, and start the download if needed.
   r.post("/setup/model/auto", async (c) => c.json(await autoModel(c.get("hub"), await optionalBody(c))));
-  r.get("/setup/ollama/pull", (c) => c.json({ pull: pullState() }));
+  r.get("/setup/ollama/pull", (c) => c.json({ pull: pullState(c.get("hub")) }));
   // Updating the hub itself (update.ts): what it runs, what is newer (check fetches), and starting the update.
   r.get("/hub-update", async (c) => c.json(await updateInfo(c.get("hub"))));
   r.post("/hub-update/check", async (c) => c.json(await updateInfo(c.get("hub"), true)));

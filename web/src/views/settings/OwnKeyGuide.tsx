@@ -17,7 +17,7 @@ const MADE = { google: "Google app", atlassian: "Atlassian app", steam: "Steam k
  * what the key is: "Set it up" for a key the hub does not have, "Replace" for one it has. Saving at the last step puts
  * the new one in place of the old (the hub's routes replace).
  */
-export function OwnKeyGuide({ service, onDone, start }: { service: OwnKeyService; onDone: () => void; start?: { label: string; primary?: boolean } }) {
+export function OwnKeyGuide({ service, onDone, start, opening }: { service: OwnKeyService; onDone: () => void; start?: { label: string; primary?: boolean }; opening?: boolean }) {
   const client = engine.client;
   const [guide, setGuide] = useState<Guide | null>(null);
   const [open, setOpen] = useState(false);
@@ -27,6 +27,8 @@ export function OwnKeyGuide({ service, onDone, start }: { service: OwnKeyService
   const [msg, setMsg] = useState<Msg>(null);
   const [copied, setCopied] = useState("");
   const [anyway, setAnyway] = useState(false);
+  // Opened from elsewhere on the page (Steam's Replace the Steam key, when Steam stopped taking the key).
+  useEffect(() => { if (opening) setOpen(true); }, [opening]);
   useEffect(() => { if (open && !guide) void client?.ownKeyGuide(service).then(setGuide).catch((e) => setMsg({ ok: false, text: errorText(e) })); }, [open, guide, client, service]);
   if (!client) return null;
   if (!open) {

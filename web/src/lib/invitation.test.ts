@@ -9,7 +9,7 @@ describe("an invitation for someone far away", () => {
   it("says what to do in plain steps and carries the link", () => {
     expect(msg).toMatch(/^Hi Mom, it's Robin\. I set up Aeneas for you\./);
     expect(msg).toContain("apps.apple.com/app/id6832161802");
-    expect(msg).toContain("I have an invitation");
+    expect(msg).toContain("tap Paste the invitation");
     expect(msg.split("\n").at(-1)).toBe(link);
   });
 

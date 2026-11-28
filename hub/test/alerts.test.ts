@@ -17,7 +17,7 @@ test("alerts: every kind is on to start with, and each is switched off and on by
   const t = makeHub();
   try {
     assert.deepEqual((await alerts(t)).map((a) => [a.id, a.on]), ALERT_KINDS.map((k) => [k.id, true]));
-    assert.deepEqual(ALERT_KINDS.map((k) => k.id).sort(), ["activity", "digest", "disk", "mail", "monitor", "quiz", "reminder", "sensor"]);
+    assert.deepEqual(ALERT_KINDS.map((k) => k.id).sort(), ["activity", "connection", "digest", "disk", "mail", "monitor", "quiz", "reminder", "sensor"]);
     const res = await put(t, { mail: false, quiz: false });
     assert.equal(res.status, 200);
     const now = ((await res.json()) as { alerts: AlertView[] }).alerts;

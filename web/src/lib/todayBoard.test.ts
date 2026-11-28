@@ -107,6 +107,19 @@ describe("needsYou", () => {
       ["unsorted", "2 captures could not be filed", "Waiting in Unsorted Info"],
     ]);
   });
+  it("lists each connection that broke after the reminders and invitations, before renewals", () => {
+    const vet = e("task", { title: "Call the vet", remind_at: iso(16, 8) });
+    const car = e("watch", { title: "car registration", due: "2026-11-20" });
+    const broken = { id: "account:icloud:jamie@icloud.com", service: "iCloud", title: "iCloud stopped signing in for jamie@icloud.com", detail: "Replace its app-specific password.", fix: "account" as const, account: "icloud:jamie@icloud.com", button: "Replace password", affects: ["mail"], since: null };
+    const out = needsYou({ reminders: [due(vet, iso(16, 8))], watches: [car], meds: [], unsorted: 0, now, invitations: { title: "1 invitation", detail: "Dinner", count: 1 }, connections: [broken] });
+    expect(out.map((x) => [x.kind, x.title, x.detail])).toEqual([
+      ["reminder", "Call the vet", "Reminder, 4:08 PM, 23 min ago"],
+      ["invitations", "1 invitation", "Dinner"],
+      ["connection", "iCloud stopped signing in for jamie@icloud.com", "Replace its app-specific password."],
+      ["renewal", "Renew car registration", "2 days overdue"],
+    ]);
+    expect(out[2].key).toBe("c:account:icloud:jamie@icloud.com");
+  });
   it("names a renewal once: its own reminder is left out, a charge on autopay is never an action", () => {
     const passport = e("watch", { title: "passport", due: "2026-11-22" });
     const renew = e("task", { title: "Renew: passport", remind_at: iso(9), linked_id: passport.id });

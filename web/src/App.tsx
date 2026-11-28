@@ -154,7 +154,8 @@ export function App() {
 
   const configured = !!hubUrl && !!token;
   // A pairing link (#/setup?hub=&code=, or an older one with token=) connects this device, even one connected to a hub before.
-  if (booted && ((!configured && !route.path.startsWith("/settings")) || (route.path === "/setup" && (route.params.get("code") || route.params.get("token"))))) {
+  // Pair again (#/setup?again=1, PairAgainBanner) shows the pairing screen over a paired device whose key the hub refused.
+  if (booted && ((!configured && !route.path.startsWith("/settings")) || (route.path === "/setup" && (route.params.get("code") || route.params.get("token") || route.params.get("again"))))) {
     // A new pairing link while Setup shows starts it afresh, so it reads that link.
     return <Suspense fallback={null}><Setup key={route.path === "/setup" ? window.location.hash : "setup"} /></Suspense>;
   }

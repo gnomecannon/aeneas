@@ -324,7 +324,8 @@ struct TodayBoardView: View {
             watches: model.isOn(.renewals) ? today.watches_due_soon : [],
             meds: model.isOn(.health) ? TodayExtras.regularMeds(engine.logs(type: .med, days: 9), now: now) : [],
             unsorted: engine.unprocessedCaptures.count, now: now,
-            invitations: Invitations.need(engine.list(.invitation), now: now).map { ($0.count, $0.detail) })
+            invitations: Invitations.need(engine.list(.invitation), now: now).map { ($0.count, $0.detail) },
+            connections: today.connection_problems ?? [])
     }
 
     private func needsCard(now: Date) -> some View {
@@ -391,6 +392,10 @@ struct TodayBoardView: View {
             Button("Sort them") { model.section = .inbox }.buttonStyle(.bordered)
         case .invitations:
             Button("Open") { showInvitations = true }.buttonStyle(.bordered)
+        case .connection(let p):
+            // The page with the fix: the account's page with Replace open, or Settings, Connections.
+            PageLink { ConnectionFixView(problem: p) } label: { Text(StyleGuard.dashes(p.button)) }
+                .buttonStyle(.themedProminent)
         }
     }
 

@@ -19,6 +19,7 @@ import { StoreError } from "../store.js";
 import { importKeepass, installPasswordManager, keepass, keepassEntries, linkPasswordManager, passwordManagerStatus, passwordManagerView, PROVIDERS, putKeepassEntry, removeKeepassEntry, searchItems, setAccess, setAllowed, signInPasswordManager, unlinkPasswordManager, type Provider } from "../secrets.js";
 import { KEEPASS_FILE } from "../keepass.js";
 import { errCode } from "../logsafe.js";
+import { connectionProblems } from "../connection-problems.js";
 
 /** Linked accounts (Steam, Letterboxd, Atlassian, Gmail, iCloud Mail), Apple Health samples, and ranked lists. */
 export function importRoutes() {
@@ -271,5 +272,7 @@ export function connectionsView(hub: Hub) {
     icloud: { accounts: v.icloud.accounts.map((a) => ({ ...a, ...mailCounts(hub, `icloud:${a.email}`) })) },
     internet: v.internet.map((a) => ({ ...a, ...(a.features.receipts ? { receipts: mailCounts(hub, a.key) } : {}), checked_at: checkedAt(hub, a) })),
     password_manager: passwordManagerView(hub),
+    // What broke after setup (connection-problems.ts): Settings marks the Accounts and Connections rows by it.
+    problems: connectionProblems(hub),
   };
 }

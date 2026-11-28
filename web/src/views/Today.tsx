@@ -6,6 +6,8 @@ import { usePoll } from "../lib/usePoll";
 import { localToday, scheduleTask, unscheduleTask, conflictMessage, renewWatch } from "../sync/planner";
 import { useEntities } from "../sync/hooks";
 import { db } from "../sync/db";
+import { engine } from "../sync/engine";
+import { unreachableLine } from "../lib/lastSynced";
 import { timeline, parseLocalDate, daySpan, overlaps, spanOf, fmtDue, wholeDay, type PlannerToday, type TimelineItem } from "../lib/planner";
 import { fmtTime, relative } from "../lib/time";
 import { StartedCard } from "../components/StartedCard";
@@ -26,6 +28,7 @@ import { useFeel } from "../feel/store";
 import { TODAY_TEXT } from "./settings/TodayParts";
 import { useSourceLists } from "../lib/sources";
 import { invitationsNeed } from "../lib/invitations";
+import { fixPath } from "../lib/connectionProblems";
 
 /** How many rows a card shows before it links to the rest. */
 const TODO_SHOWN = 6;
@@ -128,7 +131,7 @@ export function Today() {
   const inviteRows = useEntities("invitation");
   const invites = useMemo(() => invitationsNeed(inviteRows, now), [inviteRows, now]);
   const needs = useMemo(
-    () => needsYou({ reminders: due, watches: on("renewals") ? t?.watches_due_soon ?? [] : [], meds, unsorted: t?.captures_unprocessed ?? 0, now, invitations: invites }),
+    () => needsYou({ reminders: due, watches: on("renewals") ? t?.watches_due_soon ?? [] : [], meds, unsorted: t?.captures_unprocessed ?? 0, now, invitations: invites, connections: t?.connection_problems }),
     [due, t, meds, now, on, invites],
   );
   // To do holds the tasks of the lists chosen for it (Theme, Today, Lists in To do), or of every list.
@@ -221,6 +224,8 @@ export function Today() {
         return <a className="small" href="#/inbox">Sort them</a>;
       case "invitations":
         return <a className="small" href="#/week?invitations=1">Open</a>;
+      case "connection":
+        return <a className="small" href={`#${fixPath(n.problem)}`}>{n.problem.button}</a>;
     }
   };
 
@@ -381,7 +386,7 @@ export function Today() {
         </div>
         <div className="today-meta">
           <span className="muted small">
-            {poll.source === "local" ? "local copy, hub unreachable" : poll.at ? `checked ${relative(poll.at.toISOString())}` : ""}
+            {poll.source === "local" ? unreachableLine(engine.state.syncedAt) : poll.at ? `checked ${relative(poll.at.toISOString())}` : ""}
             {poll.busy ? ", loading" : ""}
           </span>
         </div>

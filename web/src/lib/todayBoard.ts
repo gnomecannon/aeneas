@@ -13,6 +13,7 @@ import type { Entity, LineWords, NextLine, TodayCard } from "@everythingapp/shar
 import { durationWords, freeTime, lineWords, nextLine } from "@everythingapp/shared";
 import type { TimelineItem } from "./planner";
 import type { DueReminder } from "./reminders";
+import type { ConnectionProblem } from "./connectionProblems";
 import { fmtDate, fmtTime } from "./time";
 
 const MIN = 60_000;
@@ -55,10 +56,12 @@ export type Need =
   | { key: string; kind: "renewal"; title: string; detail: string; watch: Entity; overdue: boolean }
   | { key: string; kind: "med"; title: string; detail: string; med: string }
   | { key: string; kind: "unsorted"; title: string; detail: string; count: number }
-  | { key: string; kind: "invitations"; title: string; detail: string; count: number };
+  | { key: string; kind: "invitations"; title: string; detail: string; count: number }
+  | { key: string; kind: "connection"; title: string; detail: string; problem: ConnectionProblem };
 
 /**
  * Everything waiting on the owner right now, in the order to take it: reminders whose time has come (oldest first),
+ * invitations, connections that broke (a mailbox's password refused, an ended sign-in: lib/connectionProblems.ts),
  * renewals the owner has to make (never the ones on autopay), regular meds not yet logged today, and captures the
  * assistant could not file. A renewal's own reminder says the same as the renewal, so only the renewal is listed.
  * Tech's looks are not here: Tech's card above Needs you holds them. (Job follow-ups were here until Job search was
@@ -72,6 +75,8 @@ export function needsYou(input: {
   now: Date;
   /** Invitations waiting for an answer (lib/invitations.ts invitationsNeed): one row for them all, after the reminders. */
   invitations?: { title: string; detail: string; count: number } | null;
+  /** Connections that broke after setup (`connection_problems` of the day's plan): one row each, after invitations. */
+  connections?: ConnectionProblem[];
 }): Need[] {
   const { now } = input;
   const out: Need[] = [];
@@ -82,6 +87,7 @@ export function needsYou(input: {
     out.push({ key: `r:${r.key}`, kind: "reminder", title: String(r.entity.fields.title ?? ""), detail: `Reminder, ${cameDue(r.at, now)}`, reminder: r });
   }
   if (input.invitations?.count) out.push({ key: "invitations", kind: "invitations", ...input.invitations });
+  for (const p of input.connections ?? []) out.push({ key: `c:${p.id}`, kind: "connection", title: p.title, detail: p.detail, problem: p });
   for (const w of toRenew) {
     const days = daysUntil(String(w.fields.due ?? ""), now);
     out.push({

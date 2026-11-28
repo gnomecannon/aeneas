@@ -167,6 +167,9 @@ struct ImageSettingsView: View {
     @AppStorage(PhotosOptions.saveKey) private var saveToPhotos = false
     @AppStorage(PhotosOptions.fullAccessKey) private var fullAccess = false
     @State private var note: String?
+    /// Photos access was turned down: the switch cannot ask again, so the way to the system's settings shows.
+    @State private var addRefused = false
+    @State private var fullRefused = false
 
     static var summary: String {
         #if os(iOS)
@@ -188,18 +191,20 @@ struct ImageSettingsView: View {
                                 // Only images made from now on; the gallery keeps the rest.
                                 UserDefaults.standard.set(ISO.now(), forKey: PhotosOptions.saveSinceKey)
                                 note = nil
-                            } else { saveToPhotos = false; note = "Photos access was not allowed. Turn it on in the iPhone's Settings, Aeneas, Photos." }
+                            } else { saveToPhotos = false; addRefused = true }
                         }
                     }
+                if addRefused { PermissionOffNote(permission: .photos) }
             } footer: { Text("Images you create also go to the camera roll, from now on. They always stay in the Image Gallery.") }
             SwiftUI.Section {
                 Toggle("Full photo library access", isOn: $fullAccess)
                     .onChange(of: fullAccess) { _, on in
                         guard on else { return }
                         Task {
-                            if await PhotosOptions.requestFull() { note = nil } else { fullAccess = false; note = "Photo library access was not allowed. Turn it on in the iPhone's Settings, Aeneas, Photos." }
+                            if await PhotosOptions.requestFull() { note = nil } else { fullAccess = false; fullRefused = true }
                         }
                     }
+                if fullRefused { PermissionOffNote(permission: .photos) }
             } footer: { Text("Shows your photo library in the Image Gallery, so any photo can be a reference for a new image. It also lets the assistant look at your newest photos when you ask about them. A photo leaves the phone only when you use or add it, or ask the assistant about it.") }
             if let n = note { SwiftUI.Section { Text(n).font(.callout).foregroundStyle(.warnText) } }
             #else

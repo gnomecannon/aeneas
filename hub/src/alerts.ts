@@ -38,6 +38,7 @@ export const ALERT_KINDS: AlertKind[] = [
   { id: "monitor", title: "Machines and services", summary: "A machine, service or backup went down, or came back.", module: "homelab" },
   { id: "sensor", title: "Sensor readings", summary: "A reading went out of its bounds, stopped coming, or came back.", module: "sensors" },
   { id: "disk", title: "Hub disk space", summary: "The disk with the hub's data is almost full.", module: null },
+  { id: "connection", title: "Accounts and connections", summary: "An account or service stopped signing in or syncing, once when it happens.", module: null },
   { id: "quiz", title: "Recall quiz", summary: "The day's quiz questions are ready.", module: "quiz" },
 ];
 const KNOWN = new Set(ALERT_KINDS.map((k) => k.id));

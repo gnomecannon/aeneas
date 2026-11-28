@@ -224,6 +224,9 @@ final class AppModel: ObservableObject {
     /// Machines was just switched on in this app: Set up Machines shows (MachinesStartSheet), after the permission
     /// screen when there is one, until Done.
     @Published var machinesStart = false
+    /// A module that needs an account or a sign-in (Mail, Games...) was just switched on in this app and the hub has
+    /// none: Set it up now shows (ModuleSetupSheet), after the permission screen, until Later.
+    @Published var moduleSetup: ModuleSetupStart?
 
     private init() {
         #if os(macOS)
@@ -472,6 +475,7 @@ final class AppModel: ObservableObject {
         if otherHub { await LocalCopy.wipeAppFiles() }
         isConfigured = config.isConfigured
         deviceRemoved = false
+        pairingAgain = false
         setupError = nil
         Self.log.notice("paired hub=\(URL(string: link.hub)?.host ?? "", privacy: .public) own key=\(self.config.hasDeviceKey)")
         if isConfigured { section = .today; await refreshProfile(); await refreshModules() }
@@ -481,7 +485,8 @@ final class AppModel: ObservableObject {
     /// A setup link opened (the Camera, a message) or found in pasted text. Set up shows what went wrong itself; anywhere
     /// else every outcome shows in an alert, so a link never fails, or pairs again, without a word.
     func useSetupLink(_ link: SetupLink) {
-        guard isConfigured else {
+        // Pair again shows Setup on purpose, so a link opened there pairs as on a device with no hub.
+        guard isConfigured, !pairingAgain else {
             if deviceRemoved { Task { await connectAndReport(link) } } else { Task { setupError = await connect(link) } }
             return
         }
@@ -578,12 +583,13 @@ final class AppModel: ObservableObject {
 
     /// Settings, Devices, Remove this device: the hub ends this device's key, and it signs out here. What is on the
     /// device stays, with edits not sent yet, for when it is paired again. Nil when it worked; else what went wrong, and
-    /// whether the hub could not be reached at all (then `forgetHub()` is offered).
-    func removeThisDevice() async -> (message: String, unreachable: Bool)? {
-        guard let c = engine.client else { return ("This device is not connected.", true) }
+    /// whether the hub could not be reached at all (then `forgetHub()` is offered), and whether it refused this device's
+    /// key (then Pair again is offered as well).
+    func removeThisDevice() async -> (message: String, unreachable: Bool, refused: Bool)? {
+        guard let c = engine.client else { return ("This device is not connected.", true, false) }
         let id = config.deviceId
         do { try await withDeadline(20) { try await c.removeDevice(id) } }
-        catch { return ((error as? HubError)?.errorDescription ?? error.localizedDescription, Self.unreachable(error)) }
+        catch { return ((error as? HubError)?.errorDescription ?? error.localizedDescription, Self.unreachable(error), Self.keyRefused(error)) }
         forgetHub()
         return nil
     }
@@ -598,12 +604,31 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A 401 that is not a removal (a removed device shows its own screen): the hub does not know this device's key.
+    static func keyRefused(_ e: Error) -> Bool {
+        guard let h = e as? HubError else { return false }
+        return h.isAuth && !h.isDeviceRemoved
+    }
+
     /// This device stops using its hub without telling it: the half of Remove this device that happens here, for a
     /// device that cannot reach its hub. It goes back to Set up; what is on it stays, and the hub lists it until it is
     /// removed from another device.
     func forgetHub() {
         engine.signOut()
         isConfigured = false
+        pairingAgain = false
+    }
+
+    /// Setup shows over a paired device (the banners' and Settings' Pair again): the hub refused this device's key, or
+    /// its address now leads to another hub. Nothing is signed out or wiped here: the key, the copy and its queued edits
+    /// stay until a new pairing replaces the key (the same hub keeps the copy and gets the queue), and Back returns to
+    /// the app as it was. A device the hub removed has its own screen and rules (RemovedDeviceView).
+    @Published var pairingAgain = false
+
+    func pairAgain() {
+        showingSettings = false
+        setupError = nil
+        pairingAgain = true
     }
 
     // MARK: sample mode
@@ -647,19 +672,47 @@ final class AppModel: ObservableObject {
         deviceRemoved = false
     }
 
-    /// Offer what the modules that are on need, when any of it was never asked on this device.
-    func offerPermissions(for list: [ModuleInfo]) async {
-        var ask: [PermissionNeed] = []
-        for n in PermissionPlan.needs(list, platform: platform) where await DevicePermissions.undecided(n.permission) { ask.append(n) }
-        guard !ask.isEmpty else { return }
-        permissionOffer = PermissionOffer(needs: ask)
+    /// Offer what the modules need on this device (`PermissionPlan.toOffer`): after pairing what was never asked, and
+    /// for a module switched on everything not allowed yet, a turned down one with the way to the system's settings.
+    /// `here`: switched on in this app, so a module whose permissions are all allowed already has its own switch on
+    /// this device turned on (another device's switch does not claim this one's Contacts).
+    func offerPermissions(for list: [ModuleInfo], reason: PermissionPlan.OfferReason, here: Bool = false) async {
+        let needs = PermissionPlan.needs(list, platform: platform)
+        let states = await DevicePermissions.states(needs.map(\.permission))
+        let state = { (p: DevicePermission) in states[p] ?? .notAsked }
+        if here {
+            // Modules that need nothing asked: on here now. The rest wait for Continue.
+            let offered = Set(PermissionPlan.toOffer(needs, reason: reason, state: state).flatMap { $0.modules.map(\.id) })
+            let ready = PermissionPlan.ready(needs, platform: platform, state: state).filter { !offered.contains($0.id) }
+            await DevicePermissions.turnOnHere(ready, engine: engine)
+        }
+        let offer = PermissionPlan.toOffer(needs, reason: reason, state: state)
+        guard !offer.isEmpty else { return }
+        permissionOffer = PermissionOffer(needs: offer, states: states)
     }
 
-    /// Continue on the permission screen: each permission in turn, then what it unlocks starts.
+    /// Continue on the permission screen: each one not decided yet in turn (a turned down one only the system's
+    /// settings can change), then what it unlocks starts, and each module with all it needs allowed is on here too.
     func grantOffered(_ offer: PermissionOffer) async {
         permissionOffer = nil
-        for n in offer.needs { _ = await DevicePermissions.request(n.permission, engine: engine) }
+        for n in offer.needs {
+            let s = await DevicePermissions.state(n.permission)
+            if s == .notAsked || s == .askedBefore { _ = await DevicePermissions.request(n.permission, engine: engine) }
+        }
+        let needs = PermissionPlan.needs(offer.needs.flatMap(\.modules), platform: platform)
+        let states = await DevicePermissions.states(needs.map(\.permission))
+        await DevicePermissions.turnOnHere(PermissionPlan.ready(needs, platform: platform) { states[$0] ?? .notAsked }, engine: engine)
         await engine.replanNotifications()
+    }
+
+    /// Set it up now, for a module just switched on here that needs an account or a sign-in the hub does not have.
+    private func offerSetup(_ ids: [String]) async {
+        guard !config.sampleMode, let c = engine.client else { return }
+        let wanted = ids.filter { ModuleSetup.need($0) != nil }
+        guard !wanted.isEmpty, let links = try? await withDeadline(15, { try await c.connections() }) else { return }
+        guard let id = wanted.first(where: { !ModuleSetup.isSetUp($0, links) }), let need = ModuleSetup.need(id) else { return }
+        let title = modules.first { $0.id == id }?.title ?? id
+        moduleSetup = ModuleSetupStart(module: id, title: title, need: need, place: ModuleSetup.place(id, links))
     }
 
     /// The pet's name (and the owner's) from the hub, kept for labels that show before the hub answers.
@@ -717,15 +770,22 @@ final class AppModel: ObservableObject {
     func setModules(_ changes: [String: Bool], offer: Bool = true) async throws {
         guard let c = engine.client else { throw HubError.notConfigured }
         let machinesWereOn = isOn(.homelab)
-        applyModules(try await c.setModules(changes), offer: offer)
+        let before = modules
+        applyModules(try await c.setModules(changes), offer: offer, here: offer)
         // Machines switched on here (not on another device): its first steps, as the web offers them under the switch.
         if changes[AppModule.homelab.rawValue] == true, !machinesWereOn, isOn(.homelab) { machinesStart = true }
+        // A module that needs an account or a sign-in, switched on here: Set it up now, when the hub has none.
+        if offer {
+            let listed = { (l: [ModuleInfo], id: String) in l.first { $0.id == id }?.on ?? false }
+            let on = changes.filter { $0.value && !listed(before, $0.key) && listed(modules, $0.key) }.map(\.key).sorted()
+            if !on.isEmpty { Task { await offerSetup(on) } }
+        }
     }
 
     /// `offer`: the list came from a switch changed now (here in Settings, or another device over /live), so a
     /// module switched on offers what it needs. A fetch at launch never does. Right after pairing, the first list
-    /// offers what every module that is on needs.
-    func applyModules(_ list: [ModuleInfo], offer: Bool = false) {
+    /// offers what every module that is on needs. `here`: the switch was changed in this app (`offerPermissions`).
+    func applyModules(_ list: [ModuleInfo], offer: Bool = false, here: Bool = false) {
         let before = modules
         if list != modules { modules = list }
         config.modules = list
@@ -733,10 +793,10 @@ final class AppModel: ObservableObject {
         if let held = heldSection { heldSection = nil; if section == .today, shows(held) { section = held } }
         if config.permissionOfferPending {
             config.permissionOfferPending = false
-            Task { await offerPermissions(for: PermissionPlan.withDeviceDefaults(list)) }
+            Task { await offerPermissions(for: PermissionPlan.withDeviceDefaults(list), reason: .paired) }
         } else if offer {
             let switchedOn = PermissionPlan.switchedOn(before: before, after: list)
-            if !switchedOn.isEmpty { Task { await offerPermissions(for: switchedOn) } }
+            if !switchedOn.isEmpty { Task { await offerPermissions(for: switchedOn, reason: .switchedOn, here: here) } }
         }
         // Reminder alerts switched off take this device's planned alerts off; on, they come back.
         if before.isOn(.notifications) != list.isOn(.notifications) { Task { await engine.replanNotifications() } }

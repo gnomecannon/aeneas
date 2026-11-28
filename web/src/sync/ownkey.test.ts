@@ -142,7 +142,7 @@ describe("Confluence Reconnect (gnomecannon/aeneas#24)", () => {
 describe("Settings, Connections reworked (gnomecannon/aeneas#10, #25), its accounts in Settings, Accounts since 2026-11-24", () => {
   const conn = fs.readFileSync(path.join(__dirname, "../views/settings/Connections.tsx"), "utf8");
   const src = fs.readFileSync(path.join(__dirname, "../views/settings/Accounts.tsx"), "utf8");
-  const page = conn.slice(conn.indexOf("export function ConnectionsPage()"));
+  const page = conn.slice(conn.indexOf("export function ConnectionsPage("));
 
   it("has a Read only switch on iCloud and app-password accounts, sent to the hub, and none on a Google sign-in", async () => {
     expect(hasReadOnlySwitch({ kind: "icloud", read_only: false })).toBe(true);
@@ -186,7 +186,7 @@ describe("Settings, Connections reworked (gnomecannon/aeneas#10, #25), its accou
     const confluence = conn.slice(conn.indexOf("function Confluence("), conn.indexOf("/** The plan as a calendar"));
     expect(steam).not.toContain("OwnKeyGuide");
     expect(confluence).not.toContain("OwnKeyGuide");
-    expect(conn).toContain('<OwnKeyGuide service={k.service} onDone={reload} start={k.added ? { label: "Replace" } : { label: "Set it up", primary: true }} />');
+    expect(conn).toContain('<OwnKeyGuide service={k.service} onDone={reload} start={k.added ? { label: "Replace" } : { label: "Set it up", primary: true }} opening={opening} />');
   });
 
   it("adds Google with an app password only, and offers one, with the address filled in, to an account on the older Google sign-in", () => {

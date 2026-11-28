@@ -183,10 +183,13 @@ public struct MailMailbox: Codable, Equatable, Hashable, Sendable {
     public var read_only: Bool?
     /// It has a sending server (since 2026-11-24): iCloud's, Gmail's, or one the owner gave. Nil from an older hub.
     public var can_send: Bool?
+    /// Its provider refused the password and the hub stopped signing in to it (since 2026-11-27): the Mail screen
+    /// says so above the mail, with Replace password. Nil from an older hub.
+    public var signin_refused: Bool?
 
-    public init(email: String, last_refresh: String? = nil, last_error: String? = nil, more: Bool = false, provider: String? = nil, kind: String? = nil, read_only: Bool? = nil, can_send: Bool? = nil) {
+    public init(email: String, last_refresh: String? = nil, last_error: String? = nil, more: Bool = false, provider: String? = nil, kind: String? = nil, read_only: Bool? = nil, can_send: Bool? = nil, signin_refused: Bool? = nil) {
         self.email = email; self.last_refresh = last_refresh; self.last_error = last_error; self.more = more
-        self.provider = provider; self.kind = kind; self.read_only = read_only; self.can_send = can_send
+        self.provider = provider; self.kind = kind; self.read_only = read_only; self.can_send = can_send; self.signin_refused = signin_refused
     }
 
     public init(from decoder: Decoder) throws {
@@ -199,6 +202,7 @@ public struct MailMailbox: Codable, Equatable, Hashable, Sendable {
         kind = try? c.decodeIfPresent(String.self, forKey: .kind)
         read_only = try? c.decodeIfPresent(Bool.self, forKey: .read_only)
         can_send = try? c.decodeIfPresent(Bool.self, forKey: .can_send)
+        signin_refused = try? c.decodeIfPresent(Bool.self, forKey: .signin_refused)
     }
 }
 

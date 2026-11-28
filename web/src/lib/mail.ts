@@ -409,7 +409,7 @@ export function frameClick(e: { type: string; button: number; target: unknown })
  * `provider`: who keeps it, as the screen says it ("iCloud", "Gmail", or the server's name); `kind`: how it is linked.
  * An older hub leaves both out.
  */
-export interface MailMailbox { email: string; last_refresh: string | null; last_error: string | null; more: boolean; provider?: string; kind?: "icloud" | "gmail" | "imap"; read_only?: boolean; /** It has a sending server (since 2026-11-24): iCloud's, Gmail's, or one the owner gave. Absent on older hubs. */ can_send?: boolean }
+export interface MailMailbox { email: string; last_refresh: string | null; last_error: string | null; more: boolean; provider?: string; kind?: "icloud" | "gmail" | "imap"; read_only?: boolean; /** It has a sending server (since 2026-11-24): iCloud's, Gmail's, or one the owner gave. Absent on older hubs. */ can_send?: boolean; /** Its provider refused the password and the hub stopped signing in (since 2026-11-27). Absent on older hubs. */ signin_refused?: boolean }
 
 /**
  * The browser's own "Leave this page?" question while something typed is not saved: a handler for `beforeunload`.

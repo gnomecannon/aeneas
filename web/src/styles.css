@@ -1585,6 +1585,9 @@ table.amort th:first-child, table.amort td:first-child { text-align: left; }
 /* An open mail's actions: on as many lines as they need (on a phone they are twice the card's width on one). */
 .mailx-card-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-top: 0; padding-bottom: 6px; }
 .mailx-acterr { margin-bottom: 12px; }
+/* A mailbox that stopped signing in, and Week's calendar that stopped syncing: said above the content, with the fix. */
+.mailx-signin, .week-sync-problem { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--warn); border-radius: var(--radius); background: var(--surface); }
+.mailx-signin .grow, .week-sync-problem .grow { min-width: 160px; flex: 1; }
 /* Reminders among the mail: a bell in the circle; the row is a link to the task. */
 a.mailx-row { color: inherit; text-decoration: none; }
 .mailx-av.reminder { background: var(--b-snoozed); color: #fff; border-color: transparent; }

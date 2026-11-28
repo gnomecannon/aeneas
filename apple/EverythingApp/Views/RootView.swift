@@ -13,7 +13,7 @@ struct RootView: View {
         Group {
             if model.deviceRemoved {
                 RemovedDeviceView()
-            } else if !model.isConfigured {
+            } else if !model.isConfigured || model.pairingAgain {
                 SetupView()
             } else {
                 Group {
@@ -52,6 +52,11 @@ struct RootView: View {
         .sheet(isPresented: Binding(get: { model.isConfigured && !model.showingSettings && model.permissionOffer == nil && model.machinesStart },
                                     set: { if !$0, !model.showingSettings { model.machinesStart = false } })) {
             MachinesStartSheet().environmentObject(model).environmentObject(engine)
+        }
+        // Mail, Games and the like switched on here with nothing linked: Set it up now, after the screens above.
+        .sheet(item: Binding(get: { model.isConfigured && !model.showingSettings && model.permissionOffer == nil && !model.machinesStart ? model.moduleSetup : nil },
+                             set: { if $0 == nil, !model.showingSettings { model.moduleSetup = nil } })) { start in
+            ModuleSetupSheet(start: start).environmentObject(model).environmentObject(engine)
         }
         .sheet(item: Binding(get: { model.openItemId.map { PendingSnooze(id: $0) } }, set: { model.openItemId = $0?.id })) { p in
             NavigationStack {
@@ -121,8 +126,52 @@ private struct ModuleGate: View {
         if model.shows(section) {
             sectionContent(section).themedScreen()
         } else {
-            let title = section.module.flatMap { m in model.modules.first { $0.id == m.rawValue }?.title } ?? section.title
-            EmptyState(text: "\(title) is off. Turn it on in Settings, Modules.").themedScreen()
+            ModuleOffState(section: section).themedScreen()
+        }
+    }
+}
+
+/// A screen whose module is off: what is off, and Turn on, which switches it on for every device as Settings, Modules
+/// does (with its permission screen and Set it up now after it).
+private struct ModuleOffState: View {
+    @EnvironmentObject var model: AppModel
+    var section: Section
+    @State private var busy = false
+    @State private var error: String?
+
+    private var moduleId: String? { section.module?.rawValue }
+
+    var body: some View {
+        let title = moduleId.flatMap { id in model.modules.first { $0.id == id }?.title } ?? section.title
+        VStack(spacing: 16) {
+            Spacer()
+            Text("\(title) is off.").font(.title2).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            // Sample mode has no Mail screen even with Mail on (`shows`): no Turn on that would change nothing.
+            if let id = moduleId, !(section == .mail && model.config.sampleMode) {
+                Button(busy ? "Turning on" : "Turn on") { turnOn(id) }
+                    .buttonStyle(.themedProminent)
+                    .controlSize(.large)
+                    .disabled(busy)
+                    .accessibilityIdentifier("module.turnOn")
+                Text("For every device. Switch it off again in Settings, Modules.").font(.footnote).foregroundStyle(.secondary)
+            } else {
+                Text("Turn it on in Settings, Modules.").font(.callout).foregroundStyle(.secondary)
+            }
+            if let error { Text(error).font(.footnote).foregroundStyle(.dangerText) }
+            Spacer()
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding()
+    }
+
+    private func turnOn(_ id: String) {
+        busy = true
+        error = nil
+        Task {
+            defer { busy = false }
+            do { try await model.setModules([id: true]) }
+            catch { self.error = "Could not turn it on: \((error as? HubError)?.errorDescription ?? error.localizedDescription)" }
         }
     }
 }

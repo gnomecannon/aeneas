@@ -39,6 +39,7 @@ import { refusedSentence, refusedValues } from "../lib/errors";
 import { localDate } from "../lib/planner";
 import { APP_VERSION, RELEASES_URL, versionNotice } from "../lib/appUpdate";
 import { installFromHub, selfPlatform, type InstallStep } from "../lib/appInstall";
+import { rowWarning, type ConnectionProblem } from "../lib/connectionProblems";
 
 /** This app's own version, from the build (the hub's comes from the hub). */
 
@@ -70,7 +71,7 @@ export function Settings({ parts, params }: { parts: string[]; params: URLSearch
   }
   if (a === "connection") return <Connection />;
   if (a === "accounts") return <AccountsSettings parts={parts.slice(1)} params={params} />;
-  if (a === "connections") return <ConnectionsPage />;
+  if (a === "connections") return <ConnectionsPage show={params.get("show")} />;
   if (a === "notifications") return <Notifications />;
   // Work space is in Settings, Accounts, Work since 2026-11-24; a link to its old page lands there.
   if (a === "work") return <AccountsSettings parts={[]} params={params} />;
@@ -137,8 +138,9 @@ function SettingsHome() {
         <NavRow href="/settings/modules" title="Modules" summary={modulesSummary(modules)} />
         {people && <NavRow href="/settings/people" title="People on this machine" summary={people} />}
         <NavRow href="/settings/import" title="Bring your data in" summary="ChatGPT, Google Takeout, Obsidian and other notes, text" />
-        <NavRow href="/settings/accounts" title="Accounts" summary={accountsSummary(links)} />
-        <NavRow href="/settings/connections" title="Connections" summary={connectionsSummary(links)} />
+        {/* A connection that broke takes the row's summary, with a count, as refused edits do on Connection. */}
+        <NavRow href="/settings/accounts" title="Accounts" summary={rowWarning(links?.problems, "account") ?? accountsSummary(links)} extra={brokenBadge(links?.problems, "account")} />
+        <NavRow href="/settings/connections" title="Connections" summary={rowWarning(links?.problems, "connections") ?? connectionsSummary(links)} extra={brokenBadge(links?.problems, "connections")} />
         {reference !== null && <NavRow href="/settings/reference" title="Reference" summary={reference} />}
         <NavRow href="/settings/notifications" title="Notifications" summary={isWindowsApp ? "Windows notifications and banners" : "Banners while the app is open"} />
         <NavRow href="/settings/planner" title="Planner" summary="Plan rules, week and renewals" />
@@ -148,6 +150,12 @@ function SettingsHome() {
       </nav>
     </div>
   );
+}
+
+/** How many of a row's connections broke, as a badge; none while all work. */
+function brokenBadge(list: ConnectionProblem[] | undefined, fix: ConnectionProblem["fix"]) {
+  const n = (list ?? []).filter((p) => p.fix === fix).length;
+  return n ? <span className="badge" aria-label={`${n} need${n === 1 ? "s" : ""} you`}>{n}</span> : undefined;
 }
 
 /** A Direct link hub: how it is reached, its key, who runs the relay, and whether it is direct right now. */
@@ -400,7 +408,7 @@ function Notifications() {
           </ul>
         )}
         <div className="muted small">
-          {isWindowsApp ? "They show as banners in the app and as Windows notifications." : "In a browser they show as banners at the top of the app while it is open."} When each reminder fires and how hard it is to snooze are set on the reminder itself.
+          {isTauri ? `They show as banners in the app, and as ${isAndroid ? "Android" : "Windows"} notifications once you allow them below.` : "In a browser they show as banners at the top of the app while it is open."} When each reminder fires and how hard it is to snooze are set on the reminder itself.
         </div>
       </div>
       {apple && modules.on("apple_reminders") && (
@@ -421,14 +429,19 @@ function Notifications() {
       {isTauri && (
         <div className="card col">
           <h2>{isAndroid ? "Android notifications" : "Windows notifications"}</h2>
-          <div className="small">{allowed === null ? "Checking" : allowed ? "Allowed." : "Not allowed yet."}</div>
+          {/* The only place the app asks for this permission: never at launch. Until it is allowed, alerts are the
+              banners inside the app. */}
+          <div className="small">{allowed === null ? "Checking" : allowed ? "Allowed." : `Not allowed yet. Until you allow them, alerts show only as banners inside the app. Allowing them lets ${isAndroid ? "Android" : "Windows"} show them too, also while the app is in the background.`}</div>
           <div className="row">
             {allowed === false && (
-              <button onClick={() => void notificationsAllowed(true).then(setAllowed)}>Allow notifications</button>
+              <button className="primary" onClick={() => void notificationsAllowed(true).then(setAllowed)}>Allow notifications</button>
             )}
             <button
               onClick={() => {
-                void notify("Aeneas", "Notifications work.", "/settings/notifications").then(() => setMsg("Sent."));
+                void notify("Aeneas", "Notifications work.", "/settings/notifications", { ask: true }).then((sent) => {
+                  setMsg(sent ? "Sent." : `Not sent: ${isAndroid ? "Android" : "Windows"} does not allow notifications from Aeneas.`);
+                  void notificationsAllowed().then(setAllowed);
+                });
               }}
             >
               Send a test

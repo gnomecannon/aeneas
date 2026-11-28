@@ -26,6 +26,8 @@ struct WeekView: View {
     @State private var query = ""
     @State private var showCalendars = false
     @State private var showInvitations = false
+    /// A calendar account that stopped signing in or syncing, its page open over Week.
+    @State private var fixingKey: String?
     #if DEBUG
     @State private var debugApplied = false
     #endif
@@ -83,6 +85,7 @@ struct WeekView: View {
             if searching {
                 WeekSearchResults(query: query, events: shownEvents, allEvents: allEvents)
             } else {
+                syncProblems
                 content
             }
         }
@@ -114,6 +117,9 @@ struct WeekView: View {
                 .frame(minWidth: 420, minHeight: 480)
                 #endif
         }
+        .sheet(isPresented: Binding(get: { fixingKey != nil }, set: { if !$0 { fixingKey = nil; Task { await reload() } } })) {
+            if let key = fixingKey { AccountFixSheet(key: key) }
+        }
         .task(id: LocalPlanner.dateString(weekStart)) { await reload() }
         .refreshable { await engine.sync(); await reload() }
         // Only changes to what the week shows reload it, as on Today. Every change fetched the week again, Ops's fresh
@@ -129,6 +135,25 @@ struct WeekView: View {
             WeekDebug.apply(view: &viewRaw, anchor: &anchor, query: &query, calendars: &showCalendars)
         }
         #endif
+    }
+
+    /// A calendar account that stopped signing in or syncing (the hub's `connection_problems`): its events here stop
+    /// changing, which Week did not say.
+    @ViewBuilder private var syncProblems: some View {
+        ForEach(ConnectionProblem.affecting(week?.connection_problems, "calendar")) { p in
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(StyleGuard.dashes(p.title)).font(.subheadline.weight(.semibold))
+                    Text(StyleGuard.dashes(p.detail)).font(.footnote).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if let key = p.account {
+                    Button(StyleGuard.dashes(p.button)) { fixingKey = key }
+                        .buttonStyle(.themedProminent).controlSize(.small)
+                }
+            }
+            .padding(.horizontal).padding(.vertical, 6)
+        }
     }
 
     private var viewPicker: some View {

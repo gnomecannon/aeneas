@@ -4,10 +4,14 @@ import { useEffect, useState } from "react";
 import { RetentionSettings } from "./settings/HubPrivacy";
 import { HubError, type BackupStatus, type PullState, type SetupDetect, type SetupView } from "../sync/api";
 import { engine } from "../sync/engine";
-import { go } from "../lib/router";
+import { go, useRoute } from "../lib/router";
 import { useModules } from "../lib/modules";
 import { ModulePicker } from "./settings/Modules";
 import { PairDevice } from "./settings/Devices";
+import { modelDownload, pullProgress } from "../lib/setupModel";
+import { APP_STORE } from "../lib/invitation";
+import { RELEASES_URL } from "../lib/appUpdate";
+import { openExternal } from "../tauri/bridge";
 
 type Msg = { ok: boolean; text: string } | null;
 const errorText = (e: unknown) => plainError(e);
@@ -26,6 +30,13 @@ export function Welcome() {
   const load = () => void client?.setup().then(setView).catch((e) => setMsg({ ok: false, text: errorText(e) }));
   useEffect(load, [client]);
   const { on } = useModules();
+  // The Assistant's "Set up a model" opens this page at the model step.
+  const step = useRoute().params.get("step");
+  useEffect(() => {
+    if (step !== "model" || !view) return;
+    const t = setTimeout(() => document.getElementById("model-step")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    return () => clearTimeout(t);
+  }, [step, !!view]);
   if (!client) return null;
   // Passwords only matter for commands on your machines, so that step shows only with Homelab on.
   const passwords = on("homelab");
@@ -59,9 +70,9 @@ export function Welcome() {
   );
 }
 
-function Step({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) {
+function Step({ n, title, done, id, children }: { n: number; title: string; done: boolean; id?: string; children: React.ReactNode }) {
   return (
-    <section className="card col">
+    <section className="card col" id={id}>
       <h2>{done ? "✓" : `${n}.`} {title}</h2>
       {children}
     </section>
@@ -103,6 +114,11 @@ function ModelStep({ view, onDone }: { view: SetupView | null; onDone: () => voi
     void client.setupDetect().then(setD).catch((e) => setMsg({ ok: false, text: errorText(e) })).finally(() => setLooking(false));
   };
   useEffect(detect, [client]);
+  // A download started before this page was opened (it was closed, or opened on another device) shows where it is,
+  // and one cut off by a hub restart shows that it stopped. One that finished before needs no line.
+  useEffect(() => {
+    void client.pullState().then((r) => { if (r.pull && (!r.pull.done || r.pull.error)) setPull(r.pull); }).catch(() => undefined);
+  }, [client]);
   // While a model downloads, follow it.
   useEffect(() => {
     if (!pull || pull.done) return;
@@ -142,8 +158,9 @@ function ModelStep({ view, onDone }: { view: SetupView | null; onDone: () => voi
   const current = view?.ai;
   const rec = d?.recommended.model ?? "";
   const hasRec = !!ollama?.models.some((m) => m === rec || m === `${rec}:latest`);
+  const again = modelDownload(view, d, pull);
   return (
-    <Step n={3} title="The model" done={!!view?.model_ready}>
+    <Step n={3} title="The model" done={!!view?.model_ready} id="model-step">
       {looking && !d && <div className="muted small">Looking at this machine...</div>}
       {d && (
         <div className="small">
@@ -197,11 +214,15 @@ function ModelStep({ view, onDone }: { view: SetupView | null; onDone: () => voi
       )}
       {pull && (
         <div className="small">
-          {pull.error ? <span className="error">Fetching {pull.model} failed: {pull.error}</span>
+          {pull.interrupted ? <span className="error">Fetching {pull.model} stopped{pull.total ? ` at ${pullProgress(pull)}` : ""}: the hub restarted before it finished.</span>
+            : pull.error ? <span className="error">Fetching {pull.model} failed: {pull.error}</span>
             : pull.done ? <span className="ok">{pull.model} is ready.</span>
-            : <>Fetching {pull.model}: {pull.total ? `${Math.round((pull.completed / pull.total) * 100)}%` : pull.status}</>}
-          {pull.done && pull.error && <button type="button" className="ghost small" onClick={() => void fetchModel(pull.model)}>Try again</button>}
+            : <>Fetching {pull.model}: {pullProgress(pull)}. You can close this page: the hub keeps downloading, and this step shows how far it got when you come back.</>}
         </div>
+      )}
+      {/* The chosen model is not on the hub's machine (a download that stopped, failed, or was never started). */}
+      {again && (
+        <div><button type="button" className="primary" disabled={busy} onClick={() => void fetchModel(again.model)}>{again.label}</button></div>
       )}
       {d && !ollama && (
         <div className="muted small">
@@ -307,6 +328,11 @@ function DevicesStep({ n }: { n: number }) {
       <div className="link-question">How will your phone and computers reach the hub?</div>
       <LinkChoice inSetup />
       <div className="link-question" style={{ marginTop: 12 }}>Pair a device</div>
+      {/* Opened with openExternal: in the Windows and Android apps a plain link would open inside the app's own window. */}
+      <div className="small">
+        Get the app: <a href={APP_STORE} onClick={(e) => { e.preventDefault(); void openExternal(APP_STORE); }}>App Store</a> for iPhone, iPad and Mac;{" "}
+        <a href={RELEASES_URL} onClick={(e) => { e.preventDefault(); void openExternal(RELEASES_URL); }}>Windows and Android</a> from the release page.
+      </div>
       <div className="muted small">Install Aeneas on your iPhone, iPad or Mac, then make a code here. Scan the QR code with the iPhone or iPad camera and it connects; on a Mac, open the link; on another computer, open the web link. Each device gets its own key, and the code works once, for 10 minutes.</div>
       <PairDevice />
     </Step>

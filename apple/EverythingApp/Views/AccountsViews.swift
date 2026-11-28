@@ -154,6 +154,63 @@ struct AccountsSettingsView: View {
     }
 }
 
+/// The fix for a connection that broke, opened from Today's Needs you, Mail or Week: the account's page with Replace
+/// open, or Settings, Connections.
+struct ConnectionFixView: View {
+    let problem: ConnectionProblem
+
+    var body: some View {
+        if problem.fix == .account, let key = problem.account {
+            AccountFixPage(key: key)
+        } else if problem.fix == .account {
+            AccountsSettingsView()
+        } else {
+            ConnectionsSettingsView(show: problem.id == "atlassian" ? "confluence" : problem.id)
+        }
+    }
+}
+
+/// One account's page on its own, with Replace open: it loads what the Accounts screens load.
+struct AccountFixPage: View {
+    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var engine: SyncEngine
+    @StateObject private var store = ConnectionsStore()
+    let key: String
+
+    var body: some View {
+        Group {
+            if store.c != nil {
+                AccountSettingsView(key: key, store: store, reload: { await load() }, startReplacing: true)
+            } else if let e = store.loadError {
+                Form { Text(e).foregroundStyle(.dangerText).themedRow() }.formStyle(.grouped).themedScreen()
+            } else {
+                ProgressView()
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        await store.load(engine.client, calendarsOn: model.isOn(.calendars))
+    }
+}
+
+/// An account's page with Replace open, over a screen that has no page stack of its own (Mail, Week).
+struct AccountFixSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let key: String
+
+    var body: some View {
+        NavigationStack {
+            AccountFixPage(key: key)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        #if os(macOS)
+        .frame(minWidth: 460, minHeight: 520)
+        #endif
+    }
+}
+
 /// An account's row: a letter badge, the address, what it brings in, its kind on the right.
 struct AccountRowLabel: View {
     @EnvironmentObject var model: AppModel
@@ -231,6 +288,8 @@ struct FromThisDeviceSection: View {
     @State private var note: (ok: Bool, text: String)?
     /// The device that mirrors Contacts now, while this one asks to take over.
     @State private var takeOver: String?
+    /// Contacts access was turned down when the switch was turned on: the way to the system's settings shows.
+    @State private var contactsRefused = false
 
     enum DevicePage: String, Hashable, Identifiable { case calendars, reminders, health; var id: String { rawValue } }
 
@@ -260,6 +319,7 @@ struct FromThisDeviceSection: View {
                 } message: { name in
                     Text(AccountTexts.takeOverContacts(from: name, here: here))
                 }
+            if contactsRefused { PermissionOffNote(permission: .contacts) }
             #if os(iOS)
             if healthHere {
                 DeviceSourceRow(title: "Apple Health", symbol: "heart.fill", summary: healthSummary, isOn: appleHealth.on(model), disabled: sample || appleHealth.busy,
@@ -284,6 +344,9 @@ struct FromThisDeviceSection: View {
             #if os(iOS)
             appleHealth.refresh()
             #endif
+            // Contacts switched on for every device and turned down here: the switch alone would say nothing.
+            let contactsDenied = await DevicePermissions.state(.contacts) == .denied
+            contactsRefused = !sample && model.isOn(.contacts) && contactsDenied
             #if DEBUG
             // -EAContactsTakeOver <device name>: the question asked when another device mirrors Contacts, once, in
             // sample mode too (where the switch is off), to see how it reads.
@@ -424,8 +487,11 @@ struct FromThisDeviceSection: View {
             try await needModule(.contacts)
             guard await contacts.requestAccess() else {
                 contactsHere = false
-                return "Contacts access was not allowed. Allow it in \(systemSettingsName.replacingOccurrences(of: "Open ", with: "")), Privacy, Contacts."
+                // Said under the row with the way to the system's settings (`contactsRefused`).
+                contactsRefused = true
+                return nil
             }
+            contactsRefused = false
             // The switch makes this device the one (ContactsSync settles it with the hub).
             contactsHere = true
             await contacts.runNow(reason: "turned on")
@@ -508,8 +574,12 @@ struct AccountSettingsView: View {
     let key: String
     @ObservedObject var store: ConnectionsStore
     let reload: () async -> Void
+    /// Opened from a sign-in that stopped (Today, Mail, Week): Replace is open, or, for an older Google sign-in, Add an
+    /// app password.
+    var startReplacing = false
 
     @State private var busy = false
+    @State private var startedReplacing = false
     @State private var message: (ok: Bool, text: String)?
     @State private var confirmRemove = false
     /// A switch whose change removes the account (its last use), waiting for a yes.
@@ -537,6 +607,14 @@ struct AccountSettingsView: View {
         ScrollViewReader { proxy in
             Form {
                 if let a = account { content(a) } else { Text("This account is not linked any more.").foregroundStyle(.secondary).themedRow() }
+            }
+            .task(id: account?.key) {
+                guard startReplacing, !startedReplacing, let a = account else { return }
+                startedReplacing = true
+                if a.kind == "google" { addingPassword = true; return }
+                replacing = true
+                try? await Task.sleep(for: .milliseconds(300))
+                proxy.scrollTo("signin", anchor: .top)
             }
             .task {
                 #if DEBUG

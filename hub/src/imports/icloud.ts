@@ -350,6 +350,11 @@ export function mailboxProvider(hub: Hub, key: string): { kind: "icloud" | "gmai
   return !a.host ? { kind: "icloud", provider: "iCloud" } : a.preset === "gmail" ? { kind: "gmail", provider: "Gmail" } : { kind: "imap", provider: a.host };
 }
 
+/** Whether the provider refused a linked mailbox's password, so the hub stopped signing in to it until it is replaced. */
+export function signInRefused(hub: Hub, key: string): boolean {
+  try { return !!account(hub, key).refused_at; } catch { return false; }
+}
+
 /** Whether a mailbox is Gmail's: linked as Google, or as another server whose name is Gmail's. */
 export const isGmail = (a: Partial<ImapAccount>) => a.preset === "gmail" || /(^|\.)(gmail|googlemail)\.com$/.test(a.host ?? "");
 

@@ -64,6 +64,7 @@ describe("the app asks its hub which ways reach it", () => {
     expect(h.paths).toEqual(["/link/routes"]);
     expect(eng.state.status).toBe("offline");
     expect(eng.state.lastError).toBe(OTHER_HUB);
+    expect(eng.state.pairing).toBe("other_hub");
     // Asked again before every sync: nothing goes while it is another hub.
     await eng.cycle();
     expect(h.paths).toEqual(["/link/routes", "/link/routes"]);

@@ -93,6 +93,8 @@ private struct AdminSplitCalc: View {
     @AppStorage("ea.calc.taxPct") private var tax = ""
     @AppStorage("ea.calc.taxFrom") private var taxFrom = ""
     @State private var taxNote = ""
+    /// Use my location was tapped with location turned down: the way to the system's settings shows under it.
+    @State private var locationRefused = false
     @State private var locating = false
     @State private var tip: Double = 20
     @State private var people = 2
@@ -133,6 +135,7 @@ private struct AdminSplitCalc: View {
                 NumberRow(label: "Tax", text: Binding(get: { tax }, set: { tax = $0; taxFrom = "typed"; taxNote = "" }), suffix: "%")
                 Button(locating ? "Finding your state" : "Use my location") { Task { await fromLocation(ask: true) } }
                     .disabled(locating)
+                if locationRefused { PermissionOffNote(permission: .location) }
                 if !taxNote.isEmpty { Text(taxNote).font(.footnote).foregroundStyle(.secondary) }
                 Picker("Tip", selection: $tip) {
                     ForEach([15.0, 18, 20, 22], id: \.self) { t in Text("\(Int(t))%").tag(t) }
@@ -159,9 +162,13 @@ private struct AdminSplitCalc: View {
         let place = ApproximateLocation.shared
         if place.undecided, ask { _ = await place.requestPermission() }
         guard place.allowed else {
-            if ask { taxNote = "Location is off for Aeneas. Type the rate instead, and it is kept on this device." }
+            if ask {
+                taxNote = "Or type the rate, and it is kept on this device."
+                locationRefused = !place.undecided
+            }
             return
         }
+        locationRefused = false
         guard let here = await place.current() else {
             if ask { taxNote = "This device could not tell where it is. Type the rate instead." }
             return

@@ -31,7 +31,7 @@ export function aiRoutes() {
           (e) => { void stream.writeSSE({ event: e.type, data: JSON.stringify(e) }); });
         await stream.writeSSE({ event: "done", data: JSON.stringify(out) });
       } catch (e) {
-        const err = e instanceof StoreError ? { error: e.message, detail: e.detail } : { error: (e as Error).message };
+        const err = e instanceof StoreError ? { error: e.message, detail: e.detail, ...(e.extra ?? {}) } : { error: (e as Error).message };
         await stream.writeSSE({ event: "error", data: JSON.stringify(err) });
       }
     });

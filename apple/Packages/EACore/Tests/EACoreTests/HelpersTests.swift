@@ -50,7 +50,7 @@ final class HelpersTests: XCTestCase {
 
         1. Install the Aeneas app. On an iPhone or iPad: https://apps.apple.com/app/id6832161802 . On an Android phone: https://github.com/gnomecannon/aeneas/releases/latest .
         2. Copy this whole message: press and hold it, then tap Copy.
-        3. Open Aeneas and tap I have an invitation. It finds the invitation in this message and connects you.
+        3. Open Aeneas and tap Paste the invitation. It finds the invitation in this message and connects you.
 
         The invitation works once, until Saturday, November 22 at 2:47 PM.
         \(link)

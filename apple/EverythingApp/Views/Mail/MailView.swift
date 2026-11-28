@@ -49,6 +49,8 @@ struct MailView: View {
     @State private var newMailPressed = false
     /// A mail that was not sent, asked about before it is discarded.
     @State private var discarding: MailOutboxItem?
+    /// A mailbox that stopped signing in, its account's page open over Mail with Replace open.
+    @State private var replacingKey: String?
     @State private var clock = Date()
     @FocusState private var searchFocused: Bool
     #if os(macOS)
@@ -163,6 +165,9 @@ struct MailView: View {
         .sheet(isPresented: $showSettings) { MailSettingsSheet(store: store) }
         .sheet(isPresented: $showKeys) { MailKeysSheet() }
         .sheet(isPresented: $addingAccount) { AddAccountSheet { _ in await store.refresh() } }
+        .sheet(isPresented: Binding(get: { replacingKey != nil }, set: { if !$0 { replacingKey = nil; Task { await store.refresh() } } })) {
+            if let key = replacingKey { AccountFixSheet(key: key) }
+        }
         #if os(iOS)
         .sheet(isPresented: $composingNew) {
             NavigationStack {
@@ -426,6 +431,17 @@ struct MailView: View {
     @ViewBuilder private var notes: some View {
         if let e = store.actionError {
             Text(verbatim: e).font(.footnote).foregroundStyle(.dangerText)
+        }
+        // A mailbox whose provider refused its password: the hub stopped signing in, so its new mail stopped coming in.
+        // That was said only in Mailboxes and settings, and Mail looked as if no mail had come.
+        ForEach((store.list?.mailboxes ?? []).filter { $0.signin_refused == true }, id: \.email) { m in
+            VStack(alignment: .leading, spacing: 6) {
+                Text(verbatim: "\(m.email) stopped signing in.").font(.subheadline.weight(.semibold))
+                Text("Its new mail does not come in until you replace its password.").font(.footnote).foregroundStyle(.secondary)
+                Button("Replace password") { replacingKey = ConnectionProblem.mailboxKey(m) }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+            }
+            .padding(.vertical, 2)
         }
         // Mail that was not sent (since 2026-11-24): never lost, whether or not the box it was written in is open. One
         // an open box shows already is left to that box.

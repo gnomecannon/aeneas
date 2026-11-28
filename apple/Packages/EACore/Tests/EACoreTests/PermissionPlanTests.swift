@@ -91,6 +91,54 @@ final class PermissionPlanTests: XCTestCase {
         XCTAssertTrue(PermissionPlan.switchedOn(before: [], after: before).isEmpty, "nothing loaded before: not a switch")
     }
 
+    func testASwitchedOnModuleOffersWhatWasTurnedDownWithItsWayToSettings() {
+        let needs = PermissionPlan.needs(modules, platform: .iphone)
+        let states: [DevicePermission: PermissionState] = [
+            .notifications: .allowed, .microphone: .denied, .speech: .notAsked, .calendar: .denied, .health: .askedBefore, .photos: .allowed,
+        ]
+        let state = { (p: DevicePermission) in states[p] ?? .notAsked }
+        // Switched on: every one not allowed, turned down ones too (they show Open Settings).
+        XCTAssertEqual(PermissionPlan.toOffer(needs, reason: .switchedOn, state: state).map(\.permission), [.microphone, .speech, .calendar, .health])
+        // After pairing: a "no" said before is not brought up again; Health asked before is, so Continue turns its sync on.
+        XCTAssertEqual(PermissionPlan.toOffer(needs, reason: .paired, state: state).map(\.permission), [.speech, .health])
+        // Everything allowed: nothing to show either way.
+        XCTAssertTrue(PermissionPlan.toOffer(needs, reason: .switchedOn) { _ in .allowed }.isEmpty)
+    }
+
+    func testAModuleIsTurnedOnHereOnlyWhenEachOfItsPermissionsIsAllowed() {
+        let needs = PermissionPlan.needs(modules, platform: .iphone)
+        let states: [DevicePermission: PermissionState] = [.microphone: .allowed, .speech: .denied, .health: .askedBefore, .photos: .allowed, .calendar: .notAsked]
+        let ready = PermissionPlan.ready(needs, platform: .iphone) { states[$0] ?? .allowed }
+        XCTAssertEqual(ready.map(\.id), ["notifications", "music", "health", "images"],
+                       "Voice waits for speech recognition, Apple Calendar for its question; Health asked before counts")
+        // The Mac too: Voice waits while speech recognition is turned down.
+        XCTAssertFalse(PermissionPlan.ready(needs, platform: .mac) { states[$0] ?? .allowed }.contains { $0.id == "voice" })
+    }
+
+    func testModulesThatNeedAnAccountSayWhereToSetItUp() throws {
+        let none = try JSONCoding.decode(Connections.self, from: #"{"steam": {"connected": false}, "letterboxd": {"connected": true}, "health": {"samples": 0, "total": 0}, "atlassian": {"connected": false}, "internet": []}"#)
+        XCTAssertFalse(ModuleSetup.isSetUp("games", none))
+        XCTAssertTrue(ModuleSetup.isSetUp("films", none))
+        XCTAssertFalse(ModuleSetup.isSetUp("wiki", none))
+        XCTAssertFalse(ModuleSetup.isSetUp("mail_inbox", none))
+        XCTAssertFalse(ModuleSetup.isSetUp("calendars", none))
+        XCTAssertTrue(ModuleSetup.isSetUp("pet", none), "a module that needs nothing is set up")
+        XCTAssertEqual(ModuleSetup.place("mail_inbox", none), .addAccount)
+        XCTAssertEqual(ModuleSetup.place("games", none), .connections)
+        XCTAssertNil(ModuleSetup.need("pet"))
+        XCTAssertNotNil(ModuleSetup.need("mail"))
+
+        let mailOnly = try JSONCoding.decode(Connections.self, from: #"{"steam": {"connected": true}, "letterboxd": {"connected": false}, "health": {"samples": 0, "total": 0}, "internet": [{"key": "a", "kind": "icloud", "email": "jamie@example.com", "features": {"inbox": true, "receipts": false, "calendars": false}}]}"#)
+        XCTAssertTrue(ModuleSetup.isSetUp("mail_inbox", mailOnly))
+        XCTAssertFalse(ModuleSetup.isSetUp("mail", mailOnly), "Receipts and renewals is switched on the account itself")
+        XCTAssertEqual(ModuleSetup.place("mail", mailOnly), .accounts, "an account is linked: its own switches, not Add account")
+        XCTAssertTrue(ModuleSetup.isSetUp("wiki", mailOnly), "an older hub that does not say counts as set up")
+        for id in ["mail_inbox", "mail", "calendars", "wiki", "games", "films"] {
+            let words = ModuleSetup.need(id) ?? ""
+            XCTAssertFalse(words.contains("\u{2014}") || words.contains("\u{2013}"))
+        }
+    }
+
     func testEveryPermissionHasPlainWords() {
         for p in DevicePermission.allCases {
             XCTAssertFalse(p.title.isEmpty)

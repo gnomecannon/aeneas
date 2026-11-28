@@ -1,4 +1,5 @@
 import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent } from "react";
+import { fixPath, mailboxKey } from "../lib/connectionProblems";
 import { openExternal } from "../tauri/bridge";
 import { saveBlob } from "../lib/download";
 import { engine } from "../sync/engine";
@@ -729,6 +730,7 @@ export function Mail() {
         {menu && <div className="mailx-scrim" onClick={() => setMenu(false)} aria-hidden="true" />}
         <div className="mailx-main">
           {actErr && <div className="error mailx-acterr" role="alert">{actErr}</div>}
+          <SignInStopped boxes={list.data?.mailboxes ?? []} />
           <OutboxNotices items={list.data?.outbox ?? []} composing={composing} />
           {/* Open from before the screen showed, it does not take the focus (on a phone that would raise the keyboard). */}
           {composing && <Composer focus={newMailPressed.current} close={() => setNewMail(false)} />}
@@ -942,6 +944,26 @@ function NotifySettings() {
         </select>
       </label>
     </div>
+  );
+}
+
+/**
+ * A mailbox whose provider refused its password: the hub stopped signing in to it, so its mail stops coming in. That
+ * was said only in the mailbox's info under the i button, and the Mail screen looked as if no new mail had come. Now
+ * it is said above the mail, with the button to the account's page with Replace open.
+ */
+function SignInStopped({ boxes }: { boxes: MailList["mailboxes"] }) {
+  const stopped = boxes.filter((m) => m.signin_refused);
+  if (!stopped.length) return null;
+  return (
+    <>
+      {stopped.map((m) => (
+        <div key={m.email} className="mailx-signin" role="status">
+          <span className="grow"><strong>{m.email} stopped signing in.</strong> Its new mail does not come in until you replace its password.</span>
+          <button type="button" className="small primary" onClick={() => { location.hash = `#${fixPath({ fix: "account", account: mailboxKey(m) })}`; }}>Replace password</button>
+        </div>
+      ))}
+    </>
   );
 }
 

@@ -76,6 +76,11 @@ function ListIndex() {
           Add
         </button>
       </form>
+      {!open.length && (
+        <div className="muted small" style={{ marginTop: 10 }}>
+          Lists are for things to keep and tick off: groceries, packing, films to watch. The assistant can keep one for you too: say &quot;add milk to my grocery list&quot;.
+        </div>
+      )}
       <div className="list" style={{ marginTop: 10 }}>
         {open.map((e) => (
           <Row key={e.id} e={e} />

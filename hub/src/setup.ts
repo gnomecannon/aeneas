@@ -325,11 +325,44 @@ export function removeAi(hub: Hub, kind: string) {
 
 // ---------- fetching a model into Ollama ----------
 
-export interface PullState { model: string; status: string; completed: number; total: number; done: boolean; error: string | null }
+export interface PullState { model: string; status: string; completed: number; total: number; done: boolean; error: string | null; interrupted?: true }
 let pull: PullState | null = null;
+/** The data folder of the hub the download in memory belongs to. */
+let pullDir = "";
 
-export function pullState(): PullState | null {
-  return pull;
+/**
+ * The download is also kept in `<data>/model-pull.json`, so a hub that restarts in the middle of one (an update, a
+ * reboot) still knows which model it was fetching and how far it got. Ollama stops the download when the hub's
+ * request goes away and keeps what it already has, so fetching the same model again carries on from there.
+ */
+const pullFile = (dataDir: string) => path.join(dataDir, "model-pull.json");
+let pullWritten = 0;
+
+function keepPull(dataDir: string, state: PullState, force = false): void {
+  if (!force && Date.now() - pullWritten < 2000) return;
+  pullWritten = Date.now();
+  const file = pullFile(dataDir);
+  const tmp = `${file}.tmp`;
+  try { fs.writeFileSync(tmp, JSON.stringify(state)); fs.renameSync(tmp, file); } catch { /* progress only: the download goes on */ }
+}
+
+export const PULL_INTERRUPTED = "the hub restarted before it finished";
+
+/**
+ * The download this hub runs or ran last. With `hub`, one from before a restart is read from its file, and one that
+ * had not finished then comes back done, with `interrupted` and an error saying so, for the page to offer it again.
+ */
+export function pullState(hub?: Hub): PullState | null {
+  if (!hub || (pull && pullDir === hub.cfg.dataDir)) return pull;
+  let saved: Partial<PullState> | null;
+  try { saved = JSON.parse(fs.readFileSync(pullFile(hub.cfg.dataDir), "utf8")) as Partial<PullState> | null; } catch { return null; }
+  if (!saved || typeof saved.model !== "string" || !MODEL_RE.test(saved.model)) return null;
+  const state: PullState = {
+    model: saved.model, status: String(saved.status ?? ""), completed: Number(saved.completed) || 0, total: Number(saved.total) || 0,
+    done: true, error: typeof saved.error === "string" ? saved.error : null,
+  };
+  if (!saved.done) Object.assign(state, { error: PULL_INTERRUPTED, interrupted: true });
+  return state;
 }
 
 const MODEL_RE = /^[\w.\-/]+(:[\w.\-]+)?$/;
@@ -341,6 +374,8 @@ export function startPull(hub: Hub, model: string): PullState {
   if (pull && !pull.done) throw new StoreError(409, `already fetching ${pull.model}`);
   const state: PullState = { model, status: "starting", completed: 0, total: 0, done: false, error: null };
   pull = state;
+  pullDir = hub.cfg.dataDir;
+  keepPull(pullDir, state, true);
   void (async () => {
     try {
       const r = await probe.fetch(`${hub.cfg.ollamaUrl}/api/pull`, { method: "POST", body: JSON.stringify({ model, stream: true }) }, 3 * 3600_000);
@@ -361,6 +396,7 @@ export function startPull(hub: Hub, model: string): PullState {
           if (j.error) throw new Error(j.error);
           state.status = j.status ?? state.status;
           if (j.total) { state.total = j.total; state.completed = j.completed ?? state.completed; }
+          keepPull(hub.cfg.dataDir, state);
         }
       }
       state.status = "success";
@@ -368,6 +404,7 @@ export function startPull(hub: Hub, model: string): PullState {
       state.error = e instanceof Error ? e.message : String(e);
     } finally {
       state.done = true;
+      keepPull(hub.cfg.dataDir, state, true);
     }
   })();
   return state;
@@ -402,7 +439,7 @@ export async function autoModel(hub: Hub, body: { model?: unknown }) {
   await saveAi(hub, { kind: "ollama", url: server.url, model });
   let state: PullState | null = null;
   if (!present) {
-    const now = pullState();
+    const now = pullState(hub);
     state = now && !now.done && now.model === model ? now : startPull(hub, model);
   }
   return { ...setupView(hub), url: server.url, model, ...(MODELS[model] ?? {}), present, pull: state };

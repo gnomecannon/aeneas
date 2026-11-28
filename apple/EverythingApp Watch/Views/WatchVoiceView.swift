@@ -52,6 +52,11 @@ struct WatchVoiceView: View {
                     Text("This Watch was removed from your hub. Pair it again on your iPhone: Settings, Connection, Devices.")
                         .font(.caption2).foregroundStyle(.orange).multilineTextAlignment(.center)
                 }
+                // The iPhone has no hub to relay to: "Offline" alone gave no hint that the iPhone is where to start.
+                if engine.phoneHasNoHub, !model.removed {
+                    Text("Set up Aeneas on your iPhone first").font(.caption2).foregroundStyle(.orange).multilineTextAlignment(.center)
+                        .accessibilityIdentifier("watch.noHub")
+                }
                 if let p = hum.recorder.error ?? hum.problem ?? capture.recorderError ?? capture.problem {
                     Text(p).font(.caption2).foregroundStyle(.orange).multilineTextAlignment(.center)
                 }

@@ -7,12 +7,16 @@ import UserNotifications
 import EACore
 #if os(iOS)
 import Photos
+#else
+import AppKit
 #endif
 
-/// The permission screen's offer: what the modules that are on need and were never asked on this device.
+/// The permission screen's offer: what the modules that are on need and is not allowed on this device yet, with where
+/// each stood when the screen opened (a turned down one shows the way to the system's settings).
 struct PermissionOffer: Identifiable, Equatable {
     let id = UUID()
     var needs: [PermissionNeed]
+    var states: [DevicePermission: PermissionState] = [:]
 }
 
 /// Reads and asks for device permissions. Nothing calls `request` at launch (release rule 2): the permission screen
@@ -24,6 +28,155 @@ enum DevicePermissions {
     static func asksFor(_ p: DevicePermission) -> Bool {
         if p == .speech, #available(iOS 26, macOS 26, *) { return false }
         return true
+    }
+
+    /// Where `p` stands on this device, read without asking. One this device never asks for (speech recognition on
+    /// iOS 26 and macOS 26, Health and Photos on the Mac) counts as allowed: nothing waits for it.
+    static func state(_ p: DevicePermission) async -> PermissionState {
+        guard asksFor(p) else { return .allowed }
+        switch p {
+        case .notifications:
+            switch await ReminderScheduler.shared.authorizationStatus() {
+            case .notDetermined: return .notAsked
+            case .denied: return .denied
+            default: return .allowed
+            }
+        case .microphone:
+            #if os(iOS)
+            switch AVAudioApplication.shared.recordPermission {
+            case .undetermined: return .notAsked
+            case .granted: return .allowed
+            default: return .denied
+            }
+            #else
+            switch AVCaptureDevice.authorizationStatus(for: .audio) {
+            case .notDetermined: return .notAsked
+            case .authorized: return .allowed
+            default: return .denied
+            }
+            #endif
+        case .speech:
+            switch SFSpeechRecognizer.authorizationStatus() {
+            case .notDetermined: return .notAsked
+            case .authorized: return .allowed
+            default: return .denied
+            }
+        case .reminders, .calendar:
+            // Write only is not enough: both read too.
+            switch EKEventStore.authorizationStatus(for: p == .reminders ? .reminder : .event) {
+            case .notDetermined: return .notAsked
+            case .fullAccess: return .allowed
+            default: return .denied
+            }
+        case .contacts:
+            switch CNContactStore.authorizationStatus(for: .contacts) {
+            case .notDetermined: return .notAsked
+            case .denied, .restricted: return .denied
+            default: return .allowed
+            }
+        case .health:
+            #if os(iOS)
+            guard HealthImporter.available else { return .allowed }
+            if await HealthImporter.shared.needsAsking() { return .notAsked }
+            // Health never says what was answered: syncing counts as allowed, else it was asked and is waiting.
+            return SharedConfig.shared.healthImportEnabled ? .allowed : .askedBefore
+            #else
+            return .allowed
+            #endif
+        case .photos:
+            #if os(iOS)
+            switch PHPhotoLibrary.authorizationStatus(for: .addOnly) {
+            case .notDetermined: return .notAsked
+            case .denied, .restricted: return .denied
+            default: return .allowed
+            }
+            #else
+            return .allowed
+            #endif
+        case .location:
+            let place = ApproximateLocation.shared
+            return place.undecided ? .notAsked : place.allowed ? .allowed : .denied
+        case .music:
+            switch MusicTasteReader.currentAccess {
+            case .notAsked: return .notAsked
+            case .allowed: return .allowed
+            default: return .denied
+            }
+        }
+    }
+
+    /// Each permission's state at once, for a screen that lists several.
+    static func states(_ list: [DevicePermission]) async -> [DevicePermission: PermissionState] {
+        var out: [DevicePermission: PermissionState] = [:]
+        for p in list { out[p] = await state(p) }
+        return out
+    }
+
+    /// A module switched on here, or Continue on the permission screen, with every permission it needs allowed: its
+    /// own switch on this device goes on too, so the yes is not left idle behind a second switch. Contacts are
+    /// mirrored on one device at a time: this one takes them only when no other device does.
+    static func turnOnHere(_ modules: [ModuleInfo], engine: SyncEngine) async {
+        guard !engine.config.sampleMode else { return }
+        for m in modules {
+            switch AppModule(rawValue: m.id) {
+            case .contacts?:
+                let other = engine.sources?.contacts.device.map { $0 != engine.config.deviceId } ?? false
+                guard !other, !ContactsSync.shared.enabled else { continue }
+                UserDefaults.standard.set(true, forKey: ContactsSync.enabledKey)
+                await ContactsSync.shared.runNow(reason: "turned on")
+            case .images?:
+                #if os(iOS)
+                guard !PhotosOptions.saveGenerated else { continue }
+                // Only images made from now on; the gallery keeps the rest.
+                UserDefaults.standard.set(ISO.now(), forKey: PhotosOptions.saveSinceKey)
+                UserDefaults.standard.set(true, forKey: PhotosOptions.saveKey)
+                #endif
+            case .health?:
+                #if os(iOS)
+                guard HealthImporter.available, !engine.config.healthImportEnabled else { continue }
+                _ = await HealthImporter.shared.requestFromPermissionScreen(engine: engine)
+                AppleHealthSwitch.shared.refresh()
+                #endif
+            case .appleCalendar?:
+                guard !engine.config.appleCalendarHere else { continue }
+                engine.config.appleCalendarHere = true
+                await CalendarImporter.shared.runIfReady(reason: "turned on")
+                await EventMirrorSync.shared.runIfReady(reason: "turned on")
+            case .appleReminders?:
+                guard !RemindersSync.shared.enabled else { continue }
+                await RemindersSync.shared.turnOn()
+            default:
+                break
+            }
+        }
+    }
+
+    /// The system's settings where `p` is changed: this app's page in iOS Settings, or the matching Privacy and
+    /// Security pane on the Mac.
+    static func openSettings(for p: DevicePermission) {
+        #if os(macOS)
+        if p == .notifications {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
+            return
+        }
+        #endif
+        openPrivacySettings(macPane(p))
+    }
+
+    /// The Privacy and Security pane on the Mac for each permission.
+    static func macPane(_ p: DevicePermission) -> String {
+        switch p {
+        case .notifications: return "Notifications"
+        case .microphone: return "Privacy_Microphone"
+        case .speech: return "Privacy_SpeechRecognition"
+        case .reminders: return "Privacy_Reminders"
+        case .calendar: return "Privacy_Calendars"
+        case .contacts: return "Privacy_Contacts"
+        case .health: return "Privacy"
+        case .photos: return "Privacy_Photos"
+        case .location: return "Privacy_LocationServices"
+        case .music: return "Privacy_Media"
+        }
     }
 
     /// True when the person was never asked on this device. Allowed or turned down is decided: not asked again here.

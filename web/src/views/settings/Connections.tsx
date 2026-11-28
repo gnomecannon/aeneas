@@ -9,6 +9,7 @@ import { SubPage, errorText } from "./common";
 import { isTauri, openExternal } from "../../tauri/bridge";
 import { useModules } from "../../lib/modules";
 import { OwnKeyGuide } from "./OwnKeyGuide";
+import { connectionSection } from "../../lib/moduleSetup";
 
 type Msg = { ok: boolean; text: string } | null;
 
@@ -45,7 +46,7 @@ function Status({ msg }: { msg: Msg }) {
   return msg ? <div className={msg.ok ? "ok small" : "error small"} role="status">{msg.text}</div> : null;
 }
 
-function Steam({ c, reload }: { c: ConnectionsView["steam"]; reload: () => void }) {
+function Steam({ c, reload, replaceKey }: { c: ConnectionsView["steam"]; reload: () => void; replaceKey: () => void }) {
   const [busy, setBusy] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [msg, setMsg] = useState<Msg>(null);
@@ -93,8 +94,10 @@ function Steam({ c, reload }: { c: ConnectionsView["steam"]; reload: () => void 
             Linked to <strong>{c.persona || c.steam_id}</strong>, {c.games} games. Last read {when(c.last_sync)}; it reads again every 6 hours.
           </div>
           {c.last_error && <div className="error small">{c.last_error}</div>}
+          {/* Steam stopped taking the hub's key (a Steam password change ends it): this opens the key's guide under App keys. */}
+          {c.key_refused && <div><button type="button" className="primary" onClick={replaceKey}>Replace the Steam key</button></div>}
           <div className="row">
-            <button type="button" className="primary" disabled={busy || !client} onClick={() => void run(async () => { const r = await client!.syncSteam(); return `${r.games} games: ${r.created} new, ${r.updated} changed.`; })}>
+            <button type="button" className={c.key_refused ? undefined : "primary"} disabled={busy || !client} onClick={() => void run(async () => { const r = await client!.syncSteam(); return `${r.games} games: ${r.created} new, ${r.updated} changed.`; })}>
               {busy ? "Reading" : "Read now"}
             </button>
             <button type="button" className="ghost danger" disabled={busy || !client} onClick={() => confirm("Unlink Steam? The games stay.") && void run(async () => { await client!.disconnectSteam(); return "Unlinked. The games stay."; })}>
@@ -763,24 +766,24 @@ export function appKeys(c: Pick<ConnectionsView, "google" | "atlassian" | "steam
  * Each row says what it is for and whether the hub has it as a status, opens what it is and why it is asked for in
  * place (the ⓘ, as in Settings, Modules), and has one button: the guide to set it up, or Replace for one the hub has.
  */
-function AppKeys({ c, on, reload }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void }) {
+function AppKeys({ c, on, reload, opening }: { c: ConnectionsView; on: (m: string) => boolean; reload: () => void; opening: AppKey["service"] | null }) {
   const keys = appKeys(c, on);
   if (!keys.length) return null;
   return (
     <section className="card col" id="app-keys">
       <h2>App keys</h2>
       <div className="muted small">{APP_KEYS_INTRO}</div>
-      {keys.map((k) => <AppKeyRow key={k.service} k={k} reload={reload} />)}
+      {keys.map((k) => <AppKeyRow key={k.service} k={k} reload={reload} opening={opening === k.service} />)}
     </section>
   );
 }
 
 /** One app key: its name, its state, what it is for, what it is (in place) and Set it up or Replace. */
-function AppKeyRow({ k, reload }: { k: AppKey & { added: boolean }; reload: () => void }) {
+function AppKeyRow({ k, reload, opening }: { k: AppKey & { added: boolean }; reload: () => void; opening: boolean }) {
   const [open, setOpen] = useState(false);
   const info = `app-key-${k.service}-info`;
   return (
-    <div className="col account-row">
+    <div className="col account-row" id={`app-key-${k.service}`}>
       <div className="row" style={{ flexWrap: "nowrap", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div className="col grow" style={{ gap: 2 }}>
           <div>
@@ -800,7 +803,7 @@ function AppKeyRow({ k, reload }: { k: AppKey & { added: boolean }; reload: () =
           {k.added && <div><strong>Replacing it:</strong> {k.replacing}</div>}
         </div>
       )}
-      <OwnKeyGuide service={k.service} onDone={reload} start={k.added ? { label: "Replace" } : { label: "Set it up", primary: true }} />
+      <OwnKeyGuide service={k.service} onDone={reload} start={k.added ? { label: "Replace" } : { label: "Set it up", primary: true }} opening={opening} />
     </div>
   );
 }
@@ -810,9 +813,23 @@ function AppKeyRow({ k, reload }: { k: AppKey & { added: boolean }; reload: () =
  * comes in from the Apple devices, are in Settings, Accounts): the services each module links (Steam, Letterboxd,
  * Confluence, the password manager), the calendar link, then the app keys they need.
  */
-export function ConnectionsPage() {
+export function ConnectionsPage({ show = null }: { show?: string | null } = {}) {
   const { on } = useModules();
   const [c, reload, loadErr] = useConnections();
+  // A link from a module's "Set it up now" or an empty screen (`?show=steam`) opens at that service's section once the
+  // page has loaded (SubPage first scrolls every page to its top).
+  const section = connectionSection(show);
+  useEffect(() => {
+    if (!section || !c) return;
+    const t = setTimeout(() => document.getElementById(`conn-${section}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    return () => clearTimeout(t);
+  }, [section, !!c]);
+  // A key a service stopped taking: its button opens that key's guide under App keys (one guide per key, kept there).
+  const [opening, setOpening] = useState<AppKey["service"] | null>(null);
+  const replaceKey = (service: AppKey["service"]) => {
+    setOpening(service);
+    setTimeout(() => document.getElementById(`app-key-${service}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
   return (
     <SubPage path="/settings/connections">
       {!engine.client && <div className="empty">Set up the hub connection first.</div>}
@@ -821,12 +838,12 @@ export function ConnectionsPage() {
       {c && (
         <>
           <div className="muted small">Mail and calendar accounts are in <a href="#/settings/accounts">Settings, Accounts</a>.</div>
-          {on("games") && <Steam c={c.steam} reload={reload} />}
-          {on("films") && <Letterboxd c={c.letterboxd} reload={reload} />}
-          {on("wiki") && c.atlassian && <Confluence c={c.atlassian} reload={reload} />}
+          {on("games") && <div id="conn-steam"><Steam c={c.steam} reload={reload} replaceKey={() => replaceKey("steam")} /></div>}
+          {on("films") && <div id="conn-letterboxd"><Letterboxd c={c.letterboxd} reload={reload} /></div>}
+          {on("wiki") && c.atlassian && <div id="conn-confluence"><Confluence c={c.atlassian} reload={reload} /></div>}
           {on("homelab") && c.password_manager && <PasswordManager c={c.password_manager} reload={reload} />}
           <CalendarFeed />
-          <AppKeys c={c} on={on} reload={reload} />
+          <AppKeys c={c} on={on} reload={reload} opening={opening} />
         </>
       )}
     </SubPage>

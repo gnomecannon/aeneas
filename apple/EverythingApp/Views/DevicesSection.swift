@@ -13,6 +13,8 @@ struct DevicesSection: View {
     @State private var confirm: PairedDevice?
     /// The hub did not answer the list or Remove this device: Forget the hub on this device is offered.
     @State private var unreachable = false
+    /// The hub answered the list or Remove this device with 401: Pair again is offered, and Forget the hub.
+    @State private var refused = false
     @State private var confirmForget = false
     @State private var watchRemoved = SharedConfig.shared.watchRemoved
 
@@ -38,8 +40,17 @@ struct DevicesSection: View {
                 }
             }
             #endif
-            if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
-            if unreachable {
+            // The hub refused this device's key, or its address leads to another hub: a 401 is no unreachable hub, so
+            // neither way out was offered here and the device was stuck.
+            if refused || engine.offersPairAgain {
+                Text(engine.pairingProblem == .otherHub ? "This address now leads to another hub." : "Your hub no longer accepts this device's key.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("Pair again") { model.pairAgain() }
+                    .accessibilityIdentifier("devices.pairAgain")
+                Button("Forget the hub on this device", role: .destructive) { confirmForget = true }
+                    .accessibilityIdentifier("devices.forget")
+            } else if let message { Text(message).font(.caption).foregroundStyle(.secondary) }
+            if unreachable, !(refused || engine.offersPairAgain) {
                 Text("This device cannot reach your hub. It can still stop using it.")
                     .font(.callout).foregroundStyle(.secondary)
                 Button("Forget the hub on this device", role: .destructive) { confirmForget = true }
@@ -118,11 +129,13 @@ struct DevicesSection: View {
             devices = try await withDeadline(20) { try await c.devices() }
             tooOld = false
             unreachable = false
+            refused = false
         } catch HubError.http(let status, _) where status == 404 {
             tooOld = true
         } catch {
             message = (error as? HubError)?.errorDescription ?? error.localizedDescription
             unreachable = AppModel.unreachable(error)
+            refused = AppModel.keyRefused(error)
         }
     }
 
@@ -130,7 +143,7 @@ struct DevicesSection: View {
         confirm = nil
         Task {
             if d.current == true {
-                if let e = await model.removeThisDevice() { message = e.message; unreachable = e.unreachable }
+                if let e = await model.removeThisDevice() { message = e.message; unreachable = e.unreachable; refused = e.refused }
                 return
             }
             guard let c = engine.client else { return }

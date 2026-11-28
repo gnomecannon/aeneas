@@ -3,6 +3,8 @@ import type { Entity } from "@everythingapp/shared";
 import { useEntities } from "../sync/hooks";
 import { createEntity, softDelete, updateEntity } from "../sync/edits";
 import { CsvButton } from "../components/CsvButton";
+import { go } from "../lib/router";
+import { MODULE_SETUP } from "../lib/moduleSetup";
 
 /**
  * Films: from the Letterboxd diary feed or logged here. Watched films by default, the watchlist one tap away. The
@@ -115,7 +117,7 @@ export function Films({ q = "" }: { q?: string }) {
     <div className="col films">
       <span className="title-row"><h1 style={{ margin: 0 }}>Films</h1><CsvButton kind="film" /></span>
       <div className="muted small">
-        {all.length ? `${all.filter((e) => e.fields.watched !== false).length} watched, ${watchedThisYear} this year.` : <>No films yet. Link Letterboxd in <a href="#/settings/connections">Settings, Connections</a>.</>}
+        {all.length ? `${all.filter((e) => e.fields.watched !== false).length} watched, ${watchedThisYear} this year.` : <>No films yet. Linking Letterboxd brings in your diary. <button type="button" className="small" onClick={() => go(MODULE_SETUP.films.href)}>Link Letterboxd</button></>}
       </div>
       <div className="row" style={{ flexWrap: "wrap" }}>
         <div className="chips" role="group" aria-label="List">

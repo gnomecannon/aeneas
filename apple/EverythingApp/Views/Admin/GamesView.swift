@@ -149,7 +149,10 @@ struct GamesView: View {
                             Button { editing = g } label: { Label("Edit", systemImage: "pencil") }
                         }
                 }
-                if all.isEmpty { Text("No games yet. Link Steam in Settings, Connections, or tap + to add one.").foregroundStyle(.secondary) }
+                if all.isEmpty {
+                    Text("No games yet. Link Steam, or tap + to add one.").foregroundStyle(.secondary)
+                    ModuleSetupLink(title: "Link Steam", place: .connections)
+                }
             } header: {
                 Text("Library, \(all.count)")
             } footer: {
@@ -174,7 +177,10 @@ struct GamesView: View {
             HStack(alignment: .top, spacing: 22) {
                 WideSection("Library, \(all.count)") {
                     orderPicker(order).labelsHidden().fixedSize()
-                    if all.isEmpty { Text("No games yet. Link Steam in Settings, Connections, or tap + to add one.").foregroundStyle(.secondary) }
+                    if all.isEmpty {
+                        Text("No games yet. Link Steam, or tap + to add one.").foregroundStyle(.secondary)
+                        ModuleSetupLink(title: "Link Steam", place: .connections)
+                    }
                     CardGrid { ForEach(library) { g in game(g, card: true) } }
                     if !fromSteam.isEmpty { Text(steamLine(fromSteam)).font(.footnote).foregroundStyle(.secondary) }
                 }

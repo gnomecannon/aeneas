@@ -76,6 +76,7 @@ struct OfflineDot: View {
 
     private var label: String {
         if engine.status == .online { return "Online" }
+        if engine.phoneHasNoHub { return "Not set up" }
         if engine.phoneUnreachable { return engine.outboxCount > 0 ? "iPhone not reachable, \(engine.outboxCount) queued" : "iPhone not reachable" }
         if engine.status == .connecting { return "Syncing" }
         return engine.outboxCount > 0 ? "Offline, \(engine.outboxCount) queued" : "Offline"

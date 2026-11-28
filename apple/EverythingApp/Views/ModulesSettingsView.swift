@@ -134,17 +134,19 @@ private struct ModuleRow: View {
     private static let permissionNames: [String: String] = [
         "microphone": "the microphone", "speech": "speech recognition", "notifications": "notifications", "reminders": "Reminders",
         "calendar": "Calendar", "contacts": "Contacts", "health": "Health", "photos": "Photos", "location": "Location",
+        "music": "Apple Music",
     ]
 
     private var details: [String] {
         var out: [String] = []
         if let r = m.reads, !r.isEmpty { out.append("Reads: \(r)") }
         // Only what this device asks for: the Mac has no Health or Photos question, and iOS 26 and macOS 26 no speech
-        // recognition one.
+        // recognition one. A permission without a name of its own here says the one the permission screen uses, never
+        // its raw id (Apple Music showed as "music").
         let asks = (m.permissions ?? []).filter { name in
             guard let p = DevicePermission(rawValue: name) else { return true }
             return p.applies(on: AppModel.shared.platform) && DevicePermissions.asksFor(p)
-        }.map { Self.permissionNames[$0] ?? $0 }
+        }.map { Self.permissionNames[$0] ?? DevicePermission(rawValue: $0)?.title ?? $0 }
         if !asks.isEmpty {
             let list = asks.count == 1 ? asks[0] : asks.dropLast().joined(separator: ", ") + " and " + asks[asks.count - 1]
             out.append("This device asks for \(list) once, and only while this is on.")

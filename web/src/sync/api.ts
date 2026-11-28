@@ -1,3 +1,4 @@
+import type { ConnectionProblem } from "../lib/connectionProblems";
 import type { AppleReminderAlerts, Entity, Patch, TaskGroup } from "@everythingapp/shared";
 import type { Commitment, PlannerDay, PlannerToday, PlannerWeek } from "../lib/planner";
 import type { HostSummary, SessionClose } from "../lib/memory";
@@ -214,7 +215,8 @@ export function normalizeHubUrl(u: string): string {
 /** Linked accounts as the hub reports them (no secrets: the Steam key shows as its last four characters). */
 export interface Connections {
   /** `hub_key`: the hub has its own Steam Web API key (members never need one); sign-in works only then. */
-  steam: { connected: false; hub_key: boolean } | { connected: true; hub_key: boolean; steam_id: string; persona: string | null; profile_url: string | null; last_sync: string | null; last_error: string | null; games: number };
+  /** `key_refused` (since 2026-11-27): Steam refused the hub's key on the last read; absent on older hubs. */
+  steam: { connected: false; hub_key: boolean } | { connected: true; hub_key: boolean; steam_id: string; persona: string | null; profile_url: string | null; last_sync: string | null; last_error: string | null; games: number; key_refused?: boolean };
   letterboxd: { connected: false } | { connected: true; username: string; last_sync: string | null; last_error: string | null; films: number };
   health: { last_import: string | null; samples: number; total: number };
   /** Confluence through Sign in with Atlassian. `app`: the hub has its own Atlassian app; sign-in works only then. Absent on older hubs. */
@@ -233,6 +235,8 @@ export interface Connections {
   internet?: InternetAccount[];
   /** LastPass or 1Password through its CLI, for secrets in the assistant's commands. Absent on older hubs. */
   password_manager?: PasswordManagerView;
+  /** Connections that broke after setup (lib/connectionProblems.ts). Absent on older hubs. */
+  problems?: ConnectionProblem[];
 }
 
 export interface SetupAi { ollama: { url: string; model: string } | null; openai: { url: string; model: string; key_set: boolean } | null; anthropic: { model: string; key_set: boolean } | null }
@@ -254,7 +258,8 @@ export interface ImportJob {
   created_at: string; finished_at: string | null; counts: { notes: number; people: number; tasks: number; facts: number; skipped: number };
   learned: { done: number; total: number }; detail: string; error: string | null;
 }
-export interface PullState { model: string; status: string; completed: number; total: number; done: boolean; error: string | null }
+/** A model download into Ollama. `interrupted`: the hub restarted before it finished (newer hubs). */
+export interface PullState { model: string; status: string; completed: number; total: number; done: boolean; error: string | null; interrupted?: true }
 export type PasswordManagerProvider = "lastpass" | "1password" | "bitwarden" | "keepass";
 export interface KeePassEntry { title: string; username: string; url: string; notes: string; fields: string[] }
 /**
@@ -1596,7 +1601,8 @@ export class HubClient {
   }
 }
 
-export interface AiCapabilities { cloud: boolean; tools: boolean; model: string | null; images?: boolean; web?: boolean; hosts?: boolean; voice_model?: boolean; synced_sessions?: boolean }
+/** `model_set`: some model for chats is chosen (newer hubs; absent on older ones). */
+export interface AiCapabilities { cloud: boolean; tools: boolean; model: string | null; model_set?: boolean; images?: boolean; web?: boolean; hosts?: boolean; voice_model?: boolean; synced_sessions?: boolean }
 export type PreflightCheck =
   | { destructive: false }
   | { destructive: true; name: string; command: string; backup: string; verify: string; rollback: string; block: string };

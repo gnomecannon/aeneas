@@ -159,6 +159,35 @@ function Person({ id }: { id: string }) {
   );
 }
 
+/**
+ * An empty People on any device: add someone by name here, or tell the assistant about them; contacts come in by
+ * themselves only from an Apple device, so that is said last instead of being the only way in.
+ */
+function AddFirstPerson() {
+  const [name, setName] = useState("");
+  const [err, setErr] = useState("");
+  const add = async () => {
+    const n = name.trim();
+    if (!n) return;
+    setErr("");
+    try {
+      const p = await createEntity("person", { name: n, dates: [], phones: [], emails: [], addresses: [] });
+      window.location.hash = `/people/${p.id}`;
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  };
+  return (
+    <div className="empty col">
+      <div>No people yet. Add someone by name, or tell the assistant about them, like &quot;Jamie is my sister, her birthday is May 3&quot;.</div>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); void add(); }}>
+        <input className="grow" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="New person's name" />
+        <button type="submit" className="primary" disabled={!name.trim()}>Add</button>
+      </form>
+      {err && <div className="error small">{err}</div>}
+      <div className="muted small">With Contacts switched on in Settings, Accounts on an iPhone, iPad or Mac, your contacts come in too.</div>
+    </div>
+  );
+}
+
 /** People: contacts (synced both ways with Apple Contacts by the one iPhone, iPad or Mac where Contacts is on) and what the owner has said about each. */
 export function People({ id }: { id?: string }) {
   const people = useEntities("person").sort((a, b) => String(a.fields.name).localeCompare(String(b.fields.name)));
@@ -170,7 +199,7 @@ export function People({ id }: { id?: string }) {
       <h1>People</h1>
       <input type="search" placeholder="Search people" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%", marginBottom: 12 }} />
       {/* The switch moved to Settings, Accounts, From this iPhone (iPad, Mac), Contacts with Accounts, part 2. */}
-      {!people.length && <div className="empty">No people yet. They come from Apple Contacts once Contacts is switched on in Settings, Accounts, on your iPhone, iPad or Mac.</div>}
+      {!people.length && <AddFirstPerson />}
       <div className="list">
         {shown.map((p) => (
           <a key={p.id} className="item" href={`#/people/${p.id}`}>

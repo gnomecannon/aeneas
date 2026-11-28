@@ -376,28 +376,30 @@ private struct HelperLogCard: View {
     }
 }
 
-/// On the first screen: for someone who was sent an invitation. Paste the whole message, or press Paste, and the app
-/// finds the invitation in it and connects, the same as opening the link.
+/// On the first screen: for someone who was sent an invitation (a family member joining someone else's hub). Paste the
+/// whole message, or press Paste, and the app finds the invitation in it and connects, the same as opening the link.
+/// Second on Setup and smaller than pairing with your own hub, which is what most people opening the app do.
 struct InvitationCard: View {
     @EnvironmentObject var model: AppModel
     @State private var text = ""
     @State private var note: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("I have an invitation").font(.title2.bold())
+        VStack(alignment: .leading, spacing: 10) {
+            Text("I was sent an invitation").font(.title3.weight(.semibold))
             Text("Copy the whole message you were sent, then press Paste the invitation.")
-            BigButton(title: "Paste the invitation", symbol: "doc.on.clipboard", prominent: true) { paste() }
+                .font(.body).foregroundStyle(.secondary)
+            Button { paste() } label: { Label("Paste the invitation", systemImage: "doc.on.clipboard") }
+                .buttonStyle(.bordered)
                 .accessibilityIdentifier("setup.invitation.paste")
             TextField("Or paste the message here", text: $text, axis: .vertical)
-                .lineLimit(3...6)
+                .lineLimit(2...6)
                 .textFieldStyle(.roundedBorder)
-                .font(.title3)
                 .accessibilityIdentifier("setup.invitation.text")
                 .onChange(of: text) { _, t in use(t) }
             if let note { Text(note).foregroundStyle(.dangerText) }
         }
-        .helperCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func paste() {

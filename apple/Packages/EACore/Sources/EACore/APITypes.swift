@@ -35,6 +35,8 @@ public struct AICapabilities: Codable, Sendable, Equatable {
     public var cloud: Bool
     public var tools: Bool
     public var model: String?
+    /// Some model for chats is chosen on the hub (false when setup's model step was skipped). Nil from older hubs.
+    public var model_set: Bool?
     /// The hub accepts image attachments (vision model).
     public var images: Bool?
     public var web: Bool?
@@ -513,7 +515,10 @@ public struct PlannerDay: Codable, Equatable, Identifiable, Sendable {
 public struct PlannerWeek: Codable, Equatable, Sendable {
     public var start: String
     public var days: [PlannerDay]
-    public init(start: String, days: [PlannerDay]) { self.start = start; self.days = days }
+    /// Connections that broke after setup; Week shows the calendar ones (since 2026-11-27, nil from an older hub and
+    /// from the plan made on this device).
+    public var connection_problems: [ConnectionProblem]?
+    public init(start: String, days: [PlannerDay], connection_problems: [ConnectionProblem]? = nil) { self.start = start; self.days = days; self.connection_problems = connection_problems }
 }
 
 public struct ScheduleRequest: Codable, Sendable {
@@ -539,8 +544,12 @@ public struct PlannerToday: Codable, Equatable, Sendable {
     public var captures_unprocessed: Int
     public var free_slots: [FreeSlot]
     public var digest: String
-    public init(date: String, now: Entity? = nil, next: [Entity] = [], blocks: [PlannerBlock] = [], commitments: [PlannerCommitment] = [], reminders_due: [Entity] = [], watches_due_soon: [Entity] = [], captures_unprocessed: Int = 0, free_slots: [FreeSlot] = [], digest: String = "") {
+    /// Connections that broke after setup, one Needs you row each (since 2026-11-27, nil from an older hub and from
+    /// the plan made on this device).
+    public var connection_problems: [ConnectionProblem]?
+    public init(date: String, now: Entity? = nil, next: [Entity] = [], blocks: [PlannerBlock] = [], commitments: [PlannerCommitment] = [], reminders_due: [Entity] = [], watches_due_soon: [Entity] = [], captures_unprocessed: Int = 0, free_slots: [FreeSlot] = [], digest: String = "", connection_problems: [ConnectionProblem]? = nil) {
         self.date = date; self.now = now; self.next = next; self.blocks = blocks; self.commitments = commitments; self.reminders_due = reminders_due; self.watches_due_soon = watches_due_soon; self.captures_unprocessed = captures_unprocessed; self.free_slots = free_slots; self.digest = digest
+        self.connection_problems = connection_problems
     }
 }
 

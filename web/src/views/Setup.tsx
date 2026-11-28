@@ -65,6 +65,7 @@ export function Setup() {
   const link = linkParams();
   const unpaired = useMeta<string>(META.unpaired);
   const storedHub = useMeta<string>(META.hubUrl);
+  const storedToken = useMeta<string>(META.token);
   const [hub, setHub] = useState(link.get("hub") ?? defaultHub());
   // A device that was paired before keeps its hub's address, so only a new code is needed.
   useEffect(() => { if (!link.get("hub") && storedHub) setHub(storedHub); }, [storedHub]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -104,6 +105,7 @@ export function Setup() {
       await setMeta(META.seq, 0);
       await db.entities.clear();
       await db.meta.delete(META.routes);
+      await db.meta.delete(META.syncedAt);
     }
     await setMeta(META.hubUrl, url);
     if (id) await setMeta(META.hubId, id); else await db.meta.delete(META.hubId);
@@ -189,9 +191,12 @@ export function Setup() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Pair again from the banner: this device is still paired (its key kept), so it can go back to where it was.
+  const again = link.get("again") === "1" && !!storedToken;
   return (
     <div className="setup">
-      <h1>Connect to your hub</h1>
+      <h1>{again ? "Pair again" : "Connect to your hub"}</h1>
+      {again && <div><button type="button" onClick={() => leaveSetup()}>Back</button></div>}
       {/^#\/join(\?|$)/.test(window.location.hash) && <div className="error">Pair this device with your hub first.</div>}
       {unpaired && !msg && <div className="error">{unpaired}</div>}
       {switchFrom && (
@@ -341,8 +346,8 @@ function Invitation({ busy, onFound }: { busy: boolean; onFound: (p: URLSearchPa
     try { tryText(await navigator.clipboard.readText()); } catch { setNote("Press and hold in the box below, then tap Paste."); }
   };
   return (
-    <section className="card col simple" aria-label="I have an invitation">
-      <h2>I have an invitation</h2>
+    <section className="card col simple" aria-label="I was sent an invitation">
+      <h2>I was sent an invitation</h2>
       <p>Copy the whole message you were sent, then press Paste the invitation.</p>
       <div className="choices">
         <button type="button" className="primary" disabled={busy} onClick={() => void paste()}>{busy ? "Connecting" : "Paste the invitation"}</button>

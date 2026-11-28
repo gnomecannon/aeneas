@@ -30,6 +30,8 @@ final class HumRecorder: NSObject, ObservableObject {
     /// Input level from 0 to 1 for the meter.
     @Published private(set) var level: Float = 0
     @Published var error: String?
+    /// The microphone was turned down: the iPhone, iPad and Mac show the way to the system's settings with `error`.
+    @Published private(set) var micRefused = false
     /// Set when a recording ends with Stop or at the limit; the screen sends it and clears this.
     @Published var finished: HumTake?
 
@@ -89,7 +91,9 @@ final class HumRecorder: NSObject, ObservableObject {
         starting = true
         defer { starting = false }
         error = nil
+        micRefused = false
         guard await Self.microphoneAllowed() else {
+            micRefused = true
             #if os(macOS)
             error = "The microphone is not allowed. Turn it on in System Settings, Privacy and Security, Microphone."
             #else

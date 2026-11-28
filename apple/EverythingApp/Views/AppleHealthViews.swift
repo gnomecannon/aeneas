@@ -139,10 +139,13 @@ struct AppleHealthSettingsView: View {
 
             SwiftUI.Section {
                 ForEach(HealthImporter.readsShown) { row($0) }
+                // Health never reports a refusal, so nothing here can tell a type turned off from one with no readings:
+                // where to look, always.
+                PermissionOffNote(permission: .health)
             } header: {
                 Text("What Aeneas reads from Apple Health")
             } footer: {
-                Text("Only the types you allow when Apple Health asks. What Aeneas wrote is not read back, so nothing comes in twice.")
+                Text("Only the types you allow when Apple Health asks. A type with nothing coming in may be turned off there. What Aeneas wrote is not read back, so nothing comes in twice.")
             }
             .themedRow()
 

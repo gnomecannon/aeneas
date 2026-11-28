@@ -10,7 +10,9 @@ import { useEscape } from "../lib/keys";
 import { tasksAlertingHere, useAlerts } from "../lib/alerts";
 
 /**
- * Tasks whose reminder time has passed, every 30 s from the local copy: a banner, and a Windows notification under Tauri.
+ * Tasks whose reminder time has passed, every 30 s from the local copy: a banner, and under Tauri a Windows or Android
+ * notification once the person allowed those in Settings, Notifications (`notify` never asks: asking from here made the
+ * system prompt at launch whenever a reminder was already due).
  * `quiet`: the screen shown lists due reminders itself with the same buttons (Today's Needs you), so the banner is not
  * drawn there; the notification still goes out.
  */

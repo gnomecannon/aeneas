@@ -12,6 +12,8 @@ public struct Connections: Decodable, Equatable, Sendable {
         public var last_sync: String?
         public var last_error: String?
         public var games: Int?
+        /// Steam refused the hub's key on the last read (since 2026-11-27): the section offers Replace the Steam key.
+        public var key_refused: Bool?
     }
     public struct Letterboxd: Decodable, Equatable, Sendable {
         public var connected: Bool
@@ -92,6 +94,8 @@ public struct Connections: Decodable, Equatable, Sendable {
     /// Internet Accounts (since 2026-11-22): every linked account once, with what it does. Nil from older hubs, which
     /// the screen then lists from `icloud` and `google` to look at only.
     public var internet: [InternetAccount]?
+    /// Connections that broke after setup (since 2026-11-27): Settings marks the Accounts and Connections rows by them.
+    public var problems: [ConnectionProblem]?
 
     public struct PasswordManager: Decodable, Equatable, Sendable {
         public var linked: Bool

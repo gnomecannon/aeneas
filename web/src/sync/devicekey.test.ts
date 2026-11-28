@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
 import { EADatabase, META, getMeta, setMeta } from "./db";
-import { SyncEngine } from "./engine";
+import { KEY_REFUSED, SyncEngine } from "./engine";
 import { isDeviceKey } from "./api";
 
 const KEY = `ead1_${"a".repeat(43)}`;
@@ -126,14 +126,42 @@ describe("two windows on one stored key", () => {
     a.stop(); b.stop();
   });
 
-  it("a key the hub does not know is kept and the reason shown", async () => {
+  it("a key the hub does not know is kept, and Pair again is offered", async () => {
     const db = await makeDb(KEY);
+    await db.outbox.add({ patch: { id: "cap-1", kind: "capture", ts: new Date().toISOString(), create: true, fields: { text: "made while refused" } } } as never);
     const fetchImpl = (async () => new Response(JSON.stringify({ error: "unauthorized", unknown_key: true }), { status: 401, headers: { "Content-Type": "application/json" } })) as typeof fetch;
     const eng = new SyncEngine({ db, fetchImpl, live: false });
     await eng.start();
     expect(await getMeta(META.token, db)).toBe(KEY);
     expect(eng.state.status).toBe("offline");
-    expect(eng.state.lastError).toMatch(/does not know this device's key/);
+    expect(eng.state.lastError).toBe(KEY_REFUSED);
+    expect(eng.state.pairing).toBe("key");
+    expect(await db.outbox.count()).toBe(1);
     eng.stop();
+  });
+
+  it("an older hub's plain 401 offers Pair again too, and a sync that works ends it and is remembered", async () => {
+    const db = await makeDb(KEY);
+    let refuse = true;
+    const hub = keyHub();
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => refuse
+      ? new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } })
+      : hub.fetchImpl(input, init)) as typeof fetch;
+    const eng = new SyncEngine({ db, fetchImpl, live: false });
+    await eng.start();
+    expect(eng.state.pairing).toBe("key");
+    expect(eng.state.syncedAt).toBeUndefined();
+    refuse = false;
+    await eng.cycle();
+    expect(eng.state.pairing).toBeUndefined();
+    expect(eng.state.status).toBe("synced");
+    const at = eng.state.syncedAt!;
+    expect(at).toBeGreaterThan(0);
+    expect(await getMeta(META.syncedAt, db)).toBe(at);
+    eng.stop();
+    const next = new SyncEngine({ db, fetchImpl: () => Promise.reject(new TypeError("Failed to fetch")), live: false });
+    await next.start();
+    expect(next.state.syncedAt).toBe(at);
+    next.stop();
   });
 });

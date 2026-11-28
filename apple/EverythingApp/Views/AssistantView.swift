@@ -195,6 +195,18 @@ struct AssistantView: View {
                 }
                 VStack(spacing: 10) {
                     header
+                    // No model chosen on the hub yet (setup's model step was skipped): say where to set one up, instead
+                    // of a chat whose every reply fails. Model setup is in Aeneas on the web, Windows or Android.
+                    if ai?.model_set == false {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Set up a model first").font(.headline)
+                            Text("The assistant needs a model to answer. Choose one in the hub's setup: open Aeneas in a web browser on the computer the hub runs on, or in the Windows or Android app, then Settings, Set up, The model.")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                    }
                     messages
                     composer
                 }
@@ -400,6 +412,8 @@ struct AssistantView: View {
             if dictation.listening {
                 Label(dictation.transcript.isEmpty ? (sendOnPause ? "Listening. It sends when you stop talking." : "Listening. Tap the mic again when you are done.") : dictation.transcript, systemImage: "waveform")
                     .font(.callout).foregroundStyle(.secondary).lineLimit(4)
+            } else if let p = dictation.refused {
+                PermissionOffNote(permission: p)
             } else if let e = dictation.error {
                 Text(e).font(.caption).foregroundStyle(.warnText)
             } else if let n = dictation.notice {
@@ -430,8 +444,9 @@ struct AssistantView: View {
                             .foregroundStyle(dictation.listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(.tint))
                     }
                     .buttonStyle(.borderless)
-                    // The first tap asks for the microphone; a refusal leaves it off until it is allowed in Settings.
-                    .disabled(busy || (!dictation.authorized && dictation.error != nil))
+                    // The first tap asks for the microphone. After a refusal it stays tappable: a tap says why again,
+                    // with the way to the system's settings above the box.
+                    .disabled(busy)
                     .accessibilityLabel(dictation.listening ? "Stop listening" : "Talk")
                 }
                 if busy || store.current?.working != nil {

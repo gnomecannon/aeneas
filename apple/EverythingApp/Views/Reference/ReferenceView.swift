@@ -152,7 +152,7 @@ struct ReferenceView: View {
 
     var body: some View {
         Group {
-            if model.config.sampleMode {
+            if model.config.sampleMode && !Self.debugRows {
                 List {
                     SwiftUI.Section {
                         Label("Reference", systemImage: Section.reference.symbol).font(.headline)
@@ -171,11 +171,31 @@ struct ReferenceView: View {
 
     // MARK: the list
 
+    #if DEBUG
+    /// Debug screenshots (`-EAReferenceRows YES`, with the sample): the list with two books and three pages under
+    /// Continue reading, the first chosen, so the chosen row can be seen under each theme with no hub.
+    static let debugRows = UserDefaults.standard.bool(forKey: "EAReferenceRows")
+    private func showDebugRows() {
+        guard Self.debugRows else { return }
+        library.take(ReferenceStatus(reader: .init(state: "ready"), books: [
+            ReferenceBook(name: "wikipedia_en_all", lang: "eng", source: "wikipedia", title: "Wikipedia", articles: 6_400_000, state: "ready"),
+            ReferenceBook(name: "wiktionary_en_all", lang: "eng", source: "wiktionary", title: "Wiktionary", articles: 1_200_000, state: "ready"),
+        ]))
+        let pages = [("Lighthouse", "A/Lighthouse"), ("Tide", "A/Tide"), ("Fresnel lens", "A/Fresnel_lens")]
+        history.debugShow(pages.map { ReferenceRecent(book: "wikipedia_en_all", path: $0.1, title: $0.0, source: "wikipedia", lang: "eng") })
+        selection = "c:" + ReferenceLink.key(book: "wikipedia_en_all", path: "A/Lighthouse")
+    }
+    #else
+    static let debugRows = false
+    private func showDebugRows() {}
+    #endif
+
     private var searchList: some View {
         Group {
             #if os(macOS)
             List(selection: $selection) { rows }
                 .onKeyPress(.return) { openSelected() ? .handled : .ignored }
+                .onAppear { showDebugRows() }
             #else
             List { rows }
             #endif
@@ -267,6 +287,7 @@ struct ReferenceView: View {
                     }
                     .buttonStyle(.plain)
                     .tag("c:" + r.id)
+                    .chosenRow(selection == "c:" + r.id)
                     .contextMenu { Button(role: .destructive) { history.remove(r) } label: { Label("Remove from this list", systemImage: "minus.circle") } }
                     #if os(iOS)
                     .swipeActions { Button(role: .destructive) { history.remove(r) } label: { Label("Remove", systemImage: "minus.circle") } }
@@ -293,6 +314,7 @@ struct ReferenceView: View {
             }
             .disabled(randomBusy)
             .tag("random")
+            .chosenRow(selection == "random")
             if let randomProblem { Text(randomProblem).font(.caption).foregroundStyle(.warnText) }
         } footer: {
             if !search.sources.isEmpty || !search.langs.isEmpty { Text("From the sources and languages chosen above.") }
@@ -303,6 +325,7 @@ struct ReferenceView: View {
                 Button { narrow(to: s.id) } label: { readySourceRow(s) }
                     .buttonStyle(.plain)
                     .tag("src:" + s.id)
+                    .chosenRow(selection == "src:" + s.id)
                     .accessibilityHint("Searches only \(s.title)")
             }
             if let downloads = library.status?.downloads, !downloads.isEmpty {
@@ -336,6 +359,7 @@ struct ReferenceView: View {
                     }
                     .buttonStyle(.plain)
                     .tag("s:" + s.id)
+                    .chosenRow(selection == "s:" + s.id)
                 }
             }
             .themedRow()
@@ -357,6 +381,7 @@ struct ReferenceView: View {
                 }
                 .buttonStyle(.plain)
                 .tag("r:" + r.id)
+                .chosenRow(selection == "r:" + r.id)
                 .onAppear { if r.id == search.results.last?.id { search.loadMore() } }
             }
             if search.loadingMore { ProgressView().frame(maxWidth: .infinity) }

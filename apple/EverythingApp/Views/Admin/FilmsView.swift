@@ -71,7 +71,7 @@ struct FilmsView: View {
         let all = engine.list(.film)
         let year = String(Calendar.current.component(.year, from: Date()))
         let count = list == .watchlist ? "Your watchlist lives on Letterboxd: add films to it there."
-            : all.isEmpty ? "No films yet. Link Letterboxd in Settings, Connections, or tap + to add one."
+            : all.isEmpty ? "No films yet. Link Letterboxd, or tap + to add one."
             : "\(all.filter { $0.fields["watched"] != .bool(false) }.count) watched, \(all.filter { Self.watchedOn($0).contains { $0.hasPrefix(year) } }.count) this year."
         let addedNote = "Put on the watchlist here before it moved to Letterboxd. Add the ones you still want there, and remove them here."
         // On the Watchlist shelf, Delete is Remove: the films there are the ones added in Aeneas before.
@@ -88,6 +88,7 @@ struct FilmsView: View {
                         orderPicker.fixedSize()
                     }
                     Text(count).font(.footnote).foregroundStyle(.secondary)
+                    if all.isEmpty, list != .watchlist { ModuleSetupLink(title: "Link Letterboxd", place: .connections) }
                     if list == .watchlist && !films.isEmpty {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Added in Aeneas").font(.headline)
@@ -109,6 +110,7 @@ struct FilmsView: View {
                     SwiftUI.Section {
                         shelfPicker
                         orderPicker
+                        if all.isEmpty, list != .watchlist { ModuleSetupLink(title: "Link Letterboxd", place: .connections) }
                     } footer: {
                         Text(count)
                     }

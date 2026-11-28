@@ -20,6 +20,9 @@ final class DictationController: ObservableObject {
     @Published var listening = false
     @Published var error: String?
     @Published var authorized = false
+    /// What dictation needs that was turned down: the screens show the way to the system's settings under the mic
+    /// (which stays tappable and says it again), since the system never asks twice.
+    @Published var refused: DevicePermission?
     /// Said before listening: the speech model downloading, or (earlier systems) that Apple's speech service does the
     /// work on a device that cannot do it by itself.
     @Published var notice: String?
@@ -98,12 +101,15 @@ final class DictationController: ObservableObject {
         if #available(iOS 26, macOS 26, *) {
             // SpeechAnalyzer asks for no speech recognition permission: the microphone is all.
             authorized = micOK
+            refused = micRefused ? .microphone : nil
             if micRefused { error = Self.micOff } else if authorized, error != nil, !listening { error = nil }
             return
         }
         let speech = SFSpeechRecognizer.authorizationStatus()
         authorized = speech == .authorized && micOK
-        if speech == .denied || speech == .restricted { error = "Speech recognition is off for Aeneas. Turn it on in the system's Privacy settings." }
+        let speechRefused = speech == .denied || speech == .restricted
+        refused = speechRefused ? .speech : micRefused ? .microphone : nil
+        if speechRefused { error = "Speech recognition is off for Aeneas. Turn it on in the system's Privacy settings." }
         else if micRefused { error = Self.micOff }
         else if authorized, error != nil, !listening { error = nil }
     }

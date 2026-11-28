@@ -85,6 +85,8 @@ export const META = {
   hubId: "hub_id",
   /** The Windows and Android apps: the hub's last answer to GET /link/routes (the ways to it), raced on the next start. */
   routes: "hub_routes",
+  /** When the hub last answered a whole sync (ms): an offline device says how long ago once that is over an hour. */
+  syncedAt: "synced_at",
 } as const;
 
 export interface RejectedEdit { id: string; kind: string; title: string; reason: string; at: string; fields: Record<string, unknown> }

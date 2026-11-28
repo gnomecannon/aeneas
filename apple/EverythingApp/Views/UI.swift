@@ -27,23 +27,59 @@ struct BigButton: View {
     }
 }
 
+/// Offline, connecting, or unable to sync: what is wrong, how long since the last sync once that is over an hour, and
+/// Retry. When only pairing again can fix it (the hub refused this device's key, or its address now leads to another
+/// hub), Pair again leads: Retry alone never helped, and the device was left with no way back.
 struct StatusBanner: View {
+    @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
     var body: some View {
         if engine.status != .online {
-            HStack(spacing: 8) {
-                Image(systemName: engine.status == .connecting ? "arrow.triangle.2.circlepath" : "wifi.slash")
-                Text(engine.statusLabel)
-                if let e = engine.lastError, engine.status == .offline {
-                    Text(e).lineLimit(1).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Retry") { Task { await engine.sync() } }.buttonStyle(.borderless)
+            Group {
+                if engine.offersPairAgain { pairAgain } else { offline }
             }
             .font(.subheadline)
             .padding(10)
             .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
         }
+    }
+
+    private var offline: some View {
+        HStack(spacing: 8) {
+            Image(systemName: engine.status == .connecting ? "arrow.triangle.2.circlepath" : "wifi.slash")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(engine.statusLabel)
+                if engine.status == .offline, let line = detail(engine.lastError) {
+                    Text(line).lineLimit(2).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button("Retry") { Task { await engine.sync() } }.buttonStyle(.borderless)
+        }
+    }
+
+    private var pairAgain: some View {
+        let otherHub = engine.pairingProblem == .otherHub
+        return VStack(alignment: .leading, spacing: 8) {
+            Label(otherHub ? "This address leads to another hub" : SyncEngine.keyRefusedMessage,
+                  systemImage: otherHub ? "exclamationmark.triangle" : "key")
+                .font(.subheadline.weight(.semibold))
+            if let line = detail(otherHub ? "Nothing was sent to it." : "Your hub no longer accepts its key. Changes not sent yet stay here and go once it is paired.") {
+                Text(line).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 16) {
+                Button("Pair again") { model.pairAgain() }
+                    .buttonStyle(.themedProminent)
+                    .accessibilityIdentifier("status.pairAgain")
+                Button("Retry") { Task { await engine.sync() } }.buttonStyle(.borderless)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The reason, then how long since the last sync once that is over an hour.
+    private func detail(_ reason: String?) -> String? {
+        SyncFreshness.line(reason, lastSync: engine.lastSync)
     }
 }
 

@@ -7,6 +7,7 @@ import { useMeta, useSyncState } from "../sync/hooks";
 import { usePoll } from "../lib/usePoll";
 import { useMediaQuery } from "../lib/useMediaQuery";
 import { go } from "../lib/router";
+import { MODULE_SETUP } from "../lib/moduleSetup";
 import { fmtDateTime } from "../lib/time";
 import { renderMarkdown } from "../lib/markdown";
 import { openExternal } from "../tauri/bridge";
@@ -73,7 +74,8 @@ export function Wiki({ id }: { id: string | null }) {
               {!index.data && !index.error && <div className="muted small">Loading</div>}
               {index.data && !index.data.sources.length && (
                 <div className="empty">
-                  Repo docs arrive from the project feed, and Confluence links in <a href="#/settings/connections">Settings, Connections</a>.
+                  Nothing here yet. A Confluence space comes in once you link it, and a repository&apos;s docs once its project sends them to the hub.{" "}
+                  <button type="button" className="small" onClick={() => go(MODULE_SETUP.wiki.href)}>Link Confluence</button>
                 </div>
               )}
               {groups.map((g) => (

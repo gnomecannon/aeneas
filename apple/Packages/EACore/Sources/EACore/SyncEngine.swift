@@ -68,7 +68,13 @@ public final class SyncEngine: ObservableObject {
     @Published public internal(set) var status: Status = .unconfigured
     @Published public internal(set) var lastError: String?
     @Published public private(set) var outboxCount: Int = 0
-    @Published public private(set) var lastSync: Date?
+    /// When the hub last answered a whole sync, kept across launches: a device offline for long says how long
+    /// (`SyncFreshness`), and one that just started offline would otherwise know nothing of it.
+    @Published public private(set) var lastSync: Date? = SyncEngine.loadLastSync() {
+        didSet { if let d = lastSync { UserDefaults.standard.set(d.timeIntervalSince1970, forKey: Self.lastSyncKey) } else { UserDefaults.standard.removeObject(forKey: Self.lastSyncKey) } }
+    }
+    /// Why this device cannot sync until it is paired again, while that lasts (the banners offer Pair again).
+    @Published public private(set) var pairingProblem: PairingProblem?
     @Published public private(set) var cursor: Int = 0
     /// Edits the hub refused, newest last. The hub's copy replaced them; this keeps what was changed so it is not lost silently.
     @Published public private(set) var rejectedEdits: [RejectedEdit] = SyncEngine.loadRejected()
@@ -145,6 +151,14 @@ public final class SyncEngine: ObservableObject {
     /// Tests: whether the hub's id is asked before syncing. By default only the app's own client (no `makeClient`) does.
     var checksHubRoutes: Bool?
     static let otherHubMessage = "This address now leads to another hub, so nothing was sent to it. Pair this device again with a code from your hub."
+    /// A plain 401: the hub no longer knows this device's key (its keys file was lost or restored). Not a removal, so
+    /// the key, the copy and its queued edits stay; pairing again with the same hub sends the queue.
+    public static let keyRefusedMessage = "This device needs to be paired again"
+    private static let lastSyncKey = "ea.lastSync"
+    private static func loadLastSync() -> Date? {
+        let t = UserDefaults.standard.double(forKey: lastSyncKey)
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
 
     private var liveTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
@@ -533,6 +547,7 @@ public final class SyncEngine: ObservableObject {
             config.hubId = id
         }
         otherHubAtAddress = false
+        pairingProblem = nil
         config.deviceName = name
         config.deviceRemoved = false
         deviceRemoved = false
@@ -592,6 +607,7 @@ public final class SyncEngine: ObservableObject {
         clearRejected()
         hubIdentity = nil
         UserDefaults.standard.removeObject(forKey: Self.hubIdentityKey)
+        lastSync = nil
     }
 
     // MARK: sample mode
@@ -615,6 +631,8 @@ public final class SyncEngine: ObservableObject {
         config.linkRoutes = nil
         config.deviceId = "sample-device"
         deviceRemoved = false
+        pairingProblem = nil
+        lastSync = nil
         // The first sync brings the recording as of today: the copy's day.
         if let t = SampleTransport.shared { try? await store.setMeta(Self.sampleDayKey, ISO.localDay(t.now)) }
         connectClient()
@@ -681,6 +699,7 @@ public final class SyncEngine: ObservableObject {
         forgetAlerts()
         route = nil
         status = .unconfigured
+        lastSync = nil
         await takeOffPlannedAlerts()
     }
 
@@ -703,6 +722,7 @@ public final class SyncEngine: ObservableObject {
         client = nil
         route = nil
         status = .unconfigured
+        pairingProblem = nil
     }
 
     static func cleanName(_ s: String?) -> String? {
@@ -817,6 +837,7 @@ public final class SyncEngine: ObservableObject {
         clearRejected()
         hubIdentity = nil
         UserDefaults.standard.removeObject(forKey: Self.hubIdentityKey)
+        lastSync = nil
         // The alerts planned from its reminders go with them: syncing stops here, so no later replan took them off,
         // and alerts with task titles kept firing for up to 30 days.
         Task { await self.takeOffPlannedAlerts() }
@@ -911,6 +932,7 @@ public final class SyncEngine: ObservableObject {
                 if !ours {
                     status = .offline
                     lastError = Self.otherHubMessage
+                    pairingProblem = .otherHub
                     return
                 }
             }
@@ -924,6 +946,7 @@ public final class SyncEngine: ObservableObject {
             if let pushError { throw pushError }
             status = .online
             lastError = nil
+            pairingProblem = nil
             // The Watch's removal ends once the iPhone relays for it again (it was paired again).
             if platform == .watch, deviceRemoved { clearRemoved() }
             lastSync = Date()
@@ -1087,6 +1110,11 @@ public final class SyncEngine: ObservableObject {
     private func note(_ error: Error) {
         if let h = error as? HubError, h.isDeviceRemoved {
             handleDeviceRemoved()
+        } else if let h = error as? HubError, h.isAuth, platform != .watch {
+            // Not a removal (that says `device_removed`): a hub that lost its keys file answers `unknown_key`, an older
+            // one a plain 401. Only pairing again fixes it, so the banner offers that.
+            lastError = Self.keyRefusedMessage
+            pairingProblem = .keyRefused
         } else if let h = error as? HubError {
             lastError = h.isAuth ? "The hub did not accept this device's key" : h.errorDescription
         } else {
@@ -1096,6 +1124,10 @@ public final class SyncEngine: ObservableObject {
 
     /// True when the last failure was the Watch relay finding no phone.
     public var phoneUnreachable: Bool { lastError == HubError.phoneUnreachable.errorDescription && status != .online }
+    /// True when the iPhone answered the Watch that it is not paired with a hub: the Watch says to set it up there.
+    public var phoneHasNoHub: Bool { lastError == HubError.phoneHasNoHub && status != .online }
+    /// The banners offer Pair again: the hub refused the key, or the address leads to another hub.
+    public var offersPairAgain: Bool { SyncFreshness.offersPairAgain(pairingProblem, status: status, platform: platform) }
 
     // MARK: live
 

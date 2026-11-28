@@ -1,3 +1,5 @@
+import { notifyWith } from "./notifyGate";
+
 /** Thin wrapper around Tauri APIs. Every call is a no-op in a plain browser. */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 /** The Android app (Tauri on Android): one window, no tray, widget or global shortcut. */
@@ -109,20 +111,18 @@ export async function hideCurrentWindow(): Promise<void> {
 }
 
 /**
- * Native notification. Clicking a Windows toast starts the app again; the running copy catches that second start,
- * comes forward and opens `path` (the screen the notification is about) if it was sent in the last 15 minutes.
+ * Native notification, sent only once Windows or Android allows it (notifyGate.ts): nothing here asks, so the app never
+ * prompts at launch; `ask` is for Settings, Notifications, where the person turns them on. True when it was sent.
+ * Clicking a Windows toast starts the app again; the running copy catches that second start, comes forward and opens
+ * `path` (the screen the notification is about) if it was sent in the last 15 minutes.
  */
-export async function notify(title: string, body: string, path?: string): Promise<void> {
-  if (!isTauri) return;
+export async function notify(title: string, body: string, path?: string, { ask = false }: { ask?: boolean } = {}): Promise<boolean> {
+  if (!isTauri) return false;
   const n = await import("@tauri-apps/plugin-notification");
-  let ok = await n.isPermissionGranted();
-  if (!ok) ok = (await n.requestPermission()) === "granted";
-  if (!ok) return;
-  if (path) {
+  return notifyWith(n, title, body, ask, path ? async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("set_notify_target", { path }).catch(() => {});
-  }
-  n.sendNotification({ title, body });
+  } : undefined);
 }
 
 /** Whether Windows lets the app show notifications. `ask` requests it when not granted yet. Null outside the desktop app. */

@@ -442,15 +442,17 @@ struct LiquidPanel: Shape {
     }
 }
 
-/// The panel's glass. From iOS 26 Liquid Glass that reacts to a touch. Before, the bar material (the theme's card
-/// color under a theme) with a hairline edge and a soft shadow.
+/// The panel's glass. From iOS 26 Liquid Glass; the panel's own answer to a touch is its stretch under the finger. Glass
+/// that also reacts to a touch (`interactive()`) grew its own copy of the outline while pressed, so a pull showed a
+/// second, rounder edge inside the panel's at both ends. Before iOS 26, the bar material (the theme's card color under
+/// a theme) with a hairline edge and a soft shadow.
 private struct BarGlass: ViewModifier {
     var shape: LiquidPanel
     @Environment(\.eaTheme) private var theme
 
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.glassEffect(.regular.interactive(), in: shape)
+            content.glassEffect(.regular, in: shape)
         } else {
             content.background {
                 shape
@@ -586,6 +588,11 @@ struct PhoneRoot: View {
             // Machines switched on in Settings, Modules: Set up Machines over Settings too, after the permission screen.
             .sheet(isPresented: Binding(get: { model.permissionOffer == nil && model.machinesStart }, set: { if !$0 { model.machinesStart = false } })) {
                 MachinesStartSheet().environmentObject(model).environmentObject(engine)
+            }
+            // Mail, Games and the like switched on in Settings, Modules with nothing linked: Set it up now, over
+            // Settings too.
+            .sheet(item: Binding(get: { model.permissionOffer == nil && !model.machinesStart ? model.moduleSetup : nil }, set: { if $0 == nil { model.moduleSetup = nil } })) { start in
+                ModuleSetupSheet(start: start).environmentObject(model).environmentObject(engine)
             }
             // A join code scanned while Settings is open (Pair another device says to), and pairing links.
             .pairingPrompts(active: true)

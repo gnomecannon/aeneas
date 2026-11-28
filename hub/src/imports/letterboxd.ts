@@ -215,10 +215,10 @@ export async function syncLetterboxd(hub: Hub) {
   try {
     const films = filmsFromRss(await fetchRss(hub, username));
     const r = upsertFilms(hub, films);
-    hub.connections.update((c) => { if (c.letterboxd) { c.letterboxd.last_sync = new Date().toISOString(); c.letterboxd.films = hub.store.list({ kind: "film", limit: 1_000_000 }).length; delete c.letterboxd.last_error; } });
+    hub.connections.update((c) => { if (c.letterboxd) { c.letterboxd.last_sync = new Date().toISOString(); c.letterboxd.films = hub.store.list({ kind: "film", limit: 1_000_000 }).length; delete c.letterboxd.last_error; delete c.letterboxd.failing_since; } });
     return { entries: films.length, ...r };
   } catch (e) {
-    hub.connections.update((c) => { if (c.letterboxd) c.letterboxd.last_error = (e as Error).message; });
+    hub.connections.update((c) => { if (c.letterboxd) { c.letterboxd.last_error = (e as Error).message; c.letterboxd.failing_since ??= new Date().toISOString(); } });
     throw e;
   }
 }

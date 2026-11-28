@@ -86,7 +86,7 @@ public struct AlertInfo: Codable, Equatable, Hashable, Sendable, Identifiable {
 /// them with no event from the hub (a reminder's notification, the check-in three hours into an activity), so it
 /// has to obey their switches itself; the hub holds back the rest before they reach a device.
 public enum AlertKind: String, CaseIterable, Sendable {
-    case reminder, digest, activity, mail, monitor, sensor, disk, quiz
+    case reminder, digest, activity, mail, monitor, sensor, disk, connection, quiz
 }
 
 /// Alerts for tasks that are also in Apple Reminders (`apple_reminder_alerts` in `GET /modules`, hubs since 1.0.19), one

@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var machinePeople: String?
     /// Accounts: the linked addresses, once the hub answered.
     @State private var accountsLine: String?
+    /// Connections that broke after setup, from the same answer: they mark the Accounts and Connections rows.
+    @State private var problems: [ConnectionProblem]?
     @ObservedObject private var helpers = HelpersStore.shared
 
     var body: some View {
@@ -28,6 +30,7 @@ struct SettingsView: View {
         .task(id: engine.client == nil) {
             guard let c = engine.client, let v = try? await withDeadline(15, { try await c.connections() }) else { return }
             accountsLine = Self.accountsSummary(v)
+            problems = v.problems
         }
         .task {
             guard let c = engine.client, let l = try? await withDeadline(15, { try await c.hubs() }), l.offered else { return }
@@ -88,11 +91,14 @@ struct SettingsView: View {
             SettingsRow(title: "Connection", symbol: "network", summary: connectionSummary,
                         warning: !engine.rejectedEdits.isEmpty || engine.lastError != nil)
         }
+        // A connection that broke takes the row's summary and marks it, as refused edits do on Connection.
         SettingsAreaLink(card: card) { AccountsSettingsView() } label: {
-            SettingsRow(title: "Accounts", symbol: "at", summary: accountsLine ?? "Mail and calendar accounts")
+            let broken = ConnectionProblem.rowWarning(problems, fix: .account)
+            SettingsRow(title: "Accounts", symbol: "at", summary: broken ?? accountsLine ?? "Mail and calendar accounts", warning: broken != nil)
         }
         SettingsAreaLink(card: card) { ConnectionsSettingsView() } label: {
-            SettingsRow(title: "Connections", symbol: "link", summary: connectionsSummary)
+            let broken = ConnectionProblem.rowWarning(problems, fix: .connections)
+            SettingsRow(title: "Connections", symbol: "link", summary: broken ?? connectionsSummary, warning: broken != nil)
         }
         SettingsAreaLink(card: card) { ImportSettingsView() } label: {
             SettingsRow(title: "Bring your data in", symbol: "tray.and.arrow.down", summary: "ChatGPT, Google Takeout, Obsidian and other notes, text")
@@ -112,6 +118,10 @@ struct SettingsView: View {
         }
         SettingsAreaLink(card: card) { PrivacySettingsView() } label: {
             SettingsRow(title: "Privacy on this device", symbol: "hand.raised", summary: PrivacySettingsView.summary)
+        }
+        // The permission screen's Not now is not the last word: each permission the modules need, with its next step.
+        SettingsAreaLink(card: card) { ReviewPermissionsView() } label: {
+            SettingsRow(title: "Review permissions", symbol: "checkmark.shield", summary: "What your modules need on this \(deviceKind)")
         }
         SettingsAreaLink(card: card) { NotificationSettingsView(status: $notifStatus) } label: {
             SettingsRow(title: "Notifications", symbol: "bell.badge", summary: notificationsSummary)
@@ -203,7 +213,7 @@ struct SettingsView: View {
 /// Accounts (`-EAAccount <address>` then opens that account's page), `addAccount` its Add account, `calendar` From this
 /// iPhone, Calendars, `appleHealth` From this iPhone, Apple Health (Settings, Accounts on the Mac, which has none).
 enum SettingsPage: String, Hashable, Identifiable {
-    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, appleHealth, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, today, todoLists, modules, reference, helpers
+    case theme, connection, connections, accounts, addAccount, notifications, calendar, health, appleHealth, about, appColors, tapEffects, noteSounds, calendarColors, bottomBar, today, todoLists, modules, reference, helpers, permissions
     var id: String { rawValue }
 
     /// A page named by a launch argument, once per launch.
@@ -240,6 +250,7 @@ enum SettingsPage: String, Hashable, Identifiable {
         case .modules: ModulesSettingsView()
         case .reference: ReferenceSettingsView()
         case .helpers: HelpersSettingsView()
+        case .permissions: ReviewPermissionsView()
         }
     }
 }
@@ -463,6 +474,7 @@ struct NotificationSettingsView: View {
     @EnvironmentObject var engine: SyncEngine
     @Binding var status: String
     @State private var loadError: String?
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         // An alert whose module is off is left out: nothing would send it.
@@ -485,11 +497,17 @@ struct NotificationSettingsView: View {
             }
             SwiftUI.Section {
                 LabeledContent("Permission", value: status)
-                Button("Request permission") {
-                    Task {
-                        _ = await ReminderScheduler.shared.requestPermission()
-                        status = await Self.statusLabel()
-                        await engine.replanNotifications()
+                // The system asks once: after a no only its settings can change it, so a button that asked again did
+                // nothing at all.
+                if status == "Denied" {
+                    PermissionOffNote(permission: .notifications)
+                } else if status != "Allowed" {
+                    Button("Allow notifications") {
+                        Task {
+                            _ = await ReminderScheduler.shared.requestPermission()
+                            status = await Self.statusLabel()
+                            await engine.replanNotifications()
+                        }
                     }
                 }
             } header: {
@@ -505,6 +523,15 @@ struct NotificationSettingsView: View {
         .themedScreen()
         .navigationTitle("Notifications")
         .task { status = await Self.statusLabel() }
+        // Back from the system's settings: allowed there shows here, and the alerts are planned again.
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task {
+                let before = status
+                status = await Self.statusLabel()
+                if before != status { await engine.replanNotifications() }
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
     }

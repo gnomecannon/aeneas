@@ -113,11 +113,13 @@ public struct AlertNotice: Equatable, Sendable {
     public static let opsURL = "everythingapp://section/ops"
     /// New mail opens the Mail screen.
     public static let mailURL = "everythingapp://section/mail"
+    /// A connection that broke opens Today, whose Needs you has its row with the button to the fix.
+    public static let todayURL = "everythingapp://today"
 
     public init(_ n: NotifyEvent) {
         thread = n.kind
         incidentId = n.kind == "monitor" ? n.incident_id : nil
-        url = n.kind == "monitor" ? Self.opsURL : n.kind == "mail" ? Self.mailURL : nil
+        url = n.kind == "monitor" ? Self.opsURL : n.kind == "mail" ? Self.mailURL : n.kind == "connection" ? Self.todayURL : nil
         let name = Self.trimmed(n.name), state = Self.trimmed(n.state), error = Self.trimmed(n.error)
         if n.kind == "monitor" {
             let key = Self.monitorId(fromNotifyId: n.id) ?? (name.isEmpty ? UUID().uuidString.lowercased() : "name:" + name)
@@ -134,6 +136,11 @@ public struct AlertNotice: Equatable, Sendable {
             // New mail: the hub's line (a sender and subject, or a count) holds a sender's own words, so it goes under
             // a title of the app's and cannot read as one of the hub's own alerts.
             title = "New mail"
+            body = StyleGuard.dashes(n.title)
+        } else if n.kind == "connection", !name.isEmpty {
+            // A connection that broke: the service over what broke and what to do ("iCloud", then "iCloud stopped
+            // signing in for you@icloud.com. Replace its app-specific password.").
+            title = StyleGuard.dashes(name)
             body = StyleGuard.dashes(n.title)
         } else {
             // An older hub sends the title alone ("Ollama down: connection refused").

@@ -151,6 +151,11 @@ final class ReferenceHistory: ObservableObject {
         save()
     }
 
+    #if DEBUG
+    /// Debug screenshots (`-EAReferenceRows YES`): pages to list under Continue reading, kept in memory only.
+    func debugShow(_ list: [ReferenceRecent]) { recents = list }
+    #endif
+
     func remove(_ r: ReferenceRecent) {
         recents.removeAll { $0.id == r.id }
         positions.removeValue(forKey: r.id)

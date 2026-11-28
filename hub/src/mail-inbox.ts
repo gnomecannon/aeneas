@@ -4,7 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import type { DB } from "./db.js";
 import type { Hub } from "./hub.js";
-import { FOLDER_KEEP, icloudInbox, imapInbox, INBOX_DAYS, mailboxProvider, readOnly, readOnlyText, type FolderListing, type FolderRole, type MailAttachment } from "./imports/icloud.js";
+import { FOLDER_KEEP, icloudInbox, imapInbox, INBOX_DAYS, mailboxProvider, readOnly, readOnlyText, signInRefused, type FolderListing, type FolderRole, type MailAttachment } from "./imports/icloud.js";
 import type { InboxMail, InboxSource, MailAddress } from "./imports/inbox-source.js";
 
 /** Where the Mail screen's mail comes from (imports/inbox-source.ts): iCloud, and other IMAP accounts (Gmail among them). */
@@ -2244,14 +2244,15 @@ export async function showPictures(hub: Hub, key: string): Promise<MailMessage |
 
 /**
  * Each linked mailbox with when the Mail screen last refreshed it, what went wrong, whether more is coming, who it
- * is with (`kind`, and `provider` as people say it: the screen says "in Gmail" or "your mail app" by it), and whether
- * it is Read only (`read_only`: the screen offers nothing that would change it).
+ * is with (`kind`, and `provider` as people say it: the screen says "in Gmail" or "your mail app" by it), whether it
+ * is Read only (`read_only`: the screen offers nothing that would change it), and whether its provider refused the
+ * password (`signin_refused`, since 2026-11-27: the screen says so above the mail, with the way to replace it).
  */
-export function mailboxStates(hub: Hub): { email: string; last_refresh: string | null; last_error: string | null; more: boolean; kind?: "icloud" | "gmail" | "imap"; provider?: string; read_only: boolean; can_send: boolean }[] {
+export function mailboxStates(hub: Hub): { email: string; last_refresh: string | null; last_error: string | null; more: boolean; kind?: "icloud" | "gmail" | "imap"; provider?: string; read_only: boolean; can_send: boolean; signin_refused: boolean }[] {
   const get = hub.mailDb.prepare("SELECT last_refresh, last_error, more FROM mailboxes WHERE account = ?");
   return INBOX_SOURCES.flatMap((source) => source.accounts(hub).map((account) => {
     const s = get.get(account) as { last_refresh: string | null; last_error: string | null; more: number } | undefined;
-    return { email: account.slice(source.prefix.length), last_refresh: s?.last_refresh ?? null, last_error: s?.last_error ?? null, more: !!s?.more, ...(mailboxProvider(hub, account) ?? {}), read_only: readOnly(hub, account), can_send: !!source.canSend?.(hub, account) };
+    return { email: account.slice(source.prefix.length), last_refresh: s?.last_refresh ?? null, last_error: s?.last_error ?? null, more: !!s?.more, ...(mailboxProvider(hub, account) ?? {}), read_only: readOnly(hub, account), can_send: !!source.canSend?.(hub, account), signin_refused: signInRefused(hub, account) };
   }));
 }
 

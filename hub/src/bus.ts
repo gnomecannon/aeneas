@@ -8,11 +8,13 @@ export interface ChangeEvent { seq: number; id: string; kind: string }
  * `quiz` says the recall quiz for `date` is ready (id `quiz:<date>`); `monitor` is a homelab monitor going
  * `down` or back `up` (and the 6 hour re-notify of an unacknowledged incident) with `name`, `state` and `error`;
  * `disk` says the disk with the hub's data is almost full (diskspace.ts), its whole message in `title`;
- * `mail` is new mail on the Mail screen (mail-inbox.ts, notifyNewMail), its sender and subject or a count in `title`.
+ * `mail` is new mail on the Mail screen (mail-inbox.ts, notifyNewMail), its sender and subject or a count in `title`;
+ * `connection` says an account or service stopped signing in or syncing (connection-problems.ts), once when it breaks,
+ * its whole message in `title`, the service in `name`, and where the fix is in `fix`, `account` and `button`.
  */
 export interface NotifyEvent {
   id: string;
-  kind: "reminder" | "digest" | "activity" | "sensor" | "quiz" | "monitor" | "disk" | "mail";
+  kind: "reminder" | "digest" | "activity" | "sensor" | "quiz" | "monitor" | "disk" | "mail" | "connection";
   title: string;
   at: string;
   friction?: string;
@@ -25,6 +27,10 @@ export interface NotifyEvent {
   error?: string;
   /** `monitor` down: the open incident, so the alert can acknowledge it. */
   incident_id?: string;
+  /** `connection`: where the fix is and the words on its button, as in the problem (connection-problems.ts). */
+  fix?: "account" | "connections";
+  account?: string;
+  button?: string;
 }
 
 export interface BusEvents {

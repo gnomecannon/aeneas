@@ -497,8 +497,9 @@ Music never replaces the summary your iPhone read.
 The Music screen on the iPhone, iPad and Mac shows the summary, Read on (device), (when), and the button. If Apple
 Music is not allowed for Aeneas, it says so with Allow Apple Music, or the way to the system's privacy settings. With
 no subscription, the summary has no Recently played, and the screen says so. The web, Windows and Android apps show the
-same summary from Apple Music on (device), and until one has been read: Turn on Music on your iPhone, iPad or Mac to
-bring your Apple Music taste here. Spotify is not supported.
+same summary from Apple Music on (device), and until one has been read: Music needs an Apple device: it reads your
+Apple Music library on an iPhone, iPad or Mac. Open Aeneas on one with Music switched on, and your taste shows here.
+Spotify is not supported.
 
 ## Apple Watch
 
@@ -573,7 +574,7 @@ good.
 
 On a Linux or Windows hub, Settings, People on this machine gives someone their own hub on your machine. Invite them
 with the large QR code when they are with you, or copy a message (or print a page) for someone who lives elsewhere: they
-install Aeneas, copy the message and tap I have an invitation. Help with devices beside their name asks them once,
+install Aeneas, copy the message and tap Paste the invitation. Help with devices beside their name asks them once,
 in large type; after their yes, your assistant can check and fix their computer (the Aeneas app on it), the devices
 their app found at home, and devices that take SSH, with the passwords they chose to save for you. They see everything
 you did in Settings, People who help you, and can stop it there. The whole story: [helpers.md](helpers.md).

@@ -68,6 +68,27 @@ public enum DevicePermission: String, CaseIterable, Sendable, Identifiable {
     }
 }
 
+/// Where a permission stands on this device.
+public enum PermissionState: String, Equatable, Sendable {
+    /// Never asked here: the system shows its question.
+    case notAsked
+    case allowed
+    /// Turned down (or restricted): the system never asks again, only its Settings can change it.
+    case denied
+    /// Asked before, and the system does not say what was answered (Health never reports a refusal).
+    case askedBefore
+
+    /// What the permission screen and Settings, Review permissions say about it.
+    public var label: String {
+        switch self {
+        case .notAsked: return "Not asked yet"
+        case .allowed: return "Allowed"
+        case .denied: return "Off in the system's Settings"
+        case .askedBefore: return "Asked before"
+        }
+    }
+}
+
 /// One permission the modules that are on need, with the modules it is for.
 public struct PermissionNeed: Equatable, Identifiable, Sendable {
     public var permission: DevicePermission
@@ -126,6 +147,114 @@ public enum PermissionPlan {
     public static func toAsk(_ needs: [PermissionNeed], undecided: (DevicePermission) -> Bool) -> [PermissionNeed] {
         needs.filter { undecided($0.permission) }
     }
+
+    /// Why the permission screen shows.
+    public enum OfferReason: Sendable {
+        /// Right after pairing: everything the modules that are on need.
+        case paired
+        /// A module was switched on: what that module needs.
+        case switchedOn
+    }
+
+    /// What the permission screen lists. After pairing, only what was never asked here (and Health asked before
+    /// whose sync is off, so Continue turns it on): a device paired again does not hear again about each "no". A
+    /// module switched on lists everything it needs that is not allowed, turned down ones too: switching it on is a
+    /// yes, and a permission turned down long ago left the module idle in silence. Those show with the way to the
+    /// system's settings, since the system asks only once.
+    public static func toOffer(_ needs: [PermissionNeed], reason: OfferReason, state: (DevicePermission) -> PermissionState) -> [PermissionNeed] {
+        needs.filter { n in
+            switch state(n.permission) {
+            case .allowed: return false
+            case .notAsked, .askedBefore: return true
+            case .denied: return reason == .switchedOn
+            }
+        }
+    }
+
+    /// The modules whose every permission on this platform is allowed now: Continue (or a switch turned on here) turns
+    /// on their own part on this device too, so a yes is not left idle behind a second switch. Health counts when asked
+    /// before, since it never says what was allowed.
+    public static func ready(_ needs: [PermissionNeed], platform: Platform, state: (DevicePermission) -> PermissionState) -> [ModuleInfo] {
+        var seen: Set<String> = []
+        var out: [ModuleInfo] = []
+        for n in needs {
+            for m in n.modules where !seen.contains(m.id) {
+                seen.insert(m.id)
+                let all = permissions(of: m).filter { $0.applies(on: platform) }
+                if all.allSatisfy({ [.allowed, .askedBefore].contains(state($0)) }) { out.append(m) }
+            }
+        }
+        return out
+    }
+}
+
+/// Modules that need an account or a sign-in on the hub before they show anything, and where that is set up. Switching
+/// one on offers Set it up now (as Machines opens Set up Machines), and its empty screen links there.
+public enum ModuleSetup {
+    public enum Place: String, Sendable {
+        /// Settings, Accounts, Add account: no account linked yet.
+        case addAccount
+        /// Settings, Accounts: an account is linked, and what it does is switched there.
+        case accounts
+        /// Settings, Connections: Steam, Letterboxd, Confluence.
+        case connections
+
+        /// Where it is in Settings, for "Or later, in Settings, ...".
+        public var path: String {
+            switch self {
+            case .addAccount, .accounts: return "Accounts"
+            case .connections: return "Connections"
+            }
+        }
+    }
+
+    /// What a module needs, in words that finish "It needs ...". Nil for a module that works with nothing linked.
+    public static func need(_ module: String) -> String? {
+        switch module {
+        case AppModule.mailInbox.rawValue: return "a mail account linked to your hub"
+        case AppModule.mail.rawValue: return "a mail account to read receipts and renewals from"
+        case AppModule.calendars.rawValue: return "an iCloud account with its calendars on"
+        case AppModule.wiki.rawValue: return "Confluence linked, for your wiki pages"
+        case AppModule.games.rawValue: return "Steam linked, for your games and playtime"
+        case AppModule.films.rawValue: return "Letterboxd linked, for the films you watch"
+        default: return nil
+        }
+    }
+
+    /// Where the module is set up: an account's own switches when one is linked (adding a second account is not the
+    /// way to turn on the first one's mail), else Add account, or Connections.
+    public static func place(_ module: String, _ c: Connections?) -> Place {
+        switch module {
+        case AppModule.mailInbox.rawValue, AppModule.mail.rawValue, AppModule.calendars.rawValue:
+            let linked = c.map { ($0.internet?.count ?? 0) + ($0.icloud?.accounts.count ?? 0) + ($0.google?.accounts.count ?? 0) } ?? 0
+            return linked > 0 ? .accounts : .addAccount
+        default:
+            return .connections
+        }
+    }
+
+    /// Whether the hub has what the module needs. A hub that does not say (an older one) counts as set up, so nothing
+    /// is offered on a guess.
+    public static func isSetUp(_ module: String, _ c: Connections) -> Bool {
+        let accounts = c.internet
+        switch module {
+        case AppModule.mailInbox.rawValue:
+            if let a = accounts { return a.contains { $0.features.inbox == true } }
+            return !((c.icloud?.accounts ?? []) + (c.google?.accounts ?? [])).isEmpty
+        case AppModule.mail.rawValue:
+            if let a = accounts { return a.contains { $0.features.receipts == true } }
+            return !((c.icloud?.accounts ?? []) + (c.google?.accounts ?? [])).isEmpty
+        case AppModule.calendars.rawValue:
+            return accounts.map { $0.contains { $0.features.calendars == true } } ?? true
+        case AppModule.wiki.rawValue: return c.atlassian?.connected ?? true
+        case AppModule.games.rawValue: return c.steam.connected
+        case AppModule.films.rawValue: return c.letterboxd.connected
+        default: return true
+        }
+    }
+}
+
+extension PermissionPlan {
 
     /// A hub from before 2026-11-05 lists no device modules; Voice and Reminder alerts were always on there, so the
     /// offer after setup still covers them. A list that names them is left as it is.

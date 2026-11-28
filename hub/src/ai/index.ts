@@ -84,6 +84,11 @@ export type MailProposal = { id: string; from: string; to: string[]; cc: string[
 /** Said under a reply that proposed a mail when the reply itself did not say it plainly. */
 export const MAIL_NOT_SENT = "Nothing is sent until you tap Send on the mail below.";
 
+/** A chat on a hub with no model chosen yet (the model step of setup was skipped). */
+export const NO_MODEL = "No model is set up yet, so the assistant cannot answer. Choose one in Settings, Set up, The model (in Aeneas on the web, Windows or Android), then ask again.";
+/** A chat kept off the cloud on a hub whose only model is a cloud one. */
+export const ONLY_CLOUD = "This chat stays off the cloud, and the only model set up is a cloud one. Turn on Use Claude for this chat, or add a model on your own computer in Settings, Set up, The model.";
+
 export interface ToolAction { tool: string; ok: boolean; writes: boolean; items?: TouchedItem[] }
 
 /**
@@ -434,11 +439,12 @@ export class Gateway {
     return true;
   }
 
-  capabilities(): { cloud: boolean; tools: boolean; model: string | null; images: boolean; web: boolean; hosts: boolean; voice_model: boolean; synced_sessions: boolean } {
+  capabilities(): { cloud: boolean; tools: boolean; model: string | null; model_set: boolean; images: boolean; web: boolean; hosts: boolean; voice_model: boolean; synced_sessions: boolean } {
     const o = getBackendOverride();
     const local = o ?? this.backends.ollama;
     return {
-      cloud: !o && this.hasCloud(), tools: this.cfg.aiTools && !!local?.streamTools, model: local?.model ?? null,
+      // `model_set`: some model for chats is chosen, so an app can tell "set one up first" from a model that is busy or away.
+      cloud: !o && this.hasCloud(), tools: this.cfg.aiTools && !!local?.streamTools, model: local?.model ?? null, model_set: this.available(),
       images: !!local && this.moduleOn("images"), web: !!this.cfg.searxngUrl && webPrivate(this.cfg) && this.moduleOn("web"), hosts: this.cfg.hostActions && this.moduleOn("homelab"), voice_model: !!this.backends.adapter, synced_sessions: true,
     };
   }
@@ -832,7 +838,12 @@ export class Gateway {
     const mode = req.task_type === "classify" ? "classify" : this.resolveMode(req, history.filter((m) => m.role === "user").slice(-3).map((m) => m.content).join("\n"), lastUser);
     const topic = (history.find((m) => m.role === "user")?.content ?? "").split("\n")[0];
     const chain = await fastestFirst(this.route(mode, this.cloudAllowed(req)));
-    if (!chain.length) throw new StoreError(500, "no AI backend is configured for this task type");
+    if (!chain.length) {
+      // Said in the words the person sees (every app shows this text as it is). `no_model` lets a client show its
+      // set-up card instead; the other case is a chat kept off the cloud on a hub whose only model is a cloud one.
+      if (!this.available()) throw new StoreError(503, NO_MODEL, undefined, { no_model: true });
+      throw new StoreError(503, ONLY_CLOUD);
+    }
     // Store the user's turn now, so the chat is on every device (and in every list) while the reply is worked on.
     if (!req.messages?.length && mode !== "classify") this.sessions.save(req.session_id, mode, history);
 

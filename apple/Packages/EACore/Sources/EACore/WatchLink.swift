@@ -393,8 +393,8 @@ public final class WatchLink: NSObject, WCSessionDelegate, @unchecked Sendable {
                     return
                 }
                 guard let transport = self.transportProvider(key) else {
-                    self.recordError("iPhone has no hub configured")
-                    replyHandler((try? RelayResponse(id: req.id, status: 0, data: Data(), error: "iPhone has no hub configured").encoded()) ?? Data())
+                    self.recordError(HubError.phoneHasNoHub)
+                    replyHandler((try? RelayResponse(id: req.id, status: 0, data: Data(), error: HubError.phoneHasNoHub).encoded()) ?? Data())
                     return
                 }
                 let resp = await RelayHandler.perform(req, transport: transport, watchDeviceName: name)

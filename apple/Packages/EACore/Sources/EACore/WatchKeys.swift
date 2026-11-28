@@ -32,14 +32,14 @@ public actor WatchKeys {
     /// `watchDeviceId`: the id the Watch's request named (its `device_id` query), if any.
     public func credential(watchDeviceId: String?) async -> Credential {
         if let id = watchDeviceId, !id.isEmpty, config.watchDeviceId.isEmpty { config.watchDeviceId = id }
-        guard !config.hubURL.isEmpty else { return .unavailable("iPhone has no hub configured") }
+        guard !config.hubURL.isEmpty else { return .unavailable(HubError.phoneHasNoHub) }
         if config.watchRemoved { return .removed }
         let watch = config.watchKey
         if !watch.isEmpty { return .key(watch) }
         let mine = config.deviceKey
         if mine.isEmpty {
             let shared = config.legacyToken
-            return shared.isEmpty ? .unavailable("iPhone has no hub configured") : .key(shared)
+            return shared.isEmpty ? .unavailable(HubError.phoneHasNoHub) : .key(shared)
         }
         if let t = claiming { return await t.value }
         let t = Task { await self.claim(with: mine) }
@@ -54,7 +54,7 @@ public actor WatchKeys {
     }
 
     private func claim(with phoneKey: String) async -> Credential {
-        guard let phone = client(phoneKey), let anon = client("") else { return .unavailable("iPhone has no hub configured") }
+        guard let phone = client(phoneKey), let anon = client("") else { return .unavailable(HubError.phoneHasNoHub) }
         let name = config.deviceName + " Watch"
         let id = config.watchDeviceId.isEmpty ? nil : config.watchDeviceId
         do {

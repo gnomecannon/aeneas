@@ -48,9 +48,12 @@ const API = "https://api.steampowered.com";
 
 interface OwnedGame { appid: number; name?: string; playtime_forever?: number; playtime_2weeks?: number; rtime_last_played?: number }
 
+/** Said when Steam refuses the hub's key; a read that ends with it marks the link `key_refused`. */
+export const KEY_REFUSED = "Steam did not accept that key. Copy it again from steamcommunity.com/dev/apikey; a key stops working when the Steam password changes, so make a new one there if it did.";
+
 async function steamJson(hub: Hub, url: string): Promise<any> {
   const r = await fetchWithTimeout(hub.fetch, url, "Steam");
-  if (r.status === 401 || r.status === 403) throw new StoreError(422, "Steam did not accept that key. Copy it again from steamcommunity.com/dev/apikey; a key stops working when the Steam password changes, so make a new one there if it did.");
+  if (r.status === 401 || r.status === 403) throw new StoreError(422, KEY_REFUSED);
   if (!r.ok) throw new StoreError(502, `Steam answered ${r.status}`);
   return r.json();
 }
@@ -69,8 +72,9 @@ export async function setSteamKey(hub: Hub, body: Record<string, unknown>) {
   const key = typeof body.api_key === "string" ? body.api_key.trim() : "";
   if (!/^[0-9A-Fa-f]{32}$/.test(key)) throw new StoreError(422, "a Steam Web API key is 32 letters and digits");
   const r = await fetchWithTimeout(hub.fetch, `${API}/ISteamWebAPIUtil/GetSupportedAPIList/v1/?key=${encodeURIComponent(key)}`, "Steam");
-  if (r.status === 401 || r.status === 403) throw new StoreError(422, "Steam did not accept that key. Copy it again from steamcommunity.com/dev/apikey; a key stops working when the Steam password changes, so make a new one there if it did.");
-  hub.connections.update((c) => { c.steam_key = key; });
+  if (r.status === 401 || r.status === 403) throw new StoreError(422, KEY_REFUSED);
+  // A new key Steam takes ends a refused one's warning at once, not at the next read up to 6 hours later.
+  hub.connections.update((c) => { c.steam_key = key; if (c.steam?.key_refused) { delete c.steam.key_refused; delete c.steam.last_error; delete c.steam.failing_since; } });
   return hub.connections.view().steam;
 }
 
@@ -164,10 +168,16 @@ export async function syncSteam(hub: Hub): Promise<{ games: number; created: num
     const owned = j?.response?.games as OwnedGame[] | undefined;
     if (!owned) throw new StoreError(422, "Steam returned no games. In Steam, open Edit Profile, Privacy Settings, and set Game details to Public.");
     const r = applyOwnedGames(hub, owned);
-    hub.connections.update((c) => { if (c.steam) { c.steam.last_sync = new Date().toISOString(); c.steam.games = r.games; delete c.steam.last_error; } });
+    hub.connections.update((c) => { if (c.steam) { c.steam.last_sync = new Date().toISOString(); c.steam.games = r.games; delete c.steam.last_error; delete c.steam.failing_since; delete c.steam.key_refused; } });
     return r;
   } catch (e) {
-    hub.connections.update((c) => { if (c.steam) c.steam.last_error = (e as Error).message; });
+    const msg = (e as Error).message;
+    hub.connections.update((c) => {
+      if (!c.steam) return;
+      c.steam.last_error = msg;
+      c.steam.failing_since ??= new Date().toISOString();
+      if (msg === KEY_REFUSED) c.steam.key_refused = true; else delete c.steam.key_refused;
+    });
     throw e;
   }
 }

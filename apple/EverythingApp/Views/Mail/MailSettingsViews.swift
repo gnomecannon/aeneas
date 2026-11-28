@@ -311,6 +311,10 @@ struct MailSettingsSheet: View {
                                 Text("Read only: Aeneas changes nothing in it (Settings, Accounts).").font(.footnote).foregroundStyle(.secondary)
                             }
                             if let e = m.last_error { Text(verbatim: e).font(.footnote).foregroundStyle(.dangerText) }
+                            // Stopped signing in: the account's page, with Replace open.
+                            if m.signin_refused == true {
+                                PageLink { AccountFixPage(key: ConnectionProblem.mailboxKey(m)) } label: { Text("Replace password") }
+                            }
                         }
                     }
                     Text("Opening a mail marks it read in your mailbox too, and Pin flags it there (a flag in your mail app pins it here); Done moves it to Archive there, and Undo moves it back.")

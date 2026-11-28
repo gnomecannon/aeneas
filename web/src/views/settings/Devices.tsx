@@ -1,6 +1,7 @@
 import { DIRECT_LINK_MIN_APP } from "./Link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
+import { PAIRED_POLL_MS, newlyPaired } from "../../lib/pairing";
 import type { DeviceRow, PairingLinks } from "../../sync/api";
 import { engine } from "../../sync/engine";
 import { fmtDateTime } from "../../lib/time";
@@ -11,6 +12,10 @@ import { isMacBrowser } from "../../lib/platform";
 import { isTauri } from "../../tauri/bridge";
 
 type Msg = { ok: boolean; text: string } | null;
+
+/** Device lists on screen, told when a device paired from this page so they show it without a reload. */
+const listeners = new Set<() => void>();
+const devicesChanged = () => listeners.forEach((f) => f());
 
 /** "9:41" left until a code expires, or null once it has. */
 function left(expiresAt: string, now: number): string | null {
@@ -30,22 +35,46 @@ export function PairDevice({ defaultName = "iPhone" }: { defaultName?: string })
   const [qr, setQr] = useState("");
   const [now, setNow] = useState(Date.now());
   const [msg, setMsg] = useState<Msg>(null);
+  /** The devices the hub had when the code was made, to tell the new one when it pairs. */
+  const known = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!links) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [links]);
+  const remaining = links?.expires_at ? left(links.expires_at, now) : null;
+  const showing = !!links && !!remaining;
+  // While a code shows, ask the hub for its devices, so this page says when the new one has paired (the code is
+  // used up then, so it goes away) instead of leaving the person to guess.
+  useEffect(() => {
+    if (!showing) return;
+    let stop = false;
+    const t = setInterval(() => {
+      void engine.client?.devices().then((r) => {
+        if (stop) return;
+        if (!known.current) { known.current = new Set(r.devices.map((d) => d.id)); return; }
+        const d = newlyPaired(known.current, r.devices);
+        if (!d) return;
+        known.current = new Set(r.devices.map((x) => x.id));
+        setLinks(null);
+        setQr("");
+        setMsg({ ok: true, text: `${d.name} is paired.` });
+        devicesChanged();
+      }).catch(() => undefined);
+    }, PAIRED_POLL_MS);
+    return () => { stop = true; clearInterval(t); };
+  }, [showing]);
   const make = async () => {
     setMsg(null);
     try {
+      known.current = await engine.client!.devices().then((r) => new Set(r.devices.map((d) => d.id)), () => null);
       const l = await engine.client!.pairing(name.trim());
       setLinks(l);
       setNow(Date.now());
       setQr(await QRCode.toDataURL(l.app, { margin: 1, width: 240 }));
     } catch (e) { setMsg({ ok: false, text: errorText(e) }); }
   };
-  const remaining = links?.expires_at ? left(links.expires_at, now) : null;
-  const onPhone = /iPhone|Android/i.test(navigator.userAgent);
+  const onPhone =/iPhone|Android/i.test(navigator.userAgent);
   return (
     <div className="col">
       <form className="row" onSubmit={(e) => { e.preventDefault(); void make(); }}>
@@ -82,6 +111,7 @@ export function DevicesList() {
   const load = () => void engine.client?.devices().then((r) => setList(r.devices)).catch((e) => setMsg({ ok: false, text: errorText(e) }));
   const ready = useHubReady();
   useEffect(load, [ready]);
+  useEffect(() => { listeners.add(load); return () => { listeners.delete(load); }; });
   const remove = async (d: DeviceRow) => {
     const what = d.current ? "Remove this device? It signs out and needs a new pairing code to come back." : `Remove ${d.name}? Its key stops working at once; it needs a new pairing code to come back.`;
     if (!window.confirm(what)) return;

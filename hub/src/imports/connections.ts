@@ -15,8 +15,12 @@ import type { SecretBox } from "../secretbox.js";
  */
 
 /** `api_key` only on a link made before Sign in through Steam; the hub's key now lives in `steam_key`. */
-export interface SteamConn { api_key?: string; steam_id: string; persona?: string; profile_url?: string; last_sync?: string; last_error?: string; games?: number }
-export interface LetterboxdConn { username?: string; last_sync?: string; last_error?: string; films?: number }
+/**
+ * `failing_since` (since 2026-11-27): the first failed read since the last good one, so a read failing for hours is
+ * told apart from one blip (connection-problems.ts). `key_refused`: Steam refused the hub's key on the last read.
+ */
+export interface SteamConn { api_key?: string; steam_id: string; persona?: string; profile_url?: string; last_sync?: string; last_error?: string; games?: number; failing_since?: string; key_refused?: boolean }
+export interface LetterboxdConn { username?: string; last_sync?: string; last_error?: string; films?: number; failing_since?: string }
 export interface HealthConn { last_import?: string; samples?: number; total?: number }
 export interface Connections { steam_key?: string; steam?: SteamConn; letterboxd?: LetterboxdConn; health?: HealthConn; atlassian_app?: { client_id: string; client_secret: string }; atlassian?: AtlassianConn; google_app?: { client_id: string; client_secret: string }; google?: GoogleAccount[]; icloud?: ICloudAccount[]; imap?: ImapAccount[]; password_manager?: PasswordManagerConn; keepass?: { password: string; created_at: string };
   /** The master password of helper-passwords.kdbx (helpers.ts): passwords this person saved for their helper. */
@@ -92,7 +96,7 @@ export class ConnectionStore {
     const hubKey = !!(process.env.EA_STEAM_KEY || c.steam_key || s?.api_key);
     return {
       steam: s?.steam_id
-        ? { connected: true, hub_key: hubKey, steam_id: s.steam_id, persona: s.persona ?? null, profile_url: s.profile_url ?? null, last_sync: s.last_sync ?? null, last_error: s.last_error ?? null, games: s.games ?? 0 }
+        ? { connected: true, hub_key: hubKey, steam_id: s.steam_id, persona: s.persona ?? null, profile_url: s.profile_url ?? null, last_sync: s.last_sync ?? null, last_error: s.last_error ?? null, games: s.games ?? 0, key_refused: !!s.key_refused }
         : { connected: false, hub_key: hubKey },
       letterboxd: c.letterboxd?.username
         ? { connected: true, username: c.letterboxd.username, last_sync: c.letterboxd.last_sync ?? null, last_error: c.letterboxd.last_error ?? null, films: c.letterboxd.films ?? 0 }

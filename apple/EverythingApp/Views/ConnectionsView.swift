@@ -21,8 +21,12 @@ struct ConnectionsSettingsView: View {
     /// The calendar feed's own key (GET /feeds): it reads the feed and nothing else, so it can live in Calendar.
     @State private var calendarKey = ""
     @State private var confirmNewCalendarLink = false
+    /// The service to open at (`steam`, `letterboxd`, `confluence`): a Reconnect from Today's Needs you or a module's
+    /// Set it up now. The page opened at its top, with the service's own button below the fold under the bar.
+    var show: String? = nil
 
     var body: some View {
+        ScrollViewReader { proxy in
         Form {
             if engine.client == nil {
                 Text("Set up the hub connection first.").foregroundStyle(.secondary)
@@ -33,9 +37,9 @@ struct ConnectionsSettingsView: View {
                 .themedRow()
                 // The services, by kind. Each feeds one module; while that module is off its link is hidden and the
                 // hub pauses its sync.
-                if model.isOn(.games) { steam(c.steam) }
-                if model.isOn(.films) { letterboxd(c.letterboxd) }
-                if model.isOn(.wiki), let a = c.atlassian { confluence(a) }
+                if model.isOn(.games) { steam(c.steam).id("steam") }
+                if model.isOn(.films) { letterboxd(c.letterboxd).id("letterboxd") }
+                if model.isOn(.wiki), let a = c.atlassian { confluence(a).id("confluence") }
                 if model.isOn(.homelab), let pm = c.password_manager { PasswordManagerSection(view: pm, reload: { await load() }) }
                 calendarFeed
                 // The app keys those services need, each made once, with what it is and why it is asked for.
@@ -47,6 +51,11 @@ struct ConnectionsSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: store.c != nil) { _, loaded in
+            guard loaded, let show else { return }
+            Task { try? await Task.sleep(for: .milliseconds(150)); withAnimation { proxy.scrollTo(show, anchor: .top) } }
+        }
+        }
         .themedScreen()
         .navigationTitle("Connections")
         .task { await load() }
@@ -64,6 +73,12 @@ struct ConnectionsSettingsView: View {
                 LabeledContent("Games", value: "\(s.games ?? 0)")
                 LabeledContent("Last read", value: when(s.last_sync))
                 if let e = s.last_error { Text(e).font(.footnote).foregroundStyle(.dangerText) }
+                // Steam stopped taking the hub's key (a Steam password change ends it): the key's own page, with its guide.
+                if s.key_refused == true {
+                    PageLink { AppKeyView(key: .steam, store: store, reload: { await load() }) } label: {
+                        Label("Replace the Steam key", systemImage: "key")
+                    }
+                }
                 Button(busy == "steam" ? "Reading" : "Read now") { run("steam") { let r = try await $0.syncSteam(); return "\(r.games ?? 0) games: \(r.created) new, \(r.updated) changed." } }
                     .disabled(busy != nil)
                 Button("Unlink", role: .destructive) { run("steam") { try await $0.disconnectSteam(); return "Unlinked. The games stay." } }

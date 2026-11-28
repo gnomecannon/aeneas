@@ -163,7 +163,8 @@ struct CaptureView: View {
             }
             humStatus
 
-            if let e = dictation.error { Text(e).font(.footnote).foregroundStyle(.dangerText) }
+            if let p = dictation.refused { PermissionOffNote(permission: p) }
+            else if let e = dictation.error { Text(e).font(.footnote).foregroundStyle(.dangerText) }
             if let n = dictation.notice { Text(n).font(.footnote).foregroundStyle(.warnText) }
             if let m = message {
                 if let id = lastCaptureId, m.hasPrefix("Filed:") {
@@ -202,7 +203,8 @@ struct CaptureView: View {
                 Text(dictation.transcript).font(.body).foregroundStyle(.secondary).lineLimit(3)
             }
         }
-        .disabled(!dictation.authorized && dictation.error != nil)
+        // Not disabled once the microphone is turned down: a tap says why again, with the way to the system's settings
+        // under it (a greyed button explained nothing).
     }
 
     /// Tap to record, tap again (or Stop) to send it to Song ideas. The microphone is shared, so dictation stops first.
@@ -239,7 +241,9 @@ struct CaptureView: View {
     }
 
     @ViewBuilder private var humStatus: some View {
-        if let e = hum.error ?? humError {
+        if hum.micRefused {
+            PermissionOffNote(permission: .microphone)
+        } else if let e = hum.error ?? humError {
             Text(e).font(.footnote).foregroundStyle(.dangerText)
         }
         if let take = humUnsent, !hum.recording, !humSending {

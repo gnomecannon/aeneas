@@ -43,6 +43,7 @@ import { startImportJob } from "./routes/imports.js";
 import { dualServer, guardedServer, isLoopback, isLoopbackHost, loadTls, type TlsFiles } from "./tls.js";
 import { errCode, logHost } from "./logsafe.js";
 import { startDiskWatch } from "./diskspace.js";
+import { startConnectionWatch } from "./connection-problems.js";
 import { startReference } from "./reference/index.js";
 
 const USAGE = "usage: tsx src/main.ts <serve | seed | backup | restore <backup.age> <new path> | backup-key | encrypt-backups [dir] | sweep | watches | compact | purge-chat-backups [dir] | seal-work-backups [dir]>";
@@ -261,6 +262,7 @@ async function main(): Promise<void> {
   const stopMonitors = startMonitorLoop(hub);
   const stopCheckPrune = startCheckPruneJob(hub);
   const stopDiskWatch = startDiskWatch(hub);
+  const stopConnectionWatch = startConnectionWatch(hub);
   const stopReference = startReference(hub);
   const stopImports = startImportJob(hub);
   const stopMail = startMailJob(hub);
@@ -309,6 +311,7 @@ async function main(): Promise<void> {
     stopMonitors();
     stopCheckPrune();
     stopDiskWatch();
+    stopConnectionWatch();
     stopReference();
     stopImports();
     stopCalendars();

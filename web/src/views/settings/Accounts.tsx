@@ -265,7 +265,8 @@ function findAccount(c: ConnectionsView | null, key: string): InternetAccount | 
 export function AccountsSettings({ parts, params }: { parts: string[]; params: URLSearchParams }) {
   const [sub] = parts;
   if (sub === "add") return <AddAccountPage kind={params.get("kind")} email={params.get("email")} />;
-  if (sub) return <AccountPage accountKey={decodeURIComponent(sub)} />;
+  // `?replace=1`: opened from a sign-in that stopped (Today, a banner, Mail), with Replace already open.
+  if (sub) return <AccountPage accountKey={decodeURIComponent(sub)} replace={params.get("replace") === "1"} />;
   return <AccountsPage />;
 }
 
@@ -458,7 +459,7 @@ function WorkSection() {
  * Remove account. Switching one on turns its module on; switching off the last use asks first, since the hub then
  * removes the account.
  */
-function AccountPage({ accountKey }: { accountKey: string }) {
+function AccountPage({ accountKey, replace = false }: { accountKey: string; replace?: boolean }) {
   const { list } = useModules();
   const [c, reload, loadErr] = useConnections();
   const ready = useHubReady();
@@ -558,7 +559,7 @@ function AccountPage({ accountKey }: { accountKey: string }) {
         </section>
       )}
       {a.kind !== "google" && a.smtp !== undefined && <Sending a={a} busy={busy} run={run} />}
-      <SignIn a={a} busy={busy} run={run} />
+      <SignIn a={a} busy={busy} run={run} startOpen={replace} />
       <div><button type="button" className="ghost danger" disabled={busy || !client} onClick={remove}>Remove account</button></div>
     </SubPage>
   );
@@ -627,8 +628,8 @@ function Sending({ a, busy, run }: { a: InternetAccount; busy: boolean; run: Run
 }
 
 /** Sign-in: the app password and when the hub last used it, with Replace; the older Google sign-in offers an app password. */
-function SignIn({ a, busy, run }: { a: InternetAccount; busy: boolean; run: Run }) {
-  const [open, setOpen] = useState(false);
+function SignIn({ a, busy, run, startOpen = false }: { a: InternetAccount; busy: boolean; run: Run; startOpen?: boolean }) {
+  const [open, setOpen] = useState(startOpen);
   const [password, setPassword] = useState("");
   const client = engine.client;
   if (a.kind === "google") {

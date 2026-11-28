@@ -250,6 +250,7 @@ struct PhotosLibraryGrid: View {
     var onUse: (String) -> Void
     @State private var assets: [PHAsset] = []
     @State private var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    @Environment(\.scenePhase) private var scenePhase
     @State private var working = false
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 3)]
 
@@ -258,7 +259,12 @@ struct PhotosLibraryGrid: View {
             if status != .authorized && status != .limited {
                 VStack(spacing: 12) {
                     Text("Aeneas does not have access to your photo library.").foregroundStyle(.secondary)
-                    Button("Allow access") { Task { _ = await PhotosOptions.requestFull(); status = PHPhotoLibrary.authorizationStatus(for: .readWrite); load() } }
+                    // The system asks once: after a no, Allow access did nothing, so it opens the system's settings.
+                    if status == .denied || status == .restricted {
+                        PermissionOffNote(permission: .photos).padding(.horizontal)
+                    } else {
+                        Button("Allow access") { Task { _ = await PhotosOptions.requestFull(); status = PHPhotoLibrary.authorizationStatus(for: .readWrite); load() } }
+                    }
                 }
                 .frame(maxHeight: .infinity)
             } else {
@@ -278,6 +284,10 @@ struct PhotosLibraryGrid: View {
             }
         }
         .onAppear(perform: load)
+        // Back from the system's settings with access turned on: the photos show.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { status = PHPhotoLibrary.authorizationStatus(for: .readWrite); load() }
+        }
     }
 
     private func load() {

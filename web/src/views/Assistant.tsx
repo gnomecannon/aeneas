@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db, type ChatMsg, type ChatSession } from "../sync/db";
 import { engine } from "../sync/engine";
-import { HubError, readSse, type AiSession, type AiWorking, type PendingAction } from "../sync/api";
+import { HubError, readSse, type AiSession, type AiWorking, type PendingAction, type SetupView } from "../sync/api";
+import { MODEL_STEP, noModelCard } from "../lib/setupModel";
 import { PROPOSAL_BUTTONS, PROPOSAL_TEXTS, proposalFace, proposalMoving, type ChatMailProposal, type MailProposal, type ProposalButton } from "../lib/mailProposal";
 import { openNewMail } from "./Mail";
 import { uuid } from "../sync/edits";
@@ -464,6 +465,12 @@ export function Assistant({ id }: { id?: string }) {
     if (!engine.client) return;
     engine.client.health().then((h) => { setCloudAvailable(h.ai?.cloud === true); setImagesOk(h.ai?.images !== false); }, () => setCloudAvailable(false));
   }, [engine.client]);
+  // No model chosen in setup (the step was skipped), or the chosen one not downloaded: a card that leads to setup's
+  // model step, instead of a chat that only fails. Asked again after a reply fails.
+  const [modelView, setModelView] = useState<SetupView | null>(null);
+  const checkModel = () => { engine.client?.setup().then(setModelView, () => setModelView(null)); };
+  useEffect(checkModel, [engine.client]);
+  const modelCard = noModelCard(modelView);
   const ledgers = useEntities("ledger", (e) => e.fields.session_id === id, [id]);
   const runbooks = useEntities("runbook");
   const journal = useEntities("journal");
@@ -623,6 +630,7 @@ export function Assistant({ id }: { id?: string }) {
       if (m?.procedure_id) await refetchAll([m.procedure_id]);
     } catch (e) {
       setErr(plainError(e));
+      checkModel();
       void load(session.id);
     } finally {
       setPartial("");
@@ -757,6 +765,13 @@ export function Assistant({ id }: { id?: string }) {
             </div>
           )}
         </div>
+        {modelCard && (
+          <div className="card col" role="status" style={{ marginBottom: 10 }}>
+            <strong>{modelCard.title}</strong>
+            <div className="small">{modelCard.text}</div>
+            <div><button type="button" className="primary small" onClick={() => go(MODEL_STEP)}>{modelCard.button}</button></div>
+          </div>
+        )}
         {!session && (
           <div className="empty">
             No chat. <button onClick={() => void create()}>New chat</button>

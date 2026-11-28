@@ -74,5 +74,8 @@ export function musicCountsLine(p: MusicProfile): string {
 
 /** What every screen says with no subscription: the profile is there, without Recently played. */
 export const MUSIC_NO_SUBSCRIPTION = "Recently played needs an Apple Music subscription, so it is left out.";
-/** The web, Windows and Android apps with no profile yet. */
-export const MUSIC_NONE_HERE = "Turn on Music on your iPhone, iPad or Mac to bring your Apple Music taste here.";
+/**
+ * The web, Windows and Android apps with no profile yet: the taste is read only by an Apple device, so someone with
+ * none learns that here instead of looking for a switch that is not on this device.
+ */
+export const MUSIC_NONE_HERE = "Music needs an Apple device: it reads your Apple Music library on an iPhone, iPad or Mac. Open Aeneas on one with Music switched on, and your taste shows here.";

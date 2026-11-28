@@ -5,7 +5,7 @@ import EATailnet
 /// First run: the hub's address, a one-time pairing code from a device that is already paired (or the hub's Welcome
 /// page), and this device's name. The code is traded for this device's own key, kept in the Keychain. A Mac or iPad
 /// also shows a code for a paired phone to scan (PhoneJoinCard), since it cannot scan one, and a pairing link pasted
-/// into either field pairs at once.
+/// into either field pairs at once. Also shown over a paired device for Pair again (`AppModel.pairingAgain`), with Back.
 struct SetupView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var engine: SyncEngine
@@ -19,23 +19,56 @@ struct SetupView: View {
     @State private var error: String?
     @ObservedObject private var tailnet = TailnetSignIn.shared
 
+    /// No hub yet: how to set one up (the guide on GitHub, also the Mac's Help menu).
+    static let hubGuideURL = URL(string: "https://github.com/gnomecannon/aeneas#readme")!
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Set up").font(.largeTitle.bold())
+            VStack(alignment: .leading, spacing: 24) {
+                // Order by how many people take each path: pairing with their own hub first, an invitation (only family
+                // members joining someone else's hub have one) second, no hub yet third, typing last.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.pairingAgain ? "Pair again" : "Set up").font(.largeTitle.bold())
+                    if model.pairingAgain {
+                        Button { model.pairingAgain = false } label: { Label("Back", systemImage: "chevron.backward") }
+                            .accessibilityIdentifier("setup.back")
+                    }
+                }
                 // A Mac or iPad cannot scan a code, and a hub on Direct link has no address to type: a phone that is
                 // already paired scans this device's code instead.
-                if model.platform != .iphone { PhoneJoinCard(name: deviceName.trimmingCharacters(in: .whitespacesAndNewlines)) }
-                // Someone who was sent an invitation (People on this machine on a family member's hub), large.
+                if model.platform != .iphone {
+                    PhoneJoinCard(name: deviceName.trimmingCharacters(in: .whitespacesAndNewlines))
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Pair with your hub").font(.title2.bold())
+                        Text("Scan the pairing QR code with the iPhone's Camera.").font(.title3)
+                        Text(Self.scanWhere).foregroundStyle(.secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                // What went wrong with a link opened from the Camera or a message: right under the way to scan again.
+                if let e = model.setupError {
+                    Label(e, systemImage: "xmark.circle").foregroundStyle(.dangerText).font(.body)
+                }
+
                 InvitationCard()
-                Text(Self.intro(model.platform))
-                    .foregroundStyle(.secondary)
+
+                if !model.pairingAgain {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("No hub yet?").font(.title3.weight(.semibold))
+                        Link(destination: Self.hubGuideURL) { Label("How to set up a hub", systemImage: "book") }
+                            .accessibilityIdentifier("setup.guide")
+                        Button { Task { await model.startSample() } } label: { Label("Try it with sample data", systemImage: "sparkles") }
+                            .accessibilityIdentifier("setup.sample")
+                        Text("A made-up month to look around. Nothing leaves this device.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("No hub yet? Look around first with a made-up month of sample data. Nothing leaves this device, and setting up your hub later wipes it.")
-                        .font(.body).foregroundStyle(.secondary)
-                    Button { Task { await model.startSample() } } label: { Label("Try it with sample data", systemImage: "sparkles") }
-                        .font(.body.weight(.semibold))
-                        .accessibilityIdentifier("setup.sample")
+                    Text("Or type the address and code").font(.title3.weight(.semibold))
+                    Text("Make a code on a paired device: Settings, Connection, Pair another device. A pairing link pasted here pairs at once.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -76,7 +109,7 @@ struct SetupView: View {
                     .disabled(pairing || hubURL.trimmingCharacters(in: .whitespaces).isEmpty || code.trimmingCharacters(in: .whitespaces).isEmpty)
                     .accessibilityIdentifier("setup.pair")
 
-                if let e = error ?? model.setupError {
+                if let e = error {
                     Label(e, systemImage: "xmark.circle").foregroundStyle(.dangerText).font(.body)
                 }
                 // A hub on Tailscale that this device can't reach: sign in to Tailscale here, and pairing goes again.
@@ -97,6 +130,10 @@ struct SetupView: View {
             .padding(24)
             .frame(maxWidth: 560)
         }
+        #if DEBUG
+        // Screenshots of the typed pairing below the fold (`-scrollToRows YES`), as on the Watch: no taps needed.
+        .defaultScrollAnchor(UserDefaults.standard.bool(forKey: "scrollToRows") ? .bottom : .top)
+        #endif
         .onAppear {
             hubURL = model.config.hubURL
             deviceName = model.config.deviceName
@@ -152,14 +189,9 @@ struct SetupView: View {
         }
     }
 
-    /// The ways to pair this kind of device. A Mac cannot scan a code, and someone setting up away from the hub cannot
-    /// open its Welcome page, so a Mac or iPad is pointed at the phone card, a code, or a pasted link.
-    static func intro(_ platform: Platform) -> String {
-        if platform == .iphone {
-            return "Pair this device with your hub. The easiest way: scan the pairing QR code with the Camera. The first time, it is on the hub's Welcome page (step 5, Make a pairing code); later, on a paired device under Settings, Connection, Pair another device. Or open the pairing link on this phone. Both let this device check the hub's own certificate on a home network, so prefer them to typing."
-        }
-        return "Pair this device with your hub. The easiest way is the code above, scanned by a phone that already uses Aeneas. For a hub on Tailscale, type its address and a pairing code made on a paired device (Settings, Connection, Pair another device). You can also paste a pairing link into the hub address field."
-    }
+    /// The iPhone's usual way to pair: the Camera and the pairing QR code. The Welcome page's step is named, not
+    /// numbered: its number moves with the modules that are on (Machines adds a step before it).
+    static let scanWhere = "It is on your hub's Welcome page, in the Your other devices step, or on a paired device under Settings, Connection, Pair another device. Opening the pairing link on this iPhone works too."
 
     /// A hub on a home network has its own certificate, which this device can only check with the fingerprint a
     /// scanned code or opened link carries; typed by hand, the system refuses it with a message about an invalid
@@ -182,7 +214,7 @@ struct RemovedDeviceView: View {
         VStack(alignment: .leading, spacing: 18) {
             Image(systemName: "xmark.shield").font(.system(size: 44)).foregroundStyle(.warnText)
             Text("This device was removed").font(.largeTitle.bold())
-            Text("It was removed from your hub, so it no longer syncs. What is on it stays here. To use it again, pair it with a new code from a device that is still paired.")
+            Text("It was removed from your hub, so it no longer syncs, and what it held from the hub was cleared from it. Everything is still on your hub. To use it again, pair it with a new code from a device that is still paired.")
                 .foregroundStyle(.secondary)
             BigButton(title: "Pair again", symbol: "qrcode.viewfinder", prominent: true) { model.startPairingAgain() }
                 .accessibilityIdentifier("removed.pair")

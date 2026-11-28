@@ -230,6 +230,8 @@ public enum TodayBoard {
         case unsorted(Int)
         /// Invitations waiting for an answer (Invitations.need): one row for them all.
         case invitations(Int, detail: String)
+        /// A connection that broke after setup (`connection_problems` of the day's plan): its row opens the fix.
+        case connection(ConnectionProblem)
 
         public var id: String {
             switch self {
@@ -238,6 +240,7 @@ public enum TodayBoard {
             case .med(let name): return "m:" + name.lowercased()
             case .unsorted: return "unsorted"
             case .invitations: return "invitations"
+            case .connection(let p): return "c:" + p.id
             }
         }
 
@@ -248,6 +251,7 @@ public enum TodayBoard {
             case .med(let name): return name
             case .unsorted(let n): return "\(n) capture\(n == 1 ? "" : "s") could not be filed"
             case .invitations(let n, _): return Invitations.Texts.count(n)
+            case .connection(let p): return p.title
             }
         }
 
@@ -257,6 +261,7 @@ public enum TodayBoard {
             case .med: return "Not logged today"
             case .unsorted: return "Waiting in Unsorted Info"
             case .invitations(_, let d): return d
+            case .connection(let p): return p.detail
             }
         }
 
@@ -270,14 +275,15 @@ public enum TodayBoard {
     }
 
     /// Everything waiting on the owner right now, in the order to take it: reminders whose time has come (oldest
-    /// first), renewals the owner has to make (never the ones on autopay), regular meds not yet logged today, captures
-    /// the assistant could not file, and invitations waiting for an answer. A renewal's own reminder says the same as
+    /// first), invitations waiting for an answer, connections that broke (a mailbox's password refused, an ended
+    /// sign-in: `ConnectionProblem`), renewals the owner has to make (never the ones on autopay), regular meds not yet
+    /// logged today, and captures the assistant could not file. A renewal's own reminder says the same as
     /// the renewal, so only the renewal is listed (`tasks` are the tasks the reminders belong to, for the item each is
     /// about). Tech's looks are not here: Tech's card above Needs you holds them. (Job follow-ups were here until Job
     /// search was taken out on 2026-11-25.)
     public static func needsYou(reminders: [Mail.DueReminder], tasks: [Entity] = [], watches: [Entity],
                                 meds: [TodayExtras.Med], unsorted: Int, now: Date, calendar: Calendar = .current, clock: Clock = deviceClock,
-                                invitations: (count: Int, detail: String)? = nil) -> [Need] {
+                                invitations: (count: Int, detail: String)? = nil, connections: [ConnectionProblem] = []) -> [Need] {
         var out: [Need] = []
         let toRenew = toRenew(watches)
         let renewing = Set(toRenew.map(\.id))
@@ -288,6 +294,7 @@ public enum TodayBoard {
         }
         // After the reminders, as the web lists them (lib/todayBoard.ts).
         if let i = invitations, i.count > 0 { out.append(.invitations(i.count, detail: i.detail)) }
+        for p in connections { out.append(.connection(p)) }
         for w in toRenew {
             let days = daysUntil(w.str("due"), now: now, calendar: calendar)
             let detail = days == 0 ? "Due today" : days < 0 ? "\(-days) day\(days == -1 ? "" : "s") overdue" : "Due in \(days) day\(days == 1 ? "" : "s")"

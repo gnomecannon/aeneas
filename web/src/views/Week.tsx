@@ -1,4 +1,5 @@
 import { plainError } from "../lib/errors";
+import { fixPath, problemsFor } from "../lib/connectionProblems";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import type { Entity } from "@everythingapp/shared";
 import { calendarGroups, calendarKeyOf, calendarShown, taskAlertAt, withCalendarShown, type CalendarGroup } from "@everythingapp/shared";
@@ -53,6 +54,7 @@ import { eventColorStyle } from "../lib/eventColor";
 import { INVITE_TEXTS, inviteFace, inviteWhen, invitationList } from "../lib/invitations";
 import { organizerName, type OwnerAnswer } from "@everythingapp/shared";
 import { engine } from "../sync/engine";
+import { unreachableLine } from "../lib/lastSynced";
 
 const DRAG_TYPE = "application/x-ea-task";
 const DAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -393,7 +395,7 @@ function CalendarsPanel({ groups, hidden, onClose }: { groups: CalendarGroup[]; 
           </button>
         </div>
       </div>
-      {!groups.length && <div className="muted small">No calendars yet. Events brought in from Apple Calendar or iCloud show their calendars here.</div>}
+      {!groups.length && <div className="muted small">No calendars yet. Events brought in from Apple Calendar or iCloud show their calendars here. <a href="#/settings/accounts/add?kind=icloud">Add a calendar account</a></div>}
       {groups.map((g) => (
         <div key={g.account} className="wk-cal-group">
           <h4 className="muted small">{g.account}</h4>
@@ -637,6 +639,13 @@ export function Week() {
           </button>
         </div>
       </div>
+      {/* A calendar account that stopped signing in or syncing: its events here stop changing, so Week says so. */}
+      {problemsFor(poll.data?.connection_problems, "calendar").map((p) => (
+        <div key={p.id} className="week-sync-problem" role="status">
+          <span className="grow"><strong>{p.title}.</strong> {p.detail}</span>
+          <button className="small primary" onClick={() => go(fixPath(p))}>{p.button}</button>
+        </div>
+      ))}
       {showInvites && <InvitationsPanel rows={inviteRows} onClose={() => { setShowInvites(false); if (askedInvites) go("/week"); }} />}
       {showCalendars && <CalendarsPanel groups={groups} hidden={hidden} onClose={() => setShowCalendars(false)} />}
       {searching ? (
@@ -659,7 +668,7 @@ export function Week() {
             {planned && (
               <div className="row">
                 <span className="muted small">
-                  {poll.source === "local" ? "local copy, hub unreachable" : poll.at ? `checked ${relative(poll.at.toISOString())}` : ""}
+                  {poll.source === "local" ? unreachableLine(engine.state.syncedAt) : poll.at ? `checked ${relative(poll.at.toISOString())}` : ""}
                   {poll.busy ? ", loading" : ""}
                 </span>
                 <a href="#/plan-rules" className="small">
